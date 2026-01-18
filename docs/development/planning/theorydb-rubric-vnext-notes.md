@@ -86,7 +86,7 @@ allowlisted with a justification comment.”
 
 ### 5) “Safe by default” marshaling must be *actually* default (unsafe only via explicit opt-in)
 
-**Proposed rubric item:** `SEC-5` — “Default `theorydb.New(...)` path uses memory-safe marshaling; unsafe marshaling is
+**Proposed rubric item:** `SEC-5` — “Default `tabletheory.New(...)` path uses memory-safe marshaling; unsafe marshaling is
 only available behind explicit opt-in + acknowledgment.”
 
 **Verifier options:**
@@ -96,7 +96,7 @@ Option A (preferred): a unit test + structural check
 - `bash scripts/verify-safe-defaults.sh` asserts we don’t wire `marshal.New(...)` (unsafe) into defaults.
 
 Option B: structural-only
-- Grep-based verifier that checks `theorydb.New` and `NewLambdaOptimized` construct marshalers via a safe factory.
+- Grep-based verifier that checks `tabletheory.New` and `NewLambdaOptimized` construct marshalers via a safe factory.
 
 **Evidence:** test output + verifier output.
 
@@ -238,6 +238,6 @@ When adding a new verifier (shell or Go harness), require these properties up fr
 Verifier scripts help, but the most robust check is a direct unit test for the exported constructors.
 
 **Proposed addition:**
-- Add a unit test that asserts `theorydb.New(...)` uses safe-by-default marshaling and that any unsafe option is explicit and named accordingly.
+- Add a unit test that asserts `tabletheory.New(...)` uses safe-by-default marshaling and that any unsafe option is explicit and named accordingly.
 
 **Rationale:** reduces the chance of verifier drift and documents the contract in code.

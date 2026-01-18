@@ -14,7 +14,7 @@ To write unit tests without connecting to DynamoDB, use the `core.DB` interface 
 
 ### 1. Define Dependencies via Interface
 
-Don't depend on the concrete `*theorydb.DB` struct. Use `core.DB`.
+Don't depend on the concrete `*tabletheory.DB` struct. Use `core.DB`.
 
 ```go
 import "github.com/theory-cloud/tabletheory/pkg/core"
@@ -87,7 +87,7 @@ func TestEncryptedWrites(t *testing.T) {
             CiphertextBlob: []byte("edk"),
         }, nil)
 
-    db, _ := theorydb.New(session.Config{
+    db, _ := tabletheory.New(session.Config{
         Region:         "us-east-1",
         KMSKeyARN:      "arn:aws:kms:us-east-1:111111111111:key/test",
         KMSClient:      kmsMock,
@@ -156,7 +156,7 @@ uv --directory py run pytest -q
 ```go
 func TestIntegration(t *testing.T) {
     // Connect to DynamoDB Local
-    db, _ := theorydb.New(session.Config{
+    db, _ := tabletheory.New(session.Config{
         Endpoint: "http://localhost:8000",
         Region:   "us-east-1",
     })

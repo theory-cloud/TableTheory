@@ -58,7 +58,7 @@ func TestReservedWords_UpdateEscapesAttributeNames(t *testing.T) {
 		_, _ = ddb.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String("reserved_words_contract")})
 	}()
 
-	db, err := theorydb.New(session.Config{
+	db, err := tabletheory.New(session.Config{
 		Region:   region,
 		Endpoint: endpoint,
 		AWSConfigOptions: []func(*config.LoadOptions) error{

@@ -32,7 +32,7 @@ func main() {
 	}
 
 	var out model
-	if err := theorydb.UnmarshalItem(item, &out); err != nil {
+	if err := tabletheory.UnmarshalItem(item, &out); err != nil {
 		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected error unmarshalling model\n")
 		os.Exit(1)
 	}
@@ -61,7 +61,7 @@ func main() {
 	}
 
 	var encryptedOut encryptedModel
-	err := theorydb.UnmarshalItem(encryptedItem, &encryptedOut)
+	err := tabletheory.UnmarshalItem(encryptedItem, &encryptedOut)
 	if err == nil || !errors.Is(err, customerrors.ErrEncryptionNotConfigured) {
 		fmt.Fprintf(os.Stderr, "public-api-contracts: expected encrypted unmarshal to fail closed\n")
 		os.Exit(1)

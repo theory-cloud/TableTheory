@@ -73,12 +73,12 @@ import (
 )
 
 // Global variable for connection reuse
-var db *theorydb.LambdaDB
+var db *tabletheory.LambdaDB
 
 func init() {
     var err error
     // Initialize once during cold start
-    db, err = theorydb.NewLambdaOptimized()
+    db, err = tabletheory.NewLambdaOptimized()
     if err != nil {
         log.Fatal(err)
     }
@@ -109,7 +109,7 @@ import (
 
 func main() {
     // Standard initialization
-    db, err := theorydb.New(session.Config{
+    db, err := tabletheory.New(session.Config{
         Region: "us-east-1",
         // Uncomment for local DynamoDB:
         // Endpoint: "http://localhost:8000",

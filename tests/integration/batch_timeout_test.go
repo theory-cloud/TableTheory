@@ -46,7 +46,7 @@ func TestBatchCreateTimeout(t *testing.T) {
 		},
 	}
 
-	db, err := theorydb.New(sessionConfig)
+	db, err := tabletheory.New(sessionConfig)
 	require.NoError(t, err)
 
 	// Create table
@@ -123,7 +123,7 @@ func TestBatchCreateTimeoutCheck(t *testing.T) {
 		},
 	}
 
-	db, err := theorydb.New(sessionConfig)
+	db, err := tabletheory.New(sessionConfig)
 	require.NoError(t, err)
 
 	// Create table
@@ -192,7 +192,7 @@ func TestBatchCreateReproduceIssue(t *testing.T) {
 		},
 	}
 
-	db, err := theorydb.New(sessionConfig)
+	db, err := tabletheory.New(sessionConfig)
 	require.NoError(t, err)
 
 	// Create table

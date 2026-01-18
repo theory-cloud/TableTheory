@@ -243,15 +243,15 @@ import (
 )
 
 var (
-    db *theorydb.DB
+    db *tabletheory.DB
     rateLimiter *limited.Limiter
 )
 
 func init() {
     // Initialize TableTheory with Lambda optimizations
-    db = theorydb.New(
-        theorydb.WithLambdaOptimizations(),
-        theorydb.WithRetryPolicy(3, 100), // 3 retries, 100ms base delay
+    db = tabletheory.New(
+        tabletheory.WithLambdaOptimizations(),
+        tabletheory.WithRetryPolicy(3, 100), // 3 retries, 100ms base delay
     )
     
     // Register models
@@ -335,10 +335,10 @@ import (
 )
 
 type TableTheoryBackend struct {
-    db *theorydb.DB
+    db *tabletheory.DB
 }
 
-func NewTableTheoryBackend(db *theorydb.DB) *TableTheoryBackend {
+func NewTableTheoryBackend(db *tabletheory.DB) *TableTheoryBackend {
     return &TableTheoryBackend{db: db}
 }
 
@@ -446,10 +446,10 @@ import (
 )
 
 type RateLimitService struct {
-    db *theorydb.DB
+    db *tabletheory.DB
 }
 
-func NewRateLimitService(db *theorydb.DB) *RateLimitService {
+func NewRateLimitService(db *tabletheory.DB) *RateLimitService {
     return &RateLimitService{db: db}
 }
 
@@ -518,10 +518,10 @@ import (
 )
 
 type IdempotencyService struct {
-    db *theorydb.DB
+    db *tabletheory.DB
 }
 
-func NewIdempotencyService(db *theorydb.DB) *IdempotencyService {
+func NewIdempotencyService(db *tabletheory.DB) *IdempotencyService {
     return &IdempotencyService{db: db}
 }
 
@@ -690,7 +690,7 @@ TableTheory is flexible with existing data:
 
 1. **Use Lambda Optimizations**:
    ```go
-   db := theorydb.New(theorydb.WithLambdaOptimizations())
+   db := tabletheory.New(tabletheory.WithLambdaOptimizations())
    ```
 
 2. **Batch Operations**: Use batch methods for multiple items

@@ -78,7 +78,7 @@ func ExampleEmbeddedStructs() {
 		Region: "us-east-1",
 	}
 
-	db, err := theorydb.New(config)
+	db, err := tabletheory.New(config)
 	if err != nil {
 		log.Fatal(err)
 	}

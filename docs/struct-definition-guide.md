@@ -86,7 +86,7 @@ type Customer struct {
 ```
 
 ```go
-db, err := theorydb.New(session.Config{
+db, err := tabletheory.New(session.Config{
 	Region:    "us-east-1",
 	KMSKeyARN: os.Getenv("KMS_KEY_ARN"),
 })

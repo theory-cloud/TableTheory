@@ -59,7 +59,7 @@ type Invoice struct {
 
 // DemonstrateConditionalHelpers shows insert-only creates, optimistic updates, and guarded deletes.
 func DemonstrateConditionalHelpers() {
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region: "us-east-1",
 	})
 	if err != nil {
@@ -112,7 +112,7 @@ func DemonstrateConditionalHelpers() {
 
 // DemonstrateTransactionBuilder composes a dual-write with quota checks.
 func DemonstrateTransactionBuilder() {
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region: "us-east-1",
 	})
 	if err != nil {
@@ -136,11 +136,11 @@ func DemonstrateTransactionBuilder() {
 	}
 
 	err = db.Transact().
-		Create(bookmark, theorydb.IfNotExists()).
+		Create(bookmark, tabletheory.IfNotExists()).
 		UpdateWithBuilder(quota, func(ub core.UpdateBuilder) error {
 			ub.Decrement("Remaining")
 			return nil
-		}, theorydb.Condition("Remaining", ">", 0)).
+		}, tabletheory.Condition("Remaining", ">", 0)).
 		Put(&BookmarkAudit{
 			PK:        bookmark.PK,
 			SK:        fmt.Sprintf("AUDIT#%d", time.Now().Unix()),
@@ -163,8 +163,8 @@ func DemonstrateTransactionBuilder() {
 
 	// Context-aware helper automatically wires Execute.
 	err = db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
-		tx.Delete(bookmark, theorydb.IfExists())
-		tx.ConditionCheck(quota, theorydb.Condition("Remaining", ">=", 0))
+		tx.Delete(bookmark, tabletheory.IfExists())
+		tx.ConditionCheck(quota, tabletheory.Condition("Remaining", ">=", 0))
 		return nil
 	})
 	if err != nil {
@@ -174,7 +174,7 @@ func DemonstrateTransactionBuilder() {
 
 // DemonstrateBatchGetBuilder fetches invoices with chunking, retries, and callbacks.
 func DemonstrateBatchGetBuilder() {
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region: "us-east-1",
 	})
 	if err != nil {
@@ -182,10 +182,10 @@ func DemonstrateBatchGetBuilder() {
 	}
 
 	keys := []any{
-		theorydb.NewKeyPair("ORG#42", "INVOICE#2024-01"),
-		theorydb.NewKeyPair("ORG#42", "INVOICE#2024-02"),
-		theorydb.NewKeyPair("ORG#42", "INVOICE#2024-03"),
-		theorydb.NewKeyPair("ORG#42", "INVOICE#2024-04"),
+		tabletheory.NewKeyPair("ORG#42", "INVOICE#2024-01"),
+		tabletheory.NewKeyPair("ORG#42", "INVOICE#2024-02"),
+		tabletheory.NewKeyPair("ORG#42", "INVOICE#2024-03"),
+		tabletheory.NewKeyPair("ORG#42", "INVOICE#2024-04"),
 	}
 
 	policy := &core.RetryPolicy{

@@ -59,7 +59,7 @@ func TestAutoMigrateWithOptions(t *testing.T) {
 		CredentialsProvider: credentials.NewStaticCredentialsProvider("dummy", "dummy", "dummy"),
 	}
 
-	db, err := theorydb.New(config)
+	db, err := tabletheory.New(config)
 	require.NoError(t, err)
 
 	t.Run("SimpleTableCreation", func(t *testing.T) {
@@ -132,9 +132,9 @@ func TestAutoMigrateWithOptions(t *testing.T) {
 
 		// Migrate to V2 with transformation
 		err = db.AutoMigrateWithOptions(&UserV1{},
-			theorydb.WithTargetModel(&UserV2{}),
-			theorydb.WithDataCopy(true),
-			theorydb.WithTransform(transformFunc),
+			tabletheory.WithTargetModel(&UserV2{}),
+			tabletheory.WithDataCopy(true),
+			tabletheory.WithTransform(transformFunc),
 		)
 		require.NoError(t, err)
 
@@ -180,9 +180,9 @@ func TestAutoMigrateWithOptions(t *testing.T) {
 
 		// Migrate with custom batch size
 		err = db.AutoMigrateWithOptions(&UserV1{},
-			theorydb.WithTargetModel(&UserV2{}),
-			theorydb.WithDataCopy(true),
-			theorydb.WithBatchSize(10), // Process 10 items at a time
+			tabletheory.WithTargetModel(&UserV2{}),
+			tabletheory.WithDataCopy(true),
+			tabletheory.WithBatchSize(10), // Process 10 items at a time
 		)
 		require.NoError(t, err)
 

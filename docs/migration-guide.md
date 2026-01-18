@@ -82,12 +82,12 @@ type User struct {
     Name  string `json:"name"`
 }
 
-func createUserTableTheory(ctx context.Context, db theorydb.DB, user *User) error {
+func createUserTableTheory(ctx context.Context, db tabletheory.DB, user *User) error {
     return db.WithContext(ctx).Model(user).Create()
 }
 
 func main() {
-    db, err := theorydb.New(session.Config{Region: "us-east-1"})
+    db, err := tabletheory.New(session.Config{Region: "us-east-1"})
     if err != nil {
         log.Fatalf("Failed to initialize TableTheory: %v", err)
     }
@@ -134,7 +134,7 @@ func getActiveUsersGORM(db *gorm.DB) ([]User, error) {
 
 // ✅ NEW WAY: TableTheory (DynamoDB-native)
 // Assumes a GSI named "status-index" with 'Status' as its PK
-func getActiveUsersTableTheory(db theorydb.DB) ([]User, error) {
+func getActiveUsersTableTheory(db tabletheory.DB) ([]User, error) {
     var users []User
     err := db.Model(&User{}).
         Index("status-index").        // Explicitly use the GSI

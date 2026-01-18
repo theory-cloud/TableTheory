@@ -27,7 +27,7 @@ type PostHandler struct {
 
 // NewPostHandler creates a new post handler
 func NewPostHandler() (*PostHandler, error) {
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region: "us-east-1",
 	})
 	if err != nil {

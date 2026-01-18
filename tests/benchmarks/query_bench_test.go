@@ -61,7 +61,7 @@ func setupBenchDB(b *testing.B) (core.ExtendedDB, *dynamodb.Client) {
 		},
 	}
 
-	db, err := theorydb.New(sessionConfig)
+	db, err := tabletheory.New(sessionConfig)
 	if err != nil {
 		b.Fatalf("Failed to create DB: %v", err)
 	}

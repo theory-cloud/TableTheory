@@ -39,7 +39,7 @@ func New(config session.Config) (core.ExtendedDB, error)
 - **Returns**: `core.ExtendedDB` interface or error.
 - **Example**:
   ```go
-  db, err := theorydb.New(session.Config{
+  db, err := tabletheory.New(session.Config{
       Region: "us-east-1",
   })
   ```
@@ -67,9 +67,9 @@ func LambdaInit(models ...any) (*LambdaDB, error)
 - **Returns**: `*LambdaDB` pointer or error.
 - **Example**:
   ```go
-  var db *theorydb.LambdaDB
+  var db *tabletheory.LambdaDB
   func init() {
-      db, _ = theorydb.LambdaInit(&User{}, &Order{})
+      db, _ = tabletheory.LambdaInit(&User{}, &Order{})
   }
   ```
 

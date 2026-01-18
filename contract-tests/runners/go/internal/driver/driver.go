@@ -68,7 +68,7 @@ func NewTheorydbDriver() (*TheorydbDriver, error) {
 		region = "us-east-1"
 	}
 
-	db, err := theorydb.New(session.Config{
+	db, err := tabletheory.New(session.Config{
 		Region:   region,
 		Endpoint: endpoint,
 		AWSConfigOptions: []func(*config.LoadOptions) error{

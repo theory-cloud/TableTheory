@@ -154,9 +154,9 @@ func TestAutoMigrate(t *testing.T) {
 
 		// Migrate to V2 with transformation
 		err := testCtx.DB.AutoMigrateWithOptions(&UserV1{},
-			theorydb.WithTargetModel(&UserV2{}),
-			theorydb.WithDataCopy(true),
-			theorydb.WithTransform(transformFunc),
+			tabletheory.WithTargetModel(&UserV2{}),
+			tabletheory.WithDataCopy(true),
+			tabletheory.WithTransform(transformFunc),
 		)
 		require.NoError(t, err)
 
@@ -280,9 +280,9 @@ func TestAutoMigrate(t *testing.T) {
 
 		// Migrate to V2 with transformation
 		err := testCtx.DB.AutoMigrateWithOptions(&ProductV1{},
-			theorydb.WithTargetModel(&ProductV2{}),
-			theorydb.WithDataCopy(true),
-			theorydb.WithTransform(transformFunc),
+			tabletheory.WithTargetModel(&ProductV2{}),
+			tabletheory.WithDataCopy(true),
+			tabletheory.WithTransform(transformFunc),
 		)
 		require.NoError(t, err)
 
@@ -356,10 +356,10 @@ func TestMigrationWithBackup(t *testing.T) {
 
 		// Migrate with backup
 		err = testCtx.DB.AutoMigrateWithOptions(&UserV1{},
-			theorydb.WithTargetModel(&UserV2{}),
-			theorydb.WithDataCopy(true),
-			theorydb.WithBackupTable("users_v1_backup"),
-			theorydb.WithTransform(func(old UserV1) UserV2 {
+			tabletheory.WithTargetModel(&UserV2{}),
+			tabletheory.WithDataCopy(true),
+			tabletheory.WithBackupTable("users_v1_backup"),
+			tabletheory.WithTransform(func(old UserV1) UserV2 {
 				return UserV2{
 					ID:        old.ID,
 					Email:     old.Email,
@@ -423,10 +423,10 @@ func TestMigrationBatchProcessing(t *testing.T) {
 
 		// Migrate with small batch size to test batching
 		err := testCtx.DB.AutoMigrateWithOptions(&UserV1{},
-			theorydb.WithTargetModel(&UserV2{}),
-			theorydb.WithDataCopy(true),
-			theorydb.WithBatchSize(10), // Small batch size to test batching
-			theorydb.WithTransform(func(old UserV1) UserV2 {
+			tabletheory.WithTargetModel(&UserV2{}),
+			tabletheory.WithDataCopy(true),
+			tabletheory.WithBatchSize(10), // Small batch size to test batching
+			tabletheory.WithTransform(func(old UserV1) UserV2 {
 				return UserV2{
 					ID:        old.ID,
 					Email:     old.Email,
@@ -485,9 +485,9 @@ func TestMigrationErrorHandling(t *testing.T) {
 		invalidTransform := "not a function"
 
 		err := testCtx.DB.AutoMigrateWithOptions(&UserV1{},
-			theorydb.WithTargetModel(&UserV2{}),
-			theorydb.WithDataCopy(true),
-			theorydb.WithTransform(invalidTransform),
+			tabletheory.WithTargetModel(&UserV2{}),
+			tabletheory.WithDataCopy(true),
+			tabletheory.WithTransform(invalidTransform),
 		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "transform must be a function")
@@ -513,9 +513,9 @@ func TestMigrationErrorHandling(t *testing.T) {
 
 		// Migration should fail due to transform error
 		err = testCtx.DB.AutoMigrateWithOptions(&UserV1{},
-			theorydb.WithTargetModel(&UserV2{}),
-			theorydb.WithDataCopy(true),
-			theorydb.WithTransform(transformFunc),
+			tabletheory.WithTargetModel(&UserV2{}),
+			tabletheory.WithDataCopy(true),
+			tabletheory.WithTransform(transformFunc),
 		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "intentional transform error")
@@ -601,9 +601,9 @@ func TestMigrationDataIntegrity(t *testing.T) {
 
 		// Perform migration
 		err := testCtx.DB.AutoMigrateWithOptions(&UserV1{},
-			theorydb.WithTargetModel(&UserV2{}),
-			theorydb.WithDataCopy(true),
-			theorydb.WithTransform(transformFunc),
+			tabletheory.WithTargetModel(&UserV2{}),
+			tabletheory.WithDataCopy(true),
+			tabletheory.WithTransform(transformFunc),
 		)
 		require.NoError(t, err)
 

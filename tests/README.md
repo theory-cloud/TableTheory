@@ -105,7 +105,7 @@ func TestMyFeature(t *testing.T) {
     config := tests.GetTestConfig()
     
     // Initialize TableTheory
-    db, err := theorydb.New(theorydb.Config{
+    db, err := tabletheory.New(tabletheory.Config{
         Region:   config.Region,
         Endpoint: config.Endpoint,
     })

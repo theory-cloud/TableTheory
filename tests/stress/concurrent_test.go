@@ -581,7 +581,7 @@ func setupStressDB(t *testing.T) (core.ExtendedDB, error) {
 		},
 	}
 
-	db, err := theorydb.New(sessionConfig)
+	db, err := tabletheory.New(sessionConfig)
 	require.NoError(t, err)
 
 	// Create test tables

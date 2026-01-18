@@ -20,7 +20,7 @@ type Product struct {
 // DemonstrateListOperations shows how to use list append/prepend operations
 func DemonstrateListOperations() {
 	// Initialize TableTheory
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region: "us-east-1",
 	})
 	if err != nil {

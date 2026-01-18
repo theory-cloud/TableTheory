@@ -33,7 +33,7 @@ func main() {
 		log.Fatal("KMS_KEY_ARN is required to run this example")
 	}
 
-	db, err := theorydb.New(session.Config{
+	db, err := tabletheory.New(session.Config{
 		Region:    region,
 		KMSKeyARN: kmsKeyARN,
 	})

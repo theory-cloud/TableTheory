@@ -65,7 +65,7 @@ func NewNotesApp(userID string) (*NotesApp, error) {
 	}
 
 	// Create TableTheory client
-	db, err := theorydb.New(*cfg)
+	db, err := tabletheory.New(*cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TableTheory client: %v", err)
 	}

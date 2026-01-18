@@ -168,10 +168,10 @@ func TestBatchOperations(t *testing.T) {
 		totalRequests := 140
 		keys := make([]any, 0, totalRequests)
 		for i := 0; i < totalRequests; i++ {
-			keys = append(keys, theorydb.NewKeyPair(baseID, fmt.Sprintf("item-%03d", i)))
+			keys = append(keys, tabletheory.NewKeyPair(baseID, fmt.Sprintf("item-%03d", i)))
 		}
 
-		opts := theorydb.DefaultBatchGetOptions()
+		opts := tabletheory.DefaultBatchGetOptions()
 		opts.ChunkSize = 45
 		opts.Parallel = true
 		opts.MaxConcurrency = 3
@@ -376,7 +376,7 @@ func TestBatchOperationsE2E(t *testing.T) {
 		},
 	}
 
-	db, err := theorydb.New(sessionConfig)
+	db, err := tabletheory.New(sessionConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, db.Close())

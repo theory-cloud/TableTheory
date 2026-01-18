@@ -246,14 +246,14 @@ func (w *WebhookSender) generateSignature(payload []byte, secret string, timesta
 
 // RetryWorker processes failed webhooks from the retry queue
 type RetryWorker struct {
-	db            *theorydb.DB
+	db            *tabletheory.DB
 	webhookSender *WebhookSender
 	stop          chan struct{}
 	interval      time.Duration
 }
 
 // NewRetryWorker creates a new retry worker
-func NewRetryWorker(db *theorydb.DB, sender *WebhookSender, interval time.Duration) *RetryWorker {
+func NewRetryWorker(db *tabletheory.DB, sender *WebhookSender, interval time.Duration) *RetryWorker {
 	return &RetryWorker{
 		db:            db,
 		webhookSender: sender,

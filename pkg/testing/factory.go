@@ -26,7 +26,7 @@ type DefaultDBFactory struct{}
 // CreateDB creates a real TableTheory database connection
 func (f *DefaultDBFactory) CreateDB(config session.Config) (core.ExtendedDB, error) {
 	_ = config
-	// In the real implementation, this would call theorydb.New(config)
+	// In the real implementation, this would call tabletheory.New(config)
 	// which returns an ExtendedDB instance
 	// For now, we'll return a placeholder
 	return nil, nil

@@ -17,7 +17,7 @@ import (
 //	kmsMock.On("GenerateDataKey", mock.Anything, mock.Anything, mock.Anything).
 //	  Return(&kms.GenerateDataKeyOutput{Plaintext: key, CiphertextBlob: edk}, nil)
 //
-//	db, _ := theorydb.New(session.Config{
+//	db, _ := tabletheory.New(session.Config{
 //	  Region:    "us-east-1",
 //	  KMSKeyARN: "arn:aws:kms:us-east-1:111111111111:key/test",
 //	  KMSClient: kmsMock,

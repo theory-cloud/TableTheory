@@ -242,8 +242,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - First-class conditional write helpers on `core.Query`: `IfNotExists()`, `IfExists()`, `WithCondition()`, and `WithConditionExpression()` make it trivial to express DynamoDB condition checks without dropping to the raw SDK.
 - Documentation now includes canonical examples for conditional creates, updates, and deletes along with guidance on handling `ErrConditionFailed`.
 - `docs/whats-new.md` plus new `examples/feature_spotlight.go` snippets illustrate conditional helpers, the fluent transaction builder, and the BatchGet builder with custom retry policies.
-- Fluent transaction builder via `db.Transact()` plus the `core.TransactionBuilder` interface, including a context-aware `TransactWrite` helper, per-operation condition helpers (`theorydb.Condition`, `theorydb.IfNotExists`, etc.), and detailed `TransactionError` reporting with automatic retries for transient cancellation reasons.
-- Retry-aware batch read API: `BatchGetWithOptions`, `BatchGetBuilder`, and the new `theorydb.NewKeyPair` helper support automatic chunking, exponential backoff with jitter, progress callbacks, and bounded parallelism.
+- Fluent transaction builder via `db.Transact()` plus the `core.TransactionBuilder` interface, including a context-aware `TransactWrite` helper, per-operation condition helpers (`tabletheory.Condition`, `tabletheory.IfNotExists`, etc.), and detailed `TransactionError` reporting with automatic retries for transient cancellation reasons.
+- Retry-aware batch read API: `BatchGetWithOptions`, `BatchGetBuilder`, and the new `tabletheory.NewKeyPair` helper support automatic chunking, exponential backoff with jitter, progress callbacks, and bounded parallelism.
 
 ### Changed
 - Create/Update/Delete paths in both the high-level `theorydb` package and the modular `pkg/query` builder now share a common expression compiler, allowing query-level conditions and advanced expressions to flow through every write operation.
@@ -387,7 +387,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime type checking for interface methods accepting `any` type
 
 ### Changed
-- **BREAKING**: `theorydb.New()` now returns `core.ExtendedDB` interface instead of `*theorydb.DB`
+- **BREAKING**: `tabletheory.New()` now returns `core.ExtendedDB` interface instead of `*tabletheory.DB`
 - All methods that accept specific option types now accept `...any` with runtime validation
 - Updated all examples and tests to use interfaces
 - Improved separation between core operations and schema management

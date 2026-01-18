@@ -68,8 +68,8 @@ func (e *BatchWriteExecutor) ExecuteQuery(input *CompiledQuery, dest any) error 
 	_ = input
 	_ = dest
 	// BatchWriteExecutor is optimized for batch write operations.
-	// For query operations, use the query package's MainExecutor or theorydb.Model().
-	return fmt.Errorf("BatchWriteExecutor does not support ExecuteQuery - this executor is specialized for batch write operations only. Use theorydb.Model() for queries")
+	// For query operations, use the query package's MainExecutor or tabletheory.Model().
+	return fmt.Errorf("BatchWriteExecutor does not support ExecuteQuery - this executor is specialized for batch write operations only. Use tabletheory.Model() for queries")
 }
 
 // ExecuteScan implements the QueryExecutor interface
@@ -77,8 +77,8 @@ func (e *BatchWriteExecutor) ExecuteScan(input *CompiledQuery, dest any) error {
 	_ = input
 	_ = dest
 	// BatchWriteExecutor is optimized for batch write operations.
-	// For scan operations, use the query package's MainExecutor or theorydb.Model().
-	return fmt.Errorf("BatchWriteExecutor does not support ExecuteScan - this executor is specialized for batch write operations only. Use theorydb.Model() for scans")
+	// For scan operations, use the query package's MainExecutor or tabletheory.Model().
+	return fmt.Errorf("BatchWriteExecutor does not support ExecuteScan - this executor is specialized for batch write operations only. Use tabletheory.Model() for scans")
 }
 
 // BatchDeleteWithResult performs batch delete and returns detailed results

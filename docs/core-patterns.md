@@ -14,12 +14,12 @@ Multi-language core patterns:
 
 ```go
 // ✅ CORRECT: Global initialization
-var db *theorydb.LambdaDB
+var db *tabletheory.LambdaDB
 
 func init() {
     var err error
     // Initialize once during cold start
-    db, err = theorydb.NewLambdaOptimized()
+    db, err = tabletheory.NewLambdaOptimized()
     if err != nil {
         panic(err)
     }
@@ -34,7 +34,7 @@ func handler(ctx context.Context) error {
 ```go
 // ❌ INCORRECT: Handler initialization
 func handler(ctx context.Context) error {
-    db, _ := theorydb.New(...) // Re-connects every time! 10x slower.
+    db, _ := tabletheory.New(...) // Re-connects every time! 10x slower.
     return db.Model(&User{}).Create()
 }
 ```
@@ -128,7 +128,7 @@ err := db.Model(&User{}).BatchGet(keys, &users)
 ## DynamoDB Streams
 
 **Problem:** Processing stream events requires parsing complex DynamoDB JSON.
-**Solution:** Use `theorydb.UnmarshalStreamImage` to convert stream images to your models.
+**Solution:** Use `tabletheory.UnmarshalStreamImage` to convert stream images to your models.
 
 ```go
 // ✅ CORRECT: Stream processing
@@ -137,7 +137,7 @@ func handleStream(e events.DynamoDBEvent) {
         if record.EventName == "INSERT" || record.EventName == "MODIFY" {
             var user User
             // Convert Lambda Event Map -> Go Struct
-            err := theorydb.UnmarshalStreamImage(record.Change.NewImage, &user)
+            err := tabletheory.UnmarshalStreamImage(record.Change.NewImage, &user)
             if err != nil {
                 log.Println("Parse error:", err)
                 continue
@@ -270,17 +270,17 @@ func handler(ctx context.Context) error {
 
 **Principle:** Reusing HTTP connections and DynamoDB clients across Lambda invocations drastically reduces cold start latency.
 
-- **Recommendation:** Always use `theorydb.NewLambdaOptimized()` or `theorydb.LambdaInit()` in your `init()` function or global scope.
+- **Recommendation:** Always use `tabletheory.NewLambdaOptimized()` or `tabletheory.LambdaInit()` in your `init()` function or global scope.
 - **Details:** TableTheory's `LambdaDB` manages an optimized `http.Client` with appropriate `MaxIdleConns` and `IdleConnTimeout` settings for Lambda's execution model.
 
 **Example:**
 
 ```go
 // ✅ CORRECT: Global init ensures connection pooling
-var db *theorydb.LambdaDB
+var db *tabletheory.LambdaDB
 
 func init() {
-    db, _ = theorydb.NewLambdaOptimized()
+    db, _ = tabletheory.NewLambdaOptimized()
     db.OptimizeForMemory() // Auto-adjusts internal buffers
 }
 ```

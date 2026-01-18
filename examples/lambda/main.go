@@ -25,7 +25,7 @@ type Payment struct {
 }
 
 var (
-	db   *theorydb.MultiAccountDB
+	db   *tabletheory.MultiAccountDB
 	once sync.Once
 )
 
@@ -36,7 +36,7 @@ func init() {
 		startTime := time.Now()
 
 		// Configure partner accounts from environment
-		accounts := map[string]theorydb.AccountConfig{
+		accounts := map[string]tabletheory.AccountConfig{
 			"partner1": {
 				RoleARN:    os.Getenv("PARTNER1_ROLE_ARN"),
 				ExternalID: os.Getenv("PARTNER1_EXTERNAL_ID"),
@@ -50,7 +50,7 @@ func init() {
 		}
 
 		var err error
-		db, err = theorydb.NewMultiAccount(accounts)
+		db, err = tabletheory.NewMultiAccount(accounts)
 		if err != nil {
 			log.Fatalf("Failed to initialize TableTheory: %v", err)
 		}
@@ -109,7 +109,7 @@ func handler(ctx context.Context, event Event) (Response, error) {
 }
 
 // Get payment by ID
-func handleGetPayment(db *theorydb.LambdaDB, data map[string]any) (Response, error) {
+func handleGetPayment(db *tabletheory.LambdaDB, data map[string]any) (Response, error) {
 	paymentID, ok := data["paymentId"].(string)
 	if !ok {
 		return Response{Success: false, Error: "paymentId required"}, nil
@@ -125,7 +125,7 @@ func handleGetPayment(db *theorydb.LambdaDB, data map[string]any) (Response, err
 }
 
 // Create new payment
-func handleCreatePayment(db *theorydb.LambdaDB, data map[string]any) (Response, error) {
+func handleCreatePayment(db *tabletheory.LambdaDB, data map[string]any) (Response, error) {
 	amount, _ := data["amount"].(float64)
 	currency, _ := data["currency"].(string)
 

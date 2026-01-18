@@ -207,7 +207,7 @@ Guardrails (no denominator games):
 
 **Acceptance criteria**
 - `bash scripts/verify-public-api-contracts.sh` exists, is green, and is wired into `make rubric`.
-- `theorydb.UnmarshalItem` and stream-image unmarshalling behavior is consistent with canonical tag semantics (`pk`/`sk`/`attr:`/`encrypted`) or the API is explicitly changed/deprecated with a documented migration path.
+- `tabletheory.UnmarshalItem` and stream-image unmarshalling behavior is consistent with canonical tag semantics (`pk`/`sk`/`attr:`/`encrypted`) or the API is explicitly changed/deprecated with a documented migration path.
 - Contract tests cover the public boundary and fail on semantic drift (no “green by omission”).
 
 ---

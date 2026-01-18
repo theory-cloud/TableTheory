@@ -90,7 +90,7 @@ func initializeLocal(ctx context.Context) (core.DB, error) {
 		},
 	}
 
-	db, err := theorydb.NewBasic(sessionConfig)
+	db, err := tabletheory.NewBasic(sessionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TableTheory: %w", err)
 	}
@@ -120,7 +120,7 @@ func initializeAWS(ctx context.Context) (core.DB, error) {
 		},
 	}
 
-	db, err := theorydb.NewBasic(sessionConfig)
+	db, err := tabletheory.NewBasic(sessionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TableTheory: %w", err)
 	}
@@ -141,7 +141,7 @@ func initializeWithProfile(ctx context.Context, profile string) (core.DB, error)
 		},
 	}
 
-	db, err := theorydb.NewBasic(sessionConfig)
+	db, err := tabletheory.NewBasic(sessionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TableTheory: %w", err)
 	}
@@ -159,7 +159,7 @@ func initializeMinimal(ctx context.Context) (core.DB, error) {
 		Region: "us-east-1",
 	}
 
-	db, err := theorydb.NewBasic(sessionConfig)
+	db, err := tabletheory.NewBasic(sessionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TableTheory: %w", err)
 	}

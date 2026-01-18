@@ -34,7 +34,7 @@ type commentNode struct {
 
 // NewCommentHandler creates a new comment handler
 func NewCommentHandler() (*CommentHandler, error) {
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region: "us-east-1",
 	})
 	if err != nil {

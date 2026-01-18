@@ -79,7 +79,7 @@ func TestEncryption_EnvelopeShapeAndAADBinding(t *testing.T) {
 		},
 	}
 
-	db, err := theorydb.New(session.Config{
+	db, err := tabletheory.New(session.Config{
 		Region:    region,
 		Endpoint:  endpoint,
 		KMSKeyARN: "arn:aws:kms:us-east-1:111111111111:key/test",

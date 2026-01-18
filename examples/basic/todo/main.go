@@ -55,13 +55,13 @@ func NewTodoApp() (*TodoApp, error) {
 	}
 
 	// Create TableTheory client - now returns an interface
-	db, err := theorydb.NewBasic(*cfg)
+	db, err := tabletheory.NewBasic(*cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TableTheory client: %v", err)
 	}
 
 	// For table creation, we need the extended interface
-	extDB, err := theorydb.New(*cfg)
+	extDB, err := tabletheory.New(*cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TableTheory client: %v", err)
 	}

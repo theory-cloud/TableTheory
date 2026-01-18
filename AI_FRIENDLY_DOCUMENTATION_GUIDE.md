@@ -340,9 +340,9 @@ package models
 import "github.com/theory-cloud/tabletheory"
 
 // Payment represents a payment transaction.
-// AI Note: Always embed theorydb.Model for DynamoDB entities.
+// AI Note: Always embed tabletheory.Model for DynamoDB entities.
 type Payment struct {
-    theorydb.Model
+    tabletheory.Model
     ID        string `theorydb:"pk" json:"id"`
     Amount    int64  `theorydb:"index:amount" json:"amount"`
     Status    string `theorydb:"index:status" json:"status"`

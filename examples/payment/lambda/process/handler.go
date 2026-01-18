@@ -41,7 +41,7 @@ type Handler struct {
 
 // NewHandler creates a new payment handler
 func NewHandler() (*Handler, error) {
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region: os.Getenv("AWS_REGION"),
 	})
 	if err != nil {

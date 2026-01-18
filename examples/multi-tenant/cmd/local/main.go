@@ -27,7 +27,7 @@ func main() {
 		Endpoint: os.Getenv("AWS_ENDPOINT_URL"),
 	}
 
-	db, err := theorydb.New(dbConfig)
+	db, err := tabletheory.New(dbConfig)
 	if err != nil {
 		log.Fatal("Failed to initialize TableTheory:", err)
 	}

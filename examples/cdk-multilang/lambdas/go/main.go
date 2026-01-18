@@ -140,7 +140,7 @@ func handler(ctx context.Context, event events.LambdaFunctionURLRequest) (events
 		return jsonResponse(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	db, err := theorydb.New(session.Config{
+	db, err := tabletheory.New(session.Config{
 		Region:    os.Getenv("AWS_REGION"),
 		KMSKeyARN: os.Getenv("KMS_KEY_ARN"),
 	})

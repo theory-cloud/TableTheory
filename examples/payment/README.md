@@ -227,7 +227,7 @@ func (s *PaymentService) TransferFunds(ctx context.Context, req *TransferRequest
     }
     
     // Execute transfer in transaction
-    err := s.db.Transaction(func(tx *theorydb.Tx) error {
+    err := s.db.Transaction(func(tx *tabletheory.Tx) error {
         // Get source account with optimistic locking
         var fromAccount models.Account
         err := tx.Model(&models.Account{}).
@@ -443,7 +443,7 @@ import (
 
 // Global variables for connection reuse
 var (
-    db             *theorydb.LambdaDB
+    db             *tabletheory.LambdaDB
     paymentService *services.PaymentService
     auditService   *services.AuditService
 )
@@ -451,7 +451,7 @@ var (
 func init() {
     // CRITICAL: Initialize once, reuse across invocations
     var err error
-    db, err = theorydb.NewLambdaOptimized()
+    db, err = tabletheory.NewLambdaOptimized()
     if err != nil {
         panic(fmt.Sprintf("Failed to initialize TableTheory: %v", err))
     }
@@ -574,9 +574,9 @@ func TestPaymentService_TransferFunds_Success(t *testing.T) {
     }
     
     // Mock transaction execution
-    mockDB.On("Transaction", mock.AnythingOfType("func(*theorydb.Tx) error")).
+    mockDB.On("Transaction", mock.AnythingOfType("func(*tabletheory.Tx) error")).
         Run(func(args mock.Arguments) {
-            fn := args.Get(0).(func(*theorydb.Tx) error)
+            fn := args.Get(0).(func(*tabletheory.Tx) error)
             
             // Mock source account query
             mockTx.On("Model", mock.AnythingOfType("*models.Account")).Return(mockQuery)
@@ -652,9 +652,9 @@ func TestPaymentService_TransferFunds_InsufficientFunds(t *testing.T) {
         Version: 1,
     }
     
-    mockDB.On("Transaction", mock.AnythingOfType("func(*theorydb.Tx) error")).
+    mockDB.On("Transaction", mock.AnythingOfType("func(*tabletheory.Tx) error")).
         Run(func(args mock.Arguments) {
-            fn := args.Get(0).(func(*theorydb.Tx) error)
+            fn := args.Get(0).(func(*tabletheory.Tx) error)
             
             mockTx.On("Model", mock.AnythingOfType("*models.Account")).Return(mockQuery)
             mockQuery.On("Where", "ID", "=", "acc1").Return(mockQuery)
@@ -733,7 +733,7 @@ db.Model(fromAccount).Update() // Might succeed
 db.Model(toAccount).Update()   // Might fail - inconsistent state!
 
 // CORRECT: Single transaction
-db.Transaction(func(tx *theorydb.Tx) error {
+db.Transaction(func(tx *tabletheory.Tx) error {
     if err := tx.Model(fromAccount).Update(); err != nil {
         return err // Automatic rollback
     }

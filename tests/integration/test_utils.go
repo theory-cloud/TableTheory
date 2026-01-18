@@ -71,7 +71,7 @@ Or skip integration tests: SKIP_INTEGRATION=true go test ./...`)
 		},
 	}
 
-	db, err := theorydb.New(sessionConfig)
+	db, err := tabletheory.New(sessionConfig)
 	require.NoError(t, err)
 	require.NotNil(t, db)
 

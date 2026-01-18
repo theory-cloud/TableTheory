@@ -539,7 +539,7 @@ type GoodTodo struct {
 ```go
 // WRONG: Using concrete type
 type BadService struct {
-    db *theorydb.DB  // Hard to mock
+    db *tabletheory.DB  // Hard to mock
 }
 
 // CORRECT: Using interface

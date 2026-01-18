@@ -137,7 +137,7 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
     tx.UpdateWithBuilder(product, func(ub core.UpdateBuilder) error {
         ub.Decrement("StockQuantity")
         return nil
-    }, theorydb.Condition("StockQuantity", ">=", 1))
+    }, tabletheory.Condition("StockQuantity", ">=", 1))
 
     // Create order item
     tx.Put(order)

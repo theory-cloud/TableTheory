@@ -470,7 +470,7 @@ func BenchmarkTransactionOperations(b *testing.B) {
 // Helper functions
 
 func initBenchDB(_ *testing.B) (core.ExtendedDB, error) {
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region:   "us-east-1",
 		Endpoint: "http://localhost:8000",
 		AWSConfigOptions: []func(*config.LoadOptions) error{

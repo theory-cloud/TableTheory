@@ -105,7 +105,7 @@ func TestNilPointerScenarios(t *testing.T) {
 		}
 
 		// This should fail without proper AWS setup
-		_, err := theorydb.New(sessionConfig)
+		_, err := tabletheory.New(sessionConfig)
 		// Should create DB without error (but operations will fail without AWS)
 		assert.NoError(t, err)
 	})
@@ -122,7 +122,7 @@ func TestNilPointerScenarios(t *testing.T) {
 			},
 		}
 
-		db, err := theorydb.New(sessionConfig)
+		db, err := tabletheory.New(sessionConfig)
 		require.NoError(t, err)
 		assert.NotNil(t, db)
 

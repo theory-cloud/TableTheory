@@ -224,10 +224,10 @@ func TestTodoService_CreateTodo(t *testing.T) {
 ### Lambda Patterns
 ```go
 // From lambda/ - Proper Lambda initialization
-var db *theorydb.DB
+var db *tabletheory.DB
 
 func init() {
-    db = theorydb.New(theorydb.WithLambdaOptimizations())
+    db = tabletheory.New(tabletheory.WithLambdaOptimizations())
 }
 
 func handler(ctx context.Context, event events.APIGatewayProxyRequest) {
@@ -242,12 +242,12 @@ This example shows how to use TableTheory in AWS Lambda with optimizations:
 
 ```go
 // Global DB instance for connection reuse
-var db *theorydb.LambdaDB
+var db *tabletheory.LambdaDB
 
 func init() {
     // Initialize once to reduce cold starts
     var err error
-    db, err = theorydb.NewLambdaOptimized()
+    db, err = tabletheory.NewLambdaOptimized()
     if err != nil {
         panic(err)
     }

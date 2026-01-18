@@ -34,7 +34,7 @@ func setupTestDB(t *testing.T) core.ExtendedDB {
 		Region:   "us-east-1",
 		Endpoint: endpoint,
 	}
-	db, err := theorydb.New(dbConfig)
+	db, err := tabletheory.New(dbConfig)
 	require.NoError(t, err)
 
 	// Create test tables

@@ -30,11 +30,11 @@ patterns:
     problem: "Cold starts are slow when initializing standard AWS sessions in Lambda handlers"
     solution: "Use NewLambdaOptimized() in init() function or global scope"
     correct_example: |
-      var db *theorydb.LambdaDB
+      var db *tabletheory.LambdaDB
 
       func init() {
           var err error
-          db, err = theorydb.NewLambdaOptimized()
+          db, err = tabletheory.NewLambdaOptimized()
           if err != nil {
               panic(err)
           }
@@ -44,7 +44,7 @@ patterns:
         why: "Re-establishes connection on every invocation, increasing latency"
         incorrect_example: |
           func handler() {
-              db, _ := theorydb.New(config) // Bad!
+              db, _ := tabletheory.New(config) // Bad!
           }
         consequences:
           - slow_cold_starts
@@ -130,13 +130,13 @@ patterns:
   stream_processing:
     name: "DynamoDB Stream Processing"
     problem: "Manually parsing `events.DynamoDBAttributeValue` to Go structs is tedious and error-prone"
-    solution: "Use `theorydb.UnmarshalStreamImage` to convert stream images to your models"
+    solution: "Use `tabletheory.UnmarshalStreamImage` to convert stream images to your models"
     correct_example: |
       func handleStream(e events.DynamoDBEvent) {
           for _, record := range e.Records {
               var user User
               if record.EventName == "INSERT" || record.EventName == "MODIFY" {
-                  err := theorydb.UnmarshalStreamImage(record.Change.NewImage, &user)
+                  err := tabletheory.UnmarshalStreamImage(record.Change.NewImage, &user)
                   // ... process user ...
               }
           }
@@ -178,7 +178,7 @@ patterns:
 
   testing_approach:
     name: "Testable Code Design"
-    problem: "Tight coupling to concrete `*theorydb.DB` makes unit testing difficult and requires a running DynamoDB instance"
+    problem: "Tight coupling to concrete `*tabletheory.DB` makes unit testing difficult and requires a running DynamoDB instance"
     solution: "Depend on `core.DB` interface and use `pkg/mocks` for unit tests"
     correct_example: |
       type MyService struct { db core.DB }
@@ -194,10 +194,10 @@ patterns:
       }
     anti_patterns:
       - name: "Concrete Dependency"
-        why: "Direct dependency on `*theorydb.DB` prevents mocking, making unit tests slow and reliant on external services"
+        why: "Direct dependency on `*tabletheory.DB` prevents mocking, making unit tests slow and reliant on external services"
         incorrect_example: |
-          // ❌ INCORRECT: Cannot mock `*theorydb.DB` easily
-          type MyBadService struct { db *theorydb.DB }
+          // ❌ INCORRECT: Cannot mock `*tabletheory.DB` easily
+          type MyBadService struct { db *tabletheory.DB }
         consequences:
           - slow_unit_tests
           - reliance_on_external_resources

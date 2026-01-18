@@ -82,7 +82,7 @@ The codebase includes specific optimizations for Lambda in `lambda.go`:
 - Connection reuse across invocations
 - Memory optimization
 - Cold start reduction (11ms vs 127ms for standard SDK)
-- Use `theorydb.WithLambdaOptimizations()` when initializing
+- Use `tabletheory.WithLambdaOptimizations()` when initializing
 
 ### Testing Strategy
 

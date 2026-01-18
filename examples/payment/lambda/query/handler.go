@@ -73,7 +73,7 @@ type QueryHandler struct {
 
 // NewHandler creates a new query handler
 func NewHandler() (*QueryHandler, error) {
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region: os.Getenv("AWS_REGION"),
 	})
 	if err != nil {

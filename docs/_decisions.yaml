@@ -21,16 +21,16 @@ decisions:
       - condition: "Running in AWS Lambda"
         check: "Is cold start performance critical?"
         if_yes:
-          choice: "Use theorydb.NewLambdaOptimized()"
+          choice: "Use tabletheory.NewLambdaOptimized()"
           reason: "Reuse connections and optimize HTTP client for Lambda environment"
         if_no:
-          choice: "Use theorydb.New()"
+          choice: "Use tabletheory.New()"
           reason: "Standard initialization is sufficient if pre-warming isn't needed"
       - condition: "Running in Long-Running Service (Container/VM)"
-        choice: "Use theorydb.New()"
+        choice: "Use tabletheory.New()"
         reason: "Standard session management works best for persistent processes"
       - condition: "Running locally"
-        choice: "Use theorydb.New() with Endpoint config"
+        choice: "Use tabletheory.New() with Endpoint config"
         reason: "Connect to DynamoDB Local"
 
   data_retrieval:
@@ -91,7 +91,7 @@ decisions:
           choice: "Use db.Transact() with ConditionCheck()"
           reason: "For complex, cross-item conditions or when you need a pure condition check without a mutation"
           example: |
-            db.Transact().ConditionCheck(item, theorydb.Condition("Status", "=", "ACTIVE")).Execute()
+            db.Transact().ConditionCheck(item, tabletheory.Condition("Status", "=", "ACTIVE")).Execute()
 
   gsi_design:
     question: "How should I design Global Secondary Indexes (GSIs)?"
@@ -157,7 +157,7 @@ decisions:
           choice: "Configure `session.Config.MaxRetries` and use default SDK retry behavior"
           reason: "AWS SDK has built-in exponential backoff and jitter for transient errors"
           example: |
-            db, _ := theorydb.New(session.Config{MaxRetries: 5})
+            db, _ := tabletheory.New(session.Config{MaxRetries: 5})
         if_no:
           choice: "Implement circuit breaker pattern for non-recoverable or persistent errors"
           reason: "Prevents hammering a failing service"
@@ -193,7 +193,7 @@ decisions:
           choice: "Use DynamoDB Local or a dedicated test AWS environment"
           reason: "Provides realistic feedback on DynamoDB interactions"
           example: |
-            db, _ := theorydb.New(session.Config{Endpoint: "http://localhost:8000"})
+            db, _ := tabletheory.New(session.Config{Endpoint: "http://localhost:8000"})
             db.CreateTable(&User{})
             // ... run actual DB operations ...
         if_no:

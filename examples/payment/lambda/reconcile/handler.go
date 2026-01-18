@@ -51,7 +51,7 @@ func NewReconcileHandler() (*ReconcileHandler, error) {
 	}
 
 	// Initialize DynamoDB connection
-	db, err := theorydb.New(theorydb.Config{
+	db, err := tabletheory.New(tabletheory.Config{
 		Region: os.Getenv("AWS_REGION"),
 	})
 	if err != nil {

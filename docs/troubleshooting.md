@@ -89,7 +89,7 @@ Use `errors.As` to inspect the `TransactionError`.
 
 ```go
 err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
-    tx.Put(user, theorydb.IfNotExists())
+    tx.Put(user, tabletheory.IfNotExists())
     return nil
 })
 
@@ -121,7 +121,7 @@ Your application is exceeding the RCU/WCU limits of the table.
 
 ```go
 // Increase retries for bursty workloads
-db, _ := theorydb.New(session.Config{
+db, _ := tabletheory.New(session.Config{
     MaxRetries: 10, // Default is 3
 })
 ```
@@ -177,11 +177,11 @@ Check your logs for initialization time. If > 500ms, you are likely creating a n
 Use the `LambdaInit` helper in your `init()` function.
 
 ```go
-var db *theorydb.LambdaDB
+var db *tabletheory.LambdaDB
 
 func init() {
     // Pre-registers models and warms up connection
-    db, _ = theorydb.LambdaInit(&User{}, &Order{})
+    db, _ = tabletheory.LambdaInit(&User{}, &Order{})
 }
 ```
 
@@ -246,7 +246,7 @@ This section covers advanced troubleshooting and incident response in production
 
 **Solution:**
 
-- Ensure `theorydb.LambdaInit()` is called once in `init()`.
+- Ensure `tabletheory.LambdaInit()` is called once in `init()`.
 - Pre-register all models with `LambdaInit()` to avoid reflection at runtime.
 - Increase Lambda memory. This can indirectly speed up initialization.
 
