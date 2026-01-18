@@ -1,0 +1,23 @@
+name: "p0.lifecycle.ttl_epoch_seconds"
+dms_version: "0.1"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#5"
+      SK: "PROFILE"
+      ttl: 1700000000
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#5"
+      SK: "PROFILE"
+    expect:
+      raw_attribute_types:
+        ttl: "N"
+      item_contains:
+        ttl: 1700000000

@@ -1,0 +1,22 @@
+{
+  "name": "@theorydb/contract-runner-ts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:fixtures && npm run test:encoding && npm run test:reserved-words && npm run test:update-builder && npm run test:filters && npm run test:crypto && npm run test:contract:p0",
+    "test:crypto": "tsx test/crypto.contract.test.ts",
+    "test:encoding": "tsx test/encoding.contract.test.ts",
+    "test:fixtures": "tsx test/fixtures.test.ts",
+    "test:filters": "tsx test/filters.contract.test.ts",
+    "test:update-builder": "tsx test/update-builder.contract.test.ts",
+    "test:reserved-words": "tsx test/reserved-words.contract.test.ts",
+    "test:contract:p0": "tsx test/contract.p0.test.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.758.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "yaml": "^2.8.0"
+  }
+}

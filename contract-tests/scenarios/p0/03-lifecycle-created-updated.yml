@@ -1,0 +1,48 @@
+name: "p0.lifecycle.created_updated"
+dms_version: "0.1"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#3"
+      SK: "PROFILE"
+      nickname: "v0"
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#3"
+      SK: "PROFILE"
+    save:
+      createdAt0: "createdAt"
+      updatedAt0: "updatedAt"
+    expect:
+      item_has_fields: ["createdAt", "updatedAt", "version"]
+
+  - op: sleep
+    ms: 25
+
+  - op: update
+    fields: ["nickname"]
+    item:
+      PK: "USER#3"
+      SK: "PROFILE"
+      nickname: "v1"
+      version: 0
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#3"
+      SK: "PROFILE"
+    expect:
+      item_field_equals_var:
+        createdAt: "createdAt0"
+      item_field_not_equals_var:
+        updatedAt: "updatedAt0"
+      item_contains:
+        version: 1

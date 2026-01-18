@@ -1,0 +1,54 @@
+dms_version: "0.1"
+namespace: "theorydb.contract"
+models:
+  - name: "Order"
+    table:
+      name: "orders_contract"
+    naming:
+      convention: "camelCase"
+    keys:
+      partition: { attribute: "PK", type: "S" }
+      sort: { attribute: "SK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "SK"
+        type: "S"
+        required: true
+        roles: ["sk"]
+
+      - attribute: "status"
+        type: "S"
+        optional: true
+      - attribute: "amount"
+        type: "N"
+        optional: true
+
+      - attribute: "createdAt"
+        type: "S"
+        format: "rfc3339nano"
+        roles: ["created_at"]
+      - attribute: "updatedAt"
+        type: "S"
+        format: "rfc3339nano"
+        roles: ["updated_at"]
+      - attribute: "version"
+        type: "N"
+        format: "int"
+        roles: ["version"]
+
+      - attribute: "ttl"
+        type: "N"
+        format: "unix_seconds"
+        roles: ["ttl"]
+        optional: true
+        omit_empty: true
+
+    indexes:
+      - name: "gsi-status"
+        type: "GSI"
+        partition: { attribute: "status", type: "S" }
+        sort: { attribute: "createdAt", type: "S" }
+        projection: { type: "ALL" }

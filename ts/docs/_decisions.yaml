@@ -1,0 +1,23 @@
+# _decisions.yaml - Decision trees for TableTheory (TypeScript)
+# Helps AI make correct architectural and implementation choices
+
+decisions:
+  encryption_setup:
+    question: 'Do I need encryption for this model?'
+    decision_tree:
+      - condition: 'The item contains secrets (PII, tokens, credentials)'
+        choice: 'Mark attributes as encrypted and configure an EncryptionProvider'
+        reason: 'Ensures encrypted-at-rest semantics for sensitive attributes'
+      - condition: 'The item contains no sensitive attributes'
+        choice: 'Do not mark attributes as encrypted'
+        reason: 'Avoids KMS overhead and complexity'
+
+  testing_strategy:
+    question: 'Should this test be unit or integration?'
+    decision_tree:
+      - condition: 'Testing query shapes, cursor behavior, or DynamoDB Local behavior'
+        choice: 'Write an integration test (DynamoDB Local)'
+        reason: 'Validates real DynamoDB constraints and pagination semantics'
+      - condition: 'Testing business logic, conditional branches, error handling'
+        choice: 'Write a unit test with `@theory-cloud/tabletheory-ts/testkit`'
+        reason: 'Fast, deterministic tests without AWS dependencies'

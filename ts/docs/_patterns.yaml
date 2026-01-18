@@ -1,0 +1,75 @@
+# _patterns.yaml - Machine-readable patterns for TableTheory (TypeScript)
+# Documents correct and incorrect usage patterns for AI training
+
+patterns:
+  initialization:
+    name: 'Reusable DynamoDB Client + Registered Models'
+    problem: 'Creating AWS clients repeatedly increases latency and complicates testing'
+    solution: 'Create one `DynamoDBClient` and one `TheorydbClient`, register models once'
+    correct_example: |
+      import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+      import { TheorydbClient } from '@theory-cloud/tabletheory-ts';
+      import { User } from '../src/models/user';
+
+      // ✅ CORRECT: Create once; reuse across requests
+      const ddb = new DynamoDBClient({ region: 'us-east-1' });
+      export const db = new TheorydbClient(ddb).register(User);
+    anti_patterns:
+      - name: 'Per-request client construction'
+        why: 'Harder to test, increases latency, and encourages runtime drift'
+        incorrect_example: |
+          // ❌ INCORRECT: building clients inside every handler
+          export async function handler() {
+            const ddb = new DynamoDBClient({ region: 'us-east-1' });
+            const db = new TheorydbClient(ddb).register(User);
+            // ...
+          }
+        consequences:
+          - higher_latency
+          - harder_unit_tests
+
+  model_definition:
+    name: 'Explicit Attribute Names (DMS-friendly)'
+    problem: 'Implicit attribute naming drifts across languages and services'
+    solution: 'Define explicit attribute names and roles via `defineModel`'
+    correct_example: |
+      import { defineModel } from '@theory-cloud/tabletheory-ts';
+
+      export const User = defineModel({
+        name: 'User',
+        table: { name: 'users' },
+        keys: { partition: { attribute: 'PK', type: 'S' }, sort: { attribute: 'SK', type: 'S' } },
+        attributes: [{ attribute: 'PK', type: 'S', roles: ['pk'] }, { attribute: 'SK', type: 'S', roles: ['sk'] }],
+      });
+    anti_patterns:
+      - name: 'Ad-hoc attribute naming'
+        why: 'Breaks cross-language parity and complicates migrations'
+        incorrect_example: |
+          // ❌ INCORRECT: inventing attribute names per service
+          const pk = `user#${id}`;
+        consequences:
+          - schema_drift
+          - broken_contract_tests
+
+  testing:
+    name: 'Strict Unit Tests With testkit'
+    problem: 'Loose mocks allow missing calls and brittle assertions'
+    solution: 'Use the public testkit to mock `send()` strictly'
+    correct_example: |
+      import { PutItemCommand } from '@aws-sdk/client-dynamodb';
+      import { TheorydbClient } from '@theory-cloud/tabletheory-ts';
+      import { createMockDynamoDBClient } from '@theory-cloud/tabletheory-ts/testkit';
+
+      const mock = createMockDynamoDBClient();
+      mock.when(PutItemCommand, async () => ({}));
+
+      const db = new TheorydbClient(mock.client).register(User);
+    anti_patterns:
+      - name: 'Mocking AWS SDK with `any`'
+        why: 'Hides contract breaks and produces false-positive tests'
+        incorrect_example: |
+          // ❌ INCORRECT: untyped, permissive mocks
+          const client: any = { send: async () => ({}) };
+        consequences:
+          - silent_breakages
+          - low_confidence_tests

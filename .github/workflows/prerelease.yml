@@ -1,0 +1,79 @@
+name: Prerelease (premain)
+
+on:
+  push:
+    branches: ["premain"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release Please (Prerelease)
+        id: release
+        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          target-branch: premain
+          config-file: release-please-config.premain.json
+          manifest-file: .release-please-manifest.premain.json
+
+      - name: Checkout (for release assets)
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node (24)
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - name: Set up Python (3.14)
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv (pinned)
+        if: steps.release.outputs.release_created == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install uv==0.9.26
+
+      - name: Build release assets (ts npm pack + py wheel/sdist)
+        if: steps.release.outputs.release_created == 'true'
+        run: |
+          rm -rf release-assets
+          mkdir -p release-assets
+
+          pushd ts
+          npm ci
+          npm run build
+          npm pack --pack-destination ../release-assets
+          popd
+
+          pushd py
+          uv sync --frozen --all-extras
+          uv run python -m build --outdir ../release-assets
+          popd
+
+          ls -la release-assets
+
+      - name: Upload release assets
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: |
+          if [[ -z "${TAG_NAME}" ]]; then
+            echo "release-assets: FAIL (missing tag_name output)"
+            exit 1
+          fi
+          gh release upload "${TAG_NAME}" release-assets/* --clobber

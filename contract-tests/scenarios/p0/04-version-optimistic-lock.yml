@@ -1,0 +1,42 @@
+name: "p0.lifecycle.version_optimistic_lock"
+dms_version: "0.1"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#4"
+      SK: "PROFILE"
+      nickname: "v0"
+    expect:
+      ok: true
+
+  - op: update
+    fields: ["nickname"]
+    item:
+      PK: "USER#4"
+      SK: "PROFILE"
+      nickname: "v1"
+      version: 0
+    expect:
+      ok: true
+
+  - op: update
+    fields: ["nickname"]
+    item:
+      PK: "USER#4"
+      SK: "PROFILE"
+      nickname: "stale"
+      version: 0
+    expect:
+      error: "ErrConditionFailed"
+
+  - op: get
+    key:
+      PK: "USER#4"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        nickname: "v1"
+        version: 1

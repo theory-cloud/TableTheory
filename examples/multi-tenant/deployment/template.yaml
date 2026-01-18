@@ -1,0 +1,393 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Multi-tenant SaaS Platform using TableTheory
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: go1.x
+    Environment:
+      Variables:
+        DYNAMODB_TABLE: !Ref DynamoDBTable
+        REGION: !Ref AWS::Region
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    Description: Deployment stage (dev, staging, prod)
+  
+  JWTSecret:
+    Type: String
+    NoEcho: true
+    Description: Secret key for JWT token signing
+  
+  StripeSecretKey:
+    Type: String
+    NoEcho: true
+    Description: Stripe secret key for billing integration
+
+Resources:
+  # DynamoDB Table
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-${Stage}-table
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: gsi1pk
+          AttributeType: S
+        - AttributeName: gsi1sk
+          AttributeType: S
+        - AttributeName: gsi2pk
+          AttributeType: S
+        - AttributeName: gsi2sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: gsi1
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: gsi2
+          KeySchema:
+            - AttributeName: gsi2pk
+              KeyType: HASH
+            - AttributeName: gsi2sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Application
+          Value: MultiTenantSaaS
+        - Key: Stage
+          Value: !Ref Stage
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Stage
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      Auth:
+        DefaultAuthorizer: JWTAuthorizer
+        Authorizers:
+          JWTAuthorizer:
+            FunctionArn: !GetAtt AuthorizerFunction.Arn
+            Identity:
+              Headers:
+                - Authorization
+              ReauthorizeEvery: 300
+          ApiKeyAuthorizer:
+            FunctionArn: !GetAtt ApiKeyAuthorizerFunction.Arn
+            Identity:
+              Headers:
+                - X-API-Key
+              ReauthorizeEvery: 60
+
+  # Lambda Functions
+  OrganizationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../cmd/lambda/
+      Handler: bootstrap
+      Environment:
+        Variables:
+          FUNCTION_TYPE: organization
+          JWT_SECRET: !Ref JWTSecret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTable
+      Events:
+        CreateOrg:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations
+            Method: POST
+            Auth:
+              Authorizer: NONE
+        GetOrg:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}
+            Method: GET
+        UpdateOrgSettings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/settings
+            Method: PUT
+
+  UserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../cmd/lambda/
+      Handler: bootstrap
+      Environment:
+        Variables:
+          FUNCTION_TYPE: user
+          JWT_SECRET: !Ref JWTSecret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTable
+      Events:
+        InviteUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/invitations
+            Method: POST
+        AcceptInvite:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /invitations/accept
+            Method: POST
+            Auth:
+              Authorizer: NONE
+        ListUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/users
+            Method: GET
+        GetUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/users/{user_id}
+            Method: GET
+        UpdateUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/users/{user_id}
+            Method: PUT
+        DeleteUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/users/{user_id}
+            Method: DELETE
+
+  ProjectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../cmd/lambda/
+      Handler: bootstrap
+      Environment:
+        Variables:
+          FUNCTION_TYPE: project
+          JWT_SECRET: !Ref JWTSecret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTable
+      Events:
+        CreateProject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/projects
+            Method: POST
+        ListProjects:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/projects
+            Method: GET
+        GetProject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/projects/{project_id}
+            Method: GET
+        UpdateProject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/projects/{project_id}
+            Method: PUT
+        DeleteProject:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/projects/{project_id}
+            Method: DELETE
+
+  ResourceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../cmd/lambda/
+      Handler: bootstrap
+      Environment:
+        Variables:
+          FUNCTION_TYPE: resource
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTable
+      Events:
+        RecordUsage:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/resources
+            Method: POST
+            Auth:
+              Authorizer: ApiKeyAuthorizer
+        GetUsageReport:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/usage
+            Method: GET
+        GetProjectUsage:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/projects/{project_id}/usage
+            Method: GET
+
+  ApiKeyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../cmd/lambda/
+      Handler: bootstrap
+      Environment:
+        Variables:
+          FUNCTION_TYPE: apikey
+          JWT_SECRET: !Ref JWTSecret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTable
+      Events:
+        CreateApiKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/api-keys
+            Method: POST
+        ListApiKeys:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/api-keys
+            Method: GET
+        GetApiKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/api-keys/{key_id}
+            Method: GET
+        UpdateApiKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/api-keys/{key_id}
+            Method: PUT
+        DeleteApiKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /organizations/{org_id}/api-keys/{key_id}
+            Method: DELETE
+
+  # Authorizer Functions
+  AuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../cmd/lambda/
+      Handler: bootstrap
+      Environment:
+        Variables:
+          FUNCTION_TYPE: jwt_authorizer
+          JWT_SECRET: !Ref JWTSecret
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref DynamoDBTable
+
+  ApiKeyAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../cmd/lambda/
+      Handler: bootstrap
+      Environment:
+        Variables:
+          FUNCTION_TYPE: apikey_authorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTable
+
+  # Billing Function (runs monthly)
+  BillingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../cmd/lambda/
+      Handler: bootstrap
+      Timeout: 300
+      Environment:
+        Variables:
+          FUNCTION_TYPE: billing
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTable
+      Events:
+        MonthlyBilling:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 2 1 * ? *)  # Run at 2 AM on the 1st of each month
+            Description: Generate monthly usage reports and process billing
+
+  # Audit Log Cleanup Function
+  AuditCleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../cmd/lambda/
+      Handler: bootstrap
+      Environment:
+        Variables:
+          FUNCTION_TYPE: audit_cleanup
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTable
+      Events:
+        DailyCleanup:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+            Description: Clean up expired audit logs
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+  
+  DynamoDBTableName:
+    Description: DynamoDB table name
+    Value: !Ref DynamoDBTable
+  
+  DynamoDBStreamArn:
+    Description: DynamoDB stream ARN for event processing
+    Value: !GetAtt DynamoDBTable.StreamArn 

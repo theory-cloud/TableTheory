@@ -1,0 +1,71 @@
+name: "p0.crud.basic"
+dms_version: "0.1"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "USER#1"
+      SK: "PROFILE"
+      emailHash: "hash_abc"
+      nickname: "Al"
+      tags: ["a", "b"]
+    expect:
+      ok: true
+
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "USER#1"
+      SK: "PROFILE"
+      emailHash: "hash_abc"
+    expect:
+      error: "ErrConditionFailed"
+
+  - op: get
+    key:
+      PK: "USER#1"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        PK: "USER#1"
+        SK: "PROFILE"
+        emailHash: "hash_abc"
+        nickname: "Al"
+        tags: ["a", "b"]
+      item_has_fields: ["createdAt", "updatedAt", "version"]
+
+  - op: update
+    fields: ["nickname"]
+    item:
+      PK: "USER#1"
+      SK: "PROFILE"
+      nickname: "Alice"
+      version: 0
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#1"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        nickname: "Alice"
+        version: 1
+
+  - op: delete
+    key:
+      PK: "USER#1"
+      SK: "PROFILE"
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#1"
+      SK: "PROFILE"
+    expect:
+      error: "ErrItemNotFound"

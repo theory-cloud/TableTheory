@@ -1,0 +1,251 @@
+# _patterns.yaml - Machine-readable patterns for TableTheory
+# Documents correct and incorrect usage patterns for AI training
+
+patterns:
+  dms_first_workflow:
+    name: "DMS-First Schema Ownership"
+    problem: "Schema drift occurs when each language/service invents its own attribute names and key rules"
+    solution: "Own the schema in a language-neutral DMS document and keep SDK models equivalent by contract"
+    correct_example: |
+      # ✅ CORRECT: schema is defined once (YAML) and validated across SDKs
+      #
+      # examples/cdk-multilang/dms/demo.yml
+      models:
+        DemoItem:
+          keys:
+            partition: { attribute: PK, type: S }
+            sort: { attribute: SK, type: S }
+    anti_patterns:
+      - name: "Per-language schema invention"
+        why: "Breaks parity, forces migrations, and creates hard-to-debug production inconsistencies"
+        incorrect_example: |
+          # ❌ INCORRECT: each service picks different attribute names
+          # Go uses PK/SK, TS uses id/sort, Python uses hash/range
+        consequences:
+          - schema_drift
+          - broken_cross_language_contracts
+
+  initialization:
+    name: "Lambda-Optimized Initialization"
+    problem: "Cold starts are slow when initializing standard AWS sessions in Lambda handlers"
+    solution: "Use NewLambdaOptimized() in init() function or global scope"
+    correct_example: |
+      var db *theorydb.LambdaDB
+
+      func init() {
+          var err error
+          db, err = theorydb.NewLambdaOptimized()
+          if err != nil {
+              panic(err)
+          }
+      }
+    anti_patterns:
+      - name: "Handler Initialization"
+        why: "Re-establishes connection on every invocation, increasing latency"
+        incorrect_example: |
+          func handler() {
+              db, _ := theorydb.New(config) // Bad!
+          }
+        consequences:
+          - slow_cold_starts
+          - resource_exhaustion
+
+  model_definition:
+    name: "Struct Tag Mapping"
+    problem: "DynamoDB needs to know which fields are keys"
+    solution: "Use `theorydb` struct tags for pk/sk mapping"
+    correct_example: |
+      type User struct {
+          ID    string `theorydb:"pk" json:"id"`
+          Email string `theorydb:"sk" json:"email"`
+      }
+    anti_patterns:
+      - name: "Missing Tags"
+        why: "Library cannot identify primary keys"
+        incorrect_example: |
+          type User struct {
+              ID string // Missing tag
+          }
+        consequences:
+          - runtime_errors
+          - validation_failures
+
+  querying:
+    name: "Fluent Query Building"
+    problem: "Building DynamoDB JSON expressions is error-prone"
+    solution: "Use Model().Where().All() chain"
+    correct_example: |
+      err := db.Model(&User{}).
+          Where("ID", "=", "123").
+          All(&users)
+    anti_patterns:
+      - name: "Unbounded Scans"
+        why: "Scans read entire tables, are inefficient, expensive, and can throttle production systems"
+        incorrect_example: |
+          // ❌ INCORRECT: Avoid unbounded scans unless strictly necessary and on small tables.
+          db.Model(&Product{}).All(&products) // Reads entire Product table
+        consequences:
+          - high_costs
+          - slow_performance
+          - production_throttling
+      - name: "Querying Without Index"
+        why: "Attempting to query by a non-key attribute without specifying a GSI will result in a scan or error"
+        incorrect_example: |
+          // ❌ INCORRECT: If 'Email' is not a primary key or GSI partition key, this will fail or scan.
+          db.Model(&User{}).Where("Email", "=", "test@example.com").First(&user)
+        consequences:
+          - "`ValidationException` or `ResourceNotFoundException`"
+          - full_table_scans
+
+  transactions:
+    name: "Atomic Transactions"
+    problem: "Multiple operations need to succeed or fail together"
+    solution: "Use db.Transact() or db.TransactWrite() for ACID guarantees"
+    correct_example: |
+      err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
+          tx.Update(account, []string{"Balance"})
+          return tx.Put(transactionRecord)
+      })
+    anti_patterns:
+      - name: "Split Operations"
+        why: "No consistency guarantee between calls; partial failures lead to inconsistent data"
+        incorrect_example: |
+          db.Model(account).Update()  // Might succeed
+          db.Model(transactionRecord).Create()  // Might fail - inconsistent state!
+        consequences:
+          - data_inconsistency
+          - orphaned_records
+      - name: "Mixing Transactional and Non-Transactional"
+        why: "Operations outside `TransactWrite` are not part of the atomic unit and can cause unexpected state"
+        incorrect_example: |
+          db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
+              tx.Put(item1)
+              // ...
+          })
+          db.Model(item2).Update() // This is not atomic with item1
+        consequences:
+          - unexpected_data_states
+          - difficult_to_debug_consistency_issues
+
+  stream_processing:
+    name: "DynamoDB Stream Processing"
+    problem: "Manually parsing `events.DynamoDBAttributeValue` to Go structs is tedious and error-prone"
+    solution: "Use `theorydb.UnmarshalStreamImage` to convert stream images to your models"
+    correct_example: |
+      func handleStream(e events.DynamoDBEvent) {
+          for _, record := range e.Records {
+              var user User
+              if record.EventName == "INSERT" || record.EventName == "MODIFY" {
+                  err := theorydb.UnmarshalStreamImage(record.Change.NewImage, &user)
+                  // ... process user ...
+              }
+          }
+      }
+    anti_patterns:
+      - name: "Manual AttributeValue Conversion"
+        why: "Verbose, error-prone, and requires understanding low-level DynamoDB types"
+        incorrect_example: |
+          // ❌ INCORRECT: Manual conversion
+          itemMap := record.Change.NewImage
+          id := itemMap["id"].String()
+          // ... many more lines to convert all fields ...
+        consequences:
+          - increased_development_time
+          - potential_type_conversion_bugs
+
+  batch_operations:
+    name: "Efficient Batch Operations"
+    problem: "Performing many individual `GetItem`, `PutItem`, `DeleteItem` calls is slow and expensive"
+    solution: "Use `BatchGet`, `BatchCreate`, `BatchDelete` for bulk operations on homogeneous items"
+    correct_example: |
+      keys := []User{{ID: "1"}, {ID: "2"}}
+      var users []User
+      err := db.Model(&User{}).BatchGet(keys, &users)
+    anti_patterns:
+      - name: "Looping Individual Operations"
+        why: "Each operation incurs network overhead, leading to higher latency and cost for bulk operations"
+        incorrect_example: |
+          // ❌ INCORRECT: Individual Gets in a loop
+          for _, id := range userIDs {
+              var user User
+              db.Model(&User{ID: id}).First(&user)
+              // ...
+          }
+        consequences:
+          - high_latency
+          - increased_cost
+          - potential_throttling
+
+  testing_approach:
+    name: "Testable Code Design"
+    problem: "Tight coupling to concrete `*theorydb.DB` makes unit testing difficult and requires a running DynamoDB instance"
+    solution: "Depend on `core.DB` interface and use `pkg/mocks` for unit tests"
+    correct_example: |
+      type MyService struct { db core.DB }
+      func (s *MyService) Save(item *Item) error { return s.db.Model(item).Create() }
+
+      func TestMyService(t *testing.T) {
+          mockDB := new(mocks.MockDB)
+          mockQuery := new(mocks.MockQuery)
+          mockDB.On("Model", mock.Anything).Return(mockQuery)
+          mockQuery.On("Create").Return(nil)
+          service := &MyService{db: mockDB}
+          // ... assertions ...
+      }
+    anti_patterns:
+      - name: "Concrete Dependency"
+        why: "Direct dependency on `*theorydb.DB` prevents mocking, making unit tests slow and reliant on external services"
+        incorrect_example: |
+          // ❌ INCORRECT: Cannot mock `*theorydb.DB` easily
+          type MyBadService struct { db *theorydb.DB }
+        consequences:
+          - slow_unit_tests
+          - reliance_on_external_resources
+          - difficult_to_test_edge_cases
+
+  error_handling:
+    name: "Context-Aware Error Handling"
+    problem: "Generic `error` returns lack sufficient context for debugging production issues"
+    solution: "Use `errors.Is` and `errors.As` with TableTheory's custom error types like `customerrors.ErrConditionFailed` or `customerrors.TransactionError`"
+    correct_example: |
+      err := db.Model(user).IfNotExists().Create()
+      if errors.Is(err, customerrors.ErrConditionFailed) {
+          log.Println("User already exists, handling gracefully.")
+      }
+    anti_patterns:
+      - name: "Ignoring Errors"
+        why: "Silence bugs and leads to unexpected behavior in production"
+        incorrect_example: |
+          // ❌ INCORRECT: Ignoring error
+          db.Model(user).Create()
+        consequences:
+          - undetected_bugs
+          - data_corruption
+      - name: "Generic Error Wrapping"
+        why: 'Wrapping with `fmt.Errorf("failed: %v", err)` without `%w` loses original error type, making `errors.Is` checks impossible'
+        incorrect_example: |
+          // ❌ INCORRECT: Loses error type
+          if err != nil { return fmt.Errorf("create user failed: %v", err) }
+        consequences:
+          - difficult_to_programmatically_handle_errors
+          - opaque_error_messages
+
+  concurrency:
+    name: "Optimistic Locking"
+    problem: "Concurrent updates to the same item can lead to lost updates or data corruption"
+    solution: "Implement optimistic locking using a `version` field and conditional writes (`AtVersion`)"
+    correct_example: |
+      // Update doc only if its version is still 5
+      doc := &Document{ID: "doc_1", Content: "Updated", Version: 5}
+      err := db.Model(doc).WithCondition("Version", "=", 5).Update()
+      if errors.Is(err, customerrors.ErrConditionFailed) { /* handle conflict */ }
+    anti_patterns:
+      - name: "Last Write Wins (Unconditional Update)"
+        why: "Allows any update to overwrite previous changes, leading to lost data in concurrent environments"
+        incorrect_example: |
+          // ❌ INCORRECT: Unconditional update
+          db.Model(doc).Update() // Overwrites any concurrent change
+        consequences:
+          - lost_updates
+          - data_inconsistencies
+          - race_conditions

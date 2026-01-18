@@ -1,0 +1,340 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: TableTheory Blog Example - Serverless Blog Platform
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: provided.al2
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        DYNAMODB_REGION: !Ref AWS::Region
+        ENVIRONMENT: !Ref Environment
+        JWT_SECRET: !Sub "{{resolve:secretsmanager:blog-jwt-secret-${Environment}}}"
+        ENABLE_ANALYTICS: "true"
+
+Resources:
+  # DynamoDB Tables
+  PostsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${Environment}-blog-posts"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: ID
+          AttributeType: S
+        - AttributeName: Slug
+          AttributeType: S
+        - AttributeName: AuthorID
+          AttributeType: S
+        - AttributeName: Status
+          AttributeType: S
+        - AttributeName: PublishedAt
+          AttributeType: S
+        - AttributeName: CategoryID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ID
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: gsi-slug
+          KeySchema:
+            - AttributeName: Slug
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: gsi-author
+          KeySchema:
+            - AttributeName: AuthorID
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: gsi-status-date
+          KeySchema:
+            - AttributeName: Status
+              KeyType: HASH
+            - AttributeName: PublishedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: gsi-category
+          KeySchema:
+            - AttributeName: CategoryID
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  CommentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${Environment}-blog-comments"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: ID
+          AttributeType: S
+        - AttributeName: PostID
+          AttributeType: S
+        - AttributeName: ParentID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ID
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: gsi-post
+          KeySchema:
+            - AttributeName: PostID
+              KeyType: HASH
+            - AttributeName: ParentID
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  AuthorsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${Environment}-blog-authors"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: ID
+          AttributeType: S
+        - AttributeName: Email
+          AttributeType: S
+        - AttributeName: Username
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ID
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: gsi-email
+          KeySchema:
+            - AttributeName: Email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: gsi-username
+          KeySchema:
+            - AttributeName: Username
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  SearchIndexTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${Environment}-blog-search"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: ID
+          AttributeType: S
+        - AttributeName: ContentType
+          AttributeType: S
+        - AttributeName: SearchTerms
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ID
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: gsi-search
+          KeySchema:
+            - AttributeName: ContentType
+              KeyType: HASH
+            - AttributeName: SearchTerms
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # Lambda Functions
+  PostsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-blog-posts"
+      CodeUri: ../posts.zip
+      Handler: bootstrap
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PostsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuthorsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SearchIndexTable
+      Events:
+        ListPosts:
+          Type: Api
+          Properties:
+            Path: /posts
+            Method: GET
+        GetPost:
+          Type: Api
+          Properties:
+            Path: /posts/{slug}
+            Method: GET
+        CreatePost:
+          Type: Api
+          Properties:
+            Path: /posts
+            Method: POST
+            Auth:
+              Authorizer: BlogAuthorizer
+        UpdatePost:
+          Type: Api
+          Properties:
+            Path: /posts/{id}
+            Method: PUT
+            Auth:
+              Authorizer: BlogAuthorizer
+        DeletePost:
+          Type: Api
+          Properties:
+            Path: /posts/{id}
+            Method: DELETE
+            Auth:
+              Authorizer: BlogAuthorizer
+
+  CommentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-blog-comments"
+      CodeUri: ../comments.zip
+      Handler: bootstrap
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PostsTable
+      Events:
+        ListComments:
+          Type: Api
+          Properties:
+            Path: /posts/{postId}/comments
+            Method: GET
+        CreateComment:
+          Type: Api
+          Properties:
+            Path: /posts/{postId}/comments
+            Method: POST
+        ModerateComment:
+          Type: Api
+          Properties:
+            Path: /comments/{commentId}/moderate
+            Method: PUT
+            Auth:
+              Authorizer: BlogAuthorizer
+        DeleteComment:
+          Type: Api
+          Properties:
+            Path: /comments/{commentId}
+            Method: DELETE
+            Auth:
+              Authorizer: BlogAuthorizer
+
+  # API Gateway Authorizer
+  BlogAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: !Sub "${Environment}-blog-authorizer"
+      Type: TOKEN
+      AuthorizerUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunction.Arn}/invocations"
+      AuthorizerResultTtlInSeconds: 300
+
+  AuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-blog-authorizer"
+      CodeUri: ../authorizer.zip
+      Handler: bootstrap
+
+  # CloudFront Distribution for caching
+  BlogCDN:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - Id: BlogAPI
+            DomainName: !Sub "${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com"
+            OriginPath: !Sub "/${Environment}"
+            CustomOriginConfig:
+              HTTPPort: 443
+              OriginProtocolPolicy: https-only
+        DefaultCacheBehavior:
+          TargetOriginId: BlogAPI
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - POST
+            - PATCH
+            - DELETE
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          Compress: true
+          ForwardedValues:
+            QueryString: true
+            Headers:
+              - Authorization
+              - Content-Type
+              - X-Session-ID
+        PriceClass: PriceClass_100
+
+  # S3 Bucket for static assets
+  BlogAssets:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${Environment}-blog-assets-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+
+  # CloudWatch Alarms
+  PostsErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${Environment}-blog-posts-errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PostsFunction
+      TreatMissingData: notBreaching
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+  
+  CDNDomain:
+    Description: CloudFront distribution domain
+    Value: !GetAtt BlogCDN.DomainName
+  
+  AssetsBucket:
+    Description: S3 bucket for static assets
+    Value: !Ref BlogAssets 

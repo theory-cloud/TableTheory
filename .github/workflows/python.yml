@@ -1,0 +1,72 @@
+name: Python (PY)
+
+on:
+  push:
+    branches: ["premain", "main"]
+  pull_request:
+    branches: ["premain", "main"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  py:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv (pinned)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install uv==0.9.26
+
+      - name: Install dependencies
+        run: uv --directory py sync --frozen --all-extras
+
+      - name: Format check
+        run: uv --directory py run ruff format --check .
+
+      - name: Lint
+        run: uv --directory py run ruff check .
+
+      - name: Typecheck
+        run: uv --directory py run mypy src
+
+      - name: Build
+        run: uv --directory py run python -m build
+
+      - name: Unit tests + coverage (unit)
+        run: bash scripts/coverage-py.sh unit
+
+      - name: Start DynamoDB Local (pinned)
+        run: make docker-up
+
+      - name: Integration test
+        env:
+          AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: dummy
+          AWS_SECRET_ACCESS_KEY: dummy
+          DYNAMODB_ENDPOINT: http://localhost:8000
+        run: uv --directory py run pytest -q tests/integration
+
+      - name: Stop DynamoDB Local
+        if: always()
+        run: make docker-down
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: py_coverage
+          path: |
+            py/coverage.xml
+            py/coverage-unit.txt
+          if-no-files-found: ignore

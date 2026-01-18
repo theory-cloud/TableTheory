@@ -1,0 +1,38 @@
+{
+  "$schema": "https://hgm.pai.dev/schemas/pack.schema.json",
+  "schemaVersion": 1,
+  "packVersion": "816465a1618d",
+  "packDigest": "896aed16549928f21626fb4effe9bb6236fc60292a8f50bae8ce77e873ac775b",
+  "domain": "custom",
+  "projectSlug": "theorydb",
+  "generatedAt": "2026-01-17T00:00:00Z",
+  "source": {
+    "commitSha": "8d664766d002716a2d36563ed30132700bdf7301",
+    "branch": "premain"
+  },
+  "artifacts": {
+    "planning": [
+      "hgm-infra/README.md",
+      "hgm-infra/AGENTS.md",
+      "hgm-infra/planning/theorydb-controls-matrix.md",
+      "hgm-infra/planning/theorydb-threat-model.md",
+      "hgm-infra/planning/theorydb-10of10-rubric.md",
+      "hgm-infra/planning/theorydb-10of10-roadmap.md",
+      "hgm-infra/planning/theorydb-evidence-plan.md",
+      "hgm-infra/planning/theorydb-lint-green-roadmap.md",
+      "hgm-infra/planning/theorydb-coverage-roadmap.md",
+      "hgm-infra/planning/theorydb-logging-ops-standards.md",
+      "hgm-infra/planning/theorydb-maintainability-roadmap.md",
+      "hgm-infra/planning/theorydb-workstream-logging-ops-roadmap.md",
+      "hgm-infra/planning/theorydb-workstream-maintainability-plan-roadmap.md",
+      "hgm-infra/planning/theorydb-supply-chain-allowlist.txt",
+      "hgm-infra/planning/theorydb-ai-drift-recovery.md"
+    ],
+    "verifiers": [
+      "hgm-infra/verifiers/hgm-verify-rubric.sh"
+    ],
+    "evidence": [
+      "hgm-infra/evidence/hgm-rubric-report.json"
+    ]
+  }
+}

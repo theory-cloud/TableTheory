@@ -1,0 +1,13 @@
+# theorydb Supply-Chain Allowlist (SEC-3)
+#
+# Purpose: reduce false positives from heuristic supply-chain scanning without weakening the gate.
+# This file is a plain-text allowlist of exact finding IDs emitted by `SEC-3` (go mod verify).
+#
+# Rules:
+# - One ID per line.
+# - `#` comments are allowed.
+# - Keep this file versioned in git; treat allowlist changes as security-relevant.
+# - Prefer fixing/removing the dependency over allowlisting. If you allowlist, include a justification comment.
+#
+# Example (copy from `hgm-infra/evidence/SEC-3-output.log`):
+# HGM-SUPPLY:GO:REPLACE:rule=REMOTE_REPLACE:from=github.com/example/upstream@v1.2.3:to=github.com/example/fork@v1.2.3

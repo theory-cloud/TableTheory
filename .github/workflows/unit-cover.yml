@@ -1,0 +1,33 @@
+name: Unit Coverage (Short)
+
+on:
+  push:
+    branches: [ "premain", "main" ]
+  pull_request:
+    branches: [ "premain", "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  unit-cover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run offline unit coverage
+        run: make unit-cover
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage_unit
+          path: coverage_unit.out

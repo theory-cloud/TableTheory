@@ -1,0 +1,70 @@
+name: TypeScript (TS)
+
+on:
+  push:
+    branches: ["premain", "main"]
+  pull_request:
+    branches: ["premain", "main"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix ts ci
+
+      - name: Format check
+        run: npm --prefix ts run format:check
+
+      - name: Lint
+        run: npm --prefix ts run lint
+
+      - name: Typecheck
+        run: npm --prefix ts run typecheck
+
+      - name: Build
+        run: npm --prefix ts run build
+
+      - name: Unit tests
+        run: npm --prefix ts run test:unit
+
+      - name: Coverage (unit)
+        run: bash scripts/coverage-ts.sh unit
+
+      - name: Start DynamoDB Local (pinned)
+        run: make docker-up
+
+      - name: Integration test
+        env:
+          AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: dummy
+          AWS_SECRET_ACCESS_KEY: dummy
+          DYNAMODB_ENDPOINT: http://localhost:8000
+        run: npm --prefix ts run test:integration
+
+      - name: Stop DynamoDB Local
+        if: always()
+        run: make docker-down
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ts_coverage
+          path: ts/coverage
+          if-no-files-found: ignore

@@ -1,0 +1,65 @@
+# _concepts.yaml - Machine-readable concept map for TableTheory (Python)
+# Helps AI assistants understand components and relationships
+
+concepts:
+  theorydb_py:
+    type: library
+    language: python
+    purpose: "Typed, testable DynamoDB access layer aligned with Go TableTheory"
+    tagline: "Consistent DynamoDB patterns across Go/TS/Python with strict testability"
+    provides:
+      - model_definition_from_dataclasses
+      - create_get_update_delete
+      - query_pagination_cursor
+      - batch_write_batch_get
+      - transact_write
+      - streams_unmarshal
+      - encryption_envelope_kms
+      - strict_unit_test_fakes
+    requires:
+      - python_3_14
+      - boto3
+      - pyyaml
+      - cryptography
+    replaces:
+      - raw_boto3_expression_building
+    use_when:
+      - building_lambda_python_services
+      - enforcing_cross_language_contracts
+    dont_use_when:
+      - you_need_an_async_dynamodb_client
+
+  model_definition:
+    type: component
+    purpose: "Define a model schema from a dataclass, including roles and encryption semantics"
+    key_methods:
+      - from_dataclass: "Build a ModelDefinition from a dataclass and table name"
+
+  table:
+    type: component
+    purpose: "Primary interface for CRUD, query, batch, and transactions for a model"
+    key_methods:
+      - put: "Create/overwrite an item (optionally guarded)"
+      - get: "Fetch by PK/SK"
+      - update: "Update selected attributes"
+      - delete: "Delete by PK/SK"
+      - query: "Query with cursor pagination"
+      - batch_get: "Batch get by keys"
+      - batch_write: "Batch put/delete"
+      - transact_write: "ACID transactional operations"
+
+  encryption:
+    type: mechanism
+    purpose: "Envelope encryption using AWS KMS data keys (AES-256-GCM payload)"
+    failure_modes:
+      - fail_closed_when_missing_kms_key_arn
+      - reject_encrypted_keys
+
+  mocks:
+    type: tool
+    purpose: "Strict fakes for DynamoDB + KMS for unit tests"
+    provides:
+      - fake_dynamodb_client
+      - fake_kms_client
+      - deterministic_rand_bytes
+

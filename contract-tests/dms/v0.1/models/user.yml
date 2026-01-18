@@ -1,0 +1,65 @@
+dms_version: "0.1"
+namespace: "theorydb.contract"
+models:
+  - name: "User"
+    table:
+      name: "users_contract"
+    naming:
+      convention: "camelCase"
+    keys:
+      partition: { attribute: "PK", type: "S" }
+      sort: { attribute: "SK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "SK"
+        type: "S"
+        required: true
+        roles: ["sk"]
+
+      # Used for GSI query examples.
+      - attribute: "emailHash"
+        type: "S"
+        optional: true
+
+      # Used for omitempty tests (string).
+      - attribute: "nickname"
+        type: "S"
+        optional: true
+        omit_empty: true
+
+      # Used for set tests (SS).
+      - attribute: "tags"
+        type: "SS"
+        optional: true
+        omit_empty: true
+
+      # Lifecycle fields.
+      - attribute: "createdAt"
+        type: "S"
+        format: "rfc3339nano"
+        roles: ["created_at"]
+      - attribute: "updatedAt"
+        type: "S"
+        format: "rfc3339nano"
+        roles: ["updated_at"]
+      - attribute: "version"
+        type: "N"
+        format: "int"
+        roles: ["version"]
+
+      # Optional expiry (epoch seconds).
+      - attribute: "ttl"
+        type: "N"
+        format: "unix_seconds"
+        roles: ["ttl"]
+        optional: true
+        omit_empty: true
+
+    indexes:
+      - name: "gsi-email"
+        type: "GSI"
+        partition: { attribute: "emailHash", type: "S" }
+        projection: { type: "ALL" }

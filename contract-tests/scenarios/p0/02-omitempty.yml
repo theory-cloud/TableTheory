@@ -1,0 +1,26 @@
+name: "p0.encoding.omitempty"
+dms_version: "0.1"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#2"
+      SK: "PROFILE"
+      nickname: ""   # should be omitted (omit_empty)
+      tags: []       # empty set should be omitted
+      ttl: 0         # should be omitted (omit_empty)
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#2"
+      SK: "PROFILE"
+    expect:
+      item_missing_fields: ["nickname", "tags", "ttl"]
+      item_contains:
+        PK: "USER#2"
+        SK: "PROFILE"
+      item_has_fields: ["createdAt", "updatedAt", "version"]

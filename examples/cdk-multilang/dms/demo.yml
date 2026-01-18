@@ -1,0 +1,35 @@
+dms_version: "0.1"
+namespace: "theorydb.examples.cdk_multilang"
+models:
+  - name: "DemoItem"
+    table:
+      # Placeholder (the deployed table name is provided via env var at runtime).
+      name: "demo_multilang"
+    keys:
+      partition: { attribute: "PK", type: "S" }
+      sort: { attribute: "SK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "SK"
+        type: "S"
+        required: true
+        roles: ["sk"]
+
+      - attribute: "value"
+        type: "S"
+        optional: true
+        omit_empty: true
+      - attribute: "lang"
+        type: "S"
+        optional: true
+        omit_empty: true
+
+      - attribute: "secret"
+        type: "S"
+        optional: true
+        omit_empty: true
+        encryption:
+          v: 1

@@ -1,0 +1,201 @@
+# _decisions.yaml - Decision trees for TableTheory
+# Helps AI make correct architectural and implementation choices
+
+decisions:
+  sdk_selection:
+    question: "Which TableTheory SDK should I use?"
+    decision_tree:
+      - condition: "Your service/runtime is Go"
+        choice: "Use the Go SDK (this repo root module)"
+        reason: "First-class Go API with generics, query builder, and Lambda optimizations"
+      - condition: "Your service/runtime is Node.js/TypeScript"
+        choice: "Use the TypeScript SDK (`ts/`)"
+        reason: "First-class Node.js 24 support with strict testkit and cross-language cursor contracts"
+      - condition: "Your service/runtime is Python"
+        choice: "Use the Python SDK (`py/`)"
+        reason: "First-class Python 3.14 support with strict fakes and KMS-backed encryption semantics"
+
+  initialization_strategy:
+    question: "How should I initialize TableTheory?"
+    decision_tree:
+      - condition: "Running in AWS Lambda"
+        check: "Is cold start performance critical?"
+        if_yes:
+          choice: "Use theorydb.NewLambdaOptimized()"
+          reason: "Reuse connections and optimize HTTP client for Lambda environment"
+        if_no:
+          choice: "Use theorydb.New()"
+          reason: "Standard initialization is sufficient if pre-warming isn't needed"
+      - condition: "Running in Long-Running Service (Container/VM)"
+        choice: "Use theorydb.New()"
+        reason: "Standard session management works best for persistent processes"
+      - condition: "Running locally"
+        choice: "Use theorydb.New() with Endpoint config"
+        reason: "Connect to DynamoDB Local"
+
+  data_retrieval:
+    question: "How should I fetch data?"
+    decision_tree:
+      - condition: "Fetch single item by Primary Key"
+        choice: "Use Model().Where(pk).Where(sk).First()"
+        reason: "Fastest, most efficient lookup (GetItem)"
+      - condition: "Fetch multiple items by Partition Key"
+        choice: "Use Model().Where(pk).All()"
+        reason: "Efficient Query operation"
+      - condition: "Fetch by non-key attribute"
+        check: "Is there a GSI?"
+        if_yes:
+          choice: "Use Model().Index(gsi).Where(gsi_pk).All()"
+          reason: "Efficient Query on Index"
+        if_no:
+          choice: "Use Model().Where(attr).All() (Scan)"
+          reason: "Fallback to Scan (warning: expensive)"
+
+  consistency_mode:
+    question: "Do I need strong consistency?"
+    decision_tree:
+      - condition: "Read after write immediately required"
+        choice: "Use .ConsistentRead()"
+        reason: "Guarantees most recent data but costs 2x capacity"
+      - condition: "Eventual consistency is acceptable"
+        choice: "Default (no ConsistentRead)"
+        reason: "Lower cost and higher availability"
+
+  transaction_vs_batch:
+    question: "When should I use transactions versus batch operations?"
+    decision_tree:
+      - condition: "Multiple operations on different items/tables"
+        check: "Do all operations need to succeed or fail atomically?"
+        if_yes:
+          choice: "Use db.Transact() or db.TransactWrite()"
+          reason: "Provides ACID guarantees across up to 100 distinct items"
+          example: |
+            db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
+                tx.Put(item1)
+                tx.Delete(item2)
+                return nil
+            })
+        if_no:
+          choice: "Use BatchCreate(), BatchDelete(), BatchGet()"
+          reason: "More efficient for bulk operations where atomicity isn't required for the entire set, and up to 25 items of same type are involved"
+          example: |
+            db.Model(&User{}).BatchCreate([]*User{user1, user2})
+      - condition: "Single item operation with conditional update"
+        check: "Is it a simple condition like 'if not exists' or 'at version'?"
+        if_yes:
+          choice: "Use Query.IfNotExists() or Query.WithCondition()"
+          reason: "More direct and simpler than a full transaction"
+          example: |
+            db.Model(user).IfNotExists().Create()
+        if_no:
+          choice: "Use db.Transact() with ConditionCheck()"
+          reason: "For complex, cross-item conditions or when you need a pure condition check without a mutation"
+          example: |
+            db.Transact().ConditionCheck(item, theorydb.Condition("Status", "=", "ACTIVE")).Execute()
+
+  gsi_design:
+    question: "How should I design Global Secondary Indexes (GSIs)?"
+    decision_tree:
+      - condition: "Need to query by an attribute other than the main Primary Key"
+        check: "Is the access pattern frequently used and requires low latency?"
+        if_yes:
+          choice: "Create a GSI with the query attribute as its Partition Key"
+          reason: "Enables efficient queries without scanning the main table"
+          example: |
+            type Order struct {
+                OrderID   string `theorydb:"pk"`
+                CustomerID string `theorydb:"index:customer-index,pk"`
+            }
+        if_no:
+          choice: "Consider filtering after a main table query/scan, or denormalizing data"
+          reason: "Avoids GSI cost and complexity if access pattern is infrequent"
+      - condition: "Need to retrieve a subset of attributes from a GSI query"
+        check: "Are all required attributes included in the GSI projection?"
+        if_yes:
+          choice: "Use GSI with KEYS_ONLY or INCLUDE projection"
+          reason: "Reduces read costs and improves performance compared to ALL attributes"
+          example: |
+            type Product struct {
+                ID       string `theorydb:"pk"`
+                Category string `theorydb:"index:category-id-index,pk"`
+                Price    float64 `theorydb:"index:category-id-index,include"`
+            }
+        if_no:
+          choice: "Use GSI with ALL projection or perform a subsequent GetItem on the main table"
+          reason: "ALL projection is simpler but more expensive; GetItem is a viable pattern for infrequently accessed non-projected attributes"
+
+  pagination_strategy:
+    question: "What pagination strategy should I use?"
+    decision_tree:
+      - condition: "Querying with a fixed `Limit` and needing to retrieve all results"
+        choice: "Use `AllPaginated()` with `NextCursor` in a loop"
+        reason: "DynamoDB's native pagination with `LastEvaluatedKey` is exposed as a simple cursor, ideal for full dataset retrieval"
+        example: |
+          for {
+              res, err := db.Model(&User{}).Limit(10).Cursor(cursor).AllPaginated(&users)
+              // ... process users ...
+              if !res.HasMore { break }
+              cursor = res.NextCursor
+          }
+      - condition: "Need to expose paginated results to a frontend API"
+        check: "Is the cursor base64-encoded and opaque to the client?"
+        if_yes:
+          choice: "Return `PaginatedResult.NextCursor` directly to the client"
+          reason: "Secure, efficient, and stateless pagination for clients"
+          example: |
+            // API handler returns result.NextCursor
+        if_no:
+          choice: "Avoid exposing raw `LastEvaluatedKey` to clients"
+          reason: "Raw keys can expose internal table structure and are harder to manage"
+
+  error_retry_strategy:
+    question: "How should I handle transient DynamoDB errors and retries?"
+    decision_tree:
+      - condition: "Experiencing `ProvisionedThroughputExceededException` or other throttling errors"
+        check: "Is the error intermittent and recoverable?"
+        if_yes:
+          choice: "Configure `session.Config.MaxRetries` and use default SDK retry behavior"
+          reason: "AWS SDK has built-in exponential backoff and jitter for transient errors"
+          example: |
+            db, _ := theorydb.New(session.Config{MaxRetries: 5})
+        if_no:
+          choice: "Implement circuit breaker pattern for non-recoverable or persistent errors"
+          reason: "Prevents hammering a failing service"
+      - condition: "Need read-after-write consistency on a GSI or eventually consistent read"
+        check: "Is there a strong dependency on the most recent data?"
+        if_yes:
+          choice: "Use `Query.WithRetry(maxRetries, initialDelay)`"
+          reason: "Allows the application to poll until data propagates, with configurable backoff"
+          example: |
+            db.Model(&User{}).WithRetry(3, 100*time.Millisecond).Where("Email", "=", "a@b.com").First(&user)
+        if_no:
+          choice: "Accept eventual consistency"
+          reason: "Lower latency and cost if immediate consistency is not critical"
+
+  testing_approach:
+    question: "What is the best approach for testing TableTheory interactions?"
+    decision_tree:
+      - condition: "Writing unit tests for business logic"
+        check: "Do you need to isolate business logic from DynamoDB dependencies?"
+        if_yes:
+          choice: "Use `pkg/mocks` (MockDB, MockQuery) and interface injection (`core.DB`)"
+          reason: "Enables fast, isolated tests without real DynamoDB interaction"
+          example: |
+            mockDB := new(mocks.MockDB)
+            mockDB.On("Model", mock.Anything).Return(mockQuery)
+            // ... setup expectations ...
+        if_no:
+          choice: "Consider integration tests or end-to-end tests if business logic is tightly coupled to DB"
+          reason: "Might be harder to mock complex scenarios; better to test with a real DB"
+      - condition: "Writing integration tests for TableTheory queries/mutations"
+        check: "Do you need to verify actual DynamoDB behavior (e.g., index usage, schema enforcement)?"
+        if_yes:
+          choice: "Use DynamoDB Local or a dedicated test AWS environment"
+          reason: "Provides realistic feedback on DynamoDB interactions"
+          example: |
+            db, _ := theorydb.New(session.Config{Endpoint: "http://localhost:8000"})
+            db.CreateTable(&User{})
+            // ... run actual DB operations ...
+        if_no:
+          choice: "Stick to unit tests with mocks"
+          reason: "Avoids overhead of managing DynamoDB instances if not strictly necessary"

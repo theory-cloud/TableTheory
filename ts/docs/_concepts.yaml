@@ -1,0 +1,75 @@
+# _concepts.yaml - Machine-readable concept map for TableTheory (TypeScript)
+# Helps AI assistants understand components and relationships
+
+concepts:
+  theorydb_ts:
+    type: library
+    language: typescript
+    purpose: 'Type-safe DynamoDB access layer aligned with Go TableTheory'
+    tagline: 'Consistent DynamoDB patterns across Go/TS/Python with strict testability'
+    provides:
+      - model_definition_via_defineModel
+      - create_get_update_delete
+      - query_pagination_cursor
+      - batch_get_batch_write
+      - transact_write
+      - streams_unmarshal
+      - encryption_envelope
+      - deterministic_testkit
+    requires:
+      - aws_sdk_js_v3
+      - node_24
+    replaces:
+      - raw_aws_sdk_expression_building
+    use_when:
+      - building_lambda_node_services
+      - enforcing_cross_language_contracts
+    dont_use_when:
+      - you_need_full_dynamodb_document_client_features
+
+  define_model:
+    type: component
+    purpose: 'Define a model schema with explicit attribute names (DMS-friendly)'
+    provides:
+      - attribute_role_mapping
+      - runtime_validation
+      - deterministic_marshaling
+
+  client:
+    type: component
+    purpose: 'Registered model client for CRUD, query, batch, and transactions'
+    key_methods:
+      - register: 'Register a model definition'
+      - create: 'Put item with optional conditions'
+      - get: 'Get item by primary key'
+      - update: 'Update specific attributes with version/conditions'
+      - delete: 'Delete item by primary key'
+      - query: 'Build a query with cursor-based pagination'
+      - batchGet: 'Batch get items with retry handling'
+      - batchWrite: 'Batch put/delete with retry handling'
+      - transactWrite: 'ACID transactional operations'
+
+  cursor:
+    type: mechanism
+    purpose: 'Opaque pagination token compatible with Go cursor contracts'
+    provides:
+      - stable_client_facing_token
+      - cross_language_contract_tests
+
+  encryption_provider:
+    type: interface
+    purpose: 'Pluggable envelope encryption for `encrypted` attributes'
+    provides:
+      - encrypt_attribute_values
+      - decrypt_attribute_values
+    failure_modes:
+      - fail_closed_when_missing
+      - reject_encrypted_keys
+
+  testkit:
+    type: tool
+    purpose: 'Strict AWS client mocks and deterministic helpers for unit tests'
+    provides:
+      - strict_send_mock
+      - fixed_now
+      - deterministic_encryption_provider

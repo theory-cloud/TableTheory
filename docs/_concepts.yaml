@@ -1,0 +1,127 @@
+# _concepts.yaml - Machine-readable concept map for TableTheory
+# Helps AI assistants understand components and relationships
+
+concepts:
+  theorydb:
+    type: library
+    language: multi
+    purpose: "Contract-driven DynamoDB access layer with first-class SDKs for Go, TypeScript, and Python"
+    tagline: "One schema, consistent behavior, and strict verification across languages"
+    provides:
+      - go_sdk
+      - typescript_sdk
+      - python_sdk
+      - cursor_contracts
+      - encryption_envelope_semantics
+      - dms_first_workflow
+      - strict_verification_rubric
+    requires:
+      - dynamodb
+      - github_releases
+    replaces:
+      - drift_prone_ad_hoc_clients
+    use_when:
+      - building_serverless_apps
+      - enforcing_cross_language_schema_consistency
+      - performance_is_critical
+    dont_use_when:
+      - using_sql_databases
+      - direct_sdk_control_is_mandatory
+
+  theorydb_go:
+    type: library
+    language: go
+    purpose: "Type-safe, Lambda-optimized DynamoDB ORM for Go"
+    provides:
+      - fluent_query_builder
+      - transaction_support
+      - batch_operations
+      - streams_unmarshal
+      - encrypted_tag_semantics
+    requires:
+      - aws_sdk_go_v2
+
+  theorydb_ts:
+    type: library
+    language: typescript
+    purpose: "TypeScript DynamoDB access layer aligned with Go behavior"
+    provides:
+      - defineModel_schema
+      - cursor_pagination
+      - batch_and_transactions
+      - streams_unmarshal
+      - encryption_provider
+      - public_testkit
+    requires:
+      - aws_sdk_js_v3
+      - node_24
+
+  theorydb_py:
+    type: library
+    language: python
+    purpose: "Python DynamoDB access layer aligned with Go behavior"
+    provides:
+      - dataclass_models
+      - cursor_pagination
+      - batch_and_transactions
+      - streams_unmarshal
+      - kms_encryption
+      - strict_unit_test_fakes
+    requires:
+      - boto3
+      - python_3_14
+
+  dms_document:
+    type: spec
+    language: yaml
+    purpose: "Language-neutral TableTheory schema document consumed by CDK and SDKs"
+    provides:
+      - explicit_attribute_names
+      - role_mapping_pk_sk_gsi
+      - shared_contract_fixtures
+
+  db_instance:
+    type: component
+    purpose: "Main entry point for database operations"
+    provides:
+      - connection_pooling
+      - configuration_management
+    key_methods:
+      - New: "Standard initialization"
+      - NewLambdaOptimized: "Lambda-optimized initialization"
+      - Model: "Start a query for a specific struct"
+      - Transaction: "Start an ACID transaction"
+
+  query_builder:
+    type: component
+    purpose: "Fluent interface for constructing DynamoDB queries"
+    provides:
+      - automatic_index_selection
+      - type_safe_conditions
+    key_methods:
+      - Where: "Add condition"
+      - Index: "Select specific index"
+      - Limit: "Limit results"
+      - All: "Execute and get all results"
+      - First: "Execute and get single result"
+
+  transaction:
+    type: component
+    purpose: "Manage multi-item ACID transactions"
+    provides:
+      - atomicity
+      - consistency
+    key_methods:
+      - Create: "Add create operation to tx"
+      - Update: "Add update operation to tx"
+      - Delete: "Add delete operation to tx"
+      - Execute: "Commit transaction"
+
+  struct_tags:
+    type: mechanism
+    purpose: "Map Go structs to DynamoDB attributes"
+    key_tags:
+      - theorydb:"pk": "Partition Key"
+      - theorydb:"sk": "Sort Key"
+      - theorydb:"index:name,pk": "GSI Partition Key"
+      - theorydb:"index:name,sk": "GSI Sort Key"

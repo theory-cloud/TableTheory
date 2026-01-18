@@ -1,0 +1,47 @@
+# _patterns.yaml - Machine-readable patterns for TableTheory (Python)
+# Documents correct and incorrect usage patterns for AI training
+
+patterns:
+  model_definition:
+    name: "Dataclass Models With Explicit Roles"
+    problem: "Schema drift happens when keys and attribute roles are implicit"
+    solution: "Use dataclasses + `theorydb_field(...)` with explicit roles"
+    correct_example: |
+      from dataclasses import dataclass
+      from theorydb_py import theorydb_field
+
+      @dataclass(frozen=True)
+      class Note:
+          pk: str = theorydb_field(roles=["pk"])
+          sk: str = theorydb_field(roles=["sk"])
+          value: int = theorydb_field()
+    anti_patterns:
+      - name: "Implicit key usage"
+        why: "Breaks parity and makes table access patterns ambiguous"
+        incorrect_example: |
+          @dataclass
+          class Note:
+              id: str  # ❌ INCORRECT: missing pk/sk roles
+        consequences:
+          - runtime_errors
+          - schema_drift
+
+  testing:
+    name: "Strict Unit Tests With Fakes"
+    problem: "Loose mocks allow missing calls and hidden contract breaks"
+    solution: "Use `theorydb_py.mocks` strict fakes and explicit expectations"
+    correct_example: |
+      from theorydb_py.mocks import ANY, FakeDynamoDBClient
+
+      fake = FakeDynamoDBClient()
+      fake.expect("put_item", {"TableName": "notes", "Item": {"PK": ANY, "SK": ANY}})
+    anti_patterns:
+      - name: "Live AWS in unit tests"
+        why: "Slow, flaky, and often violates least-privilege in CI"
+        incorrect_example: |
+          # ❌ INCORRECT: unit tests should not require real AWS
+          client = boto3.client("dynamodb")
+        consequences:
+          - flaky_ci
+          - slow_tests
+

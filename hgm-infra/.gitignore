@@ -1,0 +1,12 @@
+# Local-only tool installs (do not commit)
+.tools/
+
+# Generated evidence logs (CI artifacts; keep the machine report tracked)
+evidence/*.log
+!evidence/hgm-rubric-report.json
+
+# Local certification/signature bundles (do not commit)
+signatures/
+
+# Optional generated prompt/spec blobs (server-side)
+prompts/

@@ -1,0 +1,24 @@
+# _decisions.yaml - Decision trees for TableTheory (Python)
+# Helps AI make correct architectural and implementation choices
+
+decisions:
+  install_source:
+    question: "How should I install tabletheory-py?"
+    decision_tree:
+      - condition: "Consuming a released version"
+        choice: "Install from GitHub Release wheel/sdist asset"
+        reason: "GitHub Releases are the source of truth (no PyPI publishing)"
+      - condition: "Developing inside the monorepo"
+        choice: "Use uv or editable installs from `./py`"
+        reason: "Fast iteration with pinned dev dependencies"
+
+  testing_strategy:
+    question: "Should this test be unit or integration?"
+    decision_tree:
+      - condition: "Testing DynamoDB semantics (pagination, conditional writes, batch limits)"
+        choice: "Write an integration test (DynamoDB Local)"
+        reason: "Validates real DynamoDB constraints"
+      - condition: "Testing business logic and error handling"
+        choice: "Write a unit test with strict fakes"
+        reason: "Fast, deterministic tests without AWS"
+

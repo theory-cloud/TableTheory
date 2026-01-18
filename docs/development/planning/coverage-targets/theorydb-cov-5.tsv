@@ -1,0 +1,23 @@
+# TableTheory Coverage Roadmap — COV-5 targets
+# Format: <package> <min_percent>
+github.com/theory-cloud/tabletheory 80
+github.com/theory-cloud/tabletheory/internal/expr 80
+github.com/theory-cloud/tabletheory/internal/numutil 80
+github.com/theory-cloud/tabletheory/internal/reflectutil 80
+github.com/theory-cloud/tabletheory/pkg/consistency 80
+github.com/theory-cloud/tabletheory/pkg/core 80
+github.com/theory-cloud/tabletheory/pkg/errors 80
+github.com/theory-cloud/tabletheory/pkg/index 80
+github.com/theory-cloud/tabletheory/pkg/interfaces 80
+github.com/theory-cloud/tabletheory/pkg/marshal 80
+github.com/theory-cloud/tabletheory/pkg/mocks 80
+github.com/theory-cloud/tabletheory/pkg/model 80
+github.com/theory-cloud/tabletheory/pkg/naming 80
+github.com/theory-cloud/tabletheory/pkg/protection 80
+github.com/theory-cloud/tabletheory/pkg/query 80
+github.com/theory-cloud/tabletheory/pkg/schema 80
+github.com/theory-cloud/tabletheory/pkg/session 80
+github.com/theory-cloud/tabletheory/pkg/testing 80
+github.com/theory-cloud/tabletheory/pkg/transaction 80
+github.com/theory-cloud/tabletheory/pkg/types 80
+github.com/theory-cloud/tabletheory/pkg/validation 80

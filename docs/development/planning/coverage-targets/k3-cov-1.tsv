@@ -1,0 +1,32 @@
+# K3 Coverage Roadmap — COV-1 targets
+# Format: <package> <min_percent>
+github.com/theory-cloud/k3/cmd/create-tables	5
+github.com/theory-cloud/k3/cmd/debug-event	5
+github.com/theory-cloud/k3/cmd/error-handling-test	5
+github.com/theory-cloud/k3/cmd/lambda	5
+github.com/theory-cloud/k3/cmd/mock-tesouro	5
+github.com/theory-cloud/k3/cmd/processor-test	5
+github.com/theory-cloud/k3/cmd/stream-processor	5
+github.com/theory-cloud/k3/cmd/tesouro-mock-server	5
+github.com/theory-cloud/k3/cmd/tesouro-test	5
+github.com/theory-cloud/k3/internal/business	10
+github.com/theory-cloud/k3/internal/config	10
+github.com/theory-cloud/k3/internal/constants	90
+github.com/theory-cloud/k3/internal/db	10
+github.com/theory-cloud/k3/internal/handlers	10
+github.com/theory-cloud/k3/internal/middleware	10
+github.com/theory-cloud/k3/internal/models	10
+github.com/theory-cloud/k3/internal/processors	10
+github.com/theory-cloud/k3/internal/processors/finix	10
+github.com/theory-cloud/k3/internal/processors/rapid_connect	10
+github.com/theory-cloud/k3/internal/processors/tesouro	10
+github.com/theory-cloud/k3/internal/repositories	10
+github.com/theory-cloud/k3/internal/services	10
+github.com/theory-cloud/k3/internal/services/impl	10
+github.com/theory-cloud/k3/pkg/cryptography	10
+github.com/theory-cloud/k3/pkg/errors	10
+github.com/theory-cloud/k3/pkg/http	10
+github.com/theory-cloud/k3/pkg/logger	10
+github.com/theory-cloud/k3/pkg/money	10
+github.com/theory-cloud/k3/pkg/tesouro	10
+github.com/theory-cloud/k3/pkg/validation	10
