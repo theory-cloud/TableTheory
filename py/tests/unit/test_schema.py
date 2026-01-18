@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 from botocore.exceptions import ClientError
 
-from theorydb_py import ModelDefinition, Projection, ValidationError, theorydb_field, gsi, lsi
+from theorydb_py import ModelDefinition, Projection, ValidationError, gsi, lsi, theorydb_field
 from theorydb_py.errors import AwsError, NotFoundError
 from theorydb_py.mocks import FakeDynamoDBClient
 from theorydb_py.schema import (

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from theorydb_py.mocks import FakeDynamoDBClient
-from theorydb_py.model import ModelDefinition, theorydb_field, gsi, lsi
+from theorydb_py.model import ModelDefinition, gsi, lsi, theorydb_field
 from theorydb_py.optimizer import QueryOptimizer
 from theorydb_py.query import FilterCondition
 from theorydb_py.table import Table

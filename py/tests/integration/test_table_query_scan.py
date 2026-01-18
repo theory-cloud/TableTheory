@@ -14,9 +14,9 @@ from theorydb_py import (
     SortKeyCondition,
     Table,
     ValidationError,
-    theorydb_field,
     gsi,
     lsi,
+    theorydb_field,
 )
 
 

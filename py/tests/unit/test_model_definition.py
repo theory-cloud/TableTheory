@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py.model import ModelDefinition, ModelDefinitionError, Projection, theorydb_field, gsi, lsi
+from theorydb_py.model import ModelDefinition, ModelDefinitionError, Projection, gsi, lsi, theorydb_field
 
 
 @dataclass(frozen=True)

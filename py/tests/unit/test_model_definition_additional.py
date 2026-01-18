@@ -10,8 +10,8 @@ from theorydb_py.model import (
     ModelDefinition,
     ModelDefinitionError,
     Projection,
-    theorydb_field,
     gsi,
+    theorydb_field,
 )
 
 

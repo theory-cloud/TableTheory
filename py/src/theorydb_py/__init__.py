@@ -9,9 +9,9 @@ from .errors import (
     AwsError,
     BatchRetryExceededError,
     ConditionFailedError,
-    TheorydbPyError,
     EncryptionNotConfiguredError,
     NotFoundError,
+    TheorydbPyError,
     TransactionCanceledError,
     ValidationError,
 )
@@ -22,9 +22,9 @@ from .model import (
     ModelDefinition,
     ModelDefinitionError,
     Projection,
-    theorydb_field,
     gsi,
     lsi,
+    theorydb_field,
 )
 from .query import FilterCondition, FilterGroup, Page, SortKeyCondition
 from .transaction import (

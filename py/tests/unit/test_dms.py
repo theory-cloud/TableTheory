@@ -9,11 +9,11 @@ from theorydb_py import (
     Projection,
     ValidationError,
     assert_model_definition_equivalent_to_dms,
-    theorydb_field,
     get_dms_model,
     gsi,
     lsi,
     parse_dms_document,
+    theorydb_field,
 )
 from theorydb_py.dms import _model_definition_to_dms_model
 
