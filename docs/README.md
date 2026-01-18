@@ -38,7 +38,7 @@
 
 ### 📝 Development Artifacts
 
-- [Development Notes](./development/notes/template-notes.md) – Session notes and progress tracking templates
+- [Development Notes](../hgm-infra/planning/theorydb-session-notes-template.md) – Session notes and progress tracking template
 - [Architectural Decisions](./development/decisions/template-decision.md) – Architectural choices and rationale templates
 - [Clarification Requests](./development/clarifications/template-clarification.md) – Templates for documenting questions and ambiguities
 
