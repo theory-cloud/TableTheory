@@ -22,6 +22,9 @@ jobs:
           target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          # Prevent release-please from opening the *next* release PR on release commits.
+          # PR generation runs in release-pr.yml.
+          skip-github-pull-request: true
 
       - name: Checkout (for release assets)
         if: steps.release.outputs.release_created == 'true'
