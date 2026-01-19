@@ -4,7 +4,7 @@
   "draft": false,
   "packages": {
     ".": {
-      "release-as": "1.0.0",
+      "release-as": "1.1.0",
       "extra-files": [
         {
           "type": "json",
