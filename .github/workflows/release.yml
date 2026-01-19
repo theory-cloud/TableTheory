@@ -3,6 +3,7 @@ name: Release (main)
 on:
   push:
     branches: ["main"]
+    tags: ["v*"]
   workflow_dispatch: {}
 
 permissions:
@@ -14,14 +15,56 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout (for tag-triggered assets)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/checkout@v4
+
+      - name: Upload assets for existing tag release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ -z "${TAG_NAME}" ]]; then
+            echo "release-assets: FAIL (missing tag ref_name)"
+            exit 1
+          fi
+
+          # Ensure a GitHub release exists for this tag (Source code zip/tar is auto-attached by GitHub).
+          if ! gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release create "${TAG_NAME}" --generate-notes
+          fi
+
+          rm -rf release-assets
+          mkdir -p release-assets
+
+          pushd ts
+          npm ci
+          npm run build
+          npm pack --pack-destination ../release-assets
+          popd
+
+          pushd py
+          python -m pip install --upgrade pip
+          python -m pip install uv==0.9.26
+          uv sync --frozen --all-extras
+          uv run python -m build --outdir ../release-assets
+          popd
+
+          ls -la release-assets
+          gh release upload "${TAG_NAME}" release-assets/* --clobber
+
       - name: Release Please (Stable)
         id: release
+        if: github.ref == 'refs/heads/main'
         uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          # PR generation runs in release-pr.yml.
+          skip-github-pull-request: true
 
       - name: Checkout (for release assets)
         if: steps.release.outputs.release_created == 'true'
