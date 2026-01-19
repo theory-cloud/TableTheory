@@ -77,3 +77,15 @@ jobs:
             exit 1
           fi
           gh release upload "${TAG_NAME}" release-assets/* --clobber
+
+      - name: Publish release (immutable)
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: |
+          if [[ -z "${TAG_NAME}" ]]; then
+            echo "release-assets: FAIL (missing tag_name output)"
+            exit 1
+          fi
+          gh release edit "${TAG_NAME}" --draft=false
