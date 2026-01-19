@@ -22,6 +22,9 @@ jobs:
           target-branch: premain
           config-file: release-please-config.premain.json
           manifest-file: .release-please-manifest.premain.json
+          # Prevent release-please from opening the *next* prerelease PR on release commits.
+          # PR generation runs in prerelease-pr.yml.
+          skip-github-pull-request: true
 
       - name: Checkout (for release assets)
         if: steps.release.outputs.release_created == 'true'
