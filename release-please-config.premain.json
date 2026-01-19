@@ -2,6 +2,7 @@
   "release-type": "go",
   "include-v-in-tag": true,
   "draft": true,
+  "bootstrap-sha": "b2bb7b4d69769b20ff917368b4e578e83465d910",
   "versioning": "prerelease",
   "prerelease-type": "rc",
   "prerelease": true,
