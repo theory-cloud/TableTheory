@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3-rc](https://github.com/theory-cloud/TableTheory/compare/v1.1.2...v1.1.3-rc) (2026-01-19)
+
+
+### Bug Fixes
+
+* **security:** harden API key hashing ([2c47b6c](https://github.com/theory-cloud/TableTheory/commit/2c47b6c7dac1084b66448f81dc3d49ce4e4114e0))
+
 ## [1.1.2](https://github.com/theory-cloud/TableTheory/compare/v1.1.1...v1.1.2) (2026-01-19)
 
 
