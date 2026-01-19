@@ -3,6 +3,12 @@ name: Prerelease PR (premain)
 on:
   push:
     branches: ["premain"]
+    paths-ignore:
+      - ".release-please-manifest.premain.json"
+      - "CHANGELOG.md"
+      - "py/src/theorydb_py/version.json"
+      - "ts/package.json"
+      - "ts/package-lock.json"
   workflow_dispatch: {}
 
 permissions:
@@ -12,9 +18,6 @@ permissions:
 
 jobs:
   release-please:
-    # Don't open a "next prerelease" PR while the prerelease commit's workflow is still
-    # building assets and publishing the draft prerelease (immutable releases).
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(premain): release')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Release Please (PR only)
