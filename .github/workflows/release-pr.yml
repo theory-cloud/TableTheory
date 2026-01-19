@@ -14,7 +14,7 @@ jobs:
   release-please:
     # Don't open a "next release" PR while the release commit's workflow is still
     # building assets and publishing the draft release (immutable releases).
-    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message || '', 'chore(main): release')
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(main): release')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Release Please (PR only)

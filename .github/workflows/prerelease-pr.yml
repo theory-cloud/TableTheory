@@ -14,7 +14,7 @@ jobs:
   release-please:
     # Don't open a "next prerelease" PR while the prerelease commit's workflow is still
     # building assets and publishing the draft prerelease (immutable releases).
-    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message || '', 'chore(premain): release')
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(premain): release')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Release Please (PR only)
