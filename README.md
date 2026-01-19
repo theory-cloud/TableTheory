@@ -73,7 +73,7 @@ models:
 See [docs/development/planning/theorydb-spec-dms-v0.1.md](docs/development/planning/theorydb-spec-dms-v0.1.md) for the
 current draft semantics and portability rules.
 
-## Installation
+## Installation and Versioning
 
 This repo uses **GitHub Releases** as the source of truth. (No npm/PyPI publishing.)
 
