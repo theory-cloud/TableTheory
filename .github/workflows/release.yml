@@ -9,7 +9,6 @@ on:
       tag_name:
         description: "Optional: upload assets to an existing tag/release (e.g., v1.1.1)"
         required: false
-        type: string
 
 permissions:
   contents: write
