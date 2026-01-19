@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.2](https://github.com/theory-cloud/TableTheory/compare/v1.1.1...v1.1.2) (2026-01-19)
+
+
+### Bug Fixes
+
+* **ci:** add release PR workflow ([07a5cc8](https://github.com/theory-cloud/TableTheory/commit/07a5cc8d12195ba8f702ecbe21b8d9c57b9efa9a))
+* **ci:** align versions for v1.1.1 ([bb74851](https://github.com/theory-cloud/TableTheory/commit/bb74851ae8871c2cf6b8e6906b66f15669a2f928))
+* **ci:** allow manual asset upload for existing tag ([0f8ea9e](https://github.com/theory-cloud/TableTheory/commit/0f8ea9eeae26035670adfe5f8c4d469694ccda12))
+* **ci:** make release dispatch input compatible ([cd0c245](https://github.com/theory-cloud/TableTheory/commit/cd0c245d6987bdbbc1b15754abe4f1f1337dd9cf))
+
 ## 1.0.0 (2026-01-19)
 
 
