@@ -1,6 +1,7 @@
 {
   "release-type": "go",
   "include-v-in-tag": true,
+  "draft": true,
   "packages": {
     ".": {
       "extra-files": [
