@@ -24,7 +24,7 @@ test: docker-up
 	@echo "Running all tests (unit + integration)..."
 	@go test -v -race -coverprofile=coverage.out -count=1 $(ALL_PACKAGES)
 	@echo ""
-	@echo "✅ All tests passed!"
+	@echo "✅ Success All tests passed!"
 
 # Run only unit tests (fast, no DynamoDB required)
 test-unit:
