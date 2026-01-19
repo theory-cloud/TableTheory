@@ -4,7 +4,12 @@ on:
   push:
     branches: ["main"]
     tags: ["v*"]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Optional: upload assets to an existing tag/release (e.g., v1.1.1)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -16,14 +21,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (for tag-triggered assets)
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag_name != ''
         uses: actions/checkout@v4
 
+      - name: Set up Node (24) (for tag-triggered assets)
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag_name != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - name: Set up Python (3.14) (for tag-triggered assets)
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag_name != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
       - name: Upload assets for existing tag release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag_name != ''
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ inputs.tag_name || github.ref_name }}
         run: |
           if [[ -z "${TAG_NAME}" ]]; then
             echo "release-assets: FAIL (missing tag ref_name)"
