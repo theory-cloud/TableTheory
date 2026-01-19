@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/theory-cloud/tabletheory/examples/multi-tenant/models"
 	"github.com/theory-cloud/tabletheory/pkg/core"
@@ -82,32 +82,36 @@ func (h *APIKeyHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Generate API key
-	keyBytes := make([]byte, 32)
-	if _, err := rand.Read(keyBytes); err != nil {
+	// Generate API key (store a bcrypt hash of the secret portion)
+	keyID := uuid.New().String()
+	secretBytes := make([]byte, 24)
+	if _, err := rand.Read(secretBytes); err != nil {
 		http.Error(w, "failed to generate API key", http.StatusInternalServerError)
 		return
 	}
 
-	// Create key format: sk_live_{random}
+	// Create key format: sk_live_{keyID}.{secret}
 	keyPrefix := "sk_live_"
 	if strings.Contains(r.Host, "localhost") || strings.Contains(r.Host, "127.0.0.1") {
 		keyPrefix = "sk_test_"
 	}
-	apiKey := keyPrefix + base64.URLEncoding.EncodeToString(keyBytes)[:32]
+	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
+	apiKey := fmt.Sprintf("%s%s.%s", keyPrefix, keyID, secret)
 
-	// Hash the key for storage
-	hash := sha256.Sum256([]byte(apiKey))
-	keyHash := base64.StdEncoding.EncodeToString(hash[:])
+	// Hash the secret for storage
+	keyHashBytes, err := bcrypt.GenerateFromPassword([]byte(secret), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "failed to generate API key hash", http.StatusInternalServerError)
+		return
+	}
 
 	// Create API key record
-	keyID := uuid.New().String()
 	apiKeyRecord := &models.APIKey{
 		ID:        fmt.Sprintf("%s#key#%s", orgID, keyID),
 		OrgID:     orgID,
 		KeyID:     fmt.Sprintf("key#%s", keyID),
 		Name:      req.Name,
-		KeyHash:   keyHash,
+		KeyHash:   string(keyHashBytes),
 		KeyPrefix: apiKey[:12], // Store first 12 chars for identification
 		ProjectID: req.ProjectID,
 		Scopes:    req.Scopes,
@@ -354,20 +358,41 @@ func (h *APIKeyHandler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 
 // ValidateAPIKey validates an API key and returns its details (used by middleware)
 func (h *APIKeyHandler) ValidateAPIKey(apiKey string) (*models.APIKey, error) {
-	// Hash the provided key
-	hash := sha256.Sum256([]byte(apiKey))
-	keyHash := base64.StdEncoding.EncodeToString(hash[:])
+	// Format: sk_{env}_{keyID}.{secret}
+	keyParts := strings.SplitN(apiKey, ".", 2)
+	if len(keyParts) != 2 {
+		return nil, fmt.Errorf("invalid API key")
+	}
+	keyIDWithPrefix := keyParts[0]
+	secret := keyParts[1]
 
-	// Search for the key by hash
+	var keyID string
+	switch {
+	case strings.HasPrefix(keyIDWithPrefix, "sk_live_"):
+		keyID = strings.TrimPrefix(keyIDWithPrefix, "sk_live_")
+	case strings.HasPrefix(keyIDWithPrefix, "sk_test_"):
+		keyID = strings.TrimPrefix(keyIDWithPrefix, "sk_test_")
+	default:
+		return nil, fmt.Errorf("invalid API key")
+	}
+	if keyID == "" || secret == "" {
+		return nil, fmt.Errorf("invalid API key")
+	}
+
+	// Search for the key by ID
 	var apiKeyRecord models.APIKey
 	if err := h.db.Model(&models.APIKey{}).
-		Where("KeyHash", "=", keyHash).
+		Where("KeyID", "=", fmt.Sprintf("key#%s", keyID)).
 		Where("Active", "=", true).
 		First(&apiKeyRecord); err != nil {
 		if err == derrors.ErrItemNotFound {
 			return nil, fmt.Errorf("invalid API key")
 		}
 		return nil, err
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(apiKeyRecord.KeyHash), []byte(secret)); err != nil {
+		return nil, fmt.Errorf("invalid API key")
 	}
 
 	// Check if expired
