@@ -1,7 +1,7 @@
 {
   "release-type": "go",
   "include-v-in-tag": true,
-  "draft": false,
+  "draft": true,
   "bootstrap-sha": "dff961b8d72406f72e15758edd25ae6943975bb7",
   "packages": {
     ".": {

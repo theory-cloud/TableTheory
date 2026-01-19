@@ -79,7 +79,17 @@ jobs:
             echo "release-assets: FAIL (missing tag_name output)"
             exit 1
           fi
-          gh release upload "${TAG_NAME}" release-assets/* --clobber
+
+          mapfile -t existing_assets < <(gh release view "${TAG_NAME}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+
+          for asset_path in release-assets/*; do
+            asset_name="$(basename "${asset_path}")"
+            if printf '%s\n' "${existing_assets[@]}" | grep -Fxq "${asset_name}"; then
+              echo "release-assets: skip existing ${asset_name}"
+              continue
+            fi
+            gh release upload "${TAG_NAME}" "${asset_path}"
+          done
 
       - name: Publish prerelease (immutable)
         if: steps.release.outputs.release_created == 'true'
