@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.3-rc](https://github.com/theory-cloud/TableTheory/compare/v1.1.2...v1.1.3-rc) (2026-01-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **release:** reset versioning to 1.0.0
+
+### Features
+
+* **release:** reset versioning to 1.0.0 ([4f193fa](https://github.com/theory-cloud/TableTheory/commit/4f193fa4e2980e54affb67d21b21142fd4675945))
+
+
+### Bug Fixes
+
+* **ci:** address ruff and coverage ([f38a930](https://github.com/theory-cloud/TableTheory/commit/f38a9308b7397314168f68a5ee99ff9d2695d2c0))
+* **security:** resolve CodeQL weak hashing alert ([#22](https://github.com/theory-cloud/TableTheory/issues/22)) ([78b6988](https://github.com/theory-cloud/TableTheory/commit/78b6988ac21d96905b70e8e3ad5a8ef512c55b60))
+
 ## [1.1.2](https://github.com/theory-cloud/TableTheory/compare/v1.1.1...v1.1.2) (2026-01-19)
 
 
