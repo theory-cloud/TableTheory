@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.4](https://github.com/theory-cloud/TableTheory/compare/v1.1.3...v1.1.4) (2026-01-19)
+
+
+### Bug Fixes
+
+* **ci:** make release assets immutable ([1ef4aca](https://github.com/theory-cloud/TableTheory/commit/1ef4aca7bbd6ef6fffe9a86b9f33b1c0c28e1e97))
+* **ci:** make release assets immutable ([e9ad219](https://github.com/theory-cloud/TableTheory/commit/e9ad219f7d806e8faff7422c45ea2b1f066e3904))
+
 ## [1.1.4-rc](https://github.com/theory-cloud/TableTheory/compare/v1.1.3...v1.1.4-rc) (2026-01-19)
 
 
