@@ -1,16 +1,21 @@
 {
   "release-type": "go",
   "include-v-in-tag": true,
-  "draft": true,
+  "draft": false,
   "packages": {
     ".": {
+      "release-as": "1.0.0",
       "extra-files": [
         {
           "type": "json",
           "path": "py/src/theorydb_py/version.json",
           "jsonpath": "$.version"
         },
-        { "type": "json", "path": "ts/package.json", "jsonpath": "$.version" },
+        {
+          "type": "json",
+          "path": "ts/package.json",
+          "jsonpath": "$.version"
+        },
         {
           "type": "json",
           "path": "ts/package-lock.json",
