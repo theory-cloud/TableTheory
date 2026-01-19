@@ -2,9 +2,9 @@ name: Unit Coverage (Short)
 
 on:
   push:
-    branches: [ "premain", "main" ]
+    branches: [ "staging", "premain", "main" ]
   pull_request:
-    branches: [ "premain", "main" ]
+    branches: [ "staging", "premain", "main" ]
 
 permissions:
   contents: read
