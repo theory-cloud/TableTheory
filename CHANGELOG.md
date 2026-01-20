@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.5](https://github.com/theory-cloud/TableTheory/compare/v1.1.4...v1.1.5) (2026-01-20)
+
+
+### Bug Fixes
+
+* address security/quality findings ([3b56fb4](https://github.com/theory-cloud/TableTheory/commit/3b56fb4986d2a0e93ced5c682caa2fd401a62087))
+* address security/quality findings ([f7adaf7](https://github.com/theory-cloud/TableTheory/commit/f7adaf79d1e7248d3b2654f5c82b33f79cc6e4ac))
+
+## [1.1.5-rc](https://github.com/theory-cloud/TableTheory/compare/v1.1.4...v1.1.5-rc) (2026-01-20)
+
+
+### Bug Fixes
+
+* address security/quality findings ([3b56fb4](https://github.com/theory-cloud/TableTheory/commit/3b56fb4986d2a0e93ced5c682caa2fd401a62087))
+* address security/quality findings ([f7adaf7](https://github.com/theory-cloud/TableTheory/commit/f7adaf79d1e7248d3b2654f5c82b33f79cc6e4ac))
+
 ## [1.1.4](https://github.com/theory-cloud/TableTheory/compare/v1.1.3...v1.1.4) (2026-01-19)
 
 
