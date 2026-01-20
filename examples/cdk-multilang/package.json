@@ -1,6 +1,7 @@
 {
   "name": "@theory-cloud/tabletheory-cdk-multilang-demo",
   "version": "1.1.0-rc.3",
+  "license": "Apache-2.0",
   "private": true,
   "type": "commonjs",
   "engines": {
