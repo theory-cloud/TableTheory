@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -303,7 +304,7 @@ def _compare_having(agg_value: float, operator: str, compare_value: float) -> bo
         case "!=":
             return agg_value != compare_value
         case _:
-            return True
+            raise ValueError(f"unsupported HAVING operator: {operator!r}")
 
 
 def _extract_numeric_value(item: Any, field: str) -> float | None:
@@ -358,9 +359,7 @@ def _to_float(value: Any) -> float | None:
             converted = float(value)
         except (OverflowError, TypeError, ValueError):
             return None
-        if converted != converted:  # NaN
-            return None
-        if converted in (float("inf"), float("-inf")):
+        if not math.isfinite(converted):
             return None
         return converted
     return None
