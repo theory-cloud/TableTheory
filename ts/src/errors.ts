@@ -1,6 +1,8 @@
 export type ErrorCode =
   | 'ErrItemNotFound'
   | 'ErrConditionFailed'
+  | 'ErrLeaseHeld'
+  | 'ErrLeaseNotOwned'
   | 'ErrInvalidModel'
   | 'ErrMissingPrimaryKey'
   | 'ErrInvalidOperator'
