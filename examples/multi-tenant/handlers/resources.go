@@ -207,6 +207,7 @@ func (h *ResourceHandler) GetProjectUsage(w http.ResponseWriter, r *http.Request
 	// Query resources
 	var resources []models.Resource
 	if err := h.db.Model(&models.Resource{}).
+		Where("OrgID", "=", orgID).
 		Where("ProjectID", "=", projectID).
 		Where("Timestamp", ">=", start).
 		Where("Timestamp", "<=", end).

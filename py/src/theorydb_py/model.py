@@ -10,9 +10,11 @@ class ModelDefinitionError(ValueError):
 
 
 class AttributeConverter(Protocol):
-    def to_dynamodb(self, value: Any) -> Any: ...
+    def to_dynamodb(self, value: Any) -> Any:
+        pass
 
-    def from_dynamodb(self, value: Any) -> Any: ...
+    def from_dynamodb(self, value: Any) -> Any:
+        pass
 
 
 @dataclass(frozen=True)
@@ -76,7 +78,8 @@ def theorydb_field(
     encrypted: bool = False,
     converter: AttributeConverter | None = None,
     ignore: bool = False,
-) -> Any: ...
+) -> Any:
+    pass
 
 
 @overload
@@ -92,7 +95,8 @@ def theorydb_field(
     converter: AttributeConverter | None = None,
     ignore: bool = False,
     default: Any,
-) -> Any: ...
+) -> Any:
+    pass
 
 
 @overload
@@ -108,7 +112,8 @@ def theorydb_field(
     converter: AttributeConverter | None = None,
     ignore: bool = False,
     default_factory: Any,
-) -> Any: ...
+) -> Any:
+    pass
 
 
 def theorydb_field(

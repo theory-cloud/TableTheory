@@ -83,7 +83,7 @@ function assertJsonCompatible(value: unknown, path: string): void {
   }
   if (!isPlainObject(value)) {
     const kind =
-      typeof value === 'object' && value !== null
+      typeof value === 'object'
         ? String(
             (value as { constructor?: { name?: unknown } }).constructor?.name ??
               'Object',
