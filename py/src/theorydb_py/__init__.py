@@ -10,6 +10,8 @@ from .errors import (
     BatchRetryExceededError,
     ConditionFailedError,
     EncryptionNotConfiguredError,
+    LeaseHeldError,
+    LeaseNotOwnedError,
     NotFoundError,
     TheorydbPyError,
     TransactionCanceledError,
@@ -62,6 +64,7 @@ if TYPE_CHECKING:
         is_lambda_environment,
     )
     from .schema import build_create_table_request, create_table, delete_table, describe_table, ensure_table
+    from .lease import Lease, LeaseKey, LeaseManager
     from .streams import unmarshal_stream_image, unmarshal_stream_record
     from .table import Table
     from .validation import (
@@ -187,6 +190,10 @@ def __getattr__(name: str) -> Any:
         from . import validation
 
         return getattr(validation, name)
+    if name in {"Lease", "LeaseKey", "LeaseManager"}:
+        from . import lease
+
+        return getattr(lease, name)
     raise AttributeError(name)
 
 
@@ -201,6 +208,8 @@ __all__ = [
     "BatchRetryExceededError",
     "build_create_table_request",
     "ConditionFailedError",
+    "LeaseHeldError",
+    "LeaseNotOwnedError",
     "count_distinct",
     "create_lambda_boto3_config",
     "create_table",
@@ -225,6 +234,9 @@ __all__ = [
     "FilterCondition",
     "FilterGroup",
     "ConcurrencyLimiter",
+    "Lease",
+    "LeaseKey",
+    "LeaseManager",
     "MaxExpressionLength",
     "MaxFieldNameLength",
     "MaxNestedDepth",
