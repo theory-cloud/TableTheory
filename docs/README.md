@@ -21,6 +21,7 @@
 - [API Reference (Go)](./api-reference.md) – Go SDK public API (DB, Query, Transactions)
 - [Core Patterns (Go)](./core-patterns.md) – Go SDK canonical usage patterns (Lambda, Batch, Streams)
 - [FaceTheory ISR Cache Schema](./facetheory/isr-cache-schema.md) – Recommended cache metadata + regeneration lease item shapes
+- [FaceTheory ISR Transaction Recipes](./facetheory/isr-transaction-recipes.md) – Correctness-first patterns for publishing metadata under lease
 - [Development Guidelines](./development-guidelines.md) – Repo-wide coding standards (Go + TS + Python)
 - [Testing Guide](./testing-guide.md) – Repo-wide testing strategy (Go + TS + Python)
 - [Troubleshooting (Go)](./troubleshooting.md) – Go SDK troubleshooting (TypeScript/Python have their own)
