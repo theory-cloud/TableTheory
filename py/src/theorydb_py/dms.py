@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import MISSING, fields
 from decimal import Decimal
@@ -62,7 +63,7 @@ def assert_model_definition_equivalent_to_dms(
 
 def _assert_json_compatible(value: Any, *, path: str) -> None:
     if value is None or isinstance(value, (str, bool, int, float)):
-        if isinstance(value, float) and not (value == value and value not in (float("inf"), float("-inf"))):
+        if isinstance(value, float) and not math.isfinite(value):
             raise ValidationError(f"DMS contains non-finite float at {path}")
         return
 

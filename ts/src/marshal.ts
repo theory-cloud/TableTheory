@@ -423,7 +423,7 @@ function normalizeJsonValue(value: unknown, path: string): unknown {
 
   if (!isPlainObject(value)) {
     const kind =
-      typeof value === 'object' && value !== null
+      typeof value === 'object'
         ? String(
             (value as { constructor?: { name?: unknown } }).constructor?.name ??
               'Object',
@@ -448,8 +448,9 @@ function normalizeJsonValue(value: unknown, path: string): unknown {
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value))
-    return false;
+  if (value === null) return false;
+  if (typeof value !== 'object') return false;
+  if (Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }

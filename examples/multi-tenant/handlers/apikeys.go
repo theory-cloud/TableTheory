@@ -224,7 +224,14 @@ func (h *APIKeyHandler) GetAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	// Include usage statistics
 	if r.URL.Query().Get("include") == "usage" {
-		h.includeUsageStats(&apiKey)
+		usageStats := h.includeUsageStats(&apiKey)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"api_key": apiKey,
+			"usage":   usageStats,
+		})
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -440,38 +447,41 @@ func (h *APIKeyHandler) CheckRateLimit(keyID string) error {
 
 // Helper functions
 
-func (h *APIKeyHandler) includeUsageStats(apiKey *models.APIKey) {
+type apiKeyUsageStats struct {
+	TotalRequests int            `json:"total_requests"`
+	TotalCost     int            `json:"total_cost"`
+	LastUsed      string         `json:"last_used,omitempty"`
+	UsageByType   map[string]int `json:"usage_by_type"`
+}
+
+func (h *APIKeyHandler) includeUsageStats(apiKey *models.APIKey) apiKeyUsageStats {
 	// Get usage statistics for the last 30 days
 	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
 
 	var resources []models.Resource
-	h.db.Model(&models.Resource{}).
-		Where("Metadata.api_key_id", "=", apiKey.KeyID).
-		Where("Timestamp", ">", thirtyDaysAgo).
-		All(&resources)
-
-	// Calculate stats
-	stats := struct {
-		TotalRequests int            `json:"total_requests"`
-		TotalCost     int            `json:"total_cost"`
-		LastUsed      string         `json:"last_used"`
-		UsageByType   map[string]int `json:"usage_by_type"`
-	}{
+	stats := apiKeyUsageStats{
 		UsageByType: make(map[string]int),
 	}
 
+	if err := h.db.Model(&models.Resource{}).
+		Where("Metadata.api_key_id", "=", apiKey.KeyID).
+		Where("Timestamp", ">", thirtyDaysAgo).
+		All(&resources); err != nil {
+		return stats
+	}
+
+	// Calculate stats
 	for _, resource := range resources {
 		stats.TotalRequests++
 		stats.TotalCost += resource.Cost
 		stats.UsageByType[resource.Type]++
 	}
 
-	if apiKey.LastUsedAt.After(time.Time{}) {
+	if !apiKey.LastUsedAt.IsZero() {
 		stats.LastUsed = apiKey.LastUsedAt.Format(time.RFC3339)
 	}
 
-	// Add stats to response (this is a simplified approach)
-	// In production, you'd properly marshal this into the response
+	return stats
 }
 
 func (h *APIKeyHandler) logAuditEvent(orgID, userID, action, resourceType, resourceID string, changes map[string]models.Change, success bool, errorMsg string) {

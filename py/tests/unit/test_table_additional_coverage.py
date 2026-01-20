@@ -362,16 +362,18 @@ def test_internal_helpers_cover_projection_and_serialization_error_paths() -> No
         table._projection_expression(["pk", "sk", "unknown"], {})
 
     values: dict[str, Any] = {}
-    expr = table._apply_sort_condition("#pk = :pk", SortKeyCondition.eq("1"), values)
-    assert expr.endswith(":sk")
+    eq_expr = table._apply_sort_condition("#pk = :pk", SortKeyCondition.eq("1"), values)
+    assert eq_expr.endswith(":sk")
 
     values = {}
-    expr = table._apply_sort_condition("#pk = :pk", SortKeyCondition.between("1", "2"), values)
+    between_expr = table._apply_sort_condition("#pk = :pk", SortKeyCondition.between("1", "2"), values)
     assert ":sk1" in values and ":sk2" in values
+    assert ":sk1" in between_expr and ":sk2" in between_expr
 
     values = {}
-    expr = table._apply_sort_condition("#pk = :pk", SortKeyCondition.begins_with("1"), values)
+    begins_with_expr = table._apply_sort_condition("#pk = :pk", SortKeyCondition.begins_with("1"), values)
     assert ":sk" in values
+    assert ":sk" in begins_with_expr
 
     with pytest.raises(ValidationError, match="invalid sort key condition"):
         table._apply_sort_condition("#pk = :pk", SortKeyCondition(op="=", values=("1", "2")), {})
