@@ -10,6 +10,8 @@ from .errors import (
     BatchRetryExceededError,
     ConditionFailedError,
     EncryptionNotConfiguredError,
+    LeaseHeldError,
+    LeaseNotOwnedError,
     NotFoundError,
     TheorydbPyError,
     TransactionCanceledError,
@@ -49,6 +51,7 @@ if TYPE_CHECKING:
         sum_field,
     )
     from .dms import assert_model_definition_equivalent_to_dms, get_dms_model, parse_dms_document
+    from .lease import Lease, LeaseKey, LeaseManager
     from .multiaccount import AccountConfig, MultiAccountSessions
     from .optimizer import QueryOptimizer, QueryPlan, QueryShape, ScanShape
     from .protection import ConcurrencyLimiter, SimpleLimiter
@@ -187,6 +190,10 @@ def __getattr__(name: str) -> Any:
         from . import validation
 
         return getattr(validation, name)
+    if name in {"Lease", "LeaseKey", "LeaseManager"}:
+        from . import lease
+
+        return getattr(lease, name)
     raise AttributeError(name)
 
 
@@ -201,6 +208,8 @@ __all__ = [
     "BatchRetryExceededError",
     "build_create_table_request",
     "ConditionFailedError",
+    "LeaseHeldError",
+    "LeaseNotOwnedError",
     "count_distinct",
     "create_lambda_boto3_config",
     "create_table",
@@ -225,6 +234,9 @@ __all__ = [
     "FilterCondition",
     "FilterGroup",
     "ConcurrencyLimiter",
+    "Lease",
+    "LeaseKey",
+    "LeaseManager",
     "MaxExpressionLength",
     "MaxFieldNameLength",
     "MaxNestedDepth",
