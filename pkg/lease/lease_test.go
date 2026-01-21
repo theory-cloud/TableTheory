@@ -266,7 +266,8 @@ func TestManager_Acquire_RespectsCustomizationOptions(t *testing.T) {
 				if !ok || expAV.Value != "1030" {
 					return false
 				}
-				if _, ok := in.Item["expires_ttl"]; ok {
+				_, hasTTL := in.Item["expires_ttl"]
+				if hasTTL {
 					return false
 				}
 
