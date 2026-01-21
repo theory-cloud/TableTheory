@@ -102,17 +102,17 @@ export class LeaseManager {
       return { key, token, expiresAt };
     } catch (err) {
       const mapped = mapDynamoError(err);
-      if (mapped instanceof TheorydbError && mapped.code === 'ErrConditionFailed') {
+      if (
+        mapped instanceof TheorydbError &&
+        mapped.code === 'ErrConditionFailed'
+      ) {
         throw new TheorydbError('ErrLeaseHeld', 'Lease held', { cause: err });
       }
       throw mapped;
     }
   }
 
-  async refresh(
-    lease: Lease,
-    opts: { leaseSeconds: number },
-  ): Promise<Lease> {
+  async refresh(lease: Lease, opts: { leaseSeconds: number }): Promise<Lease> {
     if (!lease?.key?.pk || !lease?.key?.sk) {
       throw new Error('lease.key.pk and lease.key.sk are required');
     }
@@ -141,13 +141,17 @@ export class LeaseManager {
       ExpressionAttributeNames: {
         '#tok': this.tokenAttr,
         '#exp': this.expiresAtAttr,
-        ...(this.ttlAttr && this.ttlBufferSeconds > 0 ? { '#ttl': this.ttlAttr } : {}),
+        ...(this.ttlAttr && this.ttlBufferSeconds > 0
+          ? { '#ttl': this.ttlAttr }
+          : {}),
       },
       ExpressionAttributeValues: {
         ':tok': { S: lease.token },
         ':now': { N: String(now) },
         ':exp': { N: String(expiresAt) },
-        ...(this.ttlAttr && this.ttlBufferSeconds > 0 ? { ':ttl': { N: String(ttl) } } : {}),
+        ...(this.ttlAttr && this.ttlBufferSeconds > 0
+          ? { ':ttl': { N: String(ttl) } }
+          : {}),
       },
     });
 
@@ -156,7 +160,10 @@ export class LeaseManager {
       return { ...lease, expiresAt };
     } catch (err) {
       const mapped = mapDynamoError(err);
-      if (mapped instanceof TheorydbError && mapped.code === 'ErrConditionFailed') {
+      if (
+        mapped instanceof TheorydbError &&
+        mapped.code === 'ErrConditionFailed'
+      ) {
         throw new TheorydbError('ErrLeaseNotOwned', 'Lease not owned', {
           cause: err,
         });
@@ -186,11 +193,13 @@ export class LeaseManager {
       await this.ddb.send(cmd, this.sendOptions);
     } catch (err) {
       const mapped = mapDynamoError(err);
-      if (mapped instanceof TheorydbError && mapped.code === 'ErrConditionFailed') {
+      if (
+        mapped instanceof TheorydbError &&
+        mapped.code === 'ErrConditionFailed'
+      ) {
         return; // best-effort
       }
       throw mapped;
     }
   }
 }
-

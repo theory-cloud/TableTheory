@@ -30,7 +30,10 @@ class StubDdb {
     ttlBufferSeconds: 10,
   });
 
-  const lease = await mgr.acquire({ pk: 'CACHE#A', sk: 'LOCK' }, { leaseSeconds: 30 });
+  const lease = await mgr.acquire(
+    { pk: 'CACHE#A', sk: 'LOCK' },
+    { leaseSeconds: 30 },
+  );
   assert.equal(lease.token, 'tok');
   assert.equal(lease.expiresAt, 1030);
 
@@ -54,7 +57,10 @@ class StubDdb {
 }
 
 {
-  const cfe = new ConditionalCheckFailedException({ $metadata: {}, message: 'no' });
+  const cfe = new ConditionalCheckFailedException({
+    $metadata: {},
+    message: 'no',
+  });
   const ddb = new StubDdb(() => {
     throw cfe;
   });
@@ -93,7 +99,10 @@ class StubDdb {
 }
 
 {
-  const cfe = new ConditionalCheckFailedException({ $metadata: {}, message: 'no' });
+  const cfe = new ConditionalCheckFailedException({
+    $metadata: {},
+    message: 'no',
+  });
   const ddb = new StubDdb(() => {
     throw cfe;
   });
@@ -112,13 +121,19 @@ class StubDdb {
 }
 
 {
-  const cfe = new ConditionalCheckFailedException({ $metadata: {}, message: 'no' });
+  const cfe = new ConditionalCheckFailedException({
+    $metadata: {},
+    message: 'no',
+  });
   const ddb = new StubDdb(() => {
     throw cfe;
   });
   const mgr = new LeaseManager(ddb as unknown as DynamoDBClient, 'tbl');
 
-  await mgr.release({ key: { pk: 'CACHE#A', sk: 'LOCK' }, token: 'tok', expiresAt: 0 });
+  await mgr.release({
+    key: { pk: 'CACHE#A', sk: 'LOCK' },
+    token: 'tok',
+    expiresAt: 0,
+  });
   assert.ok(ddb.sent[0] instanceof DeleteItemCommand);
 }
-

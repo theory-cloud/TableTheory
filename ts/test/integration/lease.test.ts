@@ -101,4 +101,3 @@ async function ensureLeaseTable(client: DynamoDBClient): Promise<void> {
     throw err;
   }
 }
-
