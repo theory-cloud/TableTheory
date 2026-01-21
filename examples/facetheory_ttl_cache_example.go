@@ -9,6 +9,8 @@ import (
 //
 // See: docs/facetheory/isr-cache-schema.md
 type FaceTheoryCacheMetadata struct {
+	_ struct{} `theorydb:"naming:snake_case"`
+
 	PK string `theorydb:"pk,attr:pk" json:"pk"`
 	SK string `theorydb:"sk,attr:sk" json:"sk"`
 
