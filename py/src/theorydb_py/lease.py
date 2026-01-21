@@ -161,4 +161,3 @@ class LeaseManager:
             if isinstance(mapped, ConditionFailedError):
                 return  # best-effort
             raise mapped from err
-

@@ -76,4 +76,3 @@ def test_lease_two_contenders() -> None:
             mgr1.refresh(l1, lease_seconds=30)
     finally:
         client.delete_table(TableName=table_name)
-

@@ -143,4 +143,3 @@ def test_lease_manager_release_is_best_effort() -> None:
     mgr = LeaseManager(client=client, table_name="tbl", now=lambda: 1000.0)
 
     mgr.release(Lease(key=LeaseKey(pk="CACHE#A", sk="LOCK"), token="tok", expires_at=0))
-
