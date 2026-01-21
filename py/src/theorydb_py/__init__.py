@@ -51,6 +51,7 @@ if TYPE_CHECKING:
         sum_field,
     )
     from .dms import assert_model_definition_equivalent_to_dms, get_dms_model, parse_dms_document
+    from .lease import Lease, LeaseKey, LeaseManager
     from .multiaccount import AccountConfig, MultiAccountSessions
     from .optimizer import QueryOptimizer, QueryPlan, QueryShape, ScanShape
     from .protection import ConcurrencyLimiter, SimpleLimiter
@@ -64,7 +65,6 @@ if TYPE_CHECKING:
         is_lambda_environment,
     )
     from .schema import build_create_table_request, create_table, delete_table, describe_table, ensure_table
-    from .lease import Lease, LeaseKey, LeaseManager
     from .streams import unmarshal_stream_image, unmarshal_stream_record
     from .table import Table
     from .validation import (
