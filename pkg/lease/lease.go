@@ -47,8 +47,8 @@ type Manager struct {
 
 	now           func() time.Time
 	token         func() string
-	ttlBuffer     time.Duration
 	lockSortKey   string
+	ttlBuffer     time.Duration
 	includeTTL    bool
 	validateInput bool
 }
@@ -287,7 +287,7 @@ func (m *Manager) Refresh(ctx context.Context, lease Lease, duration time.Durati
 		ttl := expiresAt + int64(m.ttlBuffer.Seconds())
 		names["#ttl"] = m.ttlAttr
 		values[":ttl"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(ttl, 10)}
-		updateExpr = updateExpr + ", #ttl = :ttl"
+		updateExpr += ", #ttl = :ttl"
 	}
 
 	input := &dynamodb.UpdateItemInput{
