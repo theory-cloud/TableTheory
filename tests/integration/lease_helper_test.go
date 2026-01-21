@@ -11,8 +11,10 @@ import (
 	"github.com/theory-cloud/tabletheory/pkg/lease"
 )
 
+var leaseContractTableName string
+
 type leaseContractModel struct {
-	tableName string
+	_ struct{} `theorydb:"naming:snake_case"`
 
 	PK string `theorydb:"pk,attr:pk" json:"pk"`
 	SK string `theorydb:"sk,attr:sk" json:"sk"`
@@ -22,21 +24,21 @@ type leaseContractModel struct {
 	TTL            int64  `theorydb:"ttl,attr:ttl,omitempty" json:"ttl,omitempty"`
 }
 
-func (m leaseContractModel) TableName() string {
-	return m.tableName
+func (leaseContractModel) TableName() string {
+	return leaseContractTableName
 }
 
 func TestLeaseManager_TwoContenders(t *testing.T) {
 	tc := InitTestDB(t)
 
-	tableName := fmt.Sprintf("lease_contract_%d", time.Now().UnixNano())
-	tc.CreateTable(t, &leaseContractModel{tableName: tableName})
+	leaseContractTableName = fmt.Sprintf("lease_contract_%d", time.Now().UnixNano())
+	tc.CreateTable(t, &leaseContractModel{})
 
 	ctx := context.Background()
 
 	mgr1, err := lease.NewManager(
 		tc.DynamoDBClient,
-		tableName,
+		leaseContractTableName,
 		lease.WithNow(func() time.Time { return time.Unix(1000, 0) }),
 		lease.WithTokenGenerator(func() string { return "tok1" }),
 		lease.WithTTLBuffer(10*time.Second),
@@ -45,7 +47,7 @@ func TestLeaseManager_TwoContenders(t *testing.T) {
 
 	mgr2, err := lease.NewManager(
 		tc.DynamoDBClient,
-		tableName,
+		leaseContractTableName,
 		lease.WithNow(func() time.Time { return time.Unix(1000, 0) }),
 		lease.WithTokenGenerator(func() string { return "tok2" }),
 		lease.WithTTLBuffer(10*time.Second),
@@ -62,7 +64,7 @@ func TestLeaseManager_TwoContenders(t *testing.T) {
 
 	mgr2Late, err := lease.NewManager(
 		tc.DynamoDBClient,
-		tableName,
+		leaseContractTableName,
 		lease.WithNow(func() time.Time { return time.Unix(2000, 0) }),
 		lease.WithTokenGenerator(func() string { return "tok2" }),
 		lease.WithTTLBuffer(10*time.Second),
