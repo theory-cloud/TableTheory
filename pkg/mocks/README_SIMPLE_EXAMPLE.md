@@ -153,6 +153,35 @@ mockUpdateBuilder.On("Set", "Email", "new@email.com").Return(mockUpdateBuilder)
 mockUpdateBuilder.On("Execute").Return(nil)
 ```
 
+### Pattern 7: Transactions (`TransactWrite`)
+If your code uses the transaction DSL:
+
+```go
+err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
+    tx.WithContext(ctx)
+    tx.UpdateWithBuilder(&User{ID: "123"}, func(ub core.UpdateBuilder) error {
+        ub.Set("Status", "active")
+        return nil
+    })
+    return nil
+})
+```
+
+You can mock it without boilerplate `.Run(...)` calls by providing a `MockTransactionBuilder`:
+
+```go
+mockDB := new(mocks.MockExtendedDB)
+mockTx := new(mocks.MockTransactionBuilder)
+
+// Tell the ExtendedDB mock which builder to run the callback with
+mockDB.TransactWriteBuilder = mockTx
+
+mockDB.On("TransactWrite", ctx, mock.Anything).Return(nil)
+mockTx.On("WithContext", ctx).Return(mockTx)
+mockTx.On("UpdateWithBuilder", mock.Anything, mock.Anything, mock.Anything).Return(mockTx)
+mockTx.On("Execute").Return(nil)
+```
+
 ## 🚨 Common Mistakes
 
 ### ❌ Mistake 1: Forgetting AssertExpectations
