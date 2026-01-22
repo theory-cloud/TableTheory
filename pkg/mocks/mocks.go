@@ -101,6 +101,9 @@ type (
 	// DB is an alias for MockDB to allow shorter declarations
 	DB = MockDB
 
+	// TransactionBuilder is an alias for MockTransactionBuilder to simplify usage in tests.
+	TransactionBuilder = MockTransactionBuilder
+
 	// UpdateBuilder is an alias for MockUpdateBuilder to allow shorter declarations
 	UpdateBuilder = MockUpdateBuilder
 
