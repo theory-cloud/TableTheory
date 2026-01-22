@@ -30,8 +30,35 @@ func (m *MockDB) Model(model any) core.Query {
 
 // Transaction executes a function within a database transaction
 func (m *MockDB) Transaction(fn func(tx *core.Tx) error) error {
-	args := m.Called(fn)
-	return args.Error(0)
+	if fn == nil {
+		args := m.Called(fn)
+		return args.Error(0)
+	}
+
+	var (
+		callbackInvoked bool
+		callbackErr     error
+	)
+
+	wrapped := func(tx *core.Tx) error {
+		callbackInvoked = true
+		callbackErr = fn(tx)
+		return callbackErr
+	}
+
+	args := m.Called(wrapped)
+
+	if err := args.Error(0); err != nil {
+		return err
+	}
+
+	if !callbackInvoked {
+		tx := &core.Tx{}
+		tx.SetDB(m)
+		_ = wrapped(tx)
+	}
+
+	return callbackErr
 }
 
 // Migrate runs all pending migrations

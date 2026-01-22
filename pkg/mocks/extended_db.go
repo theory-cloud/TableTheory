@@ -23,6 +23,13 @@ import (
 //	mockQuery.On("Create").Return(nil)
 type MockExtendedDB struct {
 	MockDB // Embed MockDB to inherit base methods
+
+	// TransactWriteBuilder is used when TransactWrite auto-executes the provided callback.
+	// If nil, a new MockTransactionBuilder is created for each call.
+	TransactWriteBuilder core.TransactionBuilder
+
+	// TransactionFuncTx is passed to TransactionFunc when auto-executing callbacks.
+	TransactionFuncTx any
 }
 
 // Ensure MockExtendedDB implements ExtendedDB at compile time
@@ -81,23 +88,93 @@ func (m *MockExtendedDB) WithLambdaTimeoutBuffer(buffer time.Duration) core.DB {
 
 // TransactionFunc executes a function within a full transaction context
 func (m *MockExtendedDB) TransactionFunc(fn func(tx any) error) error {
-	args := m.Called(fn)
-	return args.Error(0)
+	if fn == nil {
+		args := m.Called(fn)
+		return args.Error(0)
+	}
+
+	var (
+		callbackInvoked bool
+		callbackErr     error
+	)
+
+	wrapped := func(tx any) error {
+		callbackInvoked = true
+		callbackErr = fn(tx)
+		return callbackErr
+	}
+
+	args := m.Called(wrapped)
+	if err := args.Error(0); err != nil {
+		return err
+	}
+
+	if !callbackInvoked {
+		_ = wrapped(m.TransactionFuncTx)
+	}
+
+	return callbackErr
 }
 
 // Transact returns a transaction builder mock
 func (m *MockExtendedDB) Transact() core.TransactionBuilder {
 	args := m.Called()
-	if builder, ok := args.Get(0).(core.TransactionBuilder); ok {
-		return builder
-	}
-	return nil
+	return mustTransactionBuilder(args.Get(0))
 }
 
 // TransactWrite executes a function with a transaction builder
 func (m *MockExtendedDB) TransactWrite(ctx context.Context, fn func(core.TransactionBuilder) error) error {
-	args := m.Called(ctx, fn)
-	return args.Error(0)
+	if fn == nil {
+		args := m.Called(ctx, fn)
+		return args.Error(0)
+	}
+
+	builder := m.TransactWriteBuilder
+	if builder == nil {
+		builder = new(MockTransactionBuilder)
+	}
+
+	var (
+		callbackInvoked           bool
+		callbackInvokedDuringCall bool
+		callbackErr               error
+		builderUsed               core.TransactionBuilder
+	)
+
+	inCalled := true
+	wrapped := func(tx core.TransactionBuilder) error {
+		callbackInvoked = true
+		if inCalled {
+			callbackInvokedDuringCall = true
+		}
+		builderUsed = tx
+		callbackErr = fn(tx)
+		return callbackErr
+	}
+
+	args := m.Called(ctx, wrapped)
+	inCalled = false
+
+	if err := args.Error(0); err != nil {
+		return err
+	}
+
+	if !callbackInvoked {
+		_ = wrapped(builder)
+	}
+
+	if callbackErr != nil {
+		return callbackErr
+	}
+
+	if !callbackInvokedDuringCall {
+		if builderUsed == nil {
+			builderUsed = builder
+		}
+		return builderUsed.Execute()
+	}
+
+	return nil
 }
 
 // NewMockExtendedDB creates a new MockExtendedDB with sensible defaults
