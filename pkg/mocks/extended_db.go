@@ -22,14 +22,14 @@ import (
 //	mockDB.On("Model", &User{}).Return(mockQuery)
 //	mockQuery.On("Create").Return(nil)
 type MockExtendedDB struct {
-	MockDB // Embed MockDB to inherit base methods
-
 	// TransactWriteBuilder is used when TransactWrite auto-executes the provided callback.
 	// If nil, a new MockTransactionBuilder is created for each call.
 	TransactWriteBuilder core.TransactionBuilder
 
 	// TransactionFuncTx is passed to TransactionFunc when auto-executing callbacks.
 	TransactionFuncTx any
+
+	MockDB // Embed MockDB to inherit base methods
 }
 
 // Ensure MockExtendedDB implements ExtendedDB at compile time
@@ -110,7 +110,9 @@ func (m *MockExtendedDB) TransactionFunc(fn func(tx any) error) error {
 	}
 
 	if !callbackInvoked {
-		_ = wrapped(m.TransactionFuncTx)
+		if err := wrapped(m.TransactionFuncTx); err != nil {
+			return err
+		}
 	}
 
 	return callbackErr
@@ -160,7 +162,9 @@ func (m *MockExtendedDB) TransactWrite(ctx context.Context, fn func(core.Transac
 	}
 
 	if !callbackInvoked {
-		_ = wrapped(builder)
+		if err := wrapped(builder); err != nil {
+			return err
+		}
 	}
 
 	if callbackErr != nil {

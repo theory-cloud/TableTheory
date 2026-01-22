@@ -55,7 +55,9 @@ func (m *MockDB) Transaction(fn func(tx *core.Tx) error) error {
 	if !callbackInvoked {
 		tx := &core.Tx{}
 		tx.SetDB(m)
-		_ = wrapped(tx)
+		if err := wrapped(tx); err != nil {
+			return err
+		}
 	}
 
 	return callbackErr
