@@ -6,6 +6,16 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class UpdateAdd:
+    value: Any
+
+
+@dataclass(frozen=True)
+class UpdateSetIfNotExists:
+    default_value: Any
+
+
+@dataclass(frozen=True)
 class TransactPut[T]:
     item: T
     condition_expression: str | None = None

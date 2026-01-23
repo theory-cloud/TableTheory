@@ -8,6 +8,32 @@ set -euo pipefail
 # - `premain` cuts prereleases using `.release-please-manifest.premain.json`
 # If `premain` doesn't regularly back-merge `main`, prereleases can get stuck on an old major/minor track.
 
+git_fetch_retry() {
+  local remote="$1"
+  shift
+
+  local -a refspecs=("$@")
+  local attempts="${GIT_FETCH_RETRIES:-5}"
+  local base_sleep="${GIT_FETCH_RETRY_SLEEP_SECS:-2}"
+
+  local i=1
+  while true; do
+    if git fetch --quiet --depth=1 "${remote}" "${refspecs[@]}"; then
+      return 0
+    fi
+
+    if [[ "${i}" -ge "${attempts}" ]]; then
+      echo "branch-version-sync: FAIL (git fetch failed after ${attempts} attempts)" >&2
+      return 1
+    fi
+
+    sleep_for=$((base_sleep * i))
+    echo "branch-version-sync: retrying git fetch in ${sleep_for}s (${i}/${attempts})..." >&2
+    sleep "${sleep_for}"
+    i=$((i + 1))
+  done
+}
+
 base_ref="${GITHUB_BASE_REF:-}"
 head_ref="${GITHUB_HEAD_REF:-}"
 ref_name="${GITHUB_REF_NAME:-}"
@@ -35,7 +61,7 @@ for f in ".release-please-manifest.json" ".release-please-manifest.premain.json"
   fi
 done
 
-git fetch --quiet --depth=1 origin main
+git_fetch_retry origin main
 
 main_stable="$(
   python3 - <<'PY'
@@ -79,7 +105,7 @@ print(data.get(".", ""))
 PY
   )"
 else
-  git fetch --quiet --depth=1 origin premain
+  git_fetch_retry origin premain
 
   premain_stable="$(
     python3 - <<'PY'
@@ -164,4 +190,3 @@ if premain_tuple < main_tuple:
 PY
 
 echo "branch-version-sync: PASS (main=${main_stable}, premain=${premain_version})"
-

@@ -218,5 +218,6 @@ func TestTypeAliases(t *testing.T) {
 	// These should compile without issues
 	_ = new(mocks.Query)
 	_ = new(mocks.DB)
+	_ = new(mocks.TransactionBuilder)
 	_ = new(mocks.UpdateBuilder)
 }

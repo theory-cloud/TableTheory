@@ -115,6 +115,19 @@ await db.transactWrite([
     item: { PK: 'U#1', SK: 'TX' },
     ifNotExists: true,
   },
+  {
+    kind: 'update',
+    model: 'User',
+    key: { PK: 'U#1', SK: 'TX' },
+    updateExpression: 'SET #ws = if_not_exists(#ws, :ws) ADD #count :inc',
+    conditionExpression: 'attribute_not_exists(#count) OR #count < :maxAllowed',
+    expressionAttributeNames: { '#ws': 'WindowStart', '#count': 'Count' },
+    expressionAttributeValues: {
+      ':ws': { S: '2026-01-23T00:00:00Z' },
+      ':inc': { N: '1' },
+      ':maxAllowed': { N: '100' },
+    },
+  },
 ]);
 ```
 

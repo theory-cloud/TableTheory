@@ -36,6 +36,8 @@ from .transaction import (
     TransactPut,
     TransactUpdate,
     TransactWriteAction,
+    UpdateAdd,
+    UpdateSetIfNotExists,
 )
 
 if TYPE_CHECKING:
@@ -854,6 +856,14 @@ class Table[T]:
         update_values: dict[str, Any] = {}
         set_parts: list[str] = []
         remove_parts: list[str] = []
+        add_parts: list[str] = []
+
+        def normalize_set(value: Any) -> set[Any]:
+            if isinstance(value, set):
+                return value
+            if isinstance(value, (list, tuple)):
+                return set(value)
+            return {value}
 
         for field_name, value in updates.items():
             if field_name not in self._model.attributes:
@@ -866,6 +876,30 @@ class Table[T]:
             attr_def = self._model.attributes[field_name]
             name_ref = f"#d_{field_name}"
             update_names[name_ref] = attr_def.attribute_name
+
+            if isinstance(value, UpdateAdd):
+                if attr_def.encrypted:
+                    raise ValidationError(f"encrypted fields cannot be used in ADD: {field_name}")
+
+                value_ref = f":d_{field_name}"
+                if attr_def.set:
+                    update_values[value_ref] = self._serialize_attr_value(
+                        attr_def,
+                        normalize_set(value.value),
+                    )
+                else:
+                    if not isinstance(value.value, (int, float, Decimal)):
+                        raise ValidationError("ADD requires a numeric value for non-set fields")
+                    update_values[value_ref] = self._serializer.serialize(value.value)
+
+                add_parts.append(f"{name_ref} {value_ref}")
+                continue
+
+            if isinstance(value, UpdateSetIfNotExists):
+                value_ref = f":d_{field_name}"
+                update_values[value_ref] = self._serialize_attr_value(attr_def, value.default_value)
+                set_parts.append(f"{name_ref} = if_not_exists({name_ref}, {value_ref})")
+                continue
 
             if value is None:
                 remove_parts.append(name_ref)
@@ -880,6 +914,8 @@ class Table[T]:
             expr_parts.append("SET " + ", ".join(set_parts))
         if remove_parts:
             expr_parts.append("REMOVE " + ", ".join(remove_parts))
+        if add_parts:
+            expr_parts.append("ADD " + ", ".join(add_parts))
         if not expr_parts:
             raise ValidationError("no updates provided")
 

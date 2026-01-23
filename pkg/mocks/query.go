@@ -64,6 +64,17 @@ func mustUpdateBuilder(v any) core.UpdateBuilder {
 	return builder
 }
 
+func mustTransactionBuilder(v any) core.TransactionBuilder {
+	if v == nil {
+		return nil
+	}
+	builder, ok := v.(core.TransactionBuilder)
+	if !ok {
+		panic("unexpected type: expected core.TransactionBuilder")
+	}
+	return builder
+}
+
 // MockQuery is a mock implementation of the core.Query interface.
 // It can be used for unit testing code that depends on TableTheory queries.
 //
