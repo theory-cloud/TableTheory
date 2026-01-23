@@ -1,6 +1,6 @@
 {
   "name": "@theory-cloud/tabletheory-ts",
-  "version": "1.3.0-rc",
+  "version": "1.3.0-rc.1",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
