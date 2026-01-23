@@ -372,7 +372,12 @@ export class UpdateBuilder {
     return this;
   }
 
-  async execute(): Promise<Record<string, unknown> | undefined> {
+  async build(): Promise<{
+    updateExpression: string;
+    conditionExpression?: string;
+    expressionAttributeNames?: Record<string, string>;
+    expressionAttributeValues?: Record<string, AttributeValue>;
+  }> {
     if (this.updateOps.length === 0) {
       throw new TheorydbError('ErrInvalidOperator', 'No updates provided');
     }
@@ -406,15 +411,28 @@ export class UpdateBuilder {
       values[k] = v;
     }
 
+    return {
+      updateExpression,
+      ...(cond.expression ? { conditionExpression: cond.expression } : {}),
+      ...(Object.keys(names).length ? { expressionAttributeNames: names } : {}),
+      ...(Object.keys(values).length
+        ? { expressionAttributeValues: values }
+        : {}),
+    };
+  }
+
+  async execute(): Promise<Record<string, unknown> | undefined> {
+    const built = await this.build();
+
     const cmd = new UpdateItemCommand({
       TableName: this.model.tableName,
       Key: marshalKey(this.model, this.key),
-      UpdateExpression: updateExpression,
-      ...(cond.expression ? { ConditionExpression: cond.expression } : {}),
-      ExpressionAttributeNames: Object.keys(names).length ? names : undefined,
-      ExpressionAttributeValues: Object.keys(values).length
-        ? values
-        : undefined,
+      UpdateExpression: built.updateExpression,
+      ...(built.conditionExpression
+        ? { ConditionExpression: built.conditionExpression }
+        : {}),
+      ExpressionAttributeNames: built.expressionAttributeNames,
+      ExpressionAttributeValues: built.expressionAttributeValues,
       ReturnValues: this.returnValuesOpt,
     });
 

@@ -33,6 +33,8 @@ from .transaction import (
     TransactPut,
     TransactUpdate,
     TransactWriteAction,
+    UpdateAdd,
+    UpdateSetIfNotExists,
 )
 
 if TYPE_CHECKING:
@@ -250,6 +252,8 @@ __all__ = [
     "TransactPut",
     "TransactUpdate",
     "TransactWriteAction",
+    "UpdateAdd",
+    "UpdateSetIfNotExists",
     "TransactionCanceledError",
     "Table",
     "ValidationError",

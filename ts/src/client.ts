@@ -11,6 +11,7 @@ import {
   type ConditionCheck,
   type Delete,
   type Put,
+  type Update,
   type TransactWriteItem,
   type WriteRequest,
 } from '@aws-sdk/client-dynamodb';
@@ -472,6 +473,37 @@ export class TheorydbClient {
             put.ExpressionAttributeNames = { '#pk': model.roles.pk };
           }
           transactItems.push({ Put: put });
+          break;
+        }
+        case 'update': {
+          const update: Update = {
+            TableName: model.tableName,
+            Key: marshalKey(model, a.key),
+            UpdateExpression: '',
+          };
+
+          if ('updateFn' in a) {
+            const builder = new UpdateBuilder(
+              this.ddb,
+              model,
+              a.key,
+              provider,
+              this.sendOptions,
+            );
+            await a.updateFn(builder);
+            const built = await builder.build();
+            update.UpdateExpression = built.updateExpression;
+            update.ConditionExpression = built.conditionExpression;
+            update.ExpressionAttributeNames = built.expressionAttributeNames;
+            update.ExpressionAttributeValues = built.expressionAttributeValues;
+          } else {
+            update.UpdateExpression = a.updateExpression;
+            update.ConditionExpression = a.conditionExpression;
+            update.ExpressionAttributeNames = a.expressionAttributeNames;
+            update.ExpressionAttributeValues = a.expressionAttributeValues;
+          }
+
+          transactItems.push({ Update: update });
           break;
         }
         case 'delete':

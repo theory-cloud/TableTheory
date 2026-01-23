@@ -14,6 +14,8 @@ from theorydb_py import (
     SortKeyCondition,
     Table,
     TransactionCanceledError,
+    UpdateAdd,
+    UpdateSetIfNotExists,
     ValidationError,
     theorydb_field,
 )
@@ -304,6 +306,33 @@ def test_transact_write_builds_requests_for_all_action_types() -> None:
     assert len(stub.transact_write_reqs) == 1
     transact_items = stub.transact_write_reqs[0]["TransactItems"]
     assert {next(iter(i.keys())) for i in transact_items} == {"Put", "Delete", "Update", "ConditionCheck"}
+
+
+def test_transact_update_supports_add_and_if_not_exists() -> None:
+    model = ModelDefinition.from_dataclass(Item, table_name="tbl")
+    stub = _StubClient()
+    table: Table[Item] = Table(model, client=stub)
+
+    table.transact_write(
+        [
+            TransactUpdate(
+                pk="A",
+                sk="1",
+                updates={
+                    "value": UpdateAdd(1),
+                    "note": UpdateSetIfNotExists("first"),
+                },
+                condition_expression="attribute_not_exists(#v) OR #v < :max",
+                expression_attribute_names={"#v": "value"},
+                expression_attribute_values={":max": 100},
+            )
+        ]
+    )
+
+    update = stub.transact_write_reqs[0]["TransactItems"][0]["Update"]
+    assert "ADD" in update["UpdateExpression"]
+    assert "if_not_exists" in update["UpdateExpression"]
+    assert update["ExpressionAttributeValues"][":d_value"]["N"] == "1"
 
 
 def test_put_delete_update_expression_attribute_maps_and_build_request_merges() -> None:
