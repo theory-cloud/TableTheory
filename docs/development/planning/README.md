@@ -13,6 +13,7 @@ Start here:
 - `docs/development/planning/theorydb-10of10-rubric.md` (the definition of “good”; versioned)
 - `docs/development/planning/theorydb-10of10-roadmap.md` (milestones mapped to rubric IDs)
 - `docs/development/planning/theorydb-multilang-roadmap.md` (multi-language expansion plan; TypeScript first)
+- `docs/development/planning/theorydb-facetheory-support-roadmap.md` (FaceTheory enablement: ISR locks + cache metadata)
 - `docs/development/planning/theorydb-spec-dms-v0.1.md` (language-agnostic schema + semantics contract, draft)
 - `docs/development/planning/theorydb-go-ts-parity-matrix.md` (feature parity tiers for TypeScript)
 - `docs/development/planning/theorydb-multilang-feature-parity-matrix.md` (feature parity across Go/TS/Py)

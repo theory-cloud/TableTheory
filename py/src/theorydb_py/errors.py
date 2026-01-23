@@ -9,6 +9,14 @@ class ConditionFailedError(TheorydbPyError):
     pass
 
 
+class LeaseHeldError(ConditionFailedError):
+    pass
+
+
+class LeaseNotOwnedError(ConditionFailedError):
+    pass
+
+
 class NotFoundError(TheorydbPyError):
     pass
 
