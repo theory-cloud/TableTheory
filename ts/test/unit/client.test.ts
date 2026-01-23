@@ -250,6 +250,15 @@ class StubDdb {
     },
     { kind: 'delete', model: 'User', key: { PK: 'A', SK: '1' } },
     {
+      kind: 'update',
+      model: 'User',
+      key: { PK: 'A', SK: '1' },
+      updateExpression: 'ADD #v :inc',
+      conditionExpression: 'attribute_exists(PK)',
+      expressionAttributeNames: { '#v': 'version' },
+      expressionAttributeValues: { ':inc': { N: '1' } },
+    },
+    {
       kind: 'condition',
       model: 'User',
       key: { PK: 'A', SK: '1' },
@@ -257,6 +266,43 @@ class StubDdb {
     },
   ]);
   assert.ok(ddb.sent[0] instanceof TransactWriteItemsCommand);
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof TransactWriteItemsCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+
+  await client.transactWrite([
+    {
+      kind: 'update',
+      model: 'User',
+      key: { PK: 'A', SK: '1' },
+      updateFn: (u) => {
+        u.add('version', 1);
+        u.setIfNotExists(
+          'createdAt',
+          undefined,
+          '2026-01-23T00:00:00.000000000Z',
+        );
+        u.conditionNotExists('version').orCondition('version', '<', 100);
+      },
+    },
+  ]);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  assert.equal(cmd.input.TransactItems?.length, 1);
+  const update = cmd.input.TransactItems?.[0]?.Update;
+  assert.equal(update?.TableName, 'users_contract');
+  assert.ok(update?.UpdateExpression?.includes('ADD'));
+  assert.ok(update?.UpdateExpression?.includes('if_not_exists'));
+  assert.ok(update?.ConditionExpression?.includes('attribute_not_exists'));
+  assert.ok(update?.ConditionExpression?.includes('<'));
 }
 
 {

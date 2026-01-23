@@ -47,6 +47,7 @@ class Note:
     pk: str = theorydb_field(roles=["pk"])
     sk: str = theorydb_field(roles=["sk"])
     value: int = theorydb_field()
+    note: str = theorydb_field(omitempty=True, default="")
 
 
 client = boto3.client(
@@ -76,7 +77,7 @@ page2 = table.query("A", cursor=page1.next_cursor) if page1.next_cursor else Non
 ## Batch + transactions
 
 ```python
-from theorydb_py import TransactUpdate
+from theorydb_py import TransactUpdate, UpdateAdd, UpdateSetIfNotExists
 
 table.batch_write(puts=[Note(pk="A", sk="2", value=1)], deletes=[("A", "1")])
 
@@ -85,10 +86,10 @@ table.transact_write(
         TransactUpdate(
             pk="A",
             sk="2",
-            updates={"value": 2},
-            condition_expression="#v = :expected",
+            updates={"value": UpdateAdd(1), "note": UpdateSetIfNotExists("first")},
+            condition_expression="attribute_not_exists(#v) OR #v < :max_allowed",
             expression_attribute_names={"#v": "value"},
-            expression_attribute_values={":expected": 1},
+            expression_attribute_values={":max_allowed": 100},
         )
     ]
 )
