@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.0-rc.2](https://github.com/theory-cloud/TableTheory/compare/v1.3.0-rc.1...v1.3.0-rc.2) (2026-01-29)
+
+
+### Bug Fixes
+
+* **release:** keep staging aligned with premain RC line ([ba9f9c6](https://github.com/theory-cloud/TableTheory/commit/ba9f9c697da23b746f5549114e4800331df0ee90))
+* **release:** keep staging aligned with premain RC line ([9827164](https://github.com/theory-cloud/TableTheory/commit/9827164cfc907b56ca099afcfa312e40dfd53269))
+* **security:** upgrade eslint and migrate to flat config ([50b44dc](https://github.com/theory-cloud/TableTheory/commit/50b44dc27e551691e946ea7b1251b25ad8980086))
+
 ## [1.2.1](https://github.com/theory-cloud/TableTheory/compare/v1.2.0...v1.2.1) (2026-01-23)
 
 
@@ -31,6 +40,13 @@
 * **mocks:** satisfy lint gates ([a9cd117](https://github.com/theory-cloud/TableTheory/commit/a9cd1170fc200489369b76f098635321ed3d81c0))
 * **premain:** restore prerelease version alignment ([9b07cdb](https://github.com/theory-cloud/TableTheory/commit/9b07cdb7df5e69be8012374f742d89252ffde942))
 * **security:** harden API key hashing ([2c47b6c](https://github.com/theory-cloud/TableTheory/commit/2c47b6c7dac1084b66448f81dc3d49ce4e4114e0))
+
+## [1.2.1](https://github.com/theory-cloud/TableTheory/compare/v1.2.0...v1.2.1) (2026-01-23)
+
+
+### Bug Fixes
+
+* improved transaction handling ([30a5d7a](https://github.com/theory-cloud/TableTheory/commit/30a5d7acc371cbcbd38bee1d240e5eab24d49882))
 
 ## [1.2.0](https://github.com/theory-cloud/TableTheory/compare/v1.1.5...v1.2.0) (2026-01-22)
 

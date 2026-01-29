@@ -39,3 +39,31 @@ Single test example: `go test -v -run TestName ./pkg/query`
 - Branch naming commonly uses `feature/...`, `fix/...`, `chore/...`.
 - Prefer Conventional Commit-style subjects (`feat:`, `fix:`, `docs:`, `test:`) and keep the first line ≤72 chars.
 - PRs: describe intent and scope, link issues, list commands run, add/adjust tests, and update `CHANGELOG.md` + relevant docs when public APIs change (see `CONTRIBUTING.md`).
+
+## Release / Versioning (immutable GitHub releases)
+
+TableTheory publishes **immutable** GitHub releases (no retagging / no overwriting release assets). Any change that must be
+published requires:
+
+- **staging → premain**: merge a PR from `staging` into `premain` to start the prerelease pipeline (RCs)
+- **premain → main**: merge a PR from `premain` into `main` to start the stable release pipeline
+- **post-release sync**: back-merge `main` into `staging` so the next cycle starts from the latest stable baseline
+
+Branch roles:
+
+- **`staging`**: integration branch (all work lands here first)
+- **`premain`**: prerelease branch (RCs like `vX.Y.Z-rc.N`)
+- **`main`**: stable release branch (releases like `vX.Y.Z`)
+
+Multi-language versioning:
+
+- **Stable manifest**: `.release-please-manifest.json`
+- **Prerelease manifest**: `.release-please-manifest.premain.json`
+- **TypeScript**: `ts/package.json`, `ts/package-lock.json`
+- **Python**: `py/src/theorydb_py/version.json`
+
+Release automation must keep these files coherent so the stable line never lags the prerelease line on promotion.
+The rubric enforces this via:
+
+- `bash scripts/verify-branch-release-supply-chain.sh`
+- `bash scripts/verify-branch-version-sync.sh`
