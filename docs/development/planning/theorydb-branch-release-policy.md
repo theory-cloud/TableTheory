@@ -4,21 +4,26 @@ This document defines the intended branch strategy and release automation for Ta
 
 ## Branches
 
-- `premain` — prerelease integration branch (source of prereleases).
+- `staging` — integration branch (all work lands here first).
+- `premain` — prerelease branch (source of prereleases).
 - `main` — release branch (source of stable releases).
 
 ## Merge flow (expected)
 
-- Feature/fix work lands via PRs into `premain`.
-- A release is cut by merging `premain` into `main` (via PR).
-- Hotfixes may merge directly into `main` (then backported to `premain`).
+- Feature/fix work lands via PRs into `staging`.
+- An **RC** is cut by merging `staging` into `premain` (via PR), then merging the release-please prerelease PR.
+- A **release** is cut by merging `premain` into `main` (via PR), then merging the release-please stable release PR.
+- Hotfixes should still follow `staging` -> `premain` -> `main` so version lines stay aligned.
 
 ## Post-release sync (required)
 
-After a stable release is cut on `main`, immediately back-merge `main` into `premain` (via PR) so:
+After a stable release is cut on `main`, immediately back-merge `main` into `staging` (via PR) so:
 
-- `premain` carries the latest `.release-please-manifest.json` stable version, and
-- prereleases do not remain on an older major/minor track.
+- `staging` carries the latest `.release-please-manifest.json` stable version (and changelog/version files), and
+- the next `staging` -> `premain` promotion will carry forward the correct stable baseline.
+
+If `premain` is used directly after a stable release (without a `staging` promotion), back-merge `main` into `premain`
+as well so prereleases do not remain on an older major/minor track.
 
 If `.release-please-manifest.premain.json` is behind the latest stable version, reset it to the latest stable version
 to start the next prerelease cycle from the correct baseline.
