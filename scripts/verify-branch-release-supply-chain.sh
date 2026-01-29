@@ -12,7 +12,9 @@ failures=0
 required_files=(
   "docs/development/planning/theorydb-branch-release-policy.md"
   ".github/workflows/prerelease.yml"
+  ".github/workflows/prerelease-pr.yml"
   ".github/workflows/release.yml"
+  ".github/workflows/release-pr.yml"
   "release-please-config.premain.json"
   "release-please-config.json"
   ".release-please-manifest.premain.json"
@@ -112,6 +114,67 @@ if [[ -f ".github/workflows/release.yml" ]]; then
   }
   grep -Eq 'gh release upload' ".github/workflows/release.yml" || {
     echo "branch-release: release workflow must upload release assets to GitHub release"
+    failures=$((failures + 1))
+  }
+fi
+
+if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
+  grep -Eq 'branches:.*premain' ".github/workflows/prerelease-pr.yml" || {
+    echo "branch-release: prerelease-pr workflow must target premain"
+    failures=$((failures + 1))
+  }
+  grep -Eq 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' ".github/workflows/prerelease-pr.yml" || {
+    echo "branch-release: prerelease-pr workflow must pin release-please v4 by commit SHA"
+    failures=$((failures + 1))
+  }
+  grep -Eq 'config-file:\s*release-please-config\.premain\.json' ".github/workflows/prerelease-pr.yml" || {
+    echo "branch-release: prerelease-pr workflow must reference release-please-config.premain.json"
+    failures=$((failures + 1))
+  }
+  grep -Eq 'manifest-file:\s*\.release-please-manifest\.premain\.json' ".github/workflows/prerelease-pr.yml" || {
+    echo "branch-release: prerelease-pr workflow must reference .release-please-manifest.premain.json"
+    failures=$((failures + 1))
+  }
+  grep -Eq 'skip-github-release:\s*true' ".github/workflows/prerelease-pr.yml" || {
+    echo "branch-release: prerelease-pr workflow must set skip-github-release: true"
+    failures=$((failures + 1))
+  }
+fi
+
+if [[ -f ".github/workflows/release-pr.yml" ]]; then
+  grep -Eq 'branches:.*main' ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must target main"
+    failures=$((failures + 1))
+  }
+  grep -Eq 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must pin release-please v4 by commit SHA"
+    failures=$((failures + 1))
+  }
+  grep -Eq 'config-file:\s*release-please-config\.json' ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must reference release-please-config.json"
+    failures=$((failures + 1))
+  }
+  grep -Eq 'manifest-file:\s*\.release-please-manifest\.json' ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must reference .release-please-manifest.json"
+    failures=$((failures + 1))
+  }
+  grep -Eq 'skip-github-release:\s*true' ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must set skip-github-release: true"
+    failures=$((failures + 1))
+  }
+
+  # Ensure stable releases promote the RC baseline on premain (e.g., 1.3.0-rc.1 -> 1.3.0),
+  # so the stable line never lags behind the prerelease line.
+  grep -Fq "release-as:" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must set release-as to promote the premain RC baseline"
+    failures=$((failures + 1))
+  }
+  grep -Fq "steps.version.outputs.release_as" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must pass release-as from computed premain RC baseline"
+    failures=$((failures + 1))
+  }
+  grep -Fq ".release-please-manifest.premain.json" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must read .release-please-manifest.premain.json to align versions"
     failures=$((failures + 1))
   }
 fi
