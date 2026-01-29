@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.2.2](https://github.com/theory-cloud/TableTheory/compare/v1.2.1...v1.2.2) (2026-01-29)
+## [1.3.0](https://github.com/theory-cloud/TableTheory/compare/v1.2.1...v1.3.0) (2026-01-29)
 
 
 ### Bug Fixes
