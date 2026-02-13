@@ -19,3 +19,4 @@ export * from './send-options.js';
 export * from './validation.js';
 export * from './protection.js';
 export * from './lease.js';
+export * from './facetheory-isr.js';
