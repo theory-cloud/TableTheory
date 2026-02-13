@@ -81,7 +81,13 @@ Lock rule (correctness boundary):
   - write new metadata + release lease as one atomic step
   - pointer-swap designs where you write a new version item and then update the “current” pointer
 
-(See `docs/facetheory/isr-transaction-recipes.md` once FT-T2 lands.)
+(See `docs/facetheory/isr-transaction-recipes.md`.)
+
+## Environment variables (FaceTheory ISR)
+
+- `FACETHEORY_CACHE_TABLE_NAME` is the canonical env var used by FaceTheory ISR cache metadata/lease models.
+- If you are wiring this table via **AppTheory**, some constructs may provide `APPTHEORY_CACHE_TABLE_NAME` (and/or other
+  aliases). Ensure `FACETHEORY_CACHE_TABLE_NAME` is set so FaceTheory docs and examples work without guesswork.
 
 ## Runnable model definitions
 
