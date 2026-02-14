@@ -37,6 +37,9 @@ export type TransactAction =
       kind: 'delete';
       model: string;
       key: Record<string, unknown>;
+      conditionExpression?: string;
+      expressionAttributeNames?: Record<string, string>;
+      expressionAttributeValues?: Record<string, AttributeValue>;
     }
   | {
       kind: 'condition';

@@ -511,6 +511,9 @@ export class TheorydbClient {
             Delete: {
               TableName: model.tableName,
               Key: marshalKey(model, a.key),
+              ConditionExpression: a.conditionExpression,
+              ExpressionAttributeNames: a.expressionAttributeNames,
+              ExpressionAttributeValues: a.expressionAttributeValues,
             } satisfies Delete,
           });
           break;
