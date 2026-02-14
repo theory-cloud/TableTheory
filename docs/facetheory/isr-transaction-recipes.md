@@ -22,9 +22,11 @@ Use this when you only need one metadata record per cache key.
 1. Acquire the lease (`LOCK`) for `pk`.
 2. Regenerate the body and write it to S3.
 3. Publish metadata and release the lock with a single DynamoDB transaction:
-   - `ConditionCheck` the lease row (`lease_token` matches AND `lease_expires_at > now`)
    - `Put` the metadata row (`META`) with the new pointer (`s3_key`), timestamps, etag, ttl
-   - `Delete` the lease row (optionally conditioned on `lease_token`)
+   - `Delete` the lease row (`LOCK`) with a condition expression (`lease_token` matches AND `lease_expires_at > now`)
+
+Note: DynamoDB transactions cannot include multiple operations on the same item. Prefer a conditional `Delete`/`Update`
+on the lease row over a separate `ConditionCheck` + `Delete` on the same lease key.
 
 ### Why the transaction matters
 
@@ -46,10 +48,9 @@ Recommended item roles (same `pk`):
 
 Transaction sketch:
 
-1. `ConditionCheck` the lease row (token + not expired).
-2. `Put` the new version row (`VER#...`) guarded with `attribute_not_exists(pk)` to avoid duplicate IDs.
-3. `Update` the pointer row (`META`) to set `current_sk` to the new version (optionally guard with optimistic `version`).
-4. `Delete` the lease row (optionally conditioned on token).
+1. `Put` the new version row (`VER#...`) guarded with `attribute_not_exists(pk)` to avoid duplicate IDs.
+2. `Update` the pointer row (`META`) to set `current_sk` to the new version (optionally guard with optimistic `version`).
+3. `Delete` the lease row (`LOCK`) with a condition expression (token + not expired).
 
 ## Stale-writer protection options
 
@@ -96,16 +97,13 @@ metaItem := &models.FaceTheoryCacheMetadata{
 }
 
 err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
-	tx.ConditionCheck(
+	tx.Put(metaItem)
+
+	tx.Delete(
 		leaseItem,
 		tabletheory.Condition("lease_token", "=", leaseToken),
 		tabletheory.Condition("lease_expires_at", ">", nowUnix),
 	)
-
-	tx.Put(metaItem)
-
-	// Optional: make the delete conditional on the same token.
-	tx.Delete(leaseItem, tabletheory.Condition("lease_token", "=", leaseToken))
 	return nil
 })
 ```
@@ -115,7 +113,12 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 ```ts
 await client.transactWrite([
   {
-    kind: 'condition',
+    kind: 'put',
+    model: 'FaceTheoryCacheMetadata',
+    item: { pk, sk: 'META', s3_key, generated_at: nowUnix, revalidate_seconds, etag, ttl },
+  },
+  {
+    kind: 'delete',
     model: 'FaceTheoryCacheLease',
     key: { pk, sk: 'LOCK' },
     conditionExpression: '#tok = :tok AND #exp > :now',
@@ -125,17 +128,42 @@ await client.transactWrite([
       ':now': { N: String(nowUnix) },
     },
   },
-  {
-    kind: 'put',
-    model: 'FaceTheoryCacheMetadata',
-    item: { pk, sk: 'META', s3_key, generated_at: nowUnix, revalidate_seconds, etag, ttl },
-  },
-  {
-    kind: 'delete',
-    model: 'FaceTheoryCacheLease',
-    key: { pk, sk: 'LOCK' },
-  },
 ]);
+```
+
+### TypeScript (TableTheory helper: `FaceTheoryIsrMetaStore`)
+
+TableTheory exports a small helper that implements the FaceTheory ISR metadata + lease operations using:
+
+- `LeaseManager` for acquiring/releasing `LOCK` rows
+- `TheorydbClient.transactWrite()` for atomic “publish META + release LOCK” (Recipe A)
+
+```ts
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { createFaceTheoryIsrMetaStore } from '@theory-cloud/tabletheory-ts';
+
+const ddb = new DynamoDBClient({ region: process.env.AWS_REGION ?? 'us-east-1' });
+const isr = createFaceTheoryIsrMetaStore({
+  ddb,
+  tableName: process.env.FACETHEORY_CACHE_TABLE_NAME!,
+});
+
+const lease = await isr.tryAcquireLease({
+  cacheKey,
+  leaseOwner: 'my-app-instance', // optional (for app logs)
+  leaseDurationMs: 30_000,
+});
+if (!lease) return; // another contender is regenerating
+
+await isr.commitGeneration({
+  cacheKey,
+  leaseOwner: 'my-app-instance', // optional (for app logs)
+  leaseToken: lease.leaseToken,
+  htmlPointer: s3Key,
+  generatedAtMs: Date.now(),
+  revalidateSeconds: 60,
+  etag,
+});
 ```
 
 ### Python (`Table.transact_write`)
@@ -143,13 +171,6 @@ await client.transactWrite([
 ```py
 table.transact_write(
     [
-        TransactConditionCheck(
-            pk=pk,
-            sk="LOCK",
-            condition_expression="#tok = :tok AND #exp > :now",
-            expression_attribute_names={"#tok": "lease_token", "#exp": "lease_expires_at"},
-            expression_attribute_values={":tok": lease_token, ":now": now_unix},
-        ),
         TransactPut(
             item=FaceTheoryCacheMetadata(
                 pk=pk,
@@ -164,8 +185,10 @@ table.transact_write(
         TransactDelete(
             pk=pk,
             sk="LOCK",
+            condition_expression="#tok = :tok AND #exp > :now",
+            expression_attribute_names={"#tok": "lease_token", "#exp": "lease_expires_at"},
+            expression_attribute_values={":tok": lease_token, ":now": now_unix},
         ),
     ]
 )
 ```
-
