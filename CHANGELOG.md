@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.0-rc](https://github.com/theory-cloud/TableTheory/compare/v1.3.0...v1.4.0-rc) (2026-02-14)
+
+
+### Features
+
+* add FaceTheory ISR MetaStore helper ([0812a68](https://github.com/theory-cloud/TableTheory/commit/0812a68b1203f9179d987dd62eb3529e0332d705))
+* TableTheory FaceTheory ISR MetaStore ([f57744d](https://github.com/theory-cloud/TableTheory/commit/f57744d5275744d6399563d29f920bcc045a2f68))
+
+
+### Bug Fixes
+
+* **deps:** resolve npm audit vulnerabilities ([83fadbd](https://github.com/theory-cloud/TableTheory/commit/83fadbd3a7d5e8f3bab0fa85f0da4250bbb1e27a))
+* **deps:** update python deps for security ([712cfb5](https://github.com/theory-cloud/TableTheory/commit/712cfb5b08c410d57bbc28bd6664768b2c74b30b))
+* pass SEC-2 dependency scans ([a3e0390](https://github.com/theory-cloud/TableTheory/commit/a3e0390d31d99435fd8c8aa7d48c2aeb7845d977))
+* **release:** reset premain manifest baseline ([33cf3bc](https://github.com/theory-cloud/TableTheory/commit/33cf3bce6460db569f017c3127a1606a2414c432))
+* **release:** reset premain manifest baseline ([69020e6](https://github.com/theory-cloud/TableTheory/commit/69020e6ab46a9358f0d50347e62a2895a63ff5a2))
+* **security:** bump Go toolchain to go1.25.7 ([033b62c](https://github.com/theory-cloud/TableTheory/commit/033b62cdb9551482020293e4a006e29adb601dac))
+
 ## [1.3.0](https://github.com/theory-cloud/TableTheory/compare/v1.2.1...v1.3.0) (2026-01-29)
 
 
