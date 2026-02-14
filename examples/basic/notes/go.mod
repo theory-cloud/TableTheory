@@ -2,6 +2,8 @@ module github.com/theory-cloud/tabletheory/examples/basic/notes
 
 go 1.25
 
+toolchain go1.25.7
+
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.7
