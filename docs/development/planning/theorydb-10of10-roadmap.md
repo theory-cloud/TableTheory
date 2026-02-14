@@ -148,7 +148,7 @@ Guardrails (no denominator games):
 
 **Implementation (in repo)**
 - Workflow: `.github/workflows/quality-gates.yml` runs `make rubric` on PRs to `premain` (and on pushes to `premain`).
-- Tooling pins: `golangci-lint@v2.5.0`, `govulncheck@v1.1.4`, `gosec@v2.22.11` (plus `go.mod` toolchain `go1.25.6` via `go-version-file`).
+- Tooling pins: `golangci-lint@v2.5.0`, `govulncheck@v1.1.4`, `gosec@v2.22.11` (plus `go.mod` toolchain `go1.25.7` via `go-version-file`).
 - Integration infra pin: DynamoDB Local uses `amazon/dynamodb-local:3.1.0` (via `docker-compose.yml` and `DYNAMODB_LOCAL_IMAGE`).
 
 ---
