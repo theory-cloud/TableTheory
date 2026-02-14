@@ -13,14 +13,14 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    "boto3>=1.42.30",
+    "boto3>=1.42.49",
     "cryptography>=46.0.5",
     "PyYAML>=6.0.3",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "boto3-stubs[dynamodb]>=1.42.30",
+  "boto3-stubs[dynamodb]>=1.42.49",
   "build>=1.2.2",
   "mypy>=1.14.0",
   "pip>=26.0",
