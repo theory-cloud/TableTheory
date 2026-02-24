@@ -16,10 +16,14 @@ const (
 	CamelCase Convention = 0
 	// SnakeCase convention: "first_name", "created_at"
 	SnakeCase Convention = 1
+	// PascalCase convention: "FirstName", "CreatedAt", "ID", "GSI1PK"
+	// This is primarily intended for legacy DynamoDB schemas that use PascalCase and acronyms.
+	PascalCase Convention = 2
 )
 
 var camelCasePattern = regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)
 var snakeCasePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
+var pascalCasePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
 
 // ResolveAttrName determines the DynamoDB attribute name for a field using CamelCase convention.
 // It returns the attribute name and a bool indicating whether the field should be skipped.
@@ -112,6 +116,8 @@ func ConvertAttrName(name string, convention Convention) string {
 	switch convention {
 	case SnakeCase:
 		return ToSnakeCase(name)
+	case PascalCase:
+		return name
 	case CamelCase:
 		fallthrough
 	default:
@@ -131,6 +137,11 @@ func ValidateAttrName(name string, convention Convention) error {
 	case SnakeCase:
 		if !snakeCasePattern.MatchString(name) {
 			return fmt.Errorf("attribute name must be snake_case (got %q)", name)
+		}
+		return nil
+	case PascalCase:
+		if !pascalCasePattern.MatchString(name) {
+			return fmt.Errorf("attribute name must be pascalCase (got %q)", name)
 		}
 		return nil
 	case CamelCase:

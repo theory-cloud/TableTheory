@@ -141,3 +141,4 @@ docs/development/notes/*
 !docs/development/notes/template-notes.md
 /notes/
 .pai
+.theory/
