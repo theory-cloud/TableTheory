@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/theory-cloud/TableTheory/compare/v1.4.0...v1.4.1) (2026-02-24)
+
+
+### Bug Fixes
+
+* unblock legacy naming and lambda KMS config ([897ea3c](https://github.com/theory-cloud/TableTheory/commit/897ea3cd37bff7bc795facc91a3b0451a693d817))
+
 ## [1.4.1-rc](https://github.com/theory-cloud/TableTheory/compare/v1.4.0...v1.4.1-rc) (2026-02-24)
 
 
