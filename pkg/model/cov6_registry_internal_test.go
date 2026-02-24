@@ -47,12 +47,16 @@ func TestDetectNamingConvention_COV6(t *testing.T) {
 	type camel struct {
 		_ string `theorydb:"naming:camelCase"`
 	}
+	type pascal struct {
+		_ string `theorydb:"naming:pascalCase"`
+	}
 	type none struct {
 		Field string
 	}
 
 	require.Equal(t, naming.SnakeCase, detectNamingConvention(reflect.TypeOf(snake{})))
 	require.Equal(t, naming.CamelCase, detectNamingConvention(reflect.TypeOf(camel{})))
+	require.Equal(t, naming.PascalCase, detectNamingConvention(reflect.TypeOf(pascal{})))
 	require.Equal(t, naming.CamelCase, detectNamingConvention(reflect.TypeOf(none{})))
 }
 

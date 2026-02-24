@@ -54,6 +54,7 @@ func NewLambdaOptimized() (*LambdaDB, error)
 
 - **Returns**: `*LambdaDB` pointer or error.
 - **Best Practice**: Call this in your `init()` function or global variable declaration.
+- **Encryption**: If any registered model includes `theorydb:"encrypted"`, set `KMS_KEY_ARN` (or `TABLETHEORY_KMS_KEY_ARN`) in your Lambda environment.
 
 ### `LambdaInit`
 

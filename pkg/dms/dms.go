@@ -366,6 +366,8 @@ func namingConventionString(c naming.Convention) string {
 	switch c {
 	case naming.SnakeCase:
 		return "snake_case"
+	case naming.PascalCase:
+		return "pascalCase"
 	case naming.CamelCase:
 		fallthrough
 	default:
