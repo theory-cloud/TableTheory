@@ -91,12 +91,17 @@ func TestDetectNamingConvention_AndSplitTag_COV6(t *testing.T) {
 		Name string `theorydb:"naming:camelCase"`
 	}
 
+	type withPascal struct {
+		Name string `theorydb:"naming:pascalCase"`
+	}
+
 	type withoutTag struct {
 		Name string
 	}
 
 	require.Equal(t, naming.SnakeCase, detectNamingConvention(reflect.TypeOf(withSnake{})))
 	require.Equal(t, naming.CamelCase, detectNamingConvention(reflect.TypeOf(withCamel{})))
+	require.Equal(t, naming.PascalCase, detectNamingConvention(reflect.TypeOf(withPascal{})))
 	require.Equal(t, naming.CamelCase, detectNamingConvention(reflect.TypeOf(withoutTag{})))
 
 	require.Nil(t, splitTag(""))

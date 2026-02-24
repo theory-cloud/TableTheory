@@ -702,6 +702,8 @@ func detectNamingConvention(modelType reflect.Type) naming.Convention {
 					return naming.SnakeCase
 				case "camel_case", "camelCase":
 					return naming.CamelCase
+				case "pascal_case", "pascalCase":
+					return naming.PascalCase
 				}
 			}
 		}

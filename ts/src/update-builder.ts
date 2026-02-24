@@ -109,7 +109,7 @@ class ConditionExpressionBuilder {
     const nameRef = this.nameRef(field);
     const upper = op.toUpperCase();
 
-    let values: unknown[] = [];
+    let values: unknown[];
     if (upper === 'BETWEEN') {
       if (!Array.isArray(value) || value.length !== 2) {
         throw new TheorydbError(

@@ -210,6 +210,31 @@ func TestRegisterCustomAttributeModel(t *testing.T) {
 	assert.Equal(t, usernameField, metadata.FieldsByDBName["username"])
 }
 
+func TestRegisterPascalCaseNamingConvention_AllowsAcronymsAndGSIs(t *testing.T) {
+	registry := model.NewRegistry()
+
+	type PascalCaseUser struct {
+		_ struct{} `theorydb:"naming:pascalCase"`
+
+		ID string `theorydb:"pk"`
+		SK string `theorydb:"sk"`
+
+		GSI1PK string `theorydb:"index:gsi1,pk"`
+		GSI1SK string `theorydb:"index:gsi1,sk"`
+	}
+
+	err := registry.Register(&PascalCaseUser{})
+	require.NoError(t, err)
+
+	metadata, err := registry.GetMetadata(&PascalCaseUser{})
+	require.NoError(t, err)
+
+	require.Equal(t, "ID", metadata.Fields["ID"].DBName)
+	require.Equal(t, "SK", metadata.Fields["SK"].DBName)
+	require.Equal(t, "GSI1PK", metadata.Fields["GSI1PK"].DBName)
+	require.Equal(t, "GSI1SK", metadata.Fields["GSI1SK"].DBName)
+}
+
 func TestRegisterInvalidModel(t *testing.T) {
 	registry := model.NewRegistry()
 

@@ -27,6 +27,23 @@ type User struct {
 
 By default, TableTheory uses your field name (or the configured naming convention) as the DynamoDB attribute name.
 
+TableTheory supports three attribute naming conventions:
+
+- `camelCase` (default)
+- `snake_case` (opt-in)
+- `pascalCase` (opt-in; useful for legacy tables that use `ID`, `SK`, `GSI1PK`, etc)
+
+To select a convention for a model, add a marker field (commonly a blank identifier) with a `naming:` tag:
+
+```go
+type LegacyUser struct {
+	_ struct{} `theorydb:"naming:pascalCase"`
+
+	ID string `theorydb:"pk"`
+	SK string `theorydb:"sk"`
+}
+```
+
 To override the DynamoDB attribute name explicitly, use:
 
 - `theorydb:"attr:<attributeName>"`

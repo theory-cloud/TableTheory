@@ -68,6 +68,22 @@ func TestValidateAttrName(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("PascalCase", func(t *testing.T) {
+		valid := []string{"Name", "CreatedAt", "ID", "SK", "PK", "GSI1PK", "UserID", "TTL", "Value1"}
+		for _, v := range valid {
+			if err := ValidateAttrName(v, PascalCase); err != nil {
+				t.Errorf("ValidateAttrName(%q, PascalCase) unexpected error: %v", v, err)
+			}
+		}
+
+		invalid := []string{"", "snake_case", "camelCase", "hyphen-name", "_Leading"}
+		for _, v := range invalid {
+			if err := ValidateAttrName(v, PascalCase); err == nil {
+				t.Errorf("ValidateAttrName(%q, PascalCase) expected error", v)
+			}
+		}
+	})
 }
 
 func TestResolveAttrName(t *testing.T) {
