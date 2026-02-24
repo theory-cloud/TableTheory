@@ -112,6 +112,32 @@ func TestNewLambdaOptimized_WarmStartReturnsGlobal_COV6(t *testing.T) {
 	require.Same(t, globalLambdaDB, got)
 }
 
+func TestNewLambdaOptimized_ReadsKMSKeyARNFromEnv_COV6(t *testing.T) {
+	t.Cleanup(func() {
+		globalLambdaDB = nil
+		lambdaOnce = sync.Once{}
+	})
+
+	globalLambdaDB = nil
+	lambdaOnce = sync.Once{}
+
+	t.Setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
+	t.Setenv("AWS_REGION", "us-east-1")
+	t.Setenv("KMS_KEY_ARN", "arn:aws:kms:us-east-1:111111111111:key/test")
+
+	stubSessionConfigLoad(t, func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
+		return minimalAWSConfig(nil), nil
+	})
+
+	got, err := NewLambdaOptimized()
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.NotNil(t, got.db)
+	require.NotNil(t, got.db.session)
+	require.NotNil(t, got.db.session.Config())
+	require.Equal(t, "arn:aws:kms:us-east-1:111111111111:key/test", got.db.session.Config().KMSKeyARN)
+}
+
 func TestLambdaDB_WithLambdaTimeout_NoDeadlineReturnsSame_COV6(t *testing.T) {
 	ldb := &LambdaDB{db: &DB{}}
 	require.Same(t, ldb, ldb.WithLambdaTimeout(context.Background()))

@@ -119,6 +119,7 @@ func createLambdaDB() (*LambdaDB, error) {
 
 	cfg := session.Config{
 		Region:           getRegion(),
+		KMSKeyARN:        getKMSKeyARN(),
 		MaxRetries:       3,
 		DefaultRCU:       5,
 		DefaultWCU:       5,
@@ -341,6 +342,13 @@ func getRegion() string {
 	}
 	// Fallback to default region
 	return "us-east-1"
+}
+
+func getKMSKeyARN() string {
+	if keyARN := os.Getenv("TABLETHEORY_KMS_KEY_ARN"); keyARN != "" {
+		return keyARN
+	}
+	return os.Getenv("KMS_KEY_ARN")
 }
 
 // GetRemainingTimeMillis returns milliseconds until Lambda timeout
