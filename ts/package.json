@@ -1,6 +1,6 @@
 {
   "name": "@theory-cloud/tabletheory-ts",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -32,19 +32,19 @@
     "example:local": "tsx examples/local.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.996.0",
-    "@aws-sdk/client-kms": "^3.996.0",
-    "@aws-sdk/client-sts": "^3.996.0",
-    "yaml": "^2.8.0"
+    "@aws-sdk/client-dynamodb": "^3.1002.0",
+    "@aws-sdk/client-kms": "^3.1002.0",
+    "@aws-sdk/client-sts": "^3.1002.0",
+    "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^24.10.9",
+    "@types/node": "^24.11.0",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
     "eslint": "^10.0.2",
-    "globals": "^17.2.0",
-    "prettier": "^3.6.0",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
