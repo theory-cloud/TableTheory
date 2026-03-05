@@ -9,18 +9,18 @@
   },
   "scripts": {
     "prep": "npm --prefix ../../ts ci && npm --prefix ../../ts run build",
-    "synth": "npm run prep && npx -y aws-cdk@2.1101.0 synth",
-    "deploy": "npm run prep && npx -y aws-cdk@2.1101.0 deploy --require-approval never"
+    "synth": "npm run prep && npx -y aws-cdk@2.1109.0 synth",
+    "deploy": "npm run prep && npx -y aws-cdk@2.1109.0 deploy --require-approval never"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "3.758.0",
-    "@aws-sdk/client-kms": "3.758.0",
-    "aws-cdk-lib": "2.235.0",
-    "constructs": "10.4.5"
+    "@aws-sdk/client-dynamodb": "3.1002.0",
+    "@aws-sdk/client-kms": "3.1002.0",
+    "aws-cdk-lib": "2.241.0",
+    "constructs": "10.5.1"
   },
   "devDependencies": {
-    "esbuild": "0.25.10",
-    "tsx": "4.20.5",
-    "typescript": "5.7.3"
+    "esbuild": "0.27.3",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
   }
 }

@@ -83,10 +83,10 @@ if [[ -z "${expected}" ]]; then
 fi
 
 if [[ "${observed_version}" != "${expected}" ]]; then
-  # When merging prerelease work into `main`, allow checks to validate against the `premain` prerelease manifest.
-  # This prevents false failures during promotion PRs and the immediate post-merge push; the subsequent main
-  # release PR will enforce stable alignment.
   if [[ "${branch}" == "main" && "${observed_version}" == *"-rc"* && -f ".release-please-manifest.premain.json" ]]; then
+    # Promotion PRs (premain -> main) and immediate post-merge pushes may still carry prerelease versions.
+    # Allow alignment against the premain prerelease manifest; the subsequent release PR on `main` will
+    # enforce stable alignment.
     expected="$(
       python3 - <<PY
 import json
@@ -97,6 +97,20 @@ print(data.get(".", ""))
 PY
 )"
     manifest=".release-please-manifest.premain.json"
+  elif [[ "${branch}" == "premain" && "${observed_version}" != *"-rc"* && -f ".release-please-manifest.json" ]]; then
+    # Promotion PRs (staging -> premain) and immediate post-merge pushes start from the latest stable
+    # baseline. Allow alignment against the stable manifest; the subsequent prerelease PR on `premain`
+    # will bump versions and enforce prerelease alignment.
+    expected="$(
+      python3 - <<PY
+import json
+from pathlib import Path
+
+data = json.loads(Path(".release-please-manifest.json").read_text(encoding="utf-8"))
+print(data.get(".", ""))
+PY
+)"
+    manifest=".release-please-manifest.json"
   fi
 fi
 
