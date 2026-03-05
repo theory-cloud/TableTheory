@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.2](https://github.com/theory-cloud/TableTheory/compare/v1.4.1...v1.4.2) (2026-03-05)
+
+
+### Bug Fixes
+
+* add encrypted compat mode for legacy plaintext ([d42d1f5](https://github.com/theory-cloud/TableTheory/commit/d42d1f533e7966ee041829d9bc736d31a419c376))
+* **ci:** allow stable version alignment on premain promotion ([56984bd](https://github.com/theory-cloud/TableTheory/commit/56984bd4cec3490246b7aeed0b7e17de3268105f))
+* **ci:** allow stable version alignment on premain promotion ([4f679a8](https://github.com/theory-cloud/TableTheory/commit/4f679a87f30e9bdb99539a0eeb65d396b2614fc9))
+
 ## [1.4.1-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.4.1-rc...v1.4.1-rc.1) (2026-03-05)
 
 
