@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 from botocore.exceptions import ClientError
 
+from theorydb_py import schema as schema_module
 from theorydb_py import ModelDefinition, Projection, ValidationError, gsi, lsi, theorydb_field
 from theorydb_py.errors import AwsError, NotFoundError
 from theorydb_py.mocks import FakeDynamoDBClient
@@ -331,3 +332,94 @@ def test_build_create_table_request_key_type_inference_variants() -> None:
     bad_model = ModelDefinition.from_dataclass(UnsupportedKey, table_name="tbl_bad")
     with pytest.raises(ValidationError, match="key attribute must be S/N/B"):
         build_create_table_request(bad_model)
+
+
+def test_schema_helpers_use_default_boto3_client(
+    monkeypatch: pytest.MonkeyPatch,
+    model: ModelDefinition[object],
+    ttl_model: ModelDefinition[object],
+) -> None:
+    create_client = FakeDynamoDBClient()
+    create_client.expect("create_table", {"TableName": "tbl", "BillingMode": "PAY_PER_REQUEST"}, response={})
+
+    ensure_client = FakeDynamoDBClient()
+    ensure_client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
+    ensure_client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
+    ensure_client.expect(
+        "update_time_to_live",
+        {
+            "TableName": "ttl_tbl",
+            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
+        },
+        response={"TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True}},
+    )
+
+    delete_client = FakeDynamoDBClient()
+    delete_client.expect("delete_table", {"TableName": "tbl"}, response={})
+
+    describe_client = FakeDynamoDBClient()
+    describe_client.expect("describe_table", {"TableName": "tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
+
+    ttl_client = FakeDynamoDBClient()
+    ttl_client.expect(
+        "update_time_to_live",
+        {
+            "TableName": "ttl_tbl",
+            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
+        },
+        response={"TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True}},
+    )
+
+    clients = iter([create_client, ensure_client, delete_client, describe_client, ttl_client])
+    monkeypatch.setattr(schema_module.boto3, "client", lambda service: next(clients))
+
+    create_table(model, wait_for_active=False)
+    ensure_table(ttl_model, wait_for_active=False, sleep=lambda _: None)
+    delete_table(model, wait_for_delete=False)
+    assert describe_table(model)["Table"]["TableStatus"] == "ACTIVE"
+    update_time_to_live(ttl_model)
+
+    create_client.assert_no_pending()
+    ensure_client.assert_no_pending()
+    delete_client.assert_no_pending()
+    describe_client.assert_no_pending()
+    ttl_client.assert_no_pending()
+
+
+def test_update_time_to_live_noops_without_ttl_attribute(model: ModelDefinition[object]) -> None:
+    client = FakeDynamoDBClient()
+
+    update_time_to_live(model, client=client)
+
+    assert client.calls == []
+
+
+def test_update_time_to_live_maps_validation_exception(ttl_model: ModelDefinition[object]) -> None:
+    client = FakeDynamoDBClient()
+    client.expect(
+        "update_time_to_live",
+        {
+            "TableName": "ttl_tbl",
+            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
+        },
+        error=ClientError({"Error": {"Code": "ValidationException", "Message": "bad ttl"}}, "UpdateTimeToLive"),
+    )
+
+    with pytest.raises(ValidationError, match="bad ttl"):
+        update_time_to_live(ttl_model, client=client)
+
+
+def test_schema_operations_require_table_name_when_model_has_none(model: ModelDefinition[object]) -> None:
+    nameless = replace(model, table_name="")
+    client = FakeDynamoDBClient()
+
+    with pytest.raises(ValueError, match="table_name is required"):
+        build_create_table_request(nameless)
+    with pytest.raises(ValueError, match="table_name is required"):
+        ensure_table(nameless, client=client)
+    with pytest.raises(ValueError, match="table_name is required"):
+        delete_table(nameless, client=client)
+    with pytest.raises(ValueError, match="table_name is required"):
+        describe_table(nameless, client=client)
+    with pytest.raises(ValueError, match="table_name is required"):
+        update_time_to_live(nameless, client=client)

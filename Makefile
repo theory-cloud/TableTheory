@@ -6,8 +6,8 @@
 GOMOD := github.com/theory-cloud/tabletheory
 TOOLCHAIN := $(shell awk '/^toolchain / {print $$2}' go.mod | head -n 1)
 export GOTOOLCHAIN ?= $(TOOLCHAIN)
-UNIT_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /examples/ | grep -v /tests/stress | grep -v /tests/integration)
-ALL_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /examples/ | grep -v /tests/stress)
+UNIT_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress | grep -v /tests/integration)
+ALL_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress)
 INTEGRATION_PACKAGES := $(shell go list ./tests/integration/...)
 DYNAMODB_LOCAL_IMAGE ?= amazon/dynamodb-local:3.1.0
 

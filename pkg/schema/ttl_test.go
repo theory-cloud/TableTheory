@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -89,6 +90,60 @@ func TestManager_EnableTTL_ValidatesTTLField_COV6(t *testing.T) {
 
 	err := mgr.EnableTTL(&noTTLModel{})
 	require.ErrorContains(t, err, "does not define a ttl field")
+}
+
+func TestManager_EnableTTL_Success_COV6(t *testing.T) {
+	httpClient := newCapturingHTTPClient(nil)
+	httpClient.SetResponseSequence("DynamoDB_20120810.UpdateTimeToLive", []stubbedResponse{
+		{body: `{"TimeToLiveSpecification":{"AttributeName":"expiresAt","Enabled":true}}`},
+	})
+
+	mgr := newTestManager(t, httpClient)
+	require.NoError(t, mgr.registry.Register(&ttlSchemaModel{}))
+
+	require.NoError(t, mgr.EnableTTL(&ttlSchemaModel{}))
+
+	reqs := httpClient.Requests()
+	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
+	require.Equal(t, map[string]any{
+		"AttributeName": "expiresAt",
+		"Enabled":       true,
+	}, reqs[len(reqs)-1].Payload["TimeToLiveSpecification"])
+}
+
+func TestManager_EnableTTL_WrapsMetadataAndClientErrors_COV6(t *testing.T) {
+	t.Run("metadata lookup errors are wrapped", func(t *testing.T) {
+		mgr := &Manager{registry: model.NewRegistry()}
+
+		err := mgr.EnableTTL(&ttlSchemaModel{})
+		require.ErrorContains(t, err, "failed to get model metadata")
+	})
+
+	t.Run("client errors are wrapped", func(t *testing.T) {
+		mgr := &Manager{registry: modelRegistryWith(t, &ttlSchemaModel{})}
+
+		err := mgr.EnableTTL(&ttlSchemaModel{})
+		require.ErrorContains(t, err, "failed to get client for ttl update")
+	})
+}
+
+func TestManager_SyncModelTTL_WrapsUpdateErrors_COV6(t *testing.T) {
+	httpClient := newCapturingHTTPClient(nil)
+	httpClient.SetResponseSequence("DynamoDB_20120810.UpdateTimeToLive", []stubbedResponse{
+		stubbedAWSError("ValidationException", "boom"),
+	})
+
+	mgr := newTestManager(t, httpClient)
+	require.NoError(t, mgr.registry.Register(&ttlSchemaModel{}))
+
+	client, err := mgr.session.Client()
+	require.NoError(t, err)
+
+	metadata, err := mgr.registry.GetMetadata(&ttlSchemaModel{})
+	require.NoError(t, err)
+
+	err = mgr.syncModelTTL(context.Background(), client, metadata)
+	require.ErrorContains(t, err, "failed to enable ttl on table ttl_records")
 }
 
 func modelRegistryWith(t *testing.T, values ...any) *model.Registry {
