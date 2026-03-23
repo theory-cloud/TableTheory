@@ -66,7 +66,15 @@ if TYPE_CHECKING:
         instrument_boto3_client,
         is_lambda_environment,
     )
-    from .schema import build_create_table_request, create_table, delete_table, describe_table, ensure_table
+    from .schema import (
+        build_create_table_request,
+        create_table,
+        delete_table,
+        describe_table,
+        ensure_table,
+        resolve_ttl_attribute,
+        update_time_to_live,
+    )
     from .streams import unmarshal_stream_image, unmarshal_stream_record
     from .table import Table
     from .validation import (
@@ -117,6 +125,8 @@ def __getattr__(name: str) -> Any:
         "delete_table",
         "describe_table",
         "ensure_table",
+        "resolve_ttl_attribute",
+        "update_time_to_live",
     }:
         from . import schema
 
@@ -223,6 +233,7 @@ __all__ = [
     "GroupedResult",
     "EncryptionNotConfiguredError",
     "ensure_table",
+    "resolve_ttl_attribute",
     "get_dms_model",
     "get_lambda_boto3_client",
     "get_lambda_dynamodb_client",
@@ -277,6 +288,7 @@ __all__ = [
     "parse_dms_document",
     "unmarshal_stream_image",
     "unmarshal_stream_record",
+    "update_time_to_live",
     "validate_expression",
     "validate_field_name",
     "validate_index_name",

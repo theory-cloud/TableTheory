@@ -1,6 +1,13 @@
 # Changelog
 
-## [1.4.1-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.4.1-rc...v1.4.1-rc.1) (2026-03-05)
+## Unreleased
+
+### Features
+
+* add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
+* add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage
+
+## [1.4.2](https://github.com/theory-cloud/TableTheory/compare/v1.4.1...v1.4.2) (2026-03-05)
 
 
 ### Bug Fixes
