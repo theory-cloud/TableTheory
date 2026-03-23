@@ -121,6 +121,9 @@ class FakeDynamoDBClient:
     def describe_table(self, **kwargs: Any) -> Mapping[str, Any]:
         return self._handle("describe_table", kwargs)
 
+    def update_time_to_live(self, **kwargs: Any) -> Mapping[str, Any]:
+        return self._handle("update_time_to_live", kwargs)
+
 
 class FakeKmsClient:
     def __init__(self, *, plaintext_key: bytes, ciphertext_blob: bytes) -> None:

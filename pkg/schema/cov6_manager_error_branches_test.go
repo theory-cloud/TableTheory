@@ -118,7 +118,7 @@ func TestManager_UpdateTable_WrapsUpdateErrors_COV6(t *testing.T) {
 	mgr := newTestManager(t, httpClient)
 	require.NoError(t, mgr.registry.Register(&cov6ManagerModel{}))
 
-	err := mgr.UpdateTable(&cov6ManagerModel{}, WithBillingMode(types.BillingModePayPerRequest))
+	err := mgr.UpdateTable(&cov6ManagerModel{}, WithThroughput(5, 5))
 	require.ErrorContains(t, err, "failed to update table")
 }
 

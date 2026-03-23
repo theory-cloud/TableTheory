@@ -1,6 +1,6 @@
 {
   "name": "@theory-cloud/tabletheory-ts",
-  "version": "1.4.2",
+  "version": "1.5.0-rc",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -36,6 +36,10 @@
     "@aws-sdk/client-kms": "^3.1002.0",
     "@aws-sdk/client-sts": "^3.1002.0",
     "yaml": "^2.8.2"
+  },
+  "overrides": {
+    "fast-xml-parser": "^5.5.7",
+    "flatted": "^3.4.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

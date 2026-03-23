@@ -209,6 +209,34 @@ idempotencyTable.addGlobalSecondaryIndex({
 4. **Billing Mode**: TableTheory works with both PAY_PER_REQUEST and PROVISIONED
 5. **Streams**: Enable if you need change data capture or event processing
 
+### TTL and Archival Lifecycle
+
+- TableTheory schema helpers now enable DynamoDB TTL automatically when the model declares a `ttl` field or role.
+- Keep the same attribute name in your CDK table definition and your model tags so DMS-driven schemas stay aligned.
+- For retention workflows that archive TTL deletes, enable `NEW_AND_OLD_IMAGES` streams and wire the archival path to S3.
+- The deployable reference lives in `examples/cdk-multilang/lib/tabletheory-ttl-archive.ts` and uses:
+  - DynamoDB Streams `REMOVE` records created by TTL expiration
+  - a Lambda archiver at `examples/cdk-multilang/lambdas/archive/handler.ts`
+  - S3 lifecycle rules for Glacier transition and eventual expiration
+
+```typescript
+const evidenceTable = new dynamodb.Table(this, 'EvidenceArchiveTable', {
+    partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+    sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+    billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
+    timeToLiveAttribute: 'expires_at',
+});
+
+new TableTheoryTtlArchive(this, 'EvidenceArchive', {
+    table: evidenceTable,
+    ttlAttributeName: 'expires_at',
+    archivePrefix: 'evidence-snapshots',
+    glacierTransitionAfter: Duration.days(30),
+    expireAfter: Duration.days(730),
+});
+```
+
 ## 3. Runtime Integration
 
 ### Environment Variables

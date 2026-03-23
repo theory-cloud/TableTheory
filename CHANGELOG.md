@@ -1,15 +1,26 @@
 # Changelog
 
-## [1.4.2](https://github.com/theory-cloud/TableTheory/compare/v1.4.1...v1.4.2) (2026-03-05)
+## Unreleased
+
+### Features
+
+* add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
+* add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage
+
+## [1.5.0-rc](https://github.com/theory-cloud/TableTheory/compare/v1.4.2...v1.5.0-rc) (2026-03-23)
+
+
+### Features
+
+* add TTL archival lifecycle support ([0f1b88d](https://github.com/theory-cloud/TableTheory/commit/0f1b88d7012ea3436964328a73978ff680137f94))
+* add TTL archival lifecycle support ([22ffedc](https://github.com/theory-cloud/TableTheory/commit/22ffedcfccff7f4732eaad50473a89bcffd7815e))
 
 
 ### Bug Fixes
 
-* add encrypted compat mode for legacy plaintext ([d42d1f5](https://github.com/theory-cloud/TableTheory/commit/d42d1f533e7966ee041829d9bc736d31a419c376))
-* **ci:** allow stable version alignment on premain promotion ([56984bd](https://github.com/theory-cloud/TableTheory/commit/56984bd4cec3490246b7aeed0b7e17de3268105f))
-* **ci:** allow stable version alignment on premain promotion ([4f679a8](https://github.com/theory-cloud/TableTheory/commit/4f679a87f30e9bdb99539a0eeb65d396b2614fc9))
+* remediate rubric dependency scan failures ([0c6b9ee](https://github.com/theory-cloud/TableTheory/commit/0c6b9eec7d38719af075bb09a7908d0a97556ee8))
 
-## [1.4.1-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.4.1-rc...v1.4.1-rc.1) (2026-03-05)
+## [1.4.2](https://github.com/theory-cloud/TableTheory/compare/v1.4.1...v1.4.2) (2026-03-05)
 
 
 ### Bug Fixes

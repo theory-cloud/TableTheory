@@ -6,6 +6,7 @@ import {
   DeleteTableCommand,
   DescribeTableCommand,
   type DynamoDBClient,
+  UpdateTimeToLiveCommand,
 } from '@aws-sdk/client-dynamodb';
 
 import { TheorydbError } from '../../src/errors.js';
@@ -36,6 +37,19 @@ const baseSchema: ModelSchema = {
       type: 'GSI',
       partition: { attribute: 'emailHash', type: 'S' },
       projection: { type: 'ALL' },
+    },
+  ],
+};
+
+const ttlSchema: ModelSchema = {
+  ...baseSchema,
+  attributes: [
+    ...baseSchema.attributes,
+    {
+      attribute: 'expiresAt',
+      type: 'N',
+      optional: true,
+      roles: ['ttl'],
     },
   ],
 };
@@ -175,4 +189,53 @@ test('createTable requires throughput when billingMode=PROVISIONED', async () =>
       return true;
     },
   );
+});
+
+test('createTable syncs TTL when the model declares a ttl role', async () => {
+  const model = defineModel(ttlSchema);
+  const calls: unknown[] = [];
+  const ddb = {
+    send: async (cmd: unknown) => {
+      calls.push(cmd);
+      if (cmd instanceof DescribeTableCommand) {
+        return { Table: { TableStatus: 'ACTIVE' } };
+      }
+      return {};
+    },
+  } as unknown as DynamoDBClient;
+
+  await createTable(ddb, model, { waitForActive: false });
+
+  assert.equal(calls.length, 3);
+  assert.ok(calls[0] instanceof CreateTableCommand);
+  assert.ok(calls[1] instanceof DescribeTableCommand);
+  assert.ok(calls[2] instanceof UpdateTimeToLiveCommand);
+  assert.deepEqual((calls[2] as UpdateTimeToLiveCommand).input, {
+    TableName: 'users_contract',
+    TimeToLiveSpecification: {
+      AttributeName: 'expiresAt',
+      Enabled: true,
+    },
+  });
+});
+
+test('ensureTable syncs TTL for an existing table', async () => {
+  const model = defineModel(ttlSchema);
+  const calls: unknown[] = [];
+  const ddb = {
+    send: async (cmd: unknown) => {
+      calls.push(cmd);
+      if (cmd instanceof DescribeTableCommand) {
+        return { Table: { TableStatus: 'ACTIVE' } };
+      }
+      return {};
+    },
+  } as unknown as DynamoDBClient;
+
+  await ensureTable(ddb, model, { waitForActive: false });
+
+  assert.equal(calls.length, 3);
+  assert.ok(calls[0] instanceof DescribeTableCommand);
+  assert.ok(calls[1] instanceof DescribeTableCommand);
+  assert.ok(calls[2] instanceof UpdateTimeToLiveCommand);
 });

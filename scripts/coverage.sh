@@ -3,9 +3,10 @@ set -euo pipefail
 
 profile="${1:-coverage_lib.out}"
 
-# Measure "library coverage" (exclude repo-local examples, tests, and tool harness packages).
+# Measure "library coverage" (exclude repo-local examples, tests, tool harness packages,
+# and third-party dependency trees materialized inside the repo).
 # This avoids a low-signal denominator dominated by non-library modules.
-pkgs="$(go list ./... | grep -Ev '/examples($|/)|/tests($|/)|/scripts($|/)')"
+pkgs="$(go list ./... | grep -Ev '/examples($|/)|/tests($|/)|/scripts($|/)|/node_modules($|/)|/vendor($|/)')"
 if [[ -z "${pkgs}" ]]; then
   echo "no packages found"
   exit 1
