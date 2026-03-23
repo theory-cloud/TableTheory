@@ -112,17 +112,20 @@ func (m *Manager) CreateTable(model any, opts ...TableOption) error {
 		// Check if table already exists
 		var existsErr *types.ResourceInUseException
 		if errors.As(err, &existsErr) {
-			// Table already exists, which is fine
-			return nil
+			return m.syncModelTTL(ctx, client, metadata)
 		}
 		return fmt.Errorf("failed to create table %s: %w", metadata.TableName, err)
 	}
 
 	// Wait for table to be active
 	waiter := dynamodb.NewTableExistsWaiter(client)
-	return waiter.Wait(ctx, &dynamodb.DescribeTableInput{
+	if err := waiter.Wait(ctx, &dynamodb.DescribeTableInput{
 		TableName: aws.String(metadata.TableName),
-	}, 5*time.Minute)
+	}, 5*time.Minute); err != nil {
+		return err
+	}
+
+	return m.syncModelTTL(ctx, client, metadata)
 }
 
 // buildKeySchema builds the primary key schema
@@ -385,13 +388,21 @@ func (m *Manager) UpdateTable(model any, opts ...TableOption) error {
 		return fmt.Errorf("failed to get client for table update: %w", err)
 	}
 
+	if !hasUpdateTableChanges(input) {
+		return m.syncModelTTL(ctx, client, metadata)
+	}
+
 	_, err = client.UpdateTable(ctx, input)
 	if err != nil {
 		return fmt.Errorf("failed to update table %s: %w", metadata.TableName, err)
 	}
 
 	// Wait for update to complete
-	return m.waitForTableActive(metadata.TableName)
+	if err := m.waitForTableActive(metadata.TableName); err != nil {
+		return err
+	}
+
+	return m.syncModelTTL(ctx, client, metadata)
 }
 
 func buildCreateTableInput(opts []TableOption) *dynamodb.CreateTableInput {
@@ -400,6 +411,14 @@ func buildCreateTableInput(opts []TableOption) *dynamodb.CreateTableInput {
 		opt(createInput)
 	}
 	return createInput
+}
+
+func hasUpdateTableChanges(input *dynamodb.UpdateTableInput) bool {
+	return input.BillingMode != "" ||
+		input.ProvisionedThroughput != nil ||
+		input.StreamSpecification != nil ||
+		input.SSESpecification != nil ||
+		len(input.GlobalSecondaryIndexUpdates) > 0
 }
 
 func applyBillingModeUpdate(input *dynamodb.UpdateTableInput, createInput *dynamodb.CreateTableInput, current *types.TableDescription) {

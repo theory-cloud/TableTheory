@@ -241,5 +241,5 @@ func TestManager_UpdateTable_And_BatchUpdateTable(t *testing.T) {
 
 	reqs := httpClient.Requests()
 	require.GreaterOrEqual(t, countRequestsByTarget(reqs, "DynamoDB_20120810.DescribeTable"), 2)
-	require.Equal(t, 2, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTable"))
+	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTable"))
 }

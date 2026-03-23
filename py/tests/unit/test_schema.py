@@ -14,6 +14,8 @@ from theorydb_py.schema import (
     delete_table,
     describe_table,
     ensure_table,
+    resolve_ttl_attribute,
+    update_time_to_live,
 )
 
 
@@ -36,6 +38,19 @@ def model() -> ModelDefinition[object]:
             lsi("lsi-updated", sort="updated", projection=Projection.include("emailHash")),
         ],
     )
+
+
+@pytest.fixture()
+def ttl_model() -> ModelDefinition[object]:
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class Record:
+        pk: str = theorydb_field(name="PK", roles=["pk"])
+        sk: str = theorydb_field(name="SK", roles=["sk"])
+        expires_at: int = theorydb_field(name="expires_at", roles=["ttl"])
+
+    return ModelDefinition.from_dataclass(Record, table_name="ttl_tbl")
 
 
 def test_build_create_table_request_includes_indexes_and_sorted_attributes(
@@ -229,6 +244,57 @@ def test_build_create_table_request_requires_dataclass_model_type(model: ModelDe
     bad = replace(model, model_type=int)  # type: ignore[arg-type]
     with pytest.raises(ValidationError, match="model_type must be a dataclass"):
         build_create_table_request(bad)
+
+
+def test_create_table_syncs_ttl_for_models_with_ttl_role(ttl_model: ModelDefinition[object]) -> None:
+    client = FakeDynamoDBClient()
+    client.expect("create_table", {"TableName": "ttl_tbl", "BillingMode": "PAY_PER_REQUEST"}, response={})
+    client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
+    client.expect(
+        "update_time_to_live",
+        {
+            "TableName": "ttl_tbl",
+            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
+        },
+        response={"TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True}},
+    )
+
+    create_table(ttl_model, client=client, wait_for_active=False, sleep=lambda _: None)
+    client.assert_no_pending()
+
+
+def test_ensure_table_syncs_ttl_for_existing_tables(ttl_model: ModelDefinition[object]) -> None:
+    client = FakeDynamoDBClient()
+    client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
+    client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
+    client.expect(
+        "update_time_to_live",
+        {
+            "TableName": "ttl_tbl",
+            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
+        },
+        response={"TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True}},
+    )
+
+    ensure_table(ttl_model, client=client, wait_for_active=False, sleep=lambda _: None)
+    client.assert_no_pending()
+
+
+def test_resolve_and_update_time_to_live_helpers(ttl_model: ModelDefinition[object]) -> None:
+    assert resolve_ttl_attribute(ttl_model) == "expires_at"
+
+    client = FakeDynamoDBClient()
+    client.expect(
+        "update_time_to_live",
+        {
+            "TableName": "ttl_tbl",
+            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
+        },
+        response={"TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True}},
+    )
+
+    update_time_to_live(ttl_model, client=client)
+    client.assert_no_pending()
 
 
 def test_build_create_table_request_key_type_inference_variants() -> None:
