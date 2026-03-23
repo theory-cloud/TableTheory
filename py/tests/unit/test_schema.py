@@ -5,8 +5,8 @@ from dataclasses import replace
 import pytest
 from botocore.exceptions import ClientError
 
-from theorydb_py import schema as schema_module
 from theorydb_py import ModelDefinition, Projection, ValidationError, gsi, lsi, theorydb_field
+from theorydb_py import schema as schema_module
 from theorydb_py.errors import AwsError, NotFoundError
 from theorydb_py.mocks import FakeDynamoDBClient
 from theorydb_py.schema import (
@@ -343,8 +343,12 @@ def test_schema_helpers_use_default_boto3_client(
     create_client.expect("create_table", {"TableName": "tbl", "BillingMode": "PAY_PER_REQUEST"}, response={})
 
     ensure_client = FakeDynamoDBClient()
-    ensure_client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
-    ensure_client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
+    ensure_client.expect(
+        "describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}}
+    )
+    ensure_client.expect(
+        "describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}}
+    )
     ensure_client.expect(
         "update_time_to_live",
         {
@@ -358,7 +362,9 @@ def test_schema_helpers_use_default_boto3_client(
     delete_client.expect("delete_table", {"TableName": "tbl"}, response={})
 
     describe_client = FakeDynamoDBClient()
-    describe_client.expect("describe_table", {"TableName": "tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
+    describe_client.expect(
+        "describe_table", {"TableName": "tbl"}, response={"Table": {"TableStatus": "ACTIVE"}}
+    )
 
     ttl_client = FakeDynamoDBClient()
     ttl_client.expect(
@@ -402,7 +408,9 @@ def test_update_time_to_live_maps_validation_exception(ttl_model: ModelDefinitio
             "TableName": "ttl_tbl",
             "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
         },
-        error=ClientError({"Error": {"Code": "ValidationException", "Message": "bad ttl"}}, "UpdateTimeToLive"),
+        error=ClientError(
+            {"Error": {"Code": "ValidationException", "Message": "bad ttl"}}, "UpdateTimeToLive"
+        ),
     )
 
     with pytest.raises(ValidationError, match="bad ttl"):
