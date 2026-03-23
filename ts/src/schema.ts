@@ -2,6 +2,7 @@ import {
   CreateTableCommand,
   DeleteTableCommand,
   DescribeTableCommand,
+  UpdateTimeToLiveCommand,
   type AttributeDefinition,
   type CreateTableCommandInput,
   type DynamoDBClient,
@@ -45,12 +46,19 @@ export interface DescribeTableOptions {
   tableName?: string;
 }
 
+export interface UpdateTimeToLiveOptions {
+  tableName?: string;
+  attributeName?: string;
+  enabled?: boolean;
+}
+
 export async function createTable(
   ddb: DynamoDBClient,
   model: Model,
   opts: CreateTableOptions = {},
 ): Promise<void> {
   const tableName = opts.tableName ?? model.tableName;
+  const ttlAttribute = resolveTimeToLiveAttribute(model);
   const input = buildCreateTableInput(model, {
     tableName,
     ...(opts.billingMode ? { billingMode: opts.billingMode } : {}),
@@ -65,13 +73,21 @@ export async function createTable(
     if (!isResourceInUse(err)) throw err;
   }
 
-  if (opts.waitForActive ?? true) {
+  if ((opts.waitForActive ?? true) || ttlAttribute) {
     const waitOpts: { timeoutSeconds?: number; pollIntervalMs?: number } = {};
     if (opts.waitTimeoutSeconds !== undefined)
       waitOpts.timeoutSeconds = opts.waitTimeoutSeconds;
     if (opts.pollIntervalMs !== undefined)
       waitOpts.pollIntervalMs = opts.pollIntervalMs;
     await waitForTableActive(ddb, tableName, waitOpts);
+  }
+
+  if (ttlAttribute) {
+    await updateTimeToLive(ddb, model, {
+      tableName,
+      attributeName: ttlAttribute,
+      enabled: true,
+    });
   }
 }
 
@@ -81,6 +97,7 @@ export async function ensureTable(
   opts: CreateTableOptions = {},
 ): Promise<void> {
   const tableName = opts.tableName ?? model.tableName;
+  const ttlAttribute = resolveTimeToLiveAttribute(model);
   try {
     await describeTable(ddb, model, { tableName });
   } catch (err) {
@@ -89,13 +106,21 @@ export async function ensureTable(
     return;
   }
 
-  if (opts.waitForActive ?? true) {
+  if ((opts.waitForActive ?? true) || ttlAttribute) {
     const waitOpts: { timeoutSeconds?: number; pollIntervalMs?: number } = {};
     if (opts.waitTimeoutSeconds !== undefined)
       waitOpts.timeoutSeconds = opts.waitTimeoutSeconds;
     if (opts.pollIntervalMs !== undefined)
       waitOpts.pollIntervalMs = opts.pollIntervalMs;
     await waitForTableActive(ddb, tableName, waitOpts);
+  }
+
+  if (ttlAttribute) {
+    await updateTimeToLive(ddb, model, {
+      tableName,
+      attributeName: ttlAttribute,
+      enabled: true,
+    });
   }
 }
 
@@ -151,6 +176,30 @@ export async function describeTable(
     }
     throw err;
   }
+}
+
+export function resolveTimeToLiveAttribute(model: Model): string | undefined {
+  return model.roles.ttl;
+}
+
+export async function updateTimeToLive(
+  ddb: DynamoDBClient,
+  model: Model,
+  opts: UpdateTimeToLiveOptions = {},
+): Promise<void> {
+  const tableName = opts.tableName ?? model.tableName;
+  const attributeName = opts.attributeName ?? resolveTimeToLiveAttribute(model);
+  if (!attributeName) return;
+
+  await ddb.send(
+    new UpdateTimeToLiveCommand({
+      TableName: tableName,
+      TimeToLiveSpecification: {
+        AttributeName: attributeName,
+        Enabled: opts.enabled ?? true,
+      },
+    }),
+  );
 }
 
 function buildCreateTableInput(

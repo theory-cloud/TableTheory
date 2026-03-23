@@ -9,6 +9,8 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { Construct } from 'constructs';
 
+import { TableTheoryTtlArchive } from './tabletheory-ttl-archive';
+
 function repoRootFrom(stackFileDir: string): string {
   return path.resolve(stackFileDir, '../../..');
 }
@@ -38,6 +40,25 @@ export class MultilangDemoStack extends Stack {
       sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    const evidenceTable = new dynamodb.Table(this, 'EvidenceArchiveTable', {
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.DESTROY,
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
+      timeToLiveAttribute: 'expires_at',
+    });
+
+    const evidenceArchive = new TableTheoryTtlArchive(this, 'EvidenceArchive', {
+      archivePrefix: 'evidence-snapshots',
+      autoDeleteObjects: true,
+      expireAfter: Duration.days(730),
+      glacierTransitionAfter: Duration.days(30),
+      removalPolicy: RemovalPolicy.DESTROY,
+      table: evidenceTable,
+      ttlAttributeName: 'expires_at',
     });
 
     const key = new kms.Key(this, 'DemoKey', {
@@ -194,6 +215,12 @@ export class MultilangDemoStack extends Stack {
     const pyUrl = pyFn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
 
     new CfnOutput(this, 'TableName', { value: table.tableName });
+    new CfnOutput(this, 'EvidenceArchiveTableName', {
+      value: evidenceTable.tableName,
+    });
+    new CfnOutput(this, 'EvidenceArchiveBucketName', {
+      value: evidenceArchive.archiveBucket.bucketName,
+    });
     new CfnOutput(this, 'KmsKeyArn', { value: key.keyArn });
     new CfnOutput(this, 'GoFunctionUrl', { value: goUrl.url });
     new CfnOutput(this, 'NodeFunctionUrl', { value: nodeUrl.url });

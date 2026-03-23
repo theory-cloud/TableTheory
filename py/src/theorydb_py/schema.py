@@ -30,6 +30,7 @@ def create_table(
     if client is None:
         client = boto3.client("dynamodb")
 
+    ttl_attribute = resolve_ttl_attribute(model)
     req = build_create_table_request(
         model,
         table_name=table_name,
@@ -44,13 +45,22 @@ def create_table(
         if code != "ResourceInUseException":
             raise _map_schema_error(err) from err
 
-    if wait_for_active:
+    if wait_for_active or ttl_attribute is not None:
         _wait_for_table_active(
             client,
             req["TableName"],
             timeout_seconds=wait_timeout_seconds,
             poll_interval_seconds=poll_interval_seconds,
             sleep=sleep,
+        )
+
+    if ttl_attribute is not None:
+        update_time_to_live(
+            model,
+            client=client,
+            table_name=req["TableName"],
+            attribute_name=ttl_attribute,
+            enabled=True,
         )
 
 
@@ -73,6 +83,7 @@ def ensure_table(
     if not resolved_table:
         raise ValueError("table_name is required (or set ModelDefinition.table_name)")
 
+    ttl_attribute = resolve_ttl_attribute(model)
     try:
         client.describe_table(TableName=resolved_table)
     except ClientError as err:
@@ -92,13 +103,22 @@ def ensure_table(
         )
         return
 
-    if wait_for_active:
+    if wait_for_active or ttl_attribute is not None:
         _wait_for_table_active(
             client,
             resolved_table,
             timeout_seconds=wait_timeout_seconds,
             poll_interval_seconds=poll_interval_seconds,
             sleep=sleep,
+        )
+
+    if ttl_attribute is not None:
+        update_time_to_live(
+            model,
+            client=client,
+            table_name=resolved_table,
+            attribute_name=ttl_attribute,
+            enabled=True,
         )
 
 
@@ -153,6 +173,44 @@ def describe_table(
 
     try:
         return dict(client.describe_table(TableName=resolved_table))
+    except ClientError as err:
+        raise _map_schema_error(err) from err
+
+
+def resolve_ttl_attribute(model: ModelDefinition[Any]) -> str | None:
+    for attr in model.attributes.values():
+        if "ttl" in attr.roles:
+            return attr.attribute_name
+    return None
+
+
+def update_time_to_live(
+    model: ModelDefinition[Any],
+    *,
+    client: Any | None = None,
+    table_name: str | None = None,
+    attribute_name: str | None = None,
+    enabled: bool = True,
+) -> None:
+    if client is None:
+        client = boto3.client("dynamodb")
+
+    resolved_table = table_name or model.table_name
+    if not resolved_table:
+        raise ValueError("table_name is required (or set ModelDefinition.table_name)")
+
+    resolved_attribute = attribute_name or resolve_ttl_attribute(model)
+    if resolved_attribute is None:
+        return
+
+    try:
+        client.update_time_to_live(
+            TableName=resolved_table,
+            TimeToLiveSpecification={
+                "AttributeName": resolved_attribute,
+                "Enabled": enabled,
+            },
+        )
     except ClientError as err:
         raise _map_schema_error(err) from err
 
