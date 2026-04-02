@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -180,7 +181,9 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(lrw, r)
 
 		duration := time.Since(start)
-		log.Printf("%s %s %d %v", r.Method, r.URL.Path, lrw.statusCode, duration)
+		method := strings.ReplaceAll(strings.ReplaceAll(r.Method, "\n", ""), "\r", "")
+		path := strings.ReplaceAll(strings.ReplaceAll(r.URL.Path, "\n", ""), "\r", "")
+		log.Printf("%s %s %d %v", method, path, lrw.statusCode, duration)
 	})
 }
 
