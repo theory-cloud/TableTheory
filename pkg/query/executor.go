@@ -907,8 +907,17 @@ func UnmarshalItem(item map[string]types.AttributeValue, dest any) error {
 					Err:       customerrors.ErrEncryptionNotConfigured,
 				}
 			}
-			if err := unmarshalAttributeValue(av, fieldValue); err != nil {
+			if err := unmarshalAttributeValueWithConvention(av, fieldValue, convention, true); err != nil {
 				return fmt.Errorf("failed to unmarshal field %s: %w", field.Name, err)
+			}
+			continue
+		}
+
+		if attrName != field.Name {
+			if av, exists := item[field.Name]; exists {
+				if err := unmarshalAttributeValueWithConvention(av, fieldValue, convention, true); err != nil {
+					return fmt.Errorf("failed to unmarshal field %s: %w", field.Name, err)
+				}
 			}
 		}
 	}
@@ -918,12 +927,16 @@ func UnmarshalItem(item map[string]types.AttributeValue, dest any) error {
 
 // unmarshalAttributeValue unmarshals a DynamoDB attribute value into a reflect.Value
 func unmarshalAttributeValue(av types.AttributeValue, dest reflect.Value) error {
+	return unmarshalAttributeValueWithConvention(av, dest, naming.CamelCase, true)
+}
+
+func unmarshalAttributeValueWithConvention(av types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if !dest.CanSet() {
 		return fmt.Errorf("cannot set value")
 	}
 
 	if dest.Kind() == reflect.Ptr {
-		return unmarshalPointerAttributeValue(av, dest)
+		return unmarshalPointerAttributeValueWithConvention(av, dest, inheritedConvention, inheritNaming)
 	}
 
 	if dest.Kind() == reflect.Interface && dest.Type().NumMethod() == 0 {
@@ -941,9 +954,9 @@ func unmarshalAttributeValue(av types.AttributeValue, dest reflect.Value) error 
 		dest.Set(reflect.Zero(dest.Type()))
 		return nil
 	case *types.AttributeValueMemberL:
-		return unmarshalListAttribute(v.Value, dest)
+		return unmarshalListAttributeWithConvention(v.Value, dest, inheritedConvention, inheritNaming)
 	case *types.AttributeValueMemberM:
-		return unmarshalMapAttribute(v.Value, dest)
+		return unmarshalMapAttributeWithConvention(v.Value, dest, inheritedConvention, inheritNaming)
 	case *types.AttributeValueMemberSS:
 		return unmarshalStringSetAttribute(v.Value, dest)
 	case *types.AttributeValueMemberNS:
@@ -958,6 +971,10 @@ func unmarshalAttributeValue(av types.AttributeValue, dest reflect.Value) error 
 }
 
 func unmarshalPointerAttributeValue(av types.AttributeValue, dest reflect.Value) error {
+	return unmarshalPointerAttributeValueWithConvention(av, dest, naming.CamelCase, true)
+}
+
+func unmarshalPointerAttributeValueWithConvention(av types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if av == nil {
 		dest.Set(reflect.Zero(dest.Type()))
 		return nil
@@ -969,7 +986,7 @@ func unmarshalPointerAttributeValue(av types.AttributeValue, dest reflect.Value)
 	if dest.IsNil() {
 		dest.Set(reflect.New(dest.Type().Elem()))
 	}
-	return unmarshalAttributeValue(av, dest.Elem())
+	return unmarshalAttributeValueWithConvention(av, dest.Elem(), inheritedConvention, inheritNaming)
 }
 
 func unmarshalAnyAttributeValue(av types.AttributeValue, dest reflect.Value) error {
@@ -1072,6 +1089,10 @@ func unmarshalBoolAttribute(value bool, dest reflect.Value) error {
 }
 
 func unmarshalListAttribute(values []types.AttributeValue, dest reflect.Value) error {
+	return unmarshalListAttributeWithConvention(values, dest, naming.CamelCase, true)
+}
+
+func unmarshalListAttributeWithConvention(values []types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if dest.Kind() != reflect.Slice {
 		return fmt.Errorf("cannot unmarshal list into non-slice type")
 	}
@@ -1079,7 +1100,7 @@ func unmarshalListAttribute(values []types.AttributeValue, dest reflect.Value) e
 	sliceType := dest.Type()
 	newSlice := reflect.MakeSlice(sliceType, len(values), len(values))
 	for i, item := range values {
-		if err := unmarshalAttributeValue(item, newSlice.Index(i)); err != nil {
+		if err := unmarshalAttributeValueWithConvention(item, newSlice.Index(i), inheritedConvention, inheritNaming); err != nil {
 			return err
 		}
 	}
@@ -1088,17 +1109,25 @@ func unmarshalListAttribute(values []types.AttributeValue, dest reflect.Value) e
 }
 
 func unmarshalMapAttribute(values map[string]types.AttributeValue, dest reflect.Value) error {
+	return unmarshalMapAttributeWithConvention(values, dest, naming.CamelCase, true)
+}
+
+func unmarshalMapAttributeWithConvention(values map[string]types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	switch dest.Kind() {
 	case reflect.Map:
-		return unmarshalMapIntoMap(values, dest)
+		return unmarshalMapIntoMapWithConvention(values, dest, inheritedConvention, inheritNaming)
 	case reflect.Struct:
-		return unmarshalMapIntoStruct(values, dest)
+		return unmarshalMapIntoStructWithConvention(values, dest, inheritedConvention, inheritNaming)
 	default:
 		return nil
 	}
 }
 
 func unmarshalMapIntoMap(values map[string]types.AttributeValue, dest reflect.Value) error {
+	return unmarshalMapIntoMapWithConvention(values, dest, naming.CamelCase, true)
+}
+
+func unmarshalMapIntoMapWithConvention(values map[string]types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	mapType := dest.Type()
 	keyType := mapType.Key()
 	if keyType.Kind() != reflect.String {
@@ -1112,7 +1141,7 @@ func unmarshalMapIntoMap(values map[string]types.AttributeValue, dest reflect.Va
 		keyValue.SetString(key)
 
 		elemValue := reflect.New(elemType).Elem()
-		if err := unmarshalAttributeValue(mapVal, elemValue); err != nil {
+		if err := unmarshalAttributeValueWithConvention(mapVal, elemValue, inheritedConvention, inheritNaming); err != nil {
 			return err
 		}
 		newMap.SetMapIndex(keyValue, elemValue)
@@ -1122,12 +1151,47 @@ func unmarshalMapIntoMap(values map[string]types.AttributeValue, dest reflect.Va
 }
 
 func unmarshalMapIntoStruct(values map[string]types.AttributeValue, dest reflect.Value) error {
-	for key, structVal := range values {
-		field := dest.FieldByName(key)
-		if !field.IsValid() || !field.CanSet() {
+	return unmarshalMapIntoStructWithConvention(values, dest, naming.CamelCase, true)
+}
+
+func unmarshalMapIntoStructWithConvention(values map[string]types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
+	destType := dest.Type()
+	convention, _ := resolveStructNaming(destType, inheritedConvention, inheritNaming)
+
+	for i := 0; i < destType.NumField(); i++ {
+		field := destType.Field(i)
+		if !field.IsExported() {
 			continue
 		}
-		if err := unmarshalAttributeValue(structVal, field); err != nil {
+
+		fieldValue := dest.Field(i)
+		dynamodbTag := field.Tag.Get("dynamodb")
+		if dynamodbTag == "-" {
+			continue
+		}
+
+		attrName := ""
+		if dynamodbTag != "" {
+			attrName = parseAttributeName(dynamodbTag)
+			if attrName == "" {
+				attrName = field.Name
+			}
+		} else {
+			var skip bool
+			attrName, skip = naming.ResolveAttrNameWithConvention(field, convention)
+			if skip || attrName == "" {
+				continue
+			}
+		}
+
+		structVal, ok := values[attrName]
+		if !ok && attrName != field.Name {
+			structVal, ok = values[field.Name]
+		}
+		if !ok {
+			continue
+		}
+		if err := unmarshalAttributeValueWithConvention(structVal, fieldValue, convention, true); err != nil {
 			return err
 		}
 	}
@@ -1223,6 +1287,48 @@ func detectNamingConvention(modelType reflect.Type) naming.Convention {
 	}
 
 	return naming.CamelCase
+}
+
+func explicitNamingConvention(modelType reflect.Type) (naming.Convention, bool) {
+	for i := 0; i < modelType.NumField(); i++ {
+		tag := modelType.Field(i).Tag.Get("theorydb")
+		if tag == "" {
+			continue
+		}
+
+		parts := strings.Split(tag, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if !strings.HasPrefix(part, "naming:") {
+				continue
+			}
+
+			switch strings.TrimPrefix(part, "naming:") {
+			case "snake_case":
+				return naming.SnakeCase, true
+			case "camel_case", "camelCase":
+				return naming.CamelCase, true
+			case "pascal_case", "pascalCase":
+				return naming.PascalCase, true
+			case "dynamorm", "legacy_dynamorm", "legacyDynamORM":
+				return naming.DynamORM, true
+			}
+		}
+	}
+
+	return naming.CamelCase, false
+}
+
+func resolveStructNaming(modelType reflect.Type, inheritedConvention naming.Convention, inheritNaming bool) (naming.Convention, bool) {
+	if convention, ok := explicitNamingConvention(modelType); ok {
+		return convention, true
+	}
+
+	if inheritNaming {
+		return inheritedConvention, true
+	}
+
+	return detectNamingConvention(modelType), false
 }
 
 func fieldHasEncryptedTag(field reflect.StructField) bool {

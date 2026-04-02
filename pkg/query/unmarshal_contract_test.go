@@ -61,6 +61,46 @@ func TestUnmarshalItem_DynamORMNamingConvention_CON3(t *testing.T) {
 	require.Equal(t, "Ada", out.FirstName)
 }
 
+func TestUnmarshalItem_DynamORMNamingConvention_NestedStruct_CON3(t *testing.T) {
+	type address struct {
+		PostalCode  string
+		CountryCode string
+	}
+
+	type profile struct {
+		DisplayName    string
+		MailingAddress address
+	}
+
+	type model struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
+
+		UserID  string `theorydb:"pk"`
+		Entity  string `theorydb:"sk"`
+		Profile profile
+	}
+
+	item := map[string]types.AttributeValue{
+		"PK": &types.AttributeValueMemberS{Value: "USER#1"},
+		"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
+		"profile": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+			"displayName": &types.AttributeValueMemberS{Value: "Ada Lovelace"},
+			"mailingAddress": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+				"postalCode":  &types.AttributeValueMemberS{Value: "10001"},
+				"countryCode": &types.AttributeValueMemberS{Value: "US"},
+			}},
+		}},
+	}
+
+	var out model
+	require.NoError(t, UnmarshalItem(item, &out))
+	require.Equal(t, "USER#1", out.UserID)
+	require.Equal(t, "PROFILE", out.Entity)
+	require.Equal(t, "Ada Lovelace", out.Profile.DisplayName)
+	require.Equal(t, "10001", out.Profile.MailingAddress.PostalCode)
+	require.Equal(t, "US", out.Profile.MailingAddress.CountryCode)
+}
+
 func TestUnmarshalItem_EncryptedEnvelope_FailsClosed_CON3(t *testing.T) {
 	type model struct {
 		_ struct{} `theorydb:"naming:snake_case"`

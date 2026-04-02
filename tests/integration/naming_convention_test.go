@@ -2,9 +2,12 @@
 package integration
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,6 +55,27 @@ type DynamORMUser struct {
 
 func (d DynamORMUser) TableName() string {
 	return "dynamorm_users"
+}
+
+type DynamORMAddress struct {
+	PostalCode  string
+	CountryCode string
+}
+
+type DynamORMProfile struct {
+	DisplayName    string
+	MailingAddress DynamORMAddress
+}
+
+type DynamORMNestedUser struct {
+	_       struct{} `theorydb:"naming:dynamorm"`
+	UserID  string   `theorydb:"pk"`
+	Entity  string   `theorydb:"sk"`
+	Profile DynamORMProfile
+}
+
+func (d DynamORMNestedUser) TableName() string {
+	return "dynamorm_nested_users"
 }
 
 // TestNamingConventions tests both camelCase and snake_case naming conventions
@@ -215,4 +239,88 @@ func TestSnakeCaseUpdate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", retrieved.FirstName)
 	assert.Equal(t, "Person", retrieved.LastName)
+}
+
+func TestDynamORMNestedStructNaming(t *testing.T) {
+	testCtx := InitTestDB(t)
+	testCtx.CreateTableIfNotExists(t, &DynamORMNestedUser{})
+
+	user := &DynamORMNestedUser{
+		UserID: "user-legacy-nested-001",
+		Entity: "PROFILE",
+		Profile: DynamORMProfile{
+			DisplayName: "Dana Legacy",
+			MailingAddress: DynamORMAddress{
+				PostalCode:  "10001",
+				CountryCode: "US",
+			},
+		},
+	}
+
+	err := testCtx.DB.Model(user).Create()
+	require.NoError(t, err)
+
+	item := mustGetDynamORMNestedUserItem(t, testCtx, user.UserID, user.Entity)
+	assertNestedProfileCamelCase(t, item)
+
+	user.Profile = DynamORMProfile{
+		DisplayName: "Dana Updated",
+		MailingAddress: DynamORMAddress{
+			PostalCode:  "94107",
+			CountryCode: "US",
+		},
+	}
+
+	err = testCtx.DB.Model(user).
+		Where("UserID", "=", user.UserID).
+		Where("Entity", "=", user.Entity).
+		Update("Profile")
+	require.NoError(t, err)
+
+	item = mustGetDynamORMNestedUserItem(t, testCtx, user.UserID, user.Entity)
+	assertNestedProfileCamelCase(t, item)
+
+	var retrieved DynamORMNestedUser
+	err = testCtx.DB.Model(&DynamORMNestedUser{}).
+		Where("UserID", "=", user.UserID).
+		Where("Entity", "=", user.Entity).
+		First(&retrieved)
+	require.NoError(t, err)
+	assert.Equal(t, "Dana Updated", retrieved.Profile.DisplayName)
+	assert.Equal(t, "94107", retrieved.Profile.MailingAddress.PostalCode)
+	assert.Equal(t, "US", retrieved.Profile.MailingAddress.CountryCode)
+}
+
+func mustGetDynamORMNestedUserItem(t *testing.T, testCtx *TestContext, userID, entity string) map[string]ddbtypes.AttributeValue {
+	t.Helper()
+
+	tableName := DynamORMNestedUser{}.TableName()
+	resp, err := testCtx.DynamoDBClient.GetItem(context.Background(), &dynamodb.GetItemInput{
+		TableName: &tableName,
+		Key: map[string]ddbtypes.AttributeValue{
+			"PK": &ddbtypes.AttributeValueMemberS{Value: userID},
+			"SK": &ddbtypes.AttributeValueMemberS{Value: entity},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.Item)
+	return resp.Item
+}
+
+func assertNestedProfileCamelCase(t *testing.T, item map[string]ddbtypes.AttributeValue) {
+	t.Helper()
+
+	profileAV, ok := item["profile"].(*ddbtypes.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, profileAV.Value, "displayName")
+	require.Contains(t, profileAV.Value, "mailingAddress")
+	require.NotContains(t, profileAV.Value, "DisplayName")
+	require.NotContains(t, profileAV.Value, "MailingAddress")
+
+	addressAV, ok := profileAV.Value["mailingAddress"].(*ddbtypes.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, addressAV.Value, "postalCode")
+	require.Contains(t, addressAV.Value, "countryCode")
+	require.NotContains(t, addressAV.Value, "PostalCode")
+	require.NotContains(t, addressAV.Value, "CountryCode")
 }

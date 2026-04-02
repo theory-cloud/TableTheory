@@ -161,6 +161,62 @@ func TestStructAndMapToStruct_DynamORMNaming_COV6(t *testing.T) {
 	require.Equal(t, "Ada", out.FirstName)
 }
 
+func TestStructAndMapToStruct_DynamORMNaming_NestedStruct_COV6(t *testing.T) {
+	converter := NewConverter()
+
+	type address struct {
+		PostalCode  string
+		CountryCode string
+	}
+
+	type profile struct {
+		DisplayName    string
+		MailingAddress address
+	}
+
+	type legacy struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
+
+		UserID  string `theorydb:"pk"`
+		Entity  string `theorydb:"sk"`
+		Profile profile
+	}
+
+	av, err := converter.ToAttributeValue(legacy{
+		UserID: "USER#1",
+		Entity: "PROFILE",
+		Profile: profile{
+			DisplayName: "Ada Lovelace",
+			MailingAddress: address{
+				PostalCode:  "10001",
+				CountryCode: "US",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	m, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	profileAV, ok := m.Value["profile"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, profileAV.Value, "displayName")
+	require.NotContains(t, profileAV.Value, "DisplayName")
+	addressAV, ok := profileAV.Value["mailingAddress"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, addressAV.Value, "postalCode")
+	require.Contains(t, addressAV.Value, "countryCode")
+	require.NotContains(t, addressAV.Value, "PostalCode")
+	require.NotContains(t, addressAV.Value, "CountryCode")
+
+	var out legacy
+	require.NoError(t, converter.FromAttributeValue(av, &out))
+	require.Equal(t, "USER#1", out.UserID)
+	require.Equal(t, "PROFILE", out.Entity)
+	require.Equal(t, "Ada Lovelace", out.Profile.DisplayName)
+	require.Equal(t, "10001", out.Profile.MailingAddress.PostalCode)
+	require.Equal(t, "US", out.Profile.MailingAddress.CountryCode)
+}
+
 type cov6BadNumberSetConverter struct{}
 
 func (cov6BadNumberSetConverter) ToAttributeValue(any) (types.AttributeValue, error) {

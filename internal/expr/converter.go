@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
 // Marshaler interface for custom marshaling
@@ -152,7 +153,7 @@ func marshalFieldNameAndTags(field reflect.StructField) (string, string, string,
 		return "", "", "", false
 	}
 
-	fieldName := field.Name
+	fieldName := naming.DefaultAttrName(field.Name)
 	if theorydbTag != "" {
 		fieldName = fieldNameFromTheorydbTag(fieldName, theorydbTag)
 	} else if jsonTag != "" {
@@ -435,6 +436,9 @@ func unmarshalMapIntoStruct(m map[string]types.AttributeValue, v reflect.Value) 
 		}
 
 		av, ok := m[fieldName]
+		if !ok && fieldName != field.Name {
+			av, ok = m[field.Name]
+		}
 		if !ok {
 			continue
 		}
@@ -446,7 +450,7 @@ func unmarshalMapIntoStruct(m map[string]types.AttributeValue, v reflect.Value) 
 }
 
 func unmarshalFieldName(field reflect.StructField) string {
-	fieldName := field.Name
+	fieldName := naming.DefaultAttrName(field.Name)
 
 	tag := field.Tag.Get("theorydb")
 	jsonTag := field.Tag.Get("json")

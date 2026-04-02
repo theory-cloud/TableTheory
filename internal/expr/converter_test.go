@@ -220,6 +220,47 @@ func TestConvertFromAttributeValue_Struct(t *testing.T) {
 	assert.Equal(t, now, result.CreatedAt)
 }
 
+func TestConvertToAndFromAttributeValue_DefaultNestedStructUsesCamelCase(t *testing.T) {
+	type address struct {
+		PostalCode  string
+		CountryCode string
+	}
+
+	type profile struct {
+		DisplayName    string
+		MailingAddress address
+	}
+
+	av, err := ConvertToAttributeValue(profile{
+		DisplayName: "Ada Lovelace",
+		MailingAddress: address{
+			PostalCode:  "10001",
+			CountryCode: "US",
+		},
+	})
+	require.NoError(t, err)
+
+	profileAV, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, profileAV.Value, "displayName")
+	require.Contains(t, profileAV.Value, "mailingAddress")
+	require.NotContains(t, profileAV.Value, "DisplayName")
+	require.NotContains(t, profileAV.Value, "MailingAddress")
+
+	addressAV, ok := profileAV.Value["mailingAddress"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, addressAV.Value, "postalCode")
+	require.Contains(t, addressAV.Value, "countryCode")
+	require.NotContains(t, addressAV.Value, "PostalCode")
+	require.NotContains(t, addressAV.Value, "CountryCode")
+
+	var out profile
+	require.NoError(t, ConvertFromAttributeValue(av, &out))
+	require.Equal(t, "Ada Lovelace", out.DisplayName)
+	require.Equal(t, "10001", out.MailingAddress.PostalCode)
+	require.Equal(t, "US", out.MailingAddress.CountryCode)
+}
+
 func TestConvertFromAttributeValue_NullHandling(t *testing.T) {
 	type NullableStruct struct {
 		StringPtr *string

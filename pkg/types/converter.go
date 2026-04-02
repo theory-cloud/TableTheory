@@ -85,11 +85,15 @@ func (c *Converter) ToAttributeValue(value any) (types.AttributeValue, error) {
 	}
 
 	v := reflect.ValueOf(value)
-	return c.toAttributeValue(v)
+	return c.toAttributeValueWithConvention(v, naming.CamelCase, false)
 }
 
 // toAttributeValue handles the actual conversion based on reflection
 func (c *Converter) toAttributeValue(v reflect.Value) (types.AttributeValue, error) {
+	return c.toAttributeValueWithConvention(v, naming.CamelCase, false)
+}
+
+func (c *Converter) toAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	// Handle pointer types
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
@@ -135,13 +139,13 @@ func (c *Converter) toAttributeValue(v reflect.Value) (types.AttributeValue, err
 			return &types.AttributeValueMemberB{Value: v.Bytes()}, nil
 		}
 		// Handle other slices as lists
-		return c.sliceToList(v)
+		return c.sliceToListWithConvention(v, inheritedConvention, inheritNaming)
 
 	case reflect.Map:
-		return c.mapToAttributeValueMap(v)
+		return c.mapToAttributeValueMapWithConvention(v, inheritedConvention, inheritNaming)
 
 	case reflect.Struct:
-		return c.structToMap(v)
+		return c.structToMapWithConvention(v, inheritedConvention, inheritNaming)
 
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedType, v.Type())
@@ -150,10 +154,14 @@ func (c *Converter) toAttributeValue(v reflect.Value) (types.AttributeValue, err
 
 // sliceToList converts a slice to DynamoDB List
 func (c *Converter) sliceToList(v reflect.Value) (types.AttributeValue, error) {
+	return c.sliceToListWithConvention(v, naming.CamelCase, false)
+}
+
+func (c *Converter) sliceToListWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	list := make([]types.AttributeValue, v.Len())
 
 	for i := 0; i < v.Len(); i++ {
-		av, err := c.toAttributeValue(v.Index(i))
+		av, err := c.toAttributeValueWithConvention(v.Index(i), inheritedConvention, inheritNaming)
 		if err != nil {
 			return nil, fmt.Errorf("index %d: %w", i, err)
 		}
@@ -165,6 +173,10 @@ func (c *Converter) sliceToList(v reflect.Value) (types.AttributeValue, error) {
 
 // mapToAttributeValueMap converts a map to DynamoDB Map
 func (c *Converter) mapToAttributeValueMap(v reflect.Value) (types.AttributeValue, error) {
+	return c.mapToAttributeValueMapWithConvention(v, naming.CamelCase, false)
+}
+
+func (c *Converter) mapToAttributeValueMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	if v.Type().Key().Kind() != reflect.String {
 		return nil, fmt.Errorf("%w: map keys must be strings", errors.ErrUnsupportedType)
 	}
@@ -175,7 +187,7 @@ func (c *Converter) mapToAttributeValueMap(v reflect.Value) (types.AttributeValu
 		keyStr := key.String()
 		val := v.MapIndex(key)
 
-		av, err := c.toAttributeValue(val)
+		av, err := c.toAttributeValueWithConvention(val, inheritedConvention, inheritNaming)
 		if err != nil {
 			return nil, fmt.Errorf("key %s: %w", keyStr, err)
 		}
@@ -187,10 +199,13 @@ func (c *Converter) mapToAttributeValueMap(v reflect.Value) (types.AttributeValu
 
 // structToMap converts a struct to DynamoDB Map
 func (c *Converter) structToMap(v reflect.Value) (types.AttributeValue, error) {
+	return c.structToMapWithConvention(v, naming.CamelCase, false)
+}
+
+func (c *Converter) structToMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	m := make(map[string]types.AttributeValue)
 	t := v.Type()
-	convention := detectNamingConvention(t)
-	useTheorydbNaming := structUsesTheorydbNaming(t)
+	convention, useTheorydbNaming := resolveStructNaming(t, inheritedConvention, inheritNaming)
 
 	for i := 0; i < v.NumField(); i++ {
 		field := t.Field(i)
@@ -203,7 +218,7 @@ func (c *Converter) structToMap(v reflect.Value) (types.AttributeValue, error) {
 			continue // Skip zero values for now
 		}
 
-		av, err := c.toAttributeValue(fieldValue)
+		av, err := c.toAttributeValueWithConvention(fieldValue, convention, useTheorydbNaming)
 		if err != nil {
 			return nil, fmt.Errorf("field %s: %w", field.Name, err)
 		}
@@ -236,11 +251,15 @@ func (c *Converter) FromAttributeValue(av types.AttributeValue, target any) erro
 		return fmt.Errorf("target pointer is nil")
 	}
 
-	return c.fromAttributeValue(av, targetValue.Elem())
+	return c.fromAttributeValueWithConvention(av, targetValue.Elem(), naming.CamelCase, true)
 }
 
 // fromAttributeValue handles the actual conversion from AttributeValue
 func (c *Converter) fromAttributeValue(av types.AttributeValue, target reflect.Value) error {
+	return c.fromAttributeValueWithConvention(av, target, naming.CamelCase, true)
+}
+
+func (c *Converter) fromAttributeValueWithConvention(av types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if _, ok := av.(*types.AttributeValueMemberNULL); ok {
 		return nil
 	}
@@ -259,7 +278,7 @@ func (c *Converter) fromAttributeValue(av types.AttributeValue, target reflect.V
 		return c.fromAttributeValueTime(av, target)
 	}
 
-	return c.fromAttributeValueByType(av, target)
+	return c.fromAttributeValueByType(av, target, inheritedConvention, inheritNaming)
 }
 
 func ensureSettableConcreteTarget(target reflect.Value) reflect.Value {
@@ -289,7 +308,7 @@ func (c *Converter) fromAttributeValueTime(av types.AttributeValue, target refle
 	return nil
 }
 
-func (c *Converter) fromAttributeValueByType(av types.AttributeValue, target reflect.Value) error {
+func (c *Converter) fromAttributeValueByType(av types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	switch v := av.(type) {
 	case *types.AttributeValueMemberS:
 		return c.stringToValue(v.Value, target)
@@ -308,9 +327,9 @@ func (c *Converter) fromAttributeValueByType(av types.AttributeValue, target ref
 		target.SetBytes(v.Value)
 		return nil
 	case *types.AttributeValueMemberL:
-		return c.listToSlice(v.Value, target)
+		return c.listToSliceWithConvention(v.Value, target, inheritedConvention, inheritNaming)
 	case *types.AttributeValueMemberM:
-		return c.fromAttributeValueMap(v.Value, target)
+		return c.fromAttributeValueMapWithConvention(v.Value, target, inheritedConvention, inheritNaming)
 	case *types.AttributeValueMemberSS:
 		return c.stringSetToSlice(v.Value, target)
 	case *types.AttributeValueMemberNS:
@@ -323,11 +342,15 @@ func (c *Converter) fromAttributeValueByType(av types.AttributeValue, target ref
 }
 
 func (c *Converter) fromAttributeValueMap(value map[string]types.AttributeValue, target reflect.Value) error {
+	return c.fromAttributeValueMapWithConvention(value, target, naming.CamelCase, true)
+}
+
+func (c *Converter) fromAttributeValueMapWithConvention(value map[string]types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	switch target.Kind() {
 	case reflect.Map:
-		return c.attributeValueMapToMap(value, target)
+		return c.attributeValueMapToMapWithConvention(value, target, inheritedConvention, inheritNaming)
 	case reflect.Struct:
-		return c.mapToStruct(value, target)
+		return c.mapToStructWithConvention(value, target, inheritedConvention, inheritNaming)
 	default:
 		return fmt.Errorf("cannot convert map to %s", target.Type())
 	}
@@ -378,6 +401,10 @@ func (c *Converter) numberToValue(n string, target reflect.Value) error {
 
 // listToSlice converts DynamoDB List to Go slice
 func (c *Converter) listToSlice(list []types.AttributeValue, target reflect.Value) error {
+	return c.listToSliceWithConvention(list, target, naming.CamelCase, true)
+}
+
+func (c *Converter) listToSliceWithConvention(list []types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if target.Kind() != reflect.Slice {
 		return fmt.Errorf("target must be slice, got %s", target.Type())
 	}
@@ -385,7 +412,7 @@ func (c *Converter) listToSlice(list []types.AttributeValue, target reflect.Valu
 	slice := reflect.MakeSlice(target.Type(), len(list), len(list))
 
 	for i, av := range list {
-		if err := c.fromAttributeValue(av, slice.Index(i)); err != nil {
+		if err := c.fromAttributeValueWithConvention(av, slice.Index(i), inheritedConvention, inheritNaming); err != nil {
 			return fmt.Errorf("index %d: %w", i, err)
 		}
 	}
@@ -396,6 +423,10 @@ func (c *Converter) listToSlice(list []types.AttributeValue, target reflect.Valu
 
 // attributeValueMapToMap converts DynamoDB Map to Go map
 func (c *Converter) attributeValueMapToMap(m map[string]types.AttributeValue, target reflect.Value) error {
+	return c.attributeValueMapToMapWithConvention(m, target, naming.CamelCase, true)
+}
+
+func (c *Converter) attributeValueMapToMapWithConvention(m map[string]types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if target.Kind() != reflect.Map {
 		return fmt.Errorf("target must be map, got %s", target.Type())
 	}
@@ -408,7 +439,7 @@ func (c *Converter) attributeValueMapToMap(m map[string]types.AttributeValue, ta
 
 	for k, av := range m {
 		elem := reflect.New(target.Type().Elem()).Elem()
-		if err := c.fromAttributeValue(av, elem); err != nil {
+		if err := c.fromAttributeValueWithConvention(av, elem, inheritedConvention, inheritNaming); err != nil {
 			return fmt.Errorf("key %s: %w", k, err)
 		}
 		mapValue.SetMapIndex(reflect.ValueOf(k), elem)
@@ -420,14 +451,17 @@ func (c *Converter) attributeValueMapToMap(m map[string]types.AttributeValue, ta
 
 // mapToStruct converts DynamoDB Map to Go struct
 func (c *Converter) mapToStruct(m map[string]types.AttributeValue, target reflect.Value) error {
+	return c.mapToStructWithConvention(m, target, naming.CamelCase, true)
+}
+
+func (c *Converter) mapToStructWithConvention(m map[string]types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if target.Kind() != reflect.Struct {
 		return fmt.Errorf("target must be struct, got %s", target.Type())
 	}
 
 	targetType := target.Type()
 
-	// Detect naming convention from struct tags
-	convention := detectNamingConvention(targetType)
+	convention, _ := resolveStructNaming(targetType, inheritedConvention, inheritNaming)
 
 	for i := 0; i < targetType.NumField(); i++ {
 		field := targetType.Field(i)
@@ -445,11 +479,14 @@ func (c *Converter) mapToStruct(m map[string]types.AttributeValue, target reflec
 		}
 
 		av, exists := m[attrName]
+		if !exists && attrName != field.Name {
+			av, exists = m[field.Name]
+		}
 		if !exists {
 			continue
 		}
 
-		if err := c.fromAttributeValue(av, target.Field(i)); err != nil {
+		if err := c.fromAttributeValueWithConvention(av, target.Field(i), convention, true); err != nil {
 			return fmt.Errorf("field %s: %w", field.Name, err)
 		}
 	}
@@ -636,4 +673,44 @@ func splitTag(tag string) []string {
 	}
 
 	return parts
+}
+
+func explicitNamingConvention(modelType reflect.Type) (naming.Convention, bool) {
+	for i := 0; i < modelType.NumField(); i++ {
+		tag := modelType.Field(i).Tag.Get("theorydb")
+		if tag == "" {
+			continue
+		}
+
+		for _, part := range splitTag(tag) {
+			if len(part) <= 7 || part[:7] != "naming:" {
+				continue
+			}
+
+			switch part[7:] {
+			case "snake_case":
+				return naming.SnakeCase, true
+			case "camel_case", "camelCase":
+				return naming.CamelCase, true
+			case "pascal_case", "pascalCase":
+				return naming.PascalCase, true
+			case "dynamorm", "legacy_dynamorm", "legacyDynamORM":
+				return naming.DynamORM, true
+			}
+		}
+	}
+
+	return naming.CamelCase, false
+}
+
+func resolveStructNaming(modelType reflect.Type, inheritedConvention naming.Convention, inheritNaming bool) (naming.Convention, bool) {
+	if convention, ok := explicitNamingConvention(modelType); ok {
+		return convention, true
+	}
+
+	if inheritNaming {
+		return inheritedConvention, true
+	}
+
+	return detectNamingConvention(modelType), structUsesTheorydbNaming(modelType)
 }
