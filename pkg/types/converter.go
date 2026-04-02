@@ -189,6 +189,8 @@ func (c *Converter) mapToAttributeValueMap(v reflect.Value) (types.AttributeValu
 func (c *Converter) structToMap(v reflect.Value) (types.AttributeValue, error) {
 	m := make(map[string]types.AttributeValue)
 	t := v.Type()
+	convention := detectNamingConvention(t)
+	useTheorydbNaming := structUsesTheorydbNaming(t)
 
 	for i := 0; i < v.NumField(); i++ {
 		field := t.Field(i)
@@ -206,7 +208,19 @@ func (c *Converter) structToMap(v reflect.Value) (types.AttributeValue, error) {
 			return nil, fmt.Errorf("field %s: %w", field.Name, err)
 		}
 
-		m[field.Name] = av
+		attrName := field.Name
+		if useTheorydbNaming {
+			var skip bool
+			attrName, skip = naming.ResolveAttrNameWithConvention(field, convention)
+			if skip {
+				continue
+			}
+			if err := naming.ValidateAttrName(attrName, convention); err != nil {
+				return nil, fmt.Errorf("field %s: %w", field.Name, err)
+			}
+		}
+
+		m[attrName] = av
 	}
 
 	return &types.AttributeValueMemberM{Value: m}, nil
@@ -576,6 +590,8 @@ func detectNamingConvention(modelType reflect.Type) naming.Convention {
 					return naming.CamelCase
 				case "pascal_case", "pascalCase":
 					return naming.PascalCase
+				case "dynamorm", "legacy_dynamorm", "legacyDynamORM":
+					return naming.DynamORM
 				}
 			}
 		}
@@ -583,6 +599,16 @@ func detectNamingConvention(modelType reflect.Type) naming.Convention {
 
 	// Default to CamelCase
 	return naming.CamelCase
+}
+
+func structUsesTheorydbNaming(modelType reflect.Type) bool {
+	for i := 0; i < modelType.NumField(); i++ {
+		if modelType.Field(i).Tag.Get("theorydb") != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // splitTag splits a tag string by commas

@@ -95,6 +95,10 @@ func TestDetectNamingConvention_AndSplitTag_COV6(t *testing.T) {
 		Name string `theorydb:"naming:pascalCase"`
 	}
 
+	type withDynamORM struct {
+		Name string `theorydb:"naming:dynamorm"`
+	}
+
 	type withoutTag struct {
 		Name string
 	}
@@ -102,6 +106,7 @@ func TestDetectNamingConvention_AndSplitTag_COV6(t *testing.T) {
 	require.Equal(t, naming.SnakeCase, detectNamingConvention(reflect.TypeOf(withSnake{})))
 	require.Equal(t, naming.CamelCase, detectNamingConvention(reflect.TypeOf(withCamel{})))
 	require.Equal(t, naming.PascalCase, detectNamingConvention(reflect.TypeOf(withPascal{})))
+	require.Equal(t, naming.DynamORM, detectNamingConvention(reflect.TypeOf(withDynamORM{})))
 	require.Equal(t, naming.CamelCase, detectNamingConvention(reflect.TypeOf(withoutTag{})))
 
 	require.Nil(t, splitTag(""))
@@ -123,6 +128,37 @@ func TestMapToStruct_ValidatesAttributeNames_COV6(t *testing.T) {
 	err := converter.FromAttributeValue(av, &out)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "attribute name must be camelCase")
+}
+
+func TestStructAndMapToStruct_DynamORMNaming_COV6(t *testing.T) {
+	converter := NewConverter()
+
+	type legacy struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
+
+		UserID    string `theorydb:"pk"`
+		Entity    string `theorydb:"sk"`
+		FirstName string
+	}
+
+	av, err := converter.ToAttributeValue(legacy{
+		UserID:    "USER#1",
+		Entity:    "PROFILE",
+		FirstName: "Ada",
+	})
+	require.NoError(t, err)
+
+	m, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, m.Value, "PK")
+	require.Contains(t, m.Value, "SK")
+	require.Contains(t, m.Value, "firstName")
+
+	var out legacy
+	require.NoError(t, converter.FromAttributeValue(av, &out))
+	require.Equal(t, "USER#1", out.UserID)
+	require.Equal(t, "PROFILE", out.Entity)
+	require.Equal(t, "Ada", out.FirstName)
 }
 
 type cov6BadNumberSetConverter struct{}

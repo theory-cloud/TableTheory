@@ -9,6 +9,7 @@ import (
 
 	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/model"
+	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
 // Test models with various struct tag configurations
@@ -233,6 +234,36 @@ func TestRegisterPascalCaseNamingConvention_AllowsAcronymsAndGSIs(t *testing.T) 
 	require.Equal(t, "SK", metadata.Fields["SK"].DBName)
 	require.Equal(t, "GSI1PK", metadata.Fields["GSI1PK"].DBName)
 	require.Equal(t, "GSI1SK", metadata.Fields["GSI1SK"].DBName)
+}
+
+func TestRegisterDynamORMNamingConvention_UsesPKSKAndCamelCase(t *testing.T) {
+	registry := model.NewRegistry()
+
+	type LegacyUser struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
+
+		UserID    string `theorydb:"pk"`
+		Entity    string `theorydb:"sk"`
+		FirstName string
+		EmailHash string `theorydb:"index:gsi-email,pk"`
+	}
+
+	err := registry.Register(&LegacyUser{})
+	require.NoError(t, err)
+
+	metadata, err := registry.GetMetadata(&LegacyUser{})
+	require.NoError(t, err)
+
+	require.Equal(t, naming.DynamORM, metadata.NamingConvention)
+	require.Equal(t, "PK", metadata.Fields["UserID"].DBName)
+	require.Equal(t, "SK", metadata.Fields["Entity"].DBName)
+	require.Equal(t, "firstName", metadata.Fields["FirstName"].DBName)
+	require.Equal(t, "emailHash", metadata.Fields["EmailHash"].DBName)
+	require.Equal(t, "PK", metadata.PrimaryKey.PartitionKey.DBName)
+	require.Equal(t, "SK", metadata.PrimaryKey.SortKey.DBName)
+	require.Len(t, metadata.Indexes, 1)
+	require.Equal(t, model.GlobalSecondaryIndex, metadata.Indexes[0].Type)
+	require.Equal(t, "emailHash", metadata.Indexes[0].PartitionKey.DBName)
 }
 
 func TestRegisterInvalidModel(t *testing.T) {

@@ -38,6 +38,22 @@ func (l LegacyUser) TableName() string {
 	return "legacy_users"
 }
 
+// DynamORMUser preserves legacy DynamORM semantics:
+// PK/SK stay uppercase, other attributes use camelCase.
+type DynamORMUser struct {
+	_         struct{} `theorydb:"naming:dynamorm"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	UserID    string `theorydb:"pk"`
+	Entity    string `theorydb:"sk"`
+	FirstName string
+	LastName  string
+}
+
+func (d DynamORMUser) TableName() string {
+	return "dynamorm_users"
+}
+
 // TestNamingConventions tests both camelCase and snake_case naming conventions
 func TestNamingConventions(t *testing.T) {
 	testCtx := InitTestDB(t)
@@ -137,6 +153,32 @@ func TestNamingConventions(t *testing.T) {
 			First(&legacyRetrieved)
 		require.NoError(t, err)
 		assert.Equal(t, "Bob", legacyRetrieved.FirstName)
+	})
+
+	t.Run("DynamORM_LegacyPKSK", func(t *testing.T) {
+		testCtx.CreateTableIfNotExists(t, &DynamORMUser{})
+
+		user := &DynamORMUser{
+			UserID:    "user-legacy-001",
+			Entity:    "PROFILE",
+			FirstName: "Dana",
+			LastName:  "Legacy",
+		}
+
+		err := testCtx.DB.Model(user).Create()
+		require.NoError(t, err)
+		assert.NotZero(t, user.CreatedAt)
+
+		var retrieved DynamORMUser
+		err = testCtx.DB.Model(&DynamORMUser{}).
+			Where("UserID", "=", "user-legacy-001").
+			Where("Entity", "=", "PROFILE").
+			First(&retrieved)
+		require.NoError(t, err)
+		assert.Equal(t, "Dana", retrieved.FirstName)
+		assert.Equal(t, "Legacy", retrieved.LastName)
+		assert.Equal(t, "user-legacy-001", retrieved.UserID)
+		assert.Equal(t, "PROFILE", retrieved.Entity)
 	})
 }
 

@@ -19,6 +19,9 @@ const (
 	// PascalCase convention: "FirstName", "CreatedAt", "ID", "GSI1PK"
 	// This is primarily intended for legacy DynamoDB schemas that use PascalCase and acronyms.
 	PascalCase Convention = 2
+	// DynamORM convention preserves legacy DynamORM semantics:
+	// PK/SK are always uppercase, while all other fields use camelCase.
+	DynamORM Convention = 3
 )
 
 var camelCasePattern = regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)
@@ -41,6 +44,16 @@ func ResolveAttrNameWithConvention(field reflect.StructField, convention Convent
 
 	if attr := attrFromTag(tag); attr != "" {
 		return attr, false
+	}
+
+	if convention == DynamORM {
+		if hasStandaloneTagPart(tag, "pk") {
+			return "PK", false
+		}
+		if hasStandaloneTagPart(tag, "sk") {
+			return "SK", false
+		}
+		return DefaultAttrName(field.Name), false
 	}
 
 	return ConvertAttrName(field.Name, convention), false
@@ -118,6 +131,8 @@ func ConvertAttrName(name string, convention Convention) string {
 		return ToSnakeCase(name)
 	case PascalCase:
 		return name
+	case DynamORM:
+		return DefaultAttrName(name)
 	case CamelCase:
 		fallthrough
 	default:
@@ -144,6 +159,8 @@ func ValidateAttrName(name string, convention Convention) error {
 			return fmt.Errorf("attribute name must be pascalCase (got %q)", name)
 		}
 		return nil
+	case DynamORM:
+		fallthrough
 	case CamelCase:
 		fallthrough
 	default:
@@ -174,4 +191,75 @@ func attrFromTag(tag string) string {
 		}
 	}
 	return ""
+}
+
+func hasStandaloneTagPart(tag string, want string) bool {
+	if tag == "" || want == "" {
+		return false
+	}
+
+	parts := splitTheorydbTag(tag)
+	for _, part := range parts {
+		if part == want {
+			return true
+		}
+	}
+
+	return false
+}
+
+func splitTheorydbTag(tag string) []string {
+	if tag == "" {
+		return nil
+	}
+
+	rawParts := strings.Split(tag, ",")
+	parts := make([]string, 0, len(rawParts))
+	var current strings.Builder
+	inIndexClause := false
+
+	flushCurrent := func() {
+		if current.Len() == 0 {
+			return
+		}
+		parts = append(parts, current.String())
+		current.Reset()
+		inIndexClause = false
+	}
+
+	for _, raw := range rawParts {
+		part := strings.TrimSpace(raw)
+		if part == "" {
+			continue
+		}
+
+		if inIndexClause {
+			if isIndexModifier(part) {
+				current.WriteString(",")
+				current.WriteString(part)
+				continue
+			}
+			flushCurrent()
+		}
+
+		if strings.HasPrefix(part, "index:") || strings.HasPrefix(part, "lsi:") {
+			inIndexClause = true
+			current.WriteString(part)
+			continue
+		}
+
+		parts = append(parts, part)
+	}
+
+	flushCurrent()
+	return parts
+}
+
+func isIndexModifier(token string) bool {
+	switch token {
+	case "pk", "sk", "sparse":
+		return true
+	default:
+		return false
+	}
 }

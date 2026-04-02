@@ -57,7 +57,7 @@ models:
     table:
       name: "users"
     naming:
-      convention: "camelCase" # camelCase | snake_case
+      convention: "camelCase" # camelCase | snake_case | dynamorm
     keys:
       partition: { attribute: "PK", type: "S" }
       sort:      { attribute: "SK", type: "S" } # optional
@@ -140,6 +140,7 @@ Each `indexes[]` entry supports:
 - If `naming.convention` is present, implementations MUST validate attribute names to that convention:
   - `camelCase`: `^[a-z][A-Za-z0-9]*$` with explicit allowance for `"PK"` / `"SK"` if used.
   - `snake_case`: `^[a-z][a-z0-9]*(_[a-z0-9]+)*$`.
+  - `dynamorm`: same validation as `camelCase`, but model-driven defaults MUST resolve `pk`/`sk` roles to `"PK"` / `"SK"` unless explicitly overridden.
 
 ### Timestamp encoding (`created_at`, `updated_at`)
 

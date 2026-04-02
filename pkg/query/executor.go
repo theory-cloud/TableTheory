@@ -1216,6 +1216,8 @@ func detectNamingConvention(modelType reflect.Type) naming.Convention {
 				return naming.CamelCase
 			case "pascal_case", "pascalCase":
 				return naming.PascalCase
+			case "dynamorm", "legacy_dynamorm", "legacyDynamORM":
+				return naming.DynamORM
 			}
 		}
 	}

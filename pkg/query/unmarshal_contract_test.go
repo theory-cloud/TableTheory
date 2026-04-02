@@ -39,6 +39,28 @@ func TestUnmarshalItem_TableTheoryTagSemantics_CON3(t *testing.T) {
 	require.Equal(t, "c", out.Custom)
 }
 
+func TestUnmarshalItem_DynamORMNamingConvention_CON3(t *testing.T) {
+	type model struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
+
+		UserID    string `theorydb:"pk"`
+		Entity    string `theorydb:"sk"`
+		FirstName string
+	}
+
+	item := map[string]types.AttributeValue{
+		"PK":        &types.AttributeValueMemberS{Value: "USER#1"},
+		"SK":        &types.AttributeValueMemberS{Value: "PROFILE"},
+		"firstName": &types.AttributeValueMemberS{Value: "Ada"},
+	}
+
+	var out model
+	require.NoError(t, UnmarshalItem(item, &out))
+	require.Equal(t, "USER#1", out.UserID)
+	require.Equal(t, "PROFILE", out.Entity)
+	require.Equal(t, "Ada", out.FirstName)
+}
+
 func TestUnmarshalItem_EncryptedEnvelope_FailsClosed_CON3(t *testing.T) {
 	type model struct {
 		_ struct{} `theorydb:"naming:snake_case"`
