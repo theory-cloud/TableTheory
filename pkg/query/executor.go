@@ -856,73 +856,100 @@ func UnmarshalItems(items []map[string]types.AttributeValue, dest any) error {
 // UnmarshalItem unmarshals a single DynamoDB item into a Go struct.
 // This function respects both "dynamodb" and "theorydb" struct tags.
 func UnmarshalItem(item map[string]types.AttributeValue, dest any) error {
-	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() {
-		return fmt.Errorf("destination must be a pointer")
+	destElem, destType, convention, err := resolveUnmarshalTarget(dest)
+	if err != nil {
+		return err
 	}
-
-	destElem := destValue.Elem()
-	if destElem.Kind() != reflect.Struct {
-		return fmt.Errorf("destination must be a pointer to a struct")
-	}
-	destType := destElem.Type()
-	convention := detectNamingConvention(destType)
 
 	// For each field in the struct
 	for i := 0; i < destType.NumField(); i++ {
 		field := destType.Field(i)
-		fieldValue := destElem.Field(i)
 
 		// Skip unexported fields
 		if !field.IsExported() {
 			continue
 		}
 
-		// Determine the DynamoDB attribute name for this field.
-		dynamodbTag := field.Tag.Get("dynamodb")
-		if dynamodbTag == "-" {
-			continue
-		}
-
-		attrName := ""
-		if dynamodbTag != "" {
-			attrName = parseAttributeName(dynamodbTag)
-			if attrName == "" {
-				attrName = field.Name
-			}
-		} else {
-			var skip bool
-			attrName, skip = naming.ResolveAttrNameWithConvention(field, convention)
-			if skip || attrName == "" {
-				continue
-			}
-		}
-
-		// Get the attribute value
-		if av, exists := item[attrName]; exists {
-			if fieldHasEncryptedTag(field) && looksLikeEncryptedEnvelope(av) {
-				return &customerrors.EncryptedFieldError{
-					Operation: "decrypt",
-					Field:     field.Name,
-					Err:       customerrors.ErrEncryptionNotConfigured,
-				}
-			}
-			if err := unmarshalAttributeValueWithConvention(av, fieldValue, convention, true); err != nil {
-				return fmt.Errorf("failed to unmarshal field %s: %w", field.Name, err)
-			}
-			continue
-		}
-
-		if attrName != field.Name {
-			if av, exists := item[field.Name]; exists {
-				if err := unmarshalAttributeValueWithConvention(av, fieldValue, convention, true); err != nil {
-					return fmt.Errorf("failed to unmarshal field %s: %w", field.Name, err)
-				}
-			}
+		if err := unmarshalItemField(item, field, destElem.Field(i), convention); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func resolveUnmarshalTarget(dest any) (reflect.Value, reflect.Type, naming.Convention, error) {
+	destValue := reflect.ValueOf(dest)
+	if destValue.Kind() != reflect.Ptr || destValue.IsNil() {
+		return reflect.Value{}, nil, naming.CamelCase, fmt.Errorf("destination must be a pointer")
+	}
+
+	destElem := destValue.Elem()
+	if destElem.Kind() != reflect.Struct {
+		return reflect.Value{}, nil, naming.CamelCase, fmt.Errorf("destination must be a pointer to a struct")
+	}
+
+	destType := destElem.Type()
+	return destElem, destType, detectNamingConvention(destType), nil
+}
+
+func unmarshalItemField(item map[string]types.AttributeValue, field reflect.StructField, dest reflect.Value, convention naming.Convention) error {
+	attrName, skip := resolveUnmarshalFieldAttrName(field, convention)
+	if skip {
+		return nil
+	}
+
+	av, exists := lookupAttributeValue(item, attrName, field.Name)
+	if !exists {
+		return nil
+	}
+
+	if fieldHasEncryptedTag(field) && looksLikeEncryptedEnvelope(av) {
+		return &customerrors.EncryptedFieldError{
+			Operation: "decrypt",
+			Field:     field.Name,
+			Err:       customerrors.ErrEncryptionNotConfigured,
+		}
+	}
+
+	if err := unmarshalAttributeValueWithConvention(av, dest, convention, true); err != nil {
+		return fmt.Errorf("failed to unmarshal field %s: %w", field.Name, err)
+	}
+
+	return nil
+}
+
+func resolveUnmarshalFieldAttrName(field reflect.StructField, convention naming.Convention) (string, bool) {
+	dynamodbTag := field.Tag.Get("dynamodb")
+	if dynamodbTag == "-" {
+		return "", true
+	}
+
+	if dynamodbTag != "" {
+		attrName := parseAttributeName(dynamodbTag)
+		if attrName == "" {
+			attrName = field.Name
+		}
+		return attrName, false
+	}
+
+	attrName, skip := naming.ResolveAttrNameWithConvention(field, convention)
+	if skip || attrName == "" {
+		return "", true
+	}
+
+	return attrName, false
+}
+
+func lookupAttributeValue(values map[string]types.AttributeValue, attrName, fallback string) (types.AttributeValue, bool) {
+	if av, exists := values[attrName]; exists {
+		return av, true
+	}
+	if attrName != fallback {
+		av, exists := values[fallback]
+		return av, exists
+	}
+	return nil, false
 }
 
 // unmarshalAttributeValue unmarshals a DynamoDB attribute value into a reflect.Value
@@ -968,10 +995,6 @@ func unmarshalAttributeValueWithConvention(av types.AttributeValue, dest reflect
 	default:
 		return fmt.Errorf("unsupported attribute value type: %T", av)
 	}
-}
-
-func unmarshalPointerAttributeValue(av types.AttributeValue, dest reflect.Value) error {
-	return unmarshalPointerAttributeValueWithConvention(av, dest, naming.CamelCase, true)
 }
 
 func unmarshalPointerAttributeValueWithConvention(av types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
@@ -1088,10 +1111,6 @@ func unmarshalBoolAttribute(value bool, dest reflect.Value) error {
 	return nil
 }
 
-func unmarshalListAttribute(values []types.AttributeValue, dest reflect.Value) error {
-	return unmarshalListAttributeWithConvention(values, dest, naming.CamelCase, true)
-}
-
 func unmarshalListAttributeWithConvention(values []types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if dest.Kind() != reflect.Slice {
 		return fmt.Errorf("cannot unmarshal list into non-slice type")
@@ -1108,10 +1127,6 @@ func unmarshalListAttributeWithConvention(values []types.AttributeValue, dest re
 	return nil
 }
 
-func unmarshalMapAttribute(values map[string]types.AttributeValue, dest reflect.Value) error {
-	return unmarshalMapAttributeWithConvention(values, dest, naming.CamelCase, true)
-}
-
 func unmarshalMapAttributeWithConvention(values map[string]types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	switch dest.Kind() {
 	case reflect.Map:
@@ -1121,10 +1136,6 @@ func unmarshalMapAttributeWithConvention(values map[string]types.AttributeValue,
 	default:
 		return nil
 	}
-}
-
-func unmarshalMapIntoMap(values map[string]types.AttributeValue, dest reflect.Value) error {
-	return unmarshalMapIntoMapWithConvention(values, dest, naming.CamelCase, true)
 }
 
 func unmarshalMapIntoMapWithConvention(values map[string]types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
@@ -1150,10 +1161,6 @@ func unmarshalMapIntoMapWithConvention(values map[string]types.AttributeValue, d
 	return nil
 }
 
-func unmarshalMapIntoStruct(values map[string]types.AttributeValue, dest reflect.Value) error {
-	return unmarshalMapIntoStructWithConvention(values, dest, naming.CamelCase, true)
-}
-
 func unmarshalMapIntoStructWithConvention(values map[string]types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	destType := dest.Type()
 	convention, _ := resolveStructNaming(destType, inheritedConvention, inheritNaming)
@@ -1165,29 +1172,12 @@ func unmarshalMapIntoStructWithConvention(values map[string]types.AttributeValue
 		}
 
 		fieldValue := dest.Field(i)
-		dynamodbTag := field.Tag.Get("dynamodb")
-		if dynamodbTag == "-" {
+		attrName, skip := resolveUnmarshalFieldAttrName(field, convention)
+		if skip {
 			continue
 		}
 
-		attrName := ""
-		if dynamodbTag != "" {
-			attrName = parseAttributeName(dynamodbTag)
-			if attrName == "" {
-				attrName = field.Name
-			}
-		} else {
-			var skip bool
-			attrName, skip = naming.ResolveAttrNameWithConvention(field, convention)
-			if skip || attrName == "" {
-				continue
-			}
-		}
-
-		structVal, ok := values[attrName]
-		if !ok && attrName != field.Name {
-			structVal, ok = values[field.Name]
-		}
+		structVal, ok := lookupAttributeValue(values, attrName, field.Name)
 		if !ok {
 			continue
 		}

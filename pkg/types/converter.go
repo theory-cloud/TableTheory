@@ -88,11 +88,6 @@ func (c *Converter) ToAttributeValue(value any) (types.AttributeValue, error) {
 	return c.toAttributeValueWithConvention(v, naming.CamelCase, false)
 }
 
-// toAttributeValue handles the actual conversion based on reflection
-func (c *Converter) toAttributeValue(v reflect.Value) (types.AttributeValue, error) {
-	return c.toAttributeValueWithConvention(v, naming.CamelCase, false)
-}
-
 func (c *Converter) toAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	// Handle pointer types
 	if v.Kind() == reflect.Ptr {
@@ -152,11 +147,6 @@ func (c *Converter) toAttributeValueWithConvention(v reflect.Value, inheritedCon
 	}
 }
 
-// sliceToList converts a slice to DynamoDB List
-func (c *Converter) sliceToList(v reflect.Value) (types.AttributeValue, error) {
-	return c.sliceToListWithConvention(v, naming.CamelCase, false)
-}
-
 func (c *Converter) sliceToListWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	list := make([]types.AttributeValue, v.Len())
 
@@ -169,11 +159,6 @@ func (c *Converter) sliceToListWithConvention(v reflect.Value, inheritedConventi
 	}
 
 	return &types.AttributeValueMemberL{Value: list}, nil
-}
-
-// mapToAttributeValueMap converts a map to DynamoDB Map
-func (c *Converter) mapToAttributeValueMap(v reflect.Value) (types.AttributeValue, error) {
-	return c.mapToAttributeValueMapWithConvention(v, naming.CamelCase, false)
 }
 
 func (c *Converter) mapToAttributeValueMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
@@ -195,11 +180,6 @@ func (c *Converter) mapToAttributeValueMapWithConvention(v reflect.Value, inheri
 	}
 
 	return &types.AttributeValueMemberM{Value: m}, nil
-}
-
-// structToMap converts a struct to DynamoDB Map
-func (c *Converter) structToMap(v reflect.Value) (types.AttributeValue, error) {
-	return c.structToMapWithConvention(v, naming.CamelCase, false)
 }
 
 func (c *Converter) structToMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
@@ -252,11 +232,6 @@ func (c *Converter) FromAttributeValue(av types.AttributeValue, target any) erro
 	}
 
 	return c.fromAttributeValueWithConvention(av, targetValue.Elem(), naming.CamelCase, true)
-}
-
-// fromAttributeValue handles the actual conversion from AttributeValue
-func (c *Converter) fromAttributeValue(av types.AttributeValue, target reflect.Value) error {
-	return c.fromAttributeValueWithConvention(av, target, naming.CamelCase, true)
 }
 
 func (c *Converter) fromAttributeValueWithConvention(av types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
@@ -341,10 +316,6 @@ func (c *Converter) fromAttributeValueByType(av types.AttributeValue, target ref
 	}
 }
 
-func (c *Converter) fromAttributeValueMap(value map[string]types.AttributeValue, target reflect.Value) error {
-	return c.fromAttributeValueMapWithConvention(value, target, naming.CamelCase, true)
-}
-
 func (c *Converter) fromAttributeValueMapWithConvention(value map[string]types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	switch target.Kind() {
 	case reflect.Map:
@@ -399,11 +370,6 @@ func (c *Converter) numberToValue(n string, target reflect.Value) error {
 	}
 }
 
-// listToSlice converts DynamoDB List to Go slice
-func (c *Converter) listToSlice(list []types.AttributeValue, target reflect.Value) error {
-	return c.listToSliceWithConvention(list, target, naming.CamelCase, true)
-}
-
 func (c *Converter) listToSliceWithConvention(list []types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if target.Kind() != reflect.Slice {
 		return fmt.Errorf("target must be slice, got %s", target.Type())
@@ -419,11 +385,6 @@ func (c *Converter) listToSliceWithConvention(list []types.AttributeValue, targe
 
 	target.Set(slice)
 	return nil
-}
-
-// attributeValueMapToMap converts DynamoDB Map to Go map
-func (c *Converter) attributeValueMapToMap(m map[string]types.AttributeValue, target reflect.Value) error {
-	return c.attributeValueMapToMapWithConvention(m, target, naming.CamelCase, true)
 }
 
 func (c *Converter) attributeValueMapToMapWithConvention(m map[string]types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
@@ -447,11 +408,6 @@ func (c *Converter) attributeValueMapToMapWithConvention(m map[string]types.Attr
 
 	target.Set(mapValue)
 	return nil
-}
-
-// mapToStruct converts DynamoDB Map to Go struct
-func (c *Converter) mapToStruct(m map[string]types.AttributeValue, target reflect.Value) error {
-	return c.mapToStructWithConvention(m, target, naming.CamelCase, true)
 }
 
 func (c *Converter) mapToStructWithConvention(m map[string]types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
@@ -574,7 +530,7 @@ func (c *Converter) ConvertToSet(slice any, isSet bool) (types.AttributeValue, e
 		reflect.Float32, reflect.Float64:
 		set := make([]string, v.Len())
 		for i := 0; i < v.Len(); i++ {
-			av, err := c.toAttributeValue(v.Index(i))
+			av, err := c.toAttributeValueWithConvention(v.Index(i), naming.CamelCase, false)
 			if err != nil {
 				return nil, err
 			}
