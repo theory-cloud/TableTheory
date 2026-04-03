@@ -312,7 +312,9 @@ func TestLookupAndJSONHelpers_CON3(t *testing.T) {
 		"second": &types.AttributeValueMemberS{Value: "value"},
 	}, "missing", "second")
 	require.True(t, ok)
-	require.Equal(t, "value", av.(*types.AttributeValueMemberS).Value)
+	valueAV, ok := av.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "value", valueAV.Value)
 }
 
 func TestUnmarshalStringToStruct_JSON_CON3(t *testing.T) {

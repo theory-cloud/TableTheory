@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
@@ -27,30 +28,38 @@ func ConvertToAttributeValue(value any) (types.AttributeValue, error) {
 }
 
 func convertToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+	prepared, terminalAV, done, err := prepareValueForConversion(v)
+	if done || err != nil {
+		return terminalAV, err
+	}
+
+	return convertConcreteValueToAttributeValue(prepared, inheritedConvention, inheritNaming)
+}
+
+func prepareValueForConversion(v reflect.Value) (reflect.Value, types.AttributeValue, bool, error) {
 	if !v.IsValid() {
-		return &types.AttributeValueMemberNULL{Value: true}, nil
+		return reflect.Value{}, &types.AttributeValueMemberNULL{Value: true}, true, nil
 	}
 
-	if v.CanInterface() {
-		if marshaler, ok := v.Interface().(Marshaler); ok {
-			return marshaler.MarshalDynamoDBAttributeValue()
+	for {
+		if v.CanInterface() {
+			if marshaler, ok := v.Interface().(Marshaler); ok {
+				av, err := marshaler.MarshalDynamoDBAttributeValue()
+				return reflect.Value{}, av, true, err
+			}
 		}
-	}
 
-	if v.Kind() == reflect.Interface {
+		if v.Kind() != reflect.Interface && v.Kind() != reflect.Ptr {
+			return v, nil, false, nil
+		}
 		if v.IsNil() {
-			return &types.AttributeValueMemberNULL{Value: true}, nil
+			return reflect.Value{}, &types.AttributeValueMemberNULL{Value: true}, true, nil
 		}
-		return convertToAttributeValueWithConvention(v.Elem(), inheritedConvention, inheritNaming)
+		v = v.Elem()
 	}
+}
 
-	if v.Kind() == reflect.Ptr {
-		if v.IsNil() {
-			return &types.AttributeValueMemberNULL{Value: true}, nil
-		}
-		return convertToAttributeValueWithConvention(v.Elem(), inheritedConvention, inheritNaming)
-	}
-
+func convertConcreteValueToAttributeValue(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	switch v.Kind() {
 	case reflect.String:
 		return &types.AttributeValueMemberS{Value: v.String()}, nil

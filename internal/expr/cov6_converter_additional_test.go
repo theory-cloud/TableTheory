@@ -7,6 +7,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
+
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
@@ -117,7 +118,9 @@ func TestLookupHelpers_COV6(t *testing.T) {
 		"second": &types.AttributeValueMemberS{Value: "value"},
 	}, "missing", "second")
 	require.True(t, ok)
-	require.Equal(t, "value", value.(*types.AttributeValueMemberS).Value)
+	valueAV, ok := value.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "value", valueAV.Value)
 
 	_, ok = lookupMapValue(map[string]types.AttributeValue{}, "missing")
 	require.False(t, ok)

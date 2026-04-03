@@ -324,7 +324,9 @@ func TestMapLookupHelpers_COV6(t *testing.T) {
 		"second": &types.AttributeValueMemberS{Value: "value"},
 	}, "missing", "second")
 	require.True(t, ok)
-	require.Equal(t, "value", av.(*types.AttributeValueMemberS).Value)
+	valueAV, ok := av.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "value", valueAV.Value)
 
 	field := reflect.TypeOf(model{}).Field(0)
 	attrNames, skip, err := resolveMapFieldLookupNames(field, naming.CamelCase)
