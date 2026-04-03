@@ -23,61 +23,60 @@ type Unmarshaler interface {
 
 // ConvertToAttributeValue converts a Go value to a DynamoDB AttributeValue
 func ConvertToAttributeValue(value any) (types.AttributeValue, error) {
-	if value == nil {
+	return convertToAttributeValueWithConvention(reflect.ValueOf(value), naming.CamelCase, false)
+}
+
+func convertToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+	if !v.IsValid() {
 		return &types.AttributeValueMemberNULL{Value: true}, nil
 	}
 
-	// Check for custom marshaler
-	if marshaler, ok := value.(Marshaler); ok {
-		return marshaler.MarshalDynamoDBAttributeValue()
+	if v.CanInterface() {
+		if marshaler, ok := v.Interface().(Marshaler); ok {
+			return marshaler.MarshalDynamoDBAttributeValue()
+		}
 	}
 
-	v := reflect.ValueOf(value)
+	if v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return &types.AttributeValueMemberNULL{Value: true}, nil
+		}
+		return convertToAttributeValueWithConvention(v.Elem(), inheritedConvention, inheritNaming)
+	}
 
-	// Handle pointers
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
 			return &types.AttributeValueMemberNULL{Value: true}, nil
 		}
-		return ConvertToAttributeValue(v.Elem().Interface())
+		return convertToAttributeValueWithConvention(v.Elem(), inheritedConvention, inheritNaming)
 	}
 
 	switch v.Kind() {
 	case reflect.String:
 		return &types.AttributeValueMemberS{Value: v.String()}, nil
-
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", v.Int())}, nil
-
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", v.Uint())}, nil
-
 	case reflect.Float32, reflect.Float64:
 		return &types.AttributeValueMemberN{Value: fmt.Sprintf("%g", v.Float())}, nil
-
 	case reflect.Bool:
 		return &types.AttributeValueMemberBOOL{Value: v.Bool()}, nil
-
 	case reflect.Slice:
-		return convertSliceToAttributeValue(v)
-
+		return convertSliceToAttributeValueWithConvention(v, inheritedConvention, inheritNaming)
 	case reflect.Map:
-		return convertMapToAttributeValue(v)
-
+		return convertMapToAttributeValueWithConvention(v, inheritedConvention, inheritNaming)
 	case reflect.Struct:
-		// Special handling for time.Time
-		if t, ok := value.(time.Time); ok {
+		if t, ok := v.Interface().(time.Time); ok {
 			return &types.AttributeValueMemberS{Value: t.Format(time.RFC3339Nano)}, nil
 		}
-
-		return convertStructToAttributeValue(v)
-
+		return convertStructToAttributeValueWithConvention(v, inheritedConvention, inheritNaming)
 	default:
 		return nil, fmt.Errorf("unsupported type: %v", v.Type())
 	}
 }
 
-func convertSliceToAttributeValue(v reflect.Value) (types.AttributeValue, error) {
+func convertSliceToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	// Handle []byte as binary
 	if v.Type().Elem().Kind() == reflect.Uint8 {
 		return &types.AttributeValueMemberB{Value: v.Bytes()}, nil
@@ -86,7 +85,7 @@ func convertSliceToAttributeValue(v reflect.Value) (types.AttributeValue, error)
 	// Handle other slices as lists
 	list := make([]types.AttributeValue, v.Len())
 	for i := 0; i < v.Len(); i++ {
-		item, err := ConvertToAttributeValue(v.Index(i).Interface())
+		item, err := convertToAttributeValueWithConvention(v.Index(i), inheritedConvention, inheritNaming)
 		if err != nil {
 			return nil, err
 		}
@@ -95,7 +94,7 @@ func convertSliceToAttributeValue(v reflect.Value) (types.AttributeValue, error)
 	return &types.AttributeValueMemberL{Value: list}, nil
 }
 
-func convertMapToAttributeValue(v reflect.Value) (types.AttributeValue, error) {
+func convertMapToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	// Handle map[string]any as M type
 	if v.Type().Key().Kind() != reflect.String {
 		return nil, fmt.Errorf("unsupported map type: %v", v.Type())
@@ -103,7 +102,7 @@ func convertMapToAttributeValue(v reflect.Value) (types.AttributeValue, error) {
 
 	m := make(map[string]types.AttributeValue, v.Len())
 	for _, key := range v.MapKeys() {
-		val, err := ConvertToAttributeValue(v.MapIndex(key).Interface())
+		val, err := convertToAttributeValueWithConvention(v.MapIndex(key), inheritedConvention, inheritNaming)
 		if err != nil {
 			return nil, err
 		}
@@ -112,13 +111,14 @@ func convertMapToAttributeValue(v reflect.Value) (types.AttributeValue, error) {
 	return &types.AttributeValueMemberM{Value: m}, nil
 }
 
-func convertStructToAttributeValue(v reflect.Value) (types.AttributeValue, error) {
+func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	// General struct marshaling
 	// Note: We no longer automatically JSON-serialize structs just because they have json tags.
 	// JSON serialization should only happen when explicitly requested via theorydb:"json" tag,
 	// which is handled at the field level during marshaling, not here in the converter.
 	m := make(map[string]types.AttributeValue)
 	t := v.Type()
+	convention, _ := resolveStructNaming(t, inheritedConvention, inheritNaming)
 
 	for i := 0; i < v.NumField(); i++ {
 		field := t.Field(i)
@@ -126,7 +126,7 @@ func convertStructToAttributeValue(v reflect.Value) (types.AttributeValue, error
 			continue
 		}
 
-		fieldName, theorydbTag, jsonTag, ok := marshalFieldNameAndTags(field)
+		fieldName, theorydbTag, jsonTag, ok := marshalFieldNameAndTags(field, convention)
 		if !ok {
 			continue
 		}
@@ -136,7 +136,7 @@ func convertStructToAttributeValue(v reflect.Value) (types.AttributeValue, error
 			continue
 		}
 
-		av, err := ConvertToAttributeValue(fieldValue.Interface())
+		av, err := convertToAttributeValueWithConvention(fieldValue, convention, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
 		}
@@ -146,29 +146,40 @@ func convertStructToAttributeValue(v reflect.Value) (types.AttributeValue, error
 	return &types.AttributeValueMemberM{Value: m}, nil
 }
 
-func marshalFieldNameAndTags(field reflect.StructField) (string, string, string, bool) {
+func marshalFieldNameAndTags(field reflect.StructField, convention naming.Convention) (string, string, string, bool) {
 	theorydbTag := field.Tag.Get("theorydb")
 	jsonTag := field.Tag.Get("json")
 	if theorydbTag == "-" || jsonTag == "-" {
 		return "", "", "", false
 	}
 
-	fieldName := naming.DefaultAttrName(field.Name)
 	if theorydbTag != "" {
-		fieldName = fieldNameFromTheorydbTag(fieldName, theorydbTag)
-	} else if jsonTag != "" {
+		fieldName := fieldNameFromTheorydbTag(naming.ConvertAttrName(field.Name, convention), theorydbTag, convention)
+		return fieldName, theorydbTag, jsonTag, true
+	}
+
+	fieldName := naming.ConvertAttrName(field.Name, convention)
+	if jsonTag != "" {
 		fieldName = fieldNameFromJSONTag(fieldName, jsonTag)
 	}
 
 	return fieldName, theorydbTag, jsonTag, true
 }
 
-func fieldNameFromTheorydbTag(defaultName string, tag string) string {
-	fieldName := defaultName
+func fieldNameFromTheorydbTag(defaultName string, tag string, convention naming.Convention) string {
+	if convention == naming.DynamORM {
+		if hasStandaloneTagPart(tag, "pk") {
+			return "PK"
+		}
+		if hasStandaloneTagPart(tag, "sk") {
+			return "SK"
+		}
+	}
 
+	fieldName := defaultName
 	parts := strings.Split(tag, ",")
 	if len(parts) > 0 && parts[0] != "" {
-		firstPart := parts[0]
+		firstPart := strings.TrimSpace(parts[0])
 		if !strings.Contains(firstPart, ":") && !isPureModifierTag(firstPart) {
 			fieldName = firstPart
 		}
@@ -209,18 +220,17 @@ func ConvertFromAttributeValue(av types.AttributeValue, target any) error {
 	}
 
 	targetElem := targetValue.Elem()
-	return unmarshalAttributeValue(av, targetElem)
+	return unmarshalAttributeValueWithConvention(av, targetElem, naming.CamelCase, false)
 }
 
-// unmarshalAttributeValue unmarshals an AttributeValue into a reflect.Value
-func unmarshalAttributeValue(av types.AttributeValue, v reflect.Value) error {
+func unmarshalAttributeValueWithConvention(av types.AttributeValue, v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if isEmptyInterfaceValue(v) {
 		return unmarshalIntoEmptyInterface(av, v)
 	}
 	if v.Kind() == reflect.Ptr {
-		return unmarshalIntoPointer(av, v)
+		return unmarshalIntoPointerWithConvention(av, v, inheritedConvention, inheritNaming)
 	}
-	return unmarshalAttributeValueNonPtr(av, v)
+	return unmarshalAttributeValueNonPtrWithConvention(av, v, inheritedConvention, inheritNaming)
 }
 
 func isEmptyInterfaceValue(v reflect.Value) bool {
@@ -236,7 +246,7 @@ func unmarshalIntoEmptyInterface(av types.AttributeValue, v reflect.Value) error
 	return nil
 }
 
-func unmarshalIntoPointer(av types.AttributeValue, v reflect.Value) error {
+func unmarshalIntoPointerWithConvention(av types.AttributeValue, v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if av == nil || isNullAttributeValue(av) {
 		v.Set(reflect.Zero(v.Type()))
 		return nil
@@ -246,10 +256,10 @@ func unmarshalIntoPointer(av types.AttributeValue, v reflect.Value) error {
 	if v.IsNil() {
 		v.Set(reflect.New(v.Type().Elem()))
 	}
-	return unmarshalAttributeValue(av, v.Elem())
+	return unmarshalAttributeValueWithConvention(av, v.Elem(), inheritedConvention, inheritNaming)
 }
 
-func unmarshalAttributeValueNonPtr(av types.AttributeValue, v reflect.Value) error {
+func unmarshalAttributeValueNonPtrWithConvention(av types.AttributeValue, v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	switch av := av.(type) {
 	case *types.AttributeValueMemberS:
 		return unmarshalString(av.Value, v)
@@ -268,10 +278,10 @@ func unmarshalAttributeValueNonPtr(av types.AttributeValue, v reflect.Value) err
 		return nil
 
 	case *types.AttributeValueMemberL:
-		return unmarshalList(av.Value, v)
+		return unmarshalListWithConvention(av.Value, v, inheritedConvention, inheritNaming)
 
 	case *types.AttributeValueMemberM:
-		return unmarshalMap(av.Value, v)
+		return unmarshalMapWithConvention(av.Value, v, inheritedConvention, inheritNaming)
 
 	case *types.AttributeValueMemberSS:
 		return unmarshalStringSet(av.Value, v)
@@ -368,6 +378,10 @@ func unmarshalBool(b bool, v reflect.Value) error {
 
 // unmarshalList unmarshals a list of AttributeValues
 func unmarshalList(list []types.AttributeValue, v reflect.Value) error {
+	return unmarshalListWithConvention(list, v, naming.CamelCase, false)
+}
+
+func unmarshalListWithConvention(list []types.AttributeValue, v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	if v.Kind() != reflect.Slice {
 		return fmt.Errorf("cannot unmarshal list into %v", v.Type())
 	}
@@ -377,7 +391,7 @@ func unmarshalList(list []types.AttributeValue, v reflect.Value) error {
 
 	// Unmarshal each element
 	for i, item := range list {
-		if err := unmarshalAttributeValue(item, slice.Index(i)); err != nil {
+		if err := unmarshalAttributeValueWithConvention(item, slice.Index(i), inheritedConvention, inheritNaming); err != nil {
 			return fmt.Errorf("failed to unmarshal list item %d: %w", i, err)
 		}
 	}
@@ -388,12 +402,16 @@ func unmarshalList(list []types.AttributeValue, v reflect.Value) error {
 
 // unmarshalMap unmarshals a map of AttributeValues
 func unmarshalMap(m map[string]types.AttributeValue, v reflect.Value) error {
+	return unmarshalMapWithConvention(m, v, naming.CamelCase, false)
+}
+
+func unmarshalMapWithConvention(m map[string]types.AttributeValue, v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	switch v.Kind() {
 	case reflect.Map:
-		return unmarshalMapIntoMap(m, v)
+		return unmarshalMapIntoMapWithConvention(m, v, inheritedConvention, inheritNaming)
 
 	case reflect.Struct:
-		return unmarshalMapIntoStruct(m, v)
+		return unmarshalMapIntoStructWithConvention(m, v, inheritedConvention, inheritNaming)
 
 	default:
 		return fmt.Errorf("cannot unmarshal map into %v", v.Type())
@@ -401,6 +419,10 @@ func unmarshalMap(m map[string]types.AttributeValue, v reflect.Value) error {
 }
 
 func unmarshalMapIntoMap(m map[string]types.AttributeValue, v reflect.Value) error {
+	return unmarshalMapIntoMapWithConvention(m, v, naming.CamelCase, false)
+}
+
+func unmarshalMapIntoMapWithConvention(m map[string]types.AttributeValue, v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	// Ensure map is string-keyed
 	if v.Type().Key().Kind() != reflect.String {
 		return fmt.Errorf("map must have string keys")
@@ -414,7 +436,7 @@ func unmarshalMapIntoMap(m map[string]types.AttributeValue, v reflect.Value) err
 	// Unmarshal each value
 	for key, value := range m {
 		mapValue := reflect.New(v.Type().Elem()).Elem()
-		if err := unmarshalAttributeValue(value, mapValue); err != nil {
+		if err := unmarshalAttributeValueWithConvention(value, mapValue, inheritedConvention, inheritNaming); err != nil {
 			return fmt.Errorf("failed to unmarshal map value for key %s: %w", key, err)
 		}
 		v.SetMapIndex(reflect.ValueOf(key), mapValue)
@@ -422,46 +444,58 @@ func unmarshalMapIntoMap(m map[string]types.AttributeValue, v reflect.Value) err
 	return nil
 }
 
-func unmarshalMapIntoStruct(m map[string]types.AttributeValue, v reflect.Value) error {
+func unmarshalMapIntoStructWithConvention(m map[string]types.AttributeValue, v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	t := v.Type()
+	convention, _ := resolveStructNaming(t, inheritedConvention, inheritNaming)
 	for i := 0; i < v.NumField(); i++ {
 		field := t.Field(i)
 		if !field.IsExported() {
 			continue
 		}
 
-		fieldName := unmarshalFieldName(field)
-		if fieldName == "" {
+		fieldNames, skip := unmarshalFieldNames(field, convention)
+		if skip {
 			continue
 		}
 
-		av, ok := m[fieldName]
-		if !ok && fieldName != field.Name {
-			av, ok = m[field.Name]
-		}
+		av, ok := lookupMapValue(m, fieldNames...)
 		if !ok {
 			continue
 		}
-		if err := unmarshalAttributeValue(av, v.Field(i)); err != nil {
+		if err := unmarshalAttributeValueWithConvention(av, v.Field(i), convention, true); err != nil {
 			return fmt.Errorf("failed to unmarshal field %s: %w", field.Name, err)
 		}
 	}
 	return nil
 }
 
-func unmarshalFieldName(field reflect.StructField) string {
-	fieldName := naming.DefaultAttrName(field.Name)
-
-	tag := field.Tag.Get("theorydb")
+func unmarshalFieldNames(field reflect.StructField, convention naming.Convention) ([]string, bool) {
+	theorydbTag := field.Tag.Get("theorydb")
 	jsonTag := field.Tag.Get("json")
+	if theorydbTag == "-" || jsonTag == "-" {
+		return nil, true
+	}
 
-	if tag != "" && tag != "-" {
-		return fieldNameFromTheorydbTag(fieldName, tag)
+	names := make([]string, 0, 4)
+	if theorydbTag != "" {
+		fieldName := fieldNameFromTheorydbTag(naming.ConvertAttrName(field.Name, convention), theorydbTag, convention)
+		if fieldName == "" {
+			return nil, true
+		}
+		names = appendUniqueLookupName(names, fieldName)
 	}
-	if jsonTag != "" && jsonTag != "-" {
-		return fieldNameFromJSONTag(fieldName, jsonTag)
+
+	if jsonName := jsonTagName(jsonTag); jsonName != "" {
+		names = appendUniqueLookupName(names, jsonName)
 	}
-	return fieldName
+
+	names = appendUniqueLookupName(names, naming.ConvertAttrName(field.Name, convention))
+	names = appendUniqueLookupName(names, field.Name)
+	if len(names) == 0 {
+		return nil, true
+	}
+
+	return names, false
 }
 
 // unmarshalStringSet unmarshals a string set
@@ -518,7 +552,6 @@ func isNullAttributeValue(av types.AttributeValue) bool {
 }
 
 func parseAttrTag(tag string) string {
-	// Parse "attr:name" from tag
 	parts := strings.Split(tag, ",")
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -527,6 +560,132 @@ func parseAttrTag(tag string) string {
 		}
 	}
 	return ""
+}
+
+func hasStandaloneTagPart(tag string, want string) bool {
+	if tag == "" || want == "" {
+		return false
+	}
+
+	parts := strings.Split(tag, ",")
+	for _, part := range parts {
+		if strings.TrimSpace(part) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func detectNamingConvention(modelType reflect.Type) naming.Convention {
+	for i := 0; i < modelType.NumField(); i++ {
+		tag := modelType.Field(i).Tag.Get("theorydb")
+		if tag == "" {
+			continue
+		}
+
+		parts := strings.Split(tag, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if !strings.HasPrefix(part, "naming:") {
+				continue
+			}
+
+			switch strings.TrimPrefix(part, "naming:") {
+			case "snake_case":
+				return naming.SnakeCase
+			case "camel_case", "camelCase":
+				return naming.CamelCase
+			case "pascal_case", "pascalCase":
+				return naming.PascalCase
+			case "dynamorm", "legacy_dynamorm", "legacyDynamORM":
+				return naming.DynamORM
+			}
+		}
+	}
+
+	return naming.CamelCase
+}
+
+func explicitNamingConvention(modelType reflect.Type) (naming.Convention, bool) {
+	for i := 0; i < modelType.NumField(); i++ {
+		tag := modelType.Field(i).Tag.Get("theorydb")
+		if tag == "" {
+			continue
+		}
+
+		parts := strings.Split(tag, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if !strings.HasPrefix(part, "naming:") {
+				continue
+			}
+
+			switch strings.TrimPrefix(part, "naming:") {
+			case "snake_case":
+				return naming.SnakeCase, true
+			case "camel_case", "camelCase":
+				return naming.CamelCase, true
+			case "pascal_case", "pascalCase":
+				return naming.PascalCase, true
+			case "dynamorm", "legacy_dynamorm", "legacyDynamORM":
+				return naming.DynamORM, true
+			}
+		}
+	}
+
+	return naming.CamelCase, false
+}
+
+func resolveStructNaming(modelType reflect.Type, inheritedConvention naming.Convention, inheritNaming bool) (naming.Convention, bool) {
+	if convention, ok := explicitNamingConvention(modelType); ok {
+		return convention, true
+	}
+
+	if inheritNaming {
+		return inheritedConvention, true
+	}
+
+	return detectNamingConvention(modelType), false
+}
+
+func jsonTagName(tag string) string {
+	if tag == "" || tag == "-" {
+		return ""
+	}
+
+	parts := strings.Split(tag, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	name := strings.TrimSpace(parts[0])
+	if name == "" || name == "-" {
+		return ""
+	}
+
+	return name
+}
+
+func appendUniqueLookupName(names []string, name string) []string {
+	if name == "" || name == "-" {
+		return names
+	}
+	for _, existing := range names {
+		if existing == name {
+			return names
+		}
+	}
+	return append(names, name)
+}
+
+func lookupMapValue(values map[string]types.AttributeValue, names ...string) (types.AttributeValue, bool) {
+	for _, name := range names {
+		value, ok := values[name]
+		if ok {
+			return value, true
+		}
+	}
+	return nil, false
 }
 
 func hasOmitEmpty(tag string) bool {
@@ -552,7 +711,6 @@ func isZeroValue(v reflect.Value) bool {
 }
 
 func isPureModifierTag(tag string) bool {
-	// These are tags that are ONLY modifiers and never field names
 	modifiers := []string{"pk", "sk", "version", "ttl", "set", "omitempty", "binary", "json", "encrypted"}
 	for _, mod := range modifiers {
 		if tag == mod {

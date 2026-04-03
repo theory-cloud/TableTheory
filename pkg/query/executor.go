@@ -894,12 +894,12 @@ func resolveUnmarshalTarget(dest any) (reflect.Value, reflect.Type, naming.Conve
 }
 
 func unmarshalItemField(item map[string]types.AttributeValue, field reflect.StructField, dest reflect.Value, convention naming.Convention) error {
-	attrName, skip := resolveUnmarshalFieldAttrName(field, convention)
+	attrNames, skip := resolveUnmarshalFieldLookupNames(field, convention)
 	if skip {
 		return nil
 	}
 
-	av, exists := lookupAttributeValue(item, attrName, field.Name)
+	av, exists := lookupAttributeValue(item, attrNames...)
 	if !exists {
 		return nil
 	}
@@ -919,37 +919,88 @@ func unmarshalItemField(item map[string]types.AttributeValue, field reflect.Stru
 	return nil
 }
 
-func resolveUnmarshalFieldAttrName(field reflect.StructField, convention naming.Convention) (string, bool) {
+func resolveUnmarshalFieldLookupNames(field reflect.StructField, convention naming.Convention) ([]string, bool) {
 	dynamodbTag := field.Tag.Get("dynamodb")
-	if dynamodbTag == "-" {
-		return "", true
+	theorydbTag := field.Tag.Get("theorydb")
+	jsonTag := field.Tag.Get("json")
+	if dynamodbTag == "-" || theorydbTag == "-" || jsonTag == "-" {
+		return nil, true
 	}
 
+	names := make([]string, 0, 4)
 	if dynamodbTag != "" {
 		attrName := parseAttributeName(dynamodbTag)
 		if attrName == "" {
 			attrName = field.Name
 		}
-		return attrName, false
+		names = appendLookupName(names, attrName)
+		return appendDefaultLookupNames(names, field, convention), false
 	}
 
-	attrName, skip := naming.ResolveAttrNameWithConvention(field, convention)
-	if skip || attrName == "" {
-		return "", true
+	if theorydbTag != "" {
+		attrName, skip := naming.ResolveAttrNameWithConvention(field, convention)
+		if skip || attrName == "" {
+			return nil, true
+		}
+		names = appendLookupName(names, attrName)
 	}
 
-	return attrName, false
+	if jsonName := parseJSONAttributeName(jsonTag); jsonName != "" {
+		names = appendLookupName(names, jsonName)
+	}
+
+	names = appendDefaultLookupNames(names, field, convention)
+	if len(names) == 0 {
+		return nil, true
+	}
+
+	return names, false
 }
 
-func lookupAttributeValue(values map[string]types.AttributeValue, attrName, fallback string) (types.AttributeValue, bool) {
-	if av, exists := values[attrName]; exists {
-		return av, true
+func appendDefaultLookupNames(names []string, field reflect.StructField, convention naming.Convention) []string {
+	names = appendLookupName(names, naming.ConvertAttrName(field.Name, convention))
+	names = appendLookupName(names, field.Name)
+	return names
+}
+
+func appendLookupName(names []string, name string) []string {
+	if name == "" || name == "-" {
+		return names
 	}
-	if attrName != fallback {
-		av, exists := values[fallback]
-		return av, exists
+	for _, existing := range names {
+		if existing == name {
+			return names
+		}
+	}
+	return append(names, name)
+}
+
+func lookupAttributeValue(values map[string]types.AttributeValue, names ...string) (types.AttributeValue, bool) {
+	for _, name := range names {
+		av, exists := values[name]
+		if exists {
+			return av, true
+		}
 	}
 	return nil, false
+}
+
+func parseJSONAttributeName(tag string) string {
+	if tag == "" || tag == "-" {
+		return ""
+	}
+
+	parts := strings.Split(tag, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	name := strings.TrimSpace(parts[0])
+	if name == "" || name == "-" {
+		return ""
+	}
+
+	return name
 }
 
 // unmarshalAttributeValue unmarshals a DynamoDB attribute value into a reflect.Value
@@ -1172,12 +1223,12 @@ func unmarshalMapIntoStructWithConvention(values map[string]types.AttributeValue
 		}
 
 		fieldValue := dest.Field(i)
-		attrName, skip := resolveUnmarshalFieldAttrName(field, convention)
+		attrNames, skip := resolveUnmarshalFieldLookupNames(field, convention)
 		if skip {
 			continue
 		}
 
-		structVal, ok := lookupAttributeValue(values, attrName, field.Name)
+		structVal, ok := lookupAttributeValue(values, attrNames...)
 		if !ok {
 			continue
 		}

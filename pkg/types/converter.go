@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -425,19 +426,15 @@ func (c *Converter) mapToStructWithConvention(m map[string]types.AttributeValue,
 			continue
 		}
 
-		attrName, skip := naming.ResolveAttrNameWithConvention(field, convention)
+		attrNames, skip, err := resolveMapFieldLookupNames(field, convention)
+		if err != nil {
+			return err
+		}
 		if skip {
 			continue
 		}
 
-		if err := naming.ValidateAttrName(attrName, convention); err != nil {
-			return fmt.Errorf("field %s: %w", field.Name, err)
-		}
-
-		av, exists := m[attrName]
-		if !exists && attrName != field.Name {
-			av, exists = m[field.Name]
-		}
+		av, exists := lookupMapFieldValue(m, attrNames...)
 		if !exists {
 			continue
 		}
@@ -448,6 +445,60 @@ func (c *Converter) mapToStructWithConvention(m map[string]types.AttributeValue,
 	}
 
 	return nil
+}
+
+func resolveMapFieldLookupNames(field reflect.StructField, convention naming.Convention) ([]string, bool, error) {
+	theorydbTag := field.Tag.Get("theorydb")
+	jsonTag := field.Tag.Get("json")
+	if theorydbTag == "-" || jsonTag == "-" {
+		return nil, true, nil
+	}
+
+	names := make([]string, 0, 4)
+	if theorydbTag != "" {
+		attrName, skip := naming.ResolveAttrNameWithConvention(field, convention)
+		if skip || attrName == "" {
+			return nil, true, nil
+		}
+		if err := naming.ValidateAttrName(attrName, convention); err != nil {
+			return nil, false, fmt.Errorf("field %s: %w", field.Name, err)
+		}
+		names = appendMapLookupName(names, attrName)
+	}
+
+	if jsonName := jsonTagName(jsonTag); jsonName != "" {
+		names = appendMapLookupName(names, jsonName)
+	}
+
+	names = appendMapLookupName(names, naming.ConvertAttrName(field.Name, convention))
+	names = appendMapLookupName(names, field.Name)
+	if len(names) == 0 {
+		return nil, true, nil
+	}
+
+	return names, false, nil
+}
+
+func appendMapLookupName(names []string, name string) []string {
+	if name == "" || name == "-" {
+		return names
+	}
+	for _, existing := range names {
+		if existing == name {
+			return names
+		}
+	}
+	return append(names, name)
+}
+
+func lookupMapFieldValue(m map[string]types.AttributeValue, names ...string) (types.AttributeValue, bool) {
+	for _, name := range names {
+		av, exists := m[name]
+		if exists {
+			return av, true
+		}
+	}
+	return nil, false
 }
 
 // stringSetToSlice converts string set to slice
@@ -629,6 +680,24 @@ func splitTag(tag string) []string {
 	}
 
 	return parts
+}
+
+func jsonTagName(tag string) string {
+	if tag == "" || tag == "-" {
+		return ""
+	}
+
+	parts := strings.SplitN(tag, ",", 2)
+	if len(parts) == 0 {
+		return ""
+	}
+
+	name := strings.TrimSpace(parts[0])
+	if name == "" || name == "-" {
+		return ""
+	}
+
+	return name
 }
 
 func explicitNamingConvention(modelType reflect.Type) (naming.Convention, bool) {

@@ -217,6 +217,122 @@ func TestStructAndMapToStruct_DynamORMNaming_NestedStruct_COV6(t *testing.T) {
 	require.Equal(t, "US", out.Profile.MailingAddress.CountryCode)
 }
 
+func TestMapToStructWithConvention_DynamORMNestedJSONTags_COV6(t *testing.T) {
+	converter := NewConverter()
+
+	type address struct {
+		PostalCode  string `json:"postal_code"`
+		CountryCode string `json:"country_code"`
+	}
+
+	type profile struct {
+		DisplayName    string  `json:"display_name"`
+		MailingAddress address `json:"mailing_address"`
+	}
+
+	type legacy struct {
+		_       struct{} `theorydb:"naming:dynamorm"`
+		UserID  string   `theorydb:"pk"`
+		Entity  string   `theorydb:"sk"`
+		Profile profile
+	}
+
+	av := &types.AttributeValueMemberM{
+		Value: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: "USER#1"},
+			"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
+			"profile": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+				"display_name": &types.AttributeValueMemberS{Value: "Ada Lovelace"},
+				"mailing_address": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"postal_code":  &types.AttributeValueMemberS{Value: "10001"},
+					"country_code": &types.AttributeValueMemberS{Value: "US"},
+				}},
+			}},
+		},
+	}
+
+	var out legacy
+	require.NoError(t, converter.FromAttributeValue(av, &out))
+	require.Equal(t, "USER#1", out.UserID)
+	require.Equal(t, "PROFILE", out.Entity)
+	require.Equal(t, "Ada Lovelace", out.Profile.DisplayName)
+	require.Equal(t, "10001", out.Profile.MailingAddress.PostalCode)
+	require.Equal(t, "US", out.Profile.MailingAddress.CountryCode)
+}
+
+func TestStructAndMapToStruct_DynamORMAcronymNestedFields_COV6(t *testing.T) {
+	converter := NewConverter()
+
+	type profile struct {
+		MerchantTaxIDSecID string
+		IdentityID         string
+		DID                string
+		TPPID              string
+	}
+
+	type legacy struct {
+		_       struct{} `theorydb:"naming:dynamorm"`
+		UserID  string   `theorydb:"pk"`
+		Entity  string   `theorydb:"sk"`
+		Profile profile
+	}
+
+	av, err := converter.ToAttributeValue(legacy{
+		UserID: "USER#1",
+		Entity: "PROFILE",
+		Profile: profile{
+			MerchantTaxIDSecID: "tax-1",
+			IdentityID:         "identity-1",
+			DID:                "did-1",
+			TPPID:              "tpp-1",
+		},
+	})
+	require.NoError(t, err)
+
+	m, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	profileAV, ok := m.Value["profile"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, profileAV.Value, "merchantTaxIDSecID")
+	require.Contains(t, profileAV.Value, "identityID")
+	require.Contains(t, profileAV.Value, "did")
+	require.Contains(t, profileAV.Value, "tppid")
+
+	var out legacy
+	require.NoError(t, converter.FromAttributeValue(av, &out))
+	require.Equal(t, "tax-1", out.Profile.MerchantTaxIDSecID)
+	require.Equal(t, "identity-1", out.Profile.IdentityID)
+	require.Equal(t, "did-1", out.Profile.DID)
+	require.Equal(t, "tpp-1", out.Profile.TPPID)
+}
+
+func TestMapLookupHelpers_COV6(t *testing.T) {
+	type model struct {
+		JSONNamed string `json:"json_name,omitempty"`
+	}
+
+	require.Equal(t, "json_name", jsonTagName("json_name,omitempty"))
+	require.Empty(t, jsonTagName(",omitempty"))
+
+	names := appendMapLookupName(nil, "first")
+	names = appendMapLookupName(names, "first")
+	names = appendMapLookupName(names, "")
+	names = appendMapLookupName(names, "second")
+	require.Equal(t, []string{"first", "second"}, names)
+
+	av, ok := lookupMapFieldValue(map[string]types.AttributeValue{
+		"second": &types.AttributeValueMemberS{Value: "value"},
+	}, "missing", "second")
+	require.True(t, ok)
+	require.Equal(t, "value", av.(*types.AttributeValueMemberS).Value)
+
+	field := reflect.TypeOf(model{}).Field(0)
+	attrNames, skip, err := resolveMapFieldLookupNames(field, naming.CamelCase)
+	require.NoError(t, err)
+	require.False(t, skip)
+	require.Equal(t, []string{"json_name", "jsonNamed", "JSONNamed"}, attrNames)
+}
+
 type cov6BadNumberSetConverter struct{}
 
 func (cov6BadNumberSetConverter) ToAttributeValue(any) (types.AttributeValue, error) {

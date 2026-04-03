@@ -261,6 +261,47 @@ func TestConvertToAndFromAttributeValue_DefaultNestedStructUsesCamelCase(t *test
 	require.Equal(t, "US", out.MailingAddress.CountryCode)
 }
 
+func TestConvertToAndFromAttributeValue_NestedStructInheritsActiveConvention(t *testing.T) {
+	type nested struct {
+		MerchantTaxIDSecID string
+		IdentityID         string
+		DID                string
+		TPPID              string
+	}
+
+	type record struct {
+		_      struct{} `theorydb:"naming:snake_case"`
+		Nested nested
+	}
+
+	av, err := ConvertToAttributeValue(record{
+		Nested: nested{
+			MerchantTaxIDSecID: "tax-1",
+			IdentityID:         "identity-1",
+			DID:                "did-1",
+			TPPID:              "tpp-1",
+		},
+	})
+	require.NoError(t, err)
+
+	recordAV, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	nestedAV, ok := recordAV.Value["nested"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, nestedAV.Value, "merchant_tax_id_sec_id")
+	require.Contains(t, nestedAV.Value, "identity_id")
+	require.Contains(t, nestedAV.Value, "did")
+	require.Contains(t, nestedAV.Value, "tppid")
+	require.NotContains(t, nestedAV.Value, "merchantTaxIDSecID")
+
+	var out record
+	require.NoError(t, ConvertFromAttributeValue(av, &out))
+	require.Equal(t, "tax-1", out.Nested.MerchantTaxIDSecID)
+	require.Equal(t, "identity-1", out.Nested.IdentityID)
+	require.Equal(t, "did-1", out.Nested.DID)
+	require.Equal(t, "tpp-1", out.Nested.TPPID)
+}
+
 func TestConvertFromAttributeValue_NullHandling(t *testing.T) {
 	type NullableStruct struct {
 		StringPtr *string
