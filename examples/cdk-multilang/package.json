@@ -17,7 +17,7 @@
     "@aws-sdk/client-dynamodb": "3.1002.0",
     "@aws-sdk/client-kms": "3.1002.0",
     "@aws-sdk/client-s3": "3.1002.0",
-    "aws-cdk-lib": "2.245.0",
+    "aws-cdk-lib": "2.247.0",
     "constructs": "10.5.1"
   },
   "devDependencies": {

@@ -32,12 +32,14 @@ func TestBuilder_ValidationErrorsAndExecuteGuards_COV6(t *testing.T) {
 
 	t.Run("ExecuteWithContext requires operations", func(t *testing.T) {
 		b := &Builder{}
-		require.ErrorContains(t, b.ExecuteWithContext(nil), "transaction has no operations")
+		var nilCtx context.Context
+		require.ErrorContains(t, b.ExecuteWithContext(nilCtx), "transaction has no operations")
 	})
 
 	t.Run("WithContext nil uses Background", func(t *testing.T) {
 		b := &Builder{}
-		require.Same(t, b, b.WithContext(nil))
+		var nilCtx context.Context
+		require.Same(t, b, b.WithContext(nilCtx))
 	})
 }
 

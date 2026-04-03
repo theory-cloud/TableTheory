@@ -11,7 +11,7 @@ export interface DmsDocument {
 export interface DmsModel {
   name: string;
   table: { name: string };
-  naming?: { convention?: "camelCase" | "snake_case" };
+  naming?: { convention?: "camelCase" | "snake_case" | "dynamorm" };
   keys: {
     partition: { attribute: string; type: "S" | "N" | "B" };
     sort?: { attribute: string; type: "S" | "N" | "B" };

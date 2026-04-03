@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,7 +87,9 @@ type Response struct {
 
 // Main Lambda handler
 func handler(ctx context.Context, event Event) (Response, error) {
-	log.Printf("Processing request: action=%s, partner=%s", event.Action, event.PartnerID)
+	action := strings.ReplaceAll(strings.ReplaceAll(event.Action, "\n", ""), "\r", "")
+	partnerID := strings.ReplaceAll(strings.ReplaceAll(event.PartnerID, "\n", ""), "\r", "")
+	log.Printf("Processing request: action=%s, partner=%s", action, partnerID)
 
 	// Get partner-specific DB with Lambda timeout
 	partnerDB, err := db.Partner(event.PartnerID)

@@ -7,6 +7,19 @@
 * add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
 * add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage
 
+### Bug Fixes
+
+* add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
+
+## [1.5.1](https://github.com/theory-cloud/TableTheory/compare/v1.5.0...v1.5.1) (2026-03-28)
+
+
+### Bug Fixes
+
+* **ci:** unblock dependency scan gates ([addb0e4](https://github.com/theory-cloud/TableTheory/commit/addb0e46088cd066440fff3ddc12747304749896))
+* remediate dependabot dependency alerts ([b9fce7b](https://github.com/theory-cloud/TableTheory/commit/b9fce7ba34b4a0b9a39405bc4020eb678637d9a7))
+* remediate dependabot dependency alerts ([9a3dbcb](https://github.com/theory-cloud/TableTheory/commit/9a3dbcb3ec159568d12ea74aed6472d480767f5e))
+
 ## [1.5.0](https://github.com/theory-cloud/TableTheory/compare/v1.4.2...v1.5.0) (2026-03-23)
 
 

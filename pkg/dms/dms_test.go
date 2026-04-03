@@ -512,6 +512,21 @@ func TestFromMetadata_IndexAndKeyTypes(t *testing.T) {
 	require.Equal(t, "gsi1SK", got.Indexes[0].Sort.Attribute)
 }
 
+func TestFromMetadata_DynamORMNamingConvention(t *testing.T) {
+	t.Parallel()
+
+	reg := model.NewRegistry()
+	require.NoError(t, reg.Register(indexKeyTypeModel{}))
+	meta, err := reg.GetMetadata(indexKeyTypeModel{})
+	require.NoError(t, err)
+
+	meta.NamingConvention = naming.DynamORM
+
+	got, err := FromMetadata(meta)
+	require.NoError(t, err)
+	require.Equal(t, "dynamorm", got.Naming.Convention)
+}
+
 func TestScalarKeyTypeFromField(t *testing.T) {
 	t.Parallel()
 

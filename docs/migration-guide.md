@@ -108,6 +108,38 @@ func main() {
 - **Lambda Optimization**: Built-in features for cold-start reduction and connection reuse in serverless environments.
 - **Fluent API**: Chainable methods make queries and transactions more readable and maintainable.
 
+## From Legacy DynamORM
+
+**Problem:** Legacy DynamORM models often used a mixed naming contract: the primary keys were always stored as uppercase `PK` and `SK`, while every other attribute used camelCase. TableTheory historically treated `theorydb:"pk"` and `theorydb:"sk"` as roles only, so a model like `UserID string 'theorydb:"pk"'` would default to the attribute name `userID` instead of `PK`.
+
+**Solution:** Opt into the legacy naming mode with `theorydb:"naming:dynamorm"`. In that mode, TableTheory preserves `PK` and `SK` for the table keys and continues to derive camelCase names for non-key fields unless you override them with `attr:`.
+
+```go
+// ❌ BEFORE: default naming would map keys to userID/entity
+type LegacyUser struct {
+    UserID    string `theorydb:"pk" json:"PK"`
+    Entity    string `theorydb:"sk" json:"SK"`
+    FirstName string `json:"firstName"`
+}
+```
+
+```go
+// ✅ AFTER: DynamORM-compatible naming keeps PK/SK uppercase
+type LegacyUser struct {
+    _ struct{} `theorydb:"naming:dynamorm"`
+
+    UserID    string `theorydb:"pk" json:"PK"`
+    Entity    string `theorydb:"sk" json:"SK"`
+    FirstName string `json:"firstName"`
+}
+```
+
+This mode is intended for first-class support of legacy tables. Use it when all of these are true:
+
+- the table keys must remain uppercase `PK` and `SK`
+- non-key attributes should continue to use camelCase
+- you want queries, unmarshaling, schema generation, and DMS metadata to agree on that contract without repeating `attr:PK` and `attr:SK` everywhere
+
 ## From Other ORMs (e.g., GORM for SQL)
 
 **Problem:** SQL ORMs are designed for relational databases and do not translate well to DynamoDB's NoSQL, key-value, and document-oriented model. Concepts like joins and complex secondary indexes are fundamentally different.

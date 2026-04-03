@@ -48,7 +48,7 @@ export interface IndexSchema {
 export interface ModelSchema {
   name: string;
   table: { name: string };
-  naming?: { convention?: 'camelCase' | 'snake_case' };
+  naming?: { convention?: 'camelCase' | 'snake_case' | 'dynamorm' };
   keys: {
     partition: KeySchema;
     sort?: KeySchema;
