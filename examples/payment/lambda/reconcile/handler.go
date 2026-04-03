@@ -75,7 +75,8 @@ func (h *ReconcileHandler) HandleRequest(ctx context.Context, event events.S3Eve
 	for _, record := range event.Records {
 		if err := h.processFile(ctx, record); err != nil {
 			// Log error but continue processing other files
-			fmt.Printf("Error processing file %s: %v\n", record.S3.Object.Key, err)
+			key := strings.ReplaceAll(strings.ReplaceAll(record.S3.Object.Key, "\n", ""), "\r", "")
+			fmt.Printf("Error processing file %s: %v\n", key, err)
 			continue
 		}
 	}

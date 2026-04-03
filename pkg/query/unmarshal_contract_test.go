@@ -2,6 +2,7 @@ package query
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	customerrors "github.com/theory-cloud/tabletheory/pkg/errors"
+	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
 func TestUnmarshalItem_TableTheoryTagSemantics_CON3(t *testing.T) {
@@ -37,6 +39,292 @@ func TestUnmarshalItem_TableTheoryTagSemantics_CON3(t *testing.T) {
 	require.Equal(t, "u1", out.UserID)
 	require.Equal(t, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), out.CreatedAt)
 	require.Equal(t, "c", out.Custom)
+}
+
+func TestUnmarshalItem_DynamORMNamingConvention_CON3(t *testing.T) {
+	type model struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
+
+		UserID    string `theorydb:"pk"`
+		Entity    string `theorydb:"sk"`
+		FirstName string
+	}
+
+	item := map[string]types.AttributeValue{
+		"PK":        &types.AttributeValueMemberS{Value: "USER#1"},
+		"SK":        &types.AttributeValueMemberS{Value: "PROFILE"},
+		"firstName": &types.AttributeValueMemberS{Value: "Ada"},
+	}
+
+	var out model
+	require.NoError(t, UnmarshalItem(item, &out))
+	require.Equal(t, "USER#1", out.UserID)
+	require.Equal(t, "PROFILE", out.Entity)
+	require.Equal(t, "Ada", out.FirstName)
+}
+
+func TestUnmarshalItem_DynamORMNamingConvention_NestedStruct_CON3(t *testing.T) {
+	type address struct {
+		PostalCode  string
+		CountryCode string
+	}
+
+	type profile struct {
+		DisplayName    string
+		MailingAddress address
+	}
+
+	type model struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
+
+		UserID  string `theorydb:"pk"`
+		Entity  string `theorydb:"sk"`
+		Profile profile
+	}
+
+	item := map[string]types.AttributeValue{
+		"PK": &types.AttributeValueMemberS{Value: "USER#1"},
+		"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
+		"profile": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+			"displayName": &types.AttributeValueMemberS{Value: "Ada Lovelace"},
+			"mailingAddress": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+				"postalCode":  &types.AttributeValueMemberS{Value: "10001"},
+				"countryCode": &types.AttributeValueMemberS{Value: "US"},
+			}},
+		}},
+	}
+
+	var out model
+	require.NoError(t, UnmarshalItem(item, &out))
+	require.Equal(t, "USER#1", out.UserID)
+	require.Equal(t, "PROFILE", out.Entity)
+	require.Equal(t, "Ada Lovelace", out.Profile.DisplayName)
+	require.Equal(t, "10001", out.Profile.MailingAddress.PostalCode)
+	require.Equal(t, "US", out.Profile.MailingAddress.CountryCode)
+}
+
+func TestUnmarshalItem_DynamORMNamingConvention_NestedStruct_PascalFallback_CON3(t *testing.T) {
+	type address struct {
+		PostalCode  string
+		CountryCode string
+	}
+
+	type profile struct {
+		DisplayName    string
+		MailingAddress address
+	}
+
+	type model struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
+
+		UserID  string `theorydb:"pk"`
+		Entity  string `theorydb:"sk"`
+		Profile profile
+	}
+
+	item := map[string]types.AttributeValue{
+		"PK": &types.AttributeValueMemberS{Value: "USER#1"},
+		"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
+		"profile": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+			"DisplayName": &types.AttributeValueMemberS{Value: "Ada Lovelace"},
+			"MailingAddress": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+				"PostalCode":  &types.AttributeValueMemberS{Value: "10001"},
+				"CountryCode": &types.AttributeValueMemberS{Value: "US"},
+			}},
+		}},
+	}
+
+	var out model
+	require.NoError(t, UnmarshalItem(item, &out))
+	require.Equal(t, "Ada Lovelace", out.Profile.DisplayName)
+	require.Equal(t, "10001", out.Profile.MailingAddress.PostalCode)
+	require.Equal(t, "US", out.Profile.MailingAddress.CountryCode)
+}
+
+func TestResolveUnmarshalTarget_RejectsInvalidDestinations_CON3(t *testing.T) {
+	type model struct {
+		Name string
+	}
+
+	_, _, _, err := resolveUnmarshalTarget(model{})
+	require.EqualError(t, err, "destination must be a pointer")
+
+	var nilModel *model
+	_, _, _, err = resolveUnmarshalTarget(nilModel)
+	require.EqualError(t, err, "destination must be a pointer")
+
+	value := 1
+	_, _, _, err = resolveUnmarshalTarget(&value)
+	require.EqualError(t, err, "destination must be a pointer to a struct")
+}
+
+func TestResolveUnmarshalFieldLookupNames_CON3(t *testing.T) {
+	type model struct {
+		Ignored     string `dynamodb:"-"`
+		Tagged      string `dynamodb:"custom_name,omitempty"`
+		FieldNamed  string `dynamodb:",omitempty"`
+		CamelName   string
+		JSONNamed   string `json:"json_name,omitempty"`
+		TheorySkip  string `theorydb:"-"`
+		JSONSkipped string `json:"-"`
+	}
+
+	modelType := reflect.TypeOf(model{})
+
+	attrNames, skip := resolveUnmarshalFieldLookupNames(modelType.Field(0), naming.CamelCase)
+	require.True(t, skip)
+	require.Empty(t, attrNames)
+
+	attrNames, skip = resolveUnmarshalFieldLookupNames(modelType.Field(1), naming.CamelCase)
+	require.False(t, skip)
+	require.Equal(t, []string{"custom_name", "tagged"}, attrNames[:2])
+
+	attrNames, skip = resolveUnmarshalFieldLookupNames(modelType.Field(2), naming.CamelCase)
+	require.False(t, skip)
+	require.Equal(t, []string{"FieldNamed"}, attrNames[:1])
+
+	attrNames, skip = resolveUnmarshalFieldLookupNames(modelType.Field(3), naming.CamelCase)
+	require.False(t, skip)
+	require.Equal(t, []string{"camelName", "CamelName"}, attrNames[:2])
+
+	attrNames, skip = resolveUnmarshalFieldLookupNames(modelType.Field(4), naming.CamelCase)
+	require.False(t, skip)
+	require.Equal(t, []string{"json_name", "jsonNamed", "JSONNamed"}, attrNames)
+
+	attrNames, skip = resolveUnmarshalFieldLookupNames(modelType.Field(5), naming.CamelCase)
+	require.True(t, skip)
+	require.Empty(t, attrNames)
+
+	attrNames, skip = resolveUnmarshalFieldLookupNames(modelType.Field(6), naming.CamelCase)
+	require.True(t, skip)
+	require.Empty(t, attrNames)
+}
+
+func TestResolveStructNaming_CON3(t *testing.T) {
+	type explicit struct {
+		_    struct{} `theorydb:"naming:legacy_dynamorm"`
+		Name string
+	}
+
+	type inherited struct {
+		Name string
+	}
+
+	type defaulted struct {
+		Name string `theorydb:"attr:custom_name"`
+	}
+
+	convention, isExplicit := explicitNamingConvention(reflect.TypeOf(explicit{}))
+	require.True(t, isExplicit)
+	require.Equal(t, naming.DynamORM, convention)
+
+	convention = detectNamingConvention(reflect.TypeOf(explicit{}))
+	require.Equal(t, naming.DynamORM, convention)
+
+	convention, useTheorydbNaming := resolveStructNaming(reflect.TypeOf(inherited{}), naming.SnakeCase, true)
+	require.Equal(t, naming.SnakeCase, convention)
+	require.True(t, useTheorydbNaming)
+
+	convention, useTheorydbNaming = resolveStructNaming(reflect.TypeOf(defaulted{}), naming.SnakeCase, false)
+	require.Equal(t, naming.CamelCase, convention)
+	require.False(t, useTheorydbNaming)
+}
+
+func TestUnmarshalItemField_CoversMissingValue_CON3(t *testing.T) {
+	type model struct {
+		Name string
+	}
+
+	var out model
+	field := reflect.TypeOf(model{}).Field(0)
+	require.NoError(t, unmarshalItemField(map[string]types.AttributeValue{}, field, reflect.ValueOf(&out).Elem().Field(0), naming.CamelCase))
+	require.Empty(t, out.Name)
+}
+
+func TestUnmarshalMapIntoStructWithConvention_CoversTagAndFallbackBranches_CON3(t *testing.T) {
+	type model struct {
+		Explicit  string `dynamodb:"explicit_name"`
+		FirstName string
+		Ignored   string `dynamodb:"-"`
+	}
+
+	values := map[string]types.AttributeValue{
+		"explicit_name": &types.AttributeValueMemberS{Value: "tagged"},
+		"FirstName":     &types.AttributeValueMemberS{Value: "Ada"},
+		"Ignored":       &types.AttributeValueMemberS{Value: "skip"},
+	}
+
+	var out model
+	require.NoError(t, unmarshalMapIntoStructWithConvention(values, reflect.ValueOf(&out).Elem(), naming.CamelCase, true))
+	require.Equal(t, "tagged", out.Explicit)
+	require.Equal(t, "Ada", out.FirstName)
+	require.Empty(t, out.Ignored)
+}
+
+func TestUnmarshalItem_DynamORMNestedStruct_JSONTags_CON3(t *testing.T) {
+	type address struct {
+		PostalCode  string `json:"postal_code"`
+		CountryCode string `json:"country_code"`
+	}
+
+	type profile struct {
+		DisplayName    string  `json:"display_name"`
+		MailingAddress address `json:"mailing_address"`
+	}
+
+	type model struct {
+		_       struct{} `theorydb:"naming:dynamorm"`
+		UserID  string   `theorydb:"pk"`
+		Entity  string   `theorydb:"sk"`
+		Profile profile
+	}
+
+	item := map[string]types.AttributeValue{
+		"PK": &types.AttributeValueMemberS{Value: "USER#1"},
+		"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
+		"profile": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+			"display_name": &types.AttributeValueMemberS{Value: "Ada Lovelace"},
+			"mailing_address": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+				"postal_code":  &types.AttributeValueMemberS{Value: "10001"},
+				"country_code": &types.AttributeValueMemberS{Value: "US"},
+			}},
+		}},
+	}
+
+	var out model
+	require.NoError(t, UnmarshalItem(item, &out))
+	require.Equal(t, "Ada Lovelace", out.Profile.DisplayName)
+	require.Equal(t, "10001", out.Profile.MailingAddress.PostalCode)
+	require.Equal(t, "US", out.Profile.MailingAddress.CountryCode)
+}
+
+func TestLookupAndJSONHelpers_CON3(t *testing.T) {
+	require.Equal(t, "json_name", parseJSONAttributeName("json_name,omitempty"))
+	require.Empty(t, parseJSONAttributeName(",omitempty"))
+
+	names := appendLookupName(nil, "first")
+	names = appendLookupName(names, "first")
+	names = appendLookupName(names, "")
+	names = appendLookupName(names, "second")
+	require.Equal(t, []string{"first", "second"}, names)
+
+	av, ok := lookupAttributeValue(map[string]types.AttributeValue{
+		"second": &types.AttributeValueMemberS{Value: "value"},
+	}, "missing", "second")
+	require.True(t, ok)
+	valueAV, ok := av.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "value", valueAV.Value)
+}
+
+func TestUnmarshalStringToStruct_JSON_CON3(t *testing.T) {
+	type payload struct {
+		Name string `json:"name"`
+	}
+
+	var out payload
+	require.NoError(t, unmarshalStringToStruct(`{"name":"Ada"}`, reflect.ValueOf(&out).Elem()))
+	require.Equal(t, "Ada", out.Name)
 }
 
 func TestUnmarshalItem_EncryptedEnvelope_FailsClosed_CON3(t *testing.T) {

@@ -10,8 +10,8 @@ This guide outlines the coding standards and best practices for developing Table
 
 TableTheory relies heavily on Go struct tags. Follow these rules strictly:
 
-1.  **Primary Keys:** Always tag your partition key with `theorydb:"pk"` and sort key with `theorydb:"sk"`.
-2.  **JSON Tags:** Always include `json:"name"` tags matching your attribute names (usually snake_case).
+1.  **Primary Keys:** Always tag your partition key with `theorydb:"pk"` and sort key with `theorydb:"sk"`. For legacy DynamORM-compatible models, add `theorydb:"naming:dynamorm"` on a marker field so the actual DynamoDB key attributes stay `PK` and `SK`.
+2.  **JSON Tags:** Always include `json:"name"` tags matching your attribute names. For new models this is usually snake_case; for legacy DynamORM models use JSON names that match the legacy wire format you need to preserve.
 3.  **Types:** Use standard Go types (`string`, `int`, `int64`, `float64`, `bool`, `time.Time`).
 
 ```go
@@ -24,6 +24,17 @@ type Product struct {
 // ❌ INCORRECT
 type Product struct {
     ID string // Missing tags!
+}
+```
+
+```go
+// ✅ LEGACY DYNAMORM COMPATIBLE
+type LegacyUser struct {
+    _ struct{} `theorydb:"naming:dynamorm"`
+
+    UserID    string `theorydb:"pk" json:"PK"`
+    Entity    string `theorydb:"sk" json:"SK"`
+    FirstName string `json:"firstName"`
 }
 ```
 

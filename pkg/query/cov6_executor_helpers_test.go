@@ -154,6 +154,91 @@ func TestParseAttributeName_TrimsAndHandlesEmpty_COV6(t *testing.T) {
 	require.Equal(t, "name", parseAttributeName(" name ,omitempty"))
 }
 
+func TestBuildKeysAndAttributes_COV6(t *testing.T) {
+	keys := []map[string]types.AttributeValue{
+		{"PK": &types.AttributeValueMemberS{Value: "USER#1"}},
+	}
+
+	kaa := buildKeysAndAttributes(&CompiledBatchGet{
+		TableName:                "tbl",
+		Keys:                     keys,
+		ProjectionExpression:     "#pk, #sk",
+		ExpressionAttributeNames: map[string]string{"#pk": "PK", "#sk": "SK"},
+		ConsistentRead:           true,
+	})
+
+	require.Equal(t, keys, kaa.Keys)
+	require.NotNil(t, kaa.ProjectionExpression)
+	require.Equal(t, "#pk, #sk", *kaa.ProjectionExpression)
+	require.Equal(t, map[string]string{"#pk": "PK", "#sk": "SK"}, kaa.ExpressionAttributeNames)
+	require.NotNil(t, kaa.ConsistentRead)
+	require.True(t, *kaa.ConsistentRead)
+
+	kaa = buildKeysAndAttributes(&CompiledBatchGet{
+		TableName: "tbl",
+		Keys:      keys,
+	})
+	require.Nil(t, kaa.ProjectionExpression)
+	require.Nil(t, kaa.ExpressionAttributeNames)
+	require.Nil(t, kaa.ConsistentRead)
+}
+
+func TestEncryptedTagAndEnvelopeHelpers_COV6(t *testing.T) {
+	type model struct {
+		Secret string `theorydb:"encrypted,attr:secret"`
+		Plain  string `theorydb:"attr:plain"`
+		Empty  string
+	}
+
+	modelType := reflect.TypeOf(model{})
+	require.True(t, fieldHasEncryptedTag(modelType.Field(0)))
+	require.False(t, fieldHasEncryptedTag(modelType.Field(1)))
+	require.False(t, fieldHasEncryptedTag(modelType.Field(2)))
+
+	validEnvelope := &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+		"v":     &types.AttributeValueMemberN{Value: "1"},
+		"edk":   &types.AttributeValueMemberB{Value: []byte("edk")},
+		"nonce": &types.AttributeValueMemberB{Value: []byte("nonce")},
+		"ct":    &types.AttributeValueMemberB{Value: []byte("ciphertext")},
+	}}
+	require.True(t, looksLikeEncryptedEnvelope(validEnvelope))
+
+	require.False(t, looksLikeEncryptedEnvelope(&types.AttributeValueMemberS{Value: "plaintext"}))
+	require.False(t, looksLikeEncryptedEnvelope(&types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+		"v":   &types.AttributeValueMemberN{Value: "1"},
+		"edk": &types.AttributeValueMemberB{Value: []byte("edk")},
+		"ct":  &types.AttributeValueMemberB{Value: []byte("ciphertext")},
+	}}))
+}
+
+func TestUnmarshalItems_PointerSliceAndErrorBranches_COV6(t *testing.T) {
+	type model struct {
+		ID    string `dynamodb:"id"`
+		Count int    `dynamodb:"count"`
+	}
+
+	items := []map[string]types.AttributeValue{
+		{"id": &types.AttributeValueMemberS{Value: "1"}},
+	}
+
+	var out []*model
+	require.NoError(t, UnmarshalItems(items, &out))
+	require.Len(t, out, 1)
+	require.NotNil(t, out[0])
+	require.Equal(t, "1", out[0].ID)
+
+	var nonPointerDest []model
+	require.EqualError(t, UnmarshalItems(items, nonPointerDest), "destination must be a pointer")
+
+	err := UnmarshalItems([]map[string]types.AttributeValue{
+		{
+			"id":    &types.AttributeValueMemberS{Value: "1"},
+			"count": &types.AttributeValueMemberS{Value: "not-a-number"},
+		},
+	}, &[]model{})
+	require.Error(t, err)
+}
+
 func TestIsConditionalCheckFailed_COV6(t *testing.T) {
 	require.False(t, isConditionalCheckFailed(nil))
 	require.True(t, isConditionalCheckFailed(errors.New("prefix ConditionalCheckFailed suffix")))

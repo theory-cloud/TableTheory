@@ -378,10 +378,15 @@ func getOrCreateIndexSchema(fieldMeta *FieldMetadata, indexName string, indexMap
 
 // parseFieldMetadata parses metadata for a single field
 func parseFieldMetadata(field reflect.StructField, indexPath []int, convention naming.Convention) (*FieldMetadata, error) {
+	dbName, skip := naming.ResolveAttrNameWithConvention(field, convention)
+	if skip {
+		return nil, nil
+	}
+
 	meta := &FieldMetadata{
 		Name:      field.Name,
 		Type:      field.Type,
-		DBName:    naming.ConvertAttrName(field.Name, convention),
+		DBName:    dbName,
 		Index:     indexPath[len(indexPath)-1], // Keep for backward compatibility
 		IndexPath: indexPath,
 		Tags:      make(map[string]string),
@@ -394,12 +399,15 @@ func parseFieldMetadata(field reflect.StructField, indexPath []int, convention n
 	if tag == "" {
 		return meta, nil
 	}
-	if tag == "-" {
-		return nil, nil // Skip this field
-	}
 
 	if err := parseTheorydbTag(meta, tag); err != nil {
 		return nil, err
+	}
+
+	if resolvedName, resolvedSkip := naming.ResolveAttrNameWithConvention(field, convention); resolvedSkip {
+		return nil, nil
+	} else if resolvedName != "" {
+		meta.DBName = resolvedName
 	}
 
 	// Validate field type for special tags
@@ -704,6 +712,8 @@ func detectNamingConvention(modelType reflect.Type) naming.Convention {
 					return naming.CamelCase
 				case "pascal_case", "pascalCase":
 					return naming.PascalCase
+				case "dynamorm", "legacy_dynamorm", "legacyDynamORM":
+					return naming.DynamORM
 				}
 			}
 		}

@@ -88,3 +88,52 @@ func TestSafeMarshaler_MarshalItem_NilMapAndInterface_COV6(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, dataValue.Value)
 }
+
+func TestSafeMarshaler_MarshalItem_DynamORMNestedStructUsesCamelCase_COV6(t *testing.T) {
+	type address struct {
+		PostalCode  string
+		CountryCode string
+	}
+
+	type profile struct {
+		DisplayName    string
+		MailingAddress address
+	}
+
+	type item struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
+
+		UserID  string `theorydb:"pk"`
+		Entity  string `theorydb:"sk"`
+		Profile profile
+	}
+
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&item{}))
+	meta, err := registry.GetMetadata(&item{})
+	require.NoError(t, err)
+
+	m := NewSafeMarshaler()
+	out, err := m.MarshalItem(item{
+		UserID: "USER#1",
+		Entity: "PROFILE",
+		Profile: profile{
+			DisplayName: "Ada Lovelace",
+			MailingAddress: address{
+				PostalCode:  "10001",
+				CountryCode: "US",
+			},
+		},
+	}, meta)
+	require.NoError(t, err)
+
+	profileAV := requireAVM(t, out["profile"]).Value
+	require.Contains(t, profileAV, "displayName")
+	require.NotContains(t, profileAV, "DisplayName")
+
+	addressAV := requireAVM(t, profileAV["mailingAddress"]).Value
+	require.Contains(t, addressAV, "postalCode")
+	require.Contains(t, addressAV, "countryCode")
+	require.NotContains(t, addressAV, "PostalCode")
+	require.NotContains(t, addressAV, "CountryCode")
+}
