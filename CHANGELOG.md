@@ -11,6 +11,19 @@
 
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 
+## [1.5.2](https://github.com/theory-cloud/TableTheory/compare/v1.5.1...v1.5.2) (2026-04-03)
+
+
+### Bug Fixes
+
+* add first-class DynamORM naming support ([4ef6e22](https://github.com/theory-cloud/TableTheory/commit/4ef6e225941a93c34aa51f35c0418c8ac51c0499))
+* address nested naming review feedback ([2cccc21](https://github.com/theory-cloud/TableTheory/commit/2cccc2194943049f460b540b603db7d9ac6c26e0))
+* bump example cryptography dependency ([452c78f](https://github.com/theory-cloud/TableTheory/commit/452c78f03cdff5cbb2c9ca18b68ead69239fe53a))
+* camel case nested dynamorm attributes ([4b24fe3](https://github.com/theory-cloud/TableTheory/commit/4b24fe3c0b016b55edcdd1444fad3b9eb57c6241))
+* clear rubric lint regressions ([f40bb1f](https://github.com/theory-cloud/TableTheory/commit/f40bb1f923320cd03556a6ca7add6f6fe3b526d3))
+* resolve rubric failures on dynamorm branch ([d2dd8e1](https://github.com/theory-cloud/TableTheory/commit/d2dd8e1da14a7d29eb88a1c53f3bc3eb2591bd9d))
+* resolve security alerts in examples ([d986a2f](https://github.com/theory-cloud/TableTheory/commit/d986a2f07aace9a5e8262a3c8a039885885fc6a6))
+
 ## [1.5.1](https://github.com/theory-cloud/TableTheory/compare/v1.5.0...v1.5.1) (2026-03-28)
 
 
