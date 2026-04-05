@@ -2,11 +2,24 @@
 
 <!-- AI Training: This is the documentation index for TableTheory -->
 
+**New to TableTheory?** Start with the getting-started guide for your language:
+[Go](./getting-started.md) | [TypeScript](../ts/docs/getting-started.md) | [Python](../py/docs/getting-started.md)
+
+| | |
+|---|---|
+| **API Reference** | [Go](./api-reference.md) &#124; [TypeScript](../ts/docs/api-reference.md) &#124; [Python](../py/docs/api-reference.md) |
+| **Core Guides** | [Core Patterns](./core-patterns.md) &#124; [Testing](./testing-guide.md) &#124; [Troubleshooting](./troubleshooting.md) |
+| **Schema** | [DMS v0.1 Spec](./development/planning/theorydb-spec-dms-v0.1.md) &#124; [Struct Definition Guide](./struct-definition-guide.md) |
+| **CDK** | [CDK Integration](./cdk/README.md) &#124; [Multi-lang Demo](../examples/cdk-multilang/README.md) |
+| **Migration** | [Migration Guide](./migration-guide.md) |
+
+---
+
 **This directory contains the OFFICIAL documentation for TableTheory. All content follows AI-friendly patterns so both humans and AI assistants can learn, reason, and troubleshoot effectively.**
 
 ## Quick Links
 
-### 🧭 Multi-language SDKs
+### Multi-language SDKs
 
 - **Go (this folder):** [Getting Started](./getting-started.md), [Core Patterns](./core-patterns.md), [API Reference](./api-reference.md)
 - **TypeScript:** [ts/docs](../ts/docs/README.md)
