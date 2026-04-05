@@ -73,6 +73,25 @@ models:
 See [docs/development/planning/theorydb-spec-dms-v0.1.md](docs/development/planning/theorydb-spec-dms-v0.1.md) for the
 current draft semantics and portability rules.
 
+## Status
+
+TableTheory is at v1.5.2 with a stable API across Go, TypeScript, and Python. Cross-language behavioral parity is
+verified by 5 P0 contract test scenario sets (CRUD, omit-empty, lifecycle timestamps, optimistic locking, TTL) that
+run against all three runtimes on every commit. The DMS v0.1 specification provides the language-neutral schema
+contract. Production systems at [Pay Theory](https://paytheory.com) run on TableTheory today. See
+[CHANGELOG](CHANGELOG.md) for release history.
+
+## Theory Cloud
+
+TableTheory is the data foundation of the [Theory Cloud](https://github.com/theory-cloud/AppTheory/blob/main/THEORY_CLOUD.md)
+stack. [AppTheory](https://github.com/theory-cloud/AppTheory) (serverless runtime) and
+[FaceTheory](https://github.com/theory-cloud/FaceTheory) (client delivery) build on TableTheory.
+
+The single-path philosophy starts here: one way to define a table, one way to access data, one way to handle
+encryption — enforced by the framework, not by convention. When generative coding tools produce TableTheory code,
+the constrained API surface means the output converges on correct implementations instead of drifting across
+equivalent-but-incompatible patterns.
+
 ## Installation and Versioning
 
 This repo uses **GitHub Releases** as the source of truth. (No npm/PyPI publishing.)
