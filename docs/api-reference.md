@@ -22,6 +22,7 @@ Multi-language API references:
 - [Schema Management](#schema-management)
 - [Utilities](#utilities)
 - [Error Handling](#error-handling)
+- [Multi-Account Access](#multi-account-access)
 
 ---
 
@@ -363,3 +364,110 @@ Returned when a transaction fails. Contains:
 #### `TheorydbError`
 
 Wraps internal errors with context (Model name, Operation type).
+
+---
+
+## Multi-Account Access
+
+### `NewMultiAccount`
+
+```go
+func NewMultiAccount(accounts map[string]AccountConfig) (*MultiAccountDB, error)
+```
+
+Creates a multi-account DynamoDB client that manages cross-account access via STS AssumeRole. Each partner account
+gets its own `LambdaDB` instance with cached credentials that refresh automatically in the background.
+
+**Parameters:**
+
+- `accounts`: Map of partner ID to `AccountConfig`. The partner ID is an arbitrary key used to retrieve the
+  connection later via `Partner()`.
+
+**Returns:** A `*MultiAccountDB` with a base DB (current account) and per-partner connections created on demand.
+
+### `AccountConfig`
+
+```go
+type AccountConfig struct {
+    RoleARN         string
+    ExternalID      string
+    Region          string
+    SessionDuration time.Duration // Optional: defaults to 1 hour
+}
+```
+
+Configuration for a partner account. `RoleARN` and `ExternalID` are used for STS AssumeRole. `Region` determines
+the DynamoDB endpoint for that partner's tables.
+
+### `MultiAccountDB` Methods
+
+#### `Partner`
+
+```go
+func (mdb *MultiAccountDB) Partner(partnerID string) (*LambdaDB, error)
+```
+
+Returns a `LambdaDB` for the specified partner account. Connections are cached and credentials are refreshed
+automatically before expiry. An empty `partnerID` returns the base DB (current account).
+
+#### `AddPartner` / `RemovePartner`
+
+```go
+func (mdb *MultiAccountDB) AddPartner(partnerID string, config AccountConfig)
+func (mdb *MultiAccountDB) RemovePartner(partnerID string)
+```
+
+Dynamically add or remove partner configurations at runtime. `RemovePartner` also clears the cached connection.
+
+#### `WithContext`
+
+```go
+func (mdb *MultiAccountDB) WithContext(ctx context.Context) *MultiAccountDB
+```
+
+Returns a new `MultiAccountDB` that passes the context through to the base DB for Lambda timeout awareness.
+Shares the same credential cache as the original.
+
+#### `Close`
+
+```go
+func (mdb *MultiAccountDB) Close() error
+```
+
+Stops background credential refresh and closes the base DB connection.
+
+### Partner Context Helpers
+
+```go
+func PartnerContext(ctx context.Context, partnerID string) context.Context
+func GetPartnerFromContext(ctx context.Context) string
+```
+
+Attach and retrieve a partner ID from `context.Context` for tracing and request-scoped routing.
+
+### Example
+
+```go
+accounts := map[string]tabletheory.AccountConfig{
+    "partner-a": {
+        RoleARN:    "arn:aws:iam::123456789012:role/TableTheoryAccess",
+        ExternalID: "partner-a-external-id",
+        Region:     "us-east-1",
+    },
+}
+
+mdb, err := tabletheory.NewMultiAccount(accounts)
+if err != nil {
+    log.Fatal(err)
+}
+defer mdb.Close()
+
+// Use partner-scoped DB
+db, err := mdb.Partner("partner-a")
+if err != nil {
+    log.Fatal(err)
+}
+
+// db is a *LambdaDB — use it like any other TableTheory DB
+err = db.Put(ctx, &myModel)
+```
