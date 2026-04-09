@@ -11,6 +11,13 @@
 
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 
+## [1.5.3](https://github.com/theory-cloud/TableTheory/compare/v1.5.2...v1.5.3) (2026-04-09)
+
+
+### Bug Fixes
+
+* address dependabot alerts 52-55 and pin Go 1.26.2 ([37e0fcb](https://github.com/theory-cloud/TableTheory/commit/37e0fcb982bd6dbf4d996d690b269daa067e4d2e))
+
 ## [1.5.2](https://github.com/theory-cloud/TableTheory/compare/v1.5.1...v1.5.2) (2026-04-03)
 
 
