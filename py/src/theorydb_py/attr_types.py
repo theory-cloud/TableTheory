@@ -217,7 +217,6 @@ def _validate_json_value_matches_storage(value: Any, *, storage_type: str, field
     if storage_type == "NULL":
         if value is not None:
             raise ValidationError(f"json field {field_name} requires null")
-        return
 
     if storage_type == "L":
         if not isinstance(value, list):
