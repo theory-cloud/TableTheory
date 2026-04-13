@@ -90,65 +90,73 @@ func (c *Converter) ToAttributeValue(value any) (types.AttributeValue, error) {
 }
 
 func (c *Converter) toAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+	indirect, isNull := indirectValueOrNull(v)
+	if isNull {
+		return &types.AttributeValueMemberNULL{Value: true}, nil
+	}
+
+	if av, handled, err := c.specialAttributeValue(indirect); handled {
+		return av, err
+	}
+
+	return c.attributeValueByKind(indirect, inheritedConvention, inheritNaming)
+}
+
+func indirectValueOrNull(v reflect.Value) (reflect.Value, bool) {
 	for {
 		if !v.IsValid() {
-			return &types.AttributeValueMemberNULL{Value: true}, nil
+			return reflect.Value{}, true
 		}
 
 		if v.Kind() != reflect.Ptr && v.Kind() != reflect.Interface {
-			break
+			return v, false
 		}
 		if v.IsNil() {
-			return &types.AttributeValueMemberNULL{Value: true}, nil
+			return reflect.Value{}, true
 		}
 		v = v.Elem()
 	}
+}
 
-	// Check for custom converter
+func (c *Converter) specialAttributeValue(v reflect.Value) (types.AttributeValue, bool, error) {
 	if converter, exists := c.lookupConverter(v.Type()); exists {
-		return converter.ToAttributeValue(v.Interface())
+		av, err := converter.ToAttributeValue(v.Interface())
+		return av, true, err
 	}
 
-	// Handle time.Time specially
-	if v.Type() == reflect.TypeOf(time.Time{}) {
-		t, ok := v.Interface().(time.Time)
-		if !ok {
-			return nil, fmt.Errorf("expected time.Time, got %T", v.Interface())
-		}
-		return &types.AttributeValueMemberS{Value: t.Format(time.RFC3339Nano)}, nil
+	if v.Type() != timeType {
+		return nil, false, nil
 	}
 
-	// Handle basic types
+	t, ok := v.Interface().(time.Time)
+	if !ok {
+		return nil, true, fmt.Errorf("expected time.Time, got %T", v.Interface())
+	}
+
+	return &types.AttributeValueMemberS{Value: t.Format(time.RFC3339Nano)}, true, nil
+}
+
+func (c *Converter) attributeValueByKind(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	switch v.Kind() {
 	case reflect.String:
 		return &types.AttributeValueMemberS{Value: v.String()}, nil
-
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return &types.AttributeValueMemberN{Value: strconv.FormatInt(v.Int(), 10)}, nil
-
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return &types.AttributeValueMemberN{Value: strconv.FormatUint(v.Uint(), 10)}, nil
-
 	case reflect.Float32, reflect.Float64:
 		return &types.AttributeValueMemberN{Value: strconv.FormatFloat(v.Float(), 'f', -1, 64)}, nil
-
 	case reflect.Bool:
 		return &types.AttributeValueMemberBOOL{Value: v.Bool()}, nil
-
 	case reflect.Slice:
 		if v.Type().Elem().Kind() == reflect.Uint8 {
-			// []byte -> Binary
 			return &types.AttributeValueMemberB{Value: v.Bytes()}, nil
 		}
-		// Handle other slices as lists
 		return c.sliceToListWithConvention(v, inheritedConvention, inheritNaming)
-
 	case reflect.Map:
 		return c.mapToAttributeValueMapWithConvention(v, inheritedConvention, inheritNaming)
-
 	case reflect.Struct:
 		return c.structToMapWithConvention(v, inheritedConvention, inheritNaming)
-
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedType, v.Type())
 	}

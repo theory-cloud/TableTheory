@@ -46,8 +46,9 @@ func marshalCapturedResponseBody(t *testing.T, payload any) string {
 func capturedPutItems(t *testing.T, client *capturingHTTPClient) []map[string]any {
 	t.Helper()
 
-	var items []map[string]any
-	for _, req := range client.Requests() {
+	requests := client.Requests()
+	items := make([]map[string]any, 0, len(requests))
+	for _, req := range requests {
 		if req.Target != "DynamoDB_20120810.PutItem" {
 			continue
 		}

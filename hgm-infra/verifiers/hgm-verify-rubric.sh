@@ -127,6 +127,25 @@ ensure_go_tool_pinned() {
     return 1
   }
 
+  golangci_lint_build_is_compatible() {
+    local tool="$1"
+    local output
+
+    if [[ ! -f "${REPO_ROOT}/.golangci-v2.yml" ]]; then
+      return 0
+    fi
+
+    if output="$("${tool}" config verify -c "${REPO_ROOT}/.golangci-v2.yml" 2>&1 >/dev/null)"; then
+      return 0
+    fi
+
+    if grep -Fq "used to build golangci-lint is lower than the targeted Go version" <<<"${output}"; then
+      return 1
+    fi
+
+    return 0
+  }
+
   if ! command -v go >/dev/null 2>&1; then
     echo "BLOCKED: go toolchain is required to install ${tool_name}" >&2
     return 2
@@ -135,7 +154,10 @@ ensure_go_tool_pinned() {
   # If present and matches expected version, keep.
   if command -v "${tool_name}" >/dev/null 2>&1; then
     if tool_matches_pinned_version "${tool_name}" "${expected_mod_ver}" "${expected_substr}"; then
-      return 0
+      if [[ "${tool_name}" != "golangci-lint" ]] || golangci_lint_build_is_compatible "${tool_name}"; then
+        return 0
+      fi
+      echo "Refreshing ${tool_name} to match repo Go target..." >&2
     fi
   fi
 

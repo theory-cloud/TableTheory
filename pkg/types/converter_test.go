@@ -17,6 +17,47 @@ func TestNewConverter(t *testing.T) {
 	assert.NotNil(t, converter.customConverters)
 }
 
+func TestAttributeValueNumberSetToFloat64(t *testing.T) {
+	values, err := attributeValueNumberSetToFloat64([]string{"1", "2.5", "-3"})
+	require.NoError(t, err)
+	require.Equal(t, []float64{1, 2.5, -3}, values)
+
+	_, err = attributeValueNumberSetToFloat64([]string{"bad"})
+	require.Error(t, err)
+}
+
+func TestAttributeValueToAnyAndAnyFromAttributeValue(t *testing.T) {
+	got, err := attributeValueToAny(&types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+		"name": &types.AttributeValueMemberS{Value: "demo"},
+		"tags": &types.AttributeValueMemberSS{Value: []string{"a", "b"}},
+		"nums": &types.AttributeValueMemberNS{Value: []string{"1", "2.5"}},
+		"list": &types.AttributeValueMemberL{Value: []types.AttributeValue{
+			&types.AttributeValueMemberBOOL{Value: true},
+			&types.AttributeValueMemberB{Value: []byte("x")},
+		}},
+	}})
+	require.NoError(t, err)
+
+	out, ok := got.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "demo", out["name"])
+	require.Equal(t, []string{"a", "b"}, out["tags"])
+	require.Equal(t, []float64{1, 2.5}, out["nums"])
+	require.Equal(t, []any{true, []byte("x")}, out["list"])
+
+	var target any
+	err = NewConverter().anyFromAttributeValue(&types.AttributeValueMemberNS{Value: []string{"4", "5.5"}}, reflect.ValueOf(&target).Elem())
+	require.NoError(t, err)
+	require.Equal(t, []float64{4, 5.5}, target)
+
+	err = NewConverter().anyFromAttributeValue(&types.AttributeValueMemberNULL{Value: true}, reflect.ValueOf(&target).Elem())
+	require.NoError(t, err)
+	require.Nil(t, target)
+
+	_, err = attributeValueToAny(nil)
+	require.Error(t, err)
+}
+
 // TestToAttributeValue_BasicTypes tests conversion of basic Go types to AttributeValues
 func TestToAttributeValue_BasicTypes(t *testing.T) {
 	converter := NewConverter()

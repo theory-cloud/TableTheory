@@ -501,11 +501,15 @@ func (q *Query) Where(field string, op string, value any) core.Query {
 
 // Filter adds a filter expression to the query
 func (q *Query) Filter(field string, op string, value any) core.Query {
+	return q.addFilterCondition("AND", field, op, value)
+}
+
+func (q *Query) addFilterCondition(logicalOperator, field, op string, value any) core.Query {
 	if err := q.rejectEncryptedConditionField(field); err != nil {
 		q.recordBuilderError(err)
 		return q
 	}
-	// Initialize builder if not already done
+
 	if q.builder == nil {
 		q.builder = q.newBuilder()
 	}
@@ -516,7 +520,7 @@ func (q *Query) Filter(field string, op string, value any) core.Query {
 		return q
 	}
 
-	if err := q.builder.AddFilterCondition("AND", q.resolveAttributeName(field), op, normalized); err != nil {
+	if err := q.builder.AddFilterCondition(logicalOperator, q.resolveAttributeName(field), op, normalized); err != nil {
 		q.recordBuilderError(err)
 	}
 	return q
@@ -2276,31 +2280,52 @@ func (q *Query) marshalItemTagged(item any) (map[string]types.AttributeValue, er
 			continue
 		}
 
-		var err error
-		valueToConvert := fieldValue.Interface()
-		if fieldcodec.HasJSONModifier(tag) {
-			valueToConvert, err = fieldcodec.NormalizeJSONReflectValue(field.Type, fieldValue)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
-			}
-		}
-
-		var av types.AttributeValue
-		if fieldcodec.HasJSONModifier(tag) {
-			av, err = expr.ConvertToAttributeValue(valueToConvert)
-		} else if q != nil && q.converter != nil {
-			av, err = q.converter.ToAttributeValue(valueToConvert)
-		} else {
-			av, err = expr.ConvertToAttributeValue(valueToConvert)
-		}
+		av, err := q.marshalTaggedFieldAttributeValue(field, fieldValue)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
+			return nil, err
 		}
 
 		out[field.Name] = av
 	}
 
 	return out, nil
+}
+
+func (q *Query) marshalTaggedFieldAttributeValue(field reflect.StructField, fieldValue reflect.Value) (types.AttributeValue, error) {
+	valueToConvert, err := normalizeTaggedFieldValue(field, fieldValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
+	}
+
+	tag := field.Tag.Get("theorydb")
+	switch {
+	case fieldcodec.HasJSONModifier(tag):
+		av, err := expr.ConvertToAttributeValue(valueToConvert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
+		}
+		return av, nil
+	case q != nil && q.converter != nil:
+		av, err := q.converter.ToAttributeValue(valueToConvert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
+		}
+		return av, nil
+	default:
+		av, err := expr.ConvertToAttributeValue(valueToConvert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
+		}
+		return av, nil
+	}
+}
+
+func normalizeTaggedFieldValue(field reflect.StructField, fieldValue reflect.Value) (any, error) {
+	if !fieldcodec.HasJSONModifier(field.Tag.Get("theorydb")) {
+		return fieldValue.Interface(), nil
+	}
+
+	return fieldcodec.NormalizeJSONReflectValue(field.Type, fieldValue)
 }
 
 func (q *Query) updateTimestampsInModel() {
@@ -2333,25 +2358,7 @@ func (q *Query) updateTimestampsInModel() {
 
 // OrFilter adds an OR filter condition
 func (q *Query) OrFilter(field string, op string, value any) core.Query {
-	if err := q.rejectEncryptedConditionField(field); err != nil {
-		q.recordBuilderError(err)
-		return q
-	}
-	// Initialize builder if not already done
-	if q.builder == nil {
-		q.builder = q.newBuilder()
-	}
-
-	normalized, err := q.normalizeJSONFieldValue(field, value)
-	if err != nil {
-		q.recordBuilderError(err)
-		return q
-	}
-
-	if err := q.builder.AddFilterCondition("OR", q.resolveAttributeName(field), op, normalized); err != nil {
-		q.recordBuilderError(err)
-	}
-	return q
+	return q.addFilterCondition("OR", field, op, value)
 }
 
 func (q *Query) addFilterGroup(groupOperator string, fn func(core.Query)) core.Query {

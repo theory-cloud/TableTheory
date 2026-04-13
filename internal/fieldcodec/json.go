@@ -12,8 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-var rawMessageType = reflect.TypeOf(json.RawMessage{})
-
 // HasJSONTag reports whether parsed field metadata includes the json modifier.
 func HasJSONTag(tags map[string]string) bool {
 	if len(tags) == 0 {
@@ -338,44 +336,60 @@ func attributeValueToJSONCompatible(av types.AttributeValue) (any, error) {
 	case *types.AttributeValueMemberNULL:
 		return nil, nil
 	case *types.AttributeValueMemberL:
-		out := make([]any, len(v.Value))
-		for i, item := range v.Value {
-			converted, err := attributeValueToJSONCompatible(item)
-			if err != nil {
-				return nil, err
-			}
-			out[i] = converted
-		}
-		return out, nil
+		return attributeValueListToJSONCompatible(v.Value)
 	case *types.AttributeValueMemberM:
-		out := make(map[string]any, len(v.Value))
-		for key, item := range v.Value {
-			converted, err := attributeValueToJSONCompatible(item)
-			if err != nil {
-				return nil, err
-			}
-			out[key] = converted
-		}
-		return out, nil
+		return attributeValueMapToJSONCompatible(v.Value)
 	case *types.AttributeValueMemberSS:
 		return append([]string(nil), v.Value...), nil
 	case *types.AttributeValueMemberNS:
-		out := make([]any, len(v.Value))
-		for i, item := range v.Value {
-			out[i] = normalizeDecodedJSONNumbers(json.Number(item))
-		}
-		return out, nil
+		return attributeValueNumberSetToJSONCompatible(v.Value), nil
 	case *types.AttributeValueMemberBS:
-		out := make([][]byte, len(v.Value))
-		for i, item := range v.Value {
-			out[i] = append([]byte(nil), item...)
-		}
-		return out, nil
+		return attributeValueBinarySetToJSONCompatible(v.Value), nil
 	case *types.AttributeValueMemberB:
 		return append([]byte(nil), v.Value...), nil
 	default:
 		return nil, fmt.Errorf("unsupported attribute value type %T", av)
 	}
+}
+
+func attributeValueListToJSONCompatible(values []types.AttributeValue) ([]any, error) {
+	out := make([]any, len(values))
+	for i, item := range values {
+		converted, err := attributeValueToJSONCompatible(item)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = converted
+	}
+	return out, nil
+}
+
+func attributeValueMapToJSONCompatible(values map[string]types.AttributeValue) (map[string]any, error) {
+	out := make(map[string]any, len(values))
+	for key, item := range values {
+		converted, err := attributeValueToJSONCompatible(item)
+		if err != nil {
+			return nil, err
+		}
+		out[key] = converted
+	}
+	return out, nil
+}
+
+func attributeValueNumberSetToJSONCompatible(values []string) []any {
+	out := make([]any, len(values))
+	for i, item := range values {
+		out[i] = normalizeDecodedJSONNumbers(json.Number(item))
+	}
+	return out
+}
+
+func attributeValueBinarySetToJSONCompatible(values [][]byte) [][]byte {
+	out := make([][]byte, len(values))
+	for i, item := range values {
+		out[i] = append([]byte(nil), item...)
+	}
+	return out
 }
 
 func normalizeDecodedJSONNumbers(value any) any {
