@@ -90,8 +90,14 @@ func (c *Converter) ToAttributeValue(value any) (types.AttributeValue, error) {
 }
 
 func (c *Converter) toAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	// Handle pointer types
-	if v.Kind() == reflect.Ptr {
+	for {
+		if !v.IsValid() {
+			return &types.AttributeValueMemberNULL{Value: true}, nil
+		}
+
+		if v.Kind() != reflect.Ptr && v.Kind() != reflect.Interface {
+			break
+		}
 		if v.IsNil() {
 			return &types.AttributeValueMemberNULL{Value: true}, nil
 		}
@@ -246,6 +252,10 @@ func (c *Converter) fromAttributeValueWithConvention(av types.AttributeValue, ta
 
 	target = ensureSettableConcreteTarget(target)
 
+	if target.Kind() == reflect.Interface && target.Type().NumMethod() == 0 {
+		return c.anyFromAttributeValue(av, target)
+	}
+
 	if converter, exists := c.lookupConverter(target.Type()); exists {
 		return converter.FromAttributeValue(av, target.Addr().Interface())
 	}
@@ -255,6 +265,19 @@ func (c *Converter) fromAttributeValueWithConvention(av types.AttributeValue, ta
 	}
 
 	return c.fromAttributeValueByType(av, target, inheritedConvention, inheritNaming)
+}
+
+func (c *Converter) anyFromAttributeValue(av types.AttributeValue, target reflect.Value) error {
+	value, err := attributeValueToAny(av)
+	if err != nil {
+		return err
+	}
+	if value == nil {
+		target.Set(reflect.Zero(target.Type()))
+		return nil
+	}
+	target.Set(reflect.ValueOf(value))
+	return nil
 }
 
 func ensureSettableConcreteTarget(target reflect.Value) reflect.Value {
@@ -548,6 +571,79 @@ func (c *Converter) binarySetToSlice(set [][]byte, target reflect.Value) error {
 
 	target.Set(slice)
 	return nil
+}
+
+func attributeValueToAny(av types.AttributeValue) (any, error) {
+	switch v := av.(type) {
+	case *types.AttributeValueMemberS:
+		return v.Value, nil
+	case *types.AttributeValueMemberN:
+		return parseNumberToAny(v.Value)
+	case *types.AttributeValueMemberBOOL:
+		return v.Value, nil
+	case *types.AttributeValueMemberNULL:
+		return nil, nil
+	case *types.AttributeValueMemberL:
+		return attributeValueListToAny(v.Value)
+	case *types.AttributeValueMemberM:
+		return attributeValueMapToAny(v.Value)
+	case *types.AttributeValueMemberSS:
+		return v.Value, nil
+	case *types.AttributeValueMemberNS:
+		return attributeValueNumberSetToFloat64(v.Value)
+	case *types.AttributeValueMemberBS:
+		return v.Value, nil
+	case *types.AttributeValueMemberB:
+		return v.Value, nil
+	default:
+		return nil, fmt.Errorf("unsupported AttributeValue type: %T", av)
+	}
+}
+
+func parseNumberToAny(value string) (any, error) {
+	if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return intVal, nil
+	}
+	if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+		return floatVal, nil
+	}
+	return nil, fmt.Errorf("invalid number: %s", value)
+}
+
+func attributeValueListToAny(values []types.AttributeValue) ([]any, error) {
+	out := make([]any, len(values))
+	for i, value := range values {
+		converted, err := attributeValueToAny(value)
+		if err != nil {
+			return nil, fmt.Errorf("index %d: %w", i, err)
+		}
+		out[i] = converted
+	}
+	return out, nil
+}
+
+func attributeValueMapToAny(values map[string]types.AttributeValue) (map[string]any, error) {
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		converted, err := attributeValueToAny(value)
+		if err != nil {
+			return nil, fmt.Errorf("key %s: %w", key, err)
+		}
+		out[key] = converted
+	}
+	return out, nil
+}
+
+func attributeValueNumberSetToFloat64(values []string) ([]float64, error) {
+	out := make([]float64, len(values))
+	for i, value := range values {
+		converted, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return nil, fmt.Errorf("index %d: %w", i, err)
+		}
+		out[i] = converted
+	}
+	return out, nil
 }
 
 // ConvertToSet determines if a slice should be converted to a DynamoDB set

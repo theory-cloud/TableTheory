@@ -258,9 +258,37 @@ func TestToAttributeValue_ComplexTypes(t *testing.T) {
 	})
 
 	t.Run("map[string]interface{}", func(t *testing.T) {
-		// The converter doesn't handle interface{} directly,
-		// so we need to skip this test
-		t.Skip("interface{} values are not directly supported")
+		input := map[string]any{
+			"name":   "John",
+			"visits": 3,
+			"active": true,
+			"metadata": map[string]any{
+				"city": "New York",
+			},
+			"tags":     []any{"alpha", 2, true},
+			"optional": nil,
+		}
+		result, err := converter.ToAttributeValue(input)
+
+		require.NoError(t, err)
+		m, ok := result.(*types.AttributeValueMemberM)
+		require.True(t, ok)
+		assert.Len(t, m.Value, 6)
+		assert.Equal(t, &types.AttributeValueMemberS{Value: "John"}, m.Value["name"])
+		assert.Equal(t, &types.AttributeValueMemberN{Value: "3"}, m.Value["visits"])
+		assert.Equal(t, &types.AttributeValueMemberBOOL{Value: true}, m.Value["active"])
+		assert.Equal(t, &types.AttributeValueMemberNULL{Value: true}, m.Value["optional"])
+
+		metadata, ok := m.Value["metadata"].(*types.AttributeValueMemberM)
+		require.True(t, ok)
+		assert.Equal(t, &types.AttributeValueMemberS{Value: "New York"}, metadata.Value["city"])
+
+		tags, ok := m.Value["tags"].(*types.AttributeValueMemberL)
+		require.True(t, ok)
+		require.Len(t, tags.Value, 3)
+		assert.Equal(t, &types.AttributeValueMemberS{Value: "alpha"}, tags.Value[0])
+		assert.Equal(t, &types.AttributeValueMemberN{Value: "2"}, tags.Value[1])
+		assert.Equal(t, &types.AttributeValueMemberBOOL{Value: true}, tags.Value[2])
 	})
 
 	t.Run("struct", func(t *testing.T) {
@@ -468,6 +496,38 @@ func TestFromAttributeValue_ComplexTypes(t *testing.T) {
 			"name": "John",
 			"city": "New York",
 		}, result)
+	})
+
+	t.Run("map to map[string]any", func(t *testing.T) {
+		av := &types.AttributeValueMemberM{
+			Value: map[string]types.AttributeValue{
+				"name":  &types.AttributeValueMemberS{Value: "John"},
+				"score": &types.AttributeValueMemberN{Value: "9.5"},
+				"flags": &types.AttributeValueMemberL{Value: []types.AttributeValue{
+					&types.AttributeValueMemberBOOL{Value: true},
+					&types.AttributeValueMemberN{Value: "2"},
+				}},
+				"metadata": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"city":   &types.AttributeValueMemberS{Value: "New York"},
+					"visits": &types.AttributeValueMemberN{Value: "3"},
+				}},
+			},
+		}
+
+		var result map[string]any
+		err := converter.FromAttributeValue(av, &result)
+		require.NoError(t, err)
+		require.Equal(t, "John", result["name"])
+		require.Equal(t, float64(9.5), result["score"])
+
+		flags, ok := result["flags"].([]any)
+		require.True(t, ok)
+		require.Equal(t, []any{true, int64(2)}, flags)
+
+		metadata, ok := result["metadata"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "New York", metadata["city"])
+		require.Equal(t, int64(3), metadata["visits"])
 	})
 
 	t.Run("map to struct", func(t *testing.T) {
@@ -841,8 +901,27 @@ func TestEdgeCases(t *testing.T) {
 	})
 
 	t.Run("nested maps", func(t *testing.T) {
-		// Skip this test as interface{} is not directly supported
-		t.Skip("interface{} values are not directly supported")
+		input := map[string]any{
+			"profile": map[string]any{
+				"name": "Ada",
+				"stats": map[string]any{
+					"count": 2,
+				},
+			},
+		}
+		result, err := converter.ToAttributeValue(input)
+
+		require.NoError(t, err)
+		profileMap, ok := result.(*types.AttributeValueMemberM)
+		require.True(t, ok)
+
+		profile, ok := profileMap.Value["profile"].(*types.AttributeValueMemberM)
+		require.True(t, ok)
+		assert.Equal(t, &types.AttributeValueMemberS{Value: "Ada"}, profile.Value["name"])
+
+		stats, ok := profile.Value["stats"].(*types.AttributeValueMemberM)
+		require.True(t, ok)
+		assert.Equal(t, &types.AttributeValueMemberN{Value: "2"}, stats.Value["count"])
 	})
 }
 
