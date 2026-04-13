@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass
-from typing import Any, Protocol, cast, overload
+from typing import Any, Protocol, cast, get_type_hints, overload
+
+from .attr_types import infer_storage_type, validate_json_storage_type
+from .errors import ValidationError
 
 
 class ModelDefinitionError(ValueError):
@@ -28,6 +31,7 @@ class AttributeDefinition:
     binary: bool
     encrypted: bool
     converter: AttributeConverter | None = None
+    storage_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +192,11 @@ class ModelDefinition[T]:
         if not is_dataclass(model_type):
             raise ModelDefinitionError("model_type must be a dataclass")
 
+        try:
+            annotations = get_type_hints(model_type, include_extras=True)
+        except Exception:
+            annotations = cast(dict[str, Any], getattr(model_type, "__annotations__", {}))
+
         attributes: dict[str, AttributeDefinition] = {}
         pk_fields: list[str] = []
         sk_fields: list[str] = []
@@ -214,16 +223,42 @@ class ModelDefinition[T]:
 
             converter = cast(AttributeConverter | None, opts.get("converter"))
             attribute_name = cast(str, opts.get("name", dc_field.name))
+            set_flag = bool(opts.get("set", False))
+            json_flag = bool(opts.get("json", False))
+            binary_flag = bool(opts.get("binary", False))
+
+            if json_flag and binary_flag:
+                raise ModelDefinitionError(f"field cannot be both json and binary: {dc_field.name}")
+            if json_flag and set_flag:
+                raise ModelDefinitionError(f"field cannot be both json and set-backed: {dc_field.name}")
+
+            annotation = annotations.get(dc_field.name, Any)
+            try:
+                storage_type = infer_storage_type(
+                    annotation,
+                    is_set=set_flag,
+                    is_json=json_flag,
+                    is_binary=binary_flag,
+                )
+            except ValidationError as err:
+                raise ModelDefinitionError(str(err)) from err
+            if json_flag:
+                try:
+                    validate_json_storage_type(storage_type, field_name=dc_field.name)
+                except ValidationError as err:
+                    raise ModelDefinitionError(str(err)) from err
+
             attributes[dc_field.name] = AttributeDefinition(
                 python_name=dc_field.name,
                 attribute_name=attribute_name,
                 roles=roles,
                 omitempty=bool(opts.get("omitempty", False)),
-                set=bool(opts.get("set", False)),
-                json=bool(opts.get("json", False)),
-                binary=bool(opts.get("binary", False)),
+                set=set_flag,
+                json=json_flag,
+                binary=binary_flag,
                 encrypted=encrypted,
                 converter=converter,
+                storage_type=storage_type,
             )
 
         if len(pk_fields) != 1:

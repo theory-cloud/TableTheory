@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import base64
-import json
 from dataclasses import fields, is_dataclass
 from decimal import Decimal
 from typing import Any, cast, get_args, get_origin
 
 from boto3.dynamodb.types import TypeDeserializer
 
+from .attr_types import decode_json_field_from_storage
 from .errors import ValidationError
 from .model import ModelDefinition
 
@@ -112,8 +112,12 @@ def unmarshal_stream_image[T](model: ModelDefinition[T], stream_image: Any) -> T
             continue
 
         raw = deserializer.deserialize(image[attr_def.attribute_name])
-        if attr_def.json and isinstance(raw, str):
-            raw = json.loads(raw)
+        if attr_def.json:
+            raw = decode_json_field_from_storage(
+                raw,
+                storage_type=attr_def.storage_type or "S",
+                field_name=attr_def.attribute_name,
+            )
 
         kwargs[dc_field.name] = _coerce_value(raw, model_annotations.get(dc_field.name, Any))
 

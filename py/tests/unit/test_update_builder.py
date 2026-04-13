@@ -82,6 +82,44 @@ def test_update_builder_builds_update_and_condition_expressions() -> None:
     client.assert_no_pending()
 
 
+def test_update_builder_normalizes_json_fields_and_allows_json_lists() -> None:
+    @dataclass(frozen=True)
+    class JsonItem:
+        pk: str = theorydb_field(roles=["pk"])
+        sk: str = theorydb_field(roles=["sk"])
+        payload: dict[str, int] = theorydb_field(json=True, default_factory=dict)
+        response: str = theorydb_field(json=True, default="")
+        events: list[int] = theorydb_field(json=True, default_factory=list)
+
+    client = FakeDynamoDBClient()
+
+    def validate(req: dict) -> None:
+        assert req["UpdateExpression"] == (
+            "SET #u_payload = :u1, #u_response = :u2, #u_events = list_append(#u_events, :u3)"
+        )
+        assert req["ExpressionAttributeNames"] == {
+            "#u_payload": "payload",
+            "#u_response": "response",
+            "#u_events": "events",
+        }
+        assert req["ExpressionAttributeValues"][":u1"] == {"M": {"a": {"N": "1"}}}
+        assert req["ExpressionAttributeValues"][":u2"] == {"S": '{"ok":true}'}
+        assert req["ExpressionAttributeValues"][":u3"] == {"L": [{"N": "1"}, {"N": "2"}]}
+
+    client.expect("update_item", validate, response={})
+
+    model = ModelDefinition.from_dataclass(JsonItem, table_name="tbl")
+    table: Table[JsonItem] = Table(model, client=client)
+    (
+        table.update_builder("A", "B")
+        .set("payload", '{"a":1}')
+        .set("response", '{"ok":true}')
+        .append_to_list("events", [1, 2])
+        .execute()
+    )
+    client.assert_no_pending()
+
+
 def test_update_builder_rejects_encrypted_fields_in_conditions() -> None:
     @dataclass(frozen=True)
     class Secret:

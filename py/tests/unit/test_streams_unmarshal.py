@@ -54,6 +54,27 @@ def test_unmarshal_stream_record_missing_image_returns_none() -> None:
     assert unmarshal_stream_record(model, record, image="OldImage") is None
 
 
+def test_unmarshal_stream_image_accepts_native_json_documents_and_string_carriers() -> None:
+    @dataclass(frozen=True)
+    class StreamJsonCarrier:
+        pk: str = theorydb_field(roles=["pk"])
+        sk: str = theorydb_field(roles=["sk"])
+        payload: dict[str, int] = theorydb_field(json=True)
+        response: str = theorydb_field(json=True)
+
+    model = ModelDefinition.from_dataclass(StreamJsonCarrier)
+    image = {
+        "pk": {"S": "A"},
+        "sk": {"S": "B"},
+        "payload": {"M": {"a": {"N": "1"}}},
+        "response": {"M": {"ok": {"BOOL": True}}},
+    }
+
+    got = unmarshal_stream_image(model, image)
+    assert got.payload == {"a": 1}
+    assert got.response == '{"ok":true}'
+
+
 def test_unmarshal_stream_image_invalid_binary_is_validation_error() -> None:
     model = ModelDefinition.from_dataclass(StreamThing)
     image = {"pk": {"S": "A"}, "sk": {"S": "B"}, "data": {"B": "not-base64"}, "payload": {"S": "{}"}}

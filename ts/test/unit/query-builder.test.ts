@@ -203,6 +203,33 @@ const User = defineModel({
 }
 
 {
+  const jsonModel = defineModel({
+    name: 'JsonModel',
+    table: { name: 'json_contract' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'payload', type: 'M', json: true, optional: true },
+    ],
+  });
+  const ddb = new StubDdb(() => ({ Items: [] }));
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    jsonModel,
+  );
+
+  await client
+    .query('JsonModel')
+    .partitionKey('A')
+    .filter('payload', '=', '{"a":1}')
+    .page();
+
+  assert.ok(ddb.last instanceof QueryCommand);
+  assert.deepEqual(ddb.last.input.ExpressionAttributeValues?.[':f1'], {
+    M: { a: { N: '1' } },
+  });
+}
+
+{
   const ddb = new StubDdb(() => ({ Items: [] }));
   const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
     User,

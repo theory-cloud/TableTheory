@@ -84,3 +84,42 @@ const userSchema: ModelSchema = {
     },
   );
 }
+
+{
+  const schema: ModelSchema = {
+    ...userSchema,
+    attributes: [
+      ...userSchema.attributes,
+      { attribute: 'payload', type: 'M', json: true, optional: true },
+      { attribute: 'emailHash', type: 'S', optional: true },
+    ],
+  };
+
+  const model = defineModel(schema);
+  assert.equal(model.attributes.get('payload')?.type, 'M');
+  assert.equal(model.attributes.get('payload')?.json, true);
+}
+
+{
+  const schema: ModelSchema = {
+    ...userSchema,
+    attributes: [
+      ...userSchema.attributes,
+      { attribute: 'badJsonSet', type: 'SS', json: true, optional: true },
+      { attribute: 'emailHash', type: 'S', optional: true },
+    ],
+  };
+
+  assert.throws(
+    () => defineModel(schema),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(
+        String(err.message),
+        /json attributes must use type S, N, BOOL, NULL, L, or M/,
+      );
+      return true;
+    },
+  );
+}

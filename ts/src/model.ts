@@ -75,6 +75,17 @@ export interface Model {
   readonly roles: Readonly<ModelRoles>;
 }
 
+function isSupportedJsonStorageType(type: ScalarType): boolean {
+  return (
+    type === 'S' ||
+    type === 'N' ||
+    type === 'BOOL' ||
+    type === 'NULL' ||
+    type === 'L' ||
+    type === 'M'
+  );
+}
+
 export function defineModel(schema: ModelSchema): Model {
   validateModelSchema(schema);
 
@@ -129,12 +140,6 @@ function validateModelSchema(schema: ModelSchema): void {
         'ErrInvalidModel',
         'Attribute attribute name is required',
       );
-    if (attr.json && attr.type !== 'S') {
-      throw new TheorydbError(
-        'ErrInvalidModel',
-        `json attributes must be type S: ${attr.attribute}`,
-      );
-    }
     if (attr.binary && attr.type !== 'B') {
       throw new TheorydbError(
         'ErrInvalidModel',
@@ -145,6 +150,12 @@ function validateModelSchema(schema: ModelSchema): void {
       throw new TheorydbError(
         'ErrInvalidModel',
         `attribute cannot be both json and binary: ${attr.attribute}`,
+      );
+    }
+    if (attr.json && !isSupportedJsonStorageType(attr.type)) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        `json attributes must use type S, N, BOOL, NULL, L, or M: ${attr.attribute}`,
       );
     }
     if (attributeNames.has(attr.attribute)) {
