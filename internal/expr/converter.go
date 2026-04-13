@@ -121,10 +121,9 @@ func convertMapToAttributeValueWithConvention(v reflect.Value, inheritedConventi
 }
 
 func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	// General struct marshaling
-	// Note: We no longer automatically JSON-serialize structs just because they have json tags.
-	// JSON serialization should only happen when explicitly requested via theorydb:"json" tag,
-	// which is handled at the field level during marshaling, not here in the converter.
+	// General struct marshaling.
+	// Explicit theorydb:"json" field handling is applied by higher-level field codecs
+	// before values reach this generic converter.
 	m := make(map[string]types.AttributeValue)
 	t := v.Type()
 	convention, _ := resolveStructNaming(t, inheritedConvention, inheritNaming)

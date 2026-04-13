@@ -34,6 +34,7 @@ def test_model_definition_extracts_keys_attributes_and_indexes() -> None:
     assert model.attributes["email_hash"].attribute_name == "emailHash"
     assert model.attributes["tags"].set is True
     assert model.attributes["payload"].json is True
+    assert model.attributes["payload"].storage_type == "M"
     assert model.attributes["blob"].binary is True
     assert model.attributes["secret"].encrypted is True
     assert "ignored" not in model.attributes
@@ -79,3 +80,21 @@ def test_model_definition_rejects_encrypted_index_key() -> None:
 
     with pytest.raises(ModelDefinitionError, match="encrypted partition field is not allowed"):
         ModelDefinition.from_dataclass(Bad, indexes=[gsi("gsi-secret", partition="secret")])
+
+
+def test_model_definition_rejects_json_set_and_json_binary() -> None:
+    @dataclass(frozen=True)
+    class JsonSet:
+        pk: str = theorydb_field(roles=["pk"])
+        payload: set[str] = theorydb_field(json=True, set_=True, default_factory=set)
+
+    with pytest.raises(ModelDefinitionError, match="json and set-backed"):
+        ModelDefinition.from_dataclass(JsonSet)
+
+    @dataclass(frozen=True)
+    class JsonBinary:
+        pk: str = theorydb_field(roles=["pk"])
+        payload: bytes = theorydb_field(json=True, binary=True, default=b"")
+
+    with pytest.raises(ModelDefinitionError, match="json and binary"):
+        ModelDefinition.from_dataclass(JsonBinary)

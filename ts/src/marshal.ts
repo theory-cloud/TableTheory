@@ -152,20 +152,7 @@ export function marshalScalar(
       : value;
 
   if (schema.json) {
-    if (schema.type !== 'S') {
-      throw new TheorydbError(
-        'ErrInvalidModel',
-        `json attributes must be type S: ${schema.attribute}`,
-      );
-    }
-    if (converted === undefined) {
-      throw new TheorydbError(
-        'ErrInvalidModel',
-        'Undefined values are not supported',
-      );
-    }
-    if (converted === null) return { NULL: true };
-    return { S: stableJsonStringify(converted, schema.attribute) };
+    return marshalJsonScalar(schema, converted);
   }
 
   switch (schema.type) {
@@ -301,32 +288,7 @@ export function unmarshalScalar(
       : value;
 
   if (schema.json) {
-    if (schema.type !== 'S') {
-      throw new TheorydbError(
-        'ErrInvalidModel',
-        `json attributes must be type S: ${schema.attribute}`,
-      );
-    }
-
-    if ('NULL' in av && av.NULL) return applyConverter(null);
-
-    if ('S' in av && av.S !== undefined) {
-      const raw = av.S;
-      try {
-        return applyConverter(JSON.parse(raw));
-      } catch (err) {
-        throw new TheorydbError(
-          'ErrInvalidModel',
-          `Invalid JSON value for ${schema.attribute}`,
-          { cause: err },
-        );
-      }
-    }
-
-    throw new TheorydbError(
-      'ErrInvalidModel',
-      `Unsupported AttributeValue for ${schema.attribute}`,
-    );
+    return applyConverter(unmarshalJsonScalar(schema, av));
   }
 
   switch (schema.type) {
@@ -389,6 +351,108 @@ export function unmarshalScalar(
   throw new TheorydbError(
     'ErrInvalidModel',
     `Unsupported AttributeValue for ${schema.attribute}`,
+  );
+}
+
+function marshalJsonScalar(
+  schema: Readonly<AttributeSchema>,
+  value: unknown,
+): AttributeValue {
+  if (value === undefined) {
+    throw new TheorydbError(
+      'ErrInvalidModel',
+      'Undefined values are not supported',
+    );
+  }
+  if (value === null) return { NULL: true };
+
+  if (isJsonStringCarrier(schema)) {
+    return { S: toJsonCarrierText(value, schema.attribute) };
+  }
+
+  const normalized = normalizeStructuredJsonValue(value, schema.attribute);
+  return marshalScalar({ ...schema, json: false }, normalized);
+}
+
+function unmarshalJsonScalar(
+  schema: Readonly<AttributeSchema>,
+  av: AttributeValue,
+): unknown {
+  if ('NULL' in av && av.NULL) return null;
+
+  if (isJsonStringCarrier(schema)) {
+    if ('S' in av && av.S !== undefined) return av.S;
+    return stableJsonStringify(
+      normalizeJsonValue(unmarshalDocumentValue(av), schema.attribute),
+      schema.attribute,
+    );
+  }
+
+  const value =
+    'S' in av && av.S !== undefined
+      ? parseJsonText(av.S, schema.attribute)
+      : normalizeJsonValue(unmarshalDocumentValue(av), schema.attribute);
+
+  return assertJsonValueMatchesSchema(schema, value);
+}
+
+function isJsonStringCarrier(schema: Readonly<AttributeSchema>): boolean {
+  return schema.type === 'S';
+}
+
+function toJsonCarrierText(value: unknown, label: string): string {
+  if (typeof value === 'string') return value;
+  if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8');
+  return stableJsonStringify(value, label);
+}
+
+function normalizeStructuredJsonValue(value: unknown, label: string): unknown {
+  if (typeof value === 'string') return parseJsonText(value, label);
+  if (value instanceof Uint8Array) {
+    return parseJsonText(Buffer.from(value).toString('utf8'), label);
+  }
+  return normalizeJsonValue(value, label);
+}
+
+function parseJsonText(value: string, label: string): unknown {
+  try {
+    return normalizeJsonValue(JSON.parse(value), label);
+  } catch (err) {
+    throw new TheorydbError(
+      'ErrInvalidModel',
+      `Invalid JSON value for ${label}`,
+      { cause: err },
+    );
+  }
+}
+
+function assertJsonValueMatchesSchema(
+  schema: Readonly<AttributeSchema>,
+  value: unknown,
+): unknown {
+  switch (schema.type) {
+    case 'N':
+      if (typeof value === 'number') return value;
+      break;
+    case 'BOOL':
+      if (typeof value === 'boolean') return value;
+      break;
+    case 'NULL':
+      if (value === null) return value;
+      break;
+    case 'L':
+      if (Array.isArray(value)) return value;
+      break;
+    case 'M':
+      if (isPlainObject(value)) return value;
+      break;
+    default:
+      break;
+  }
+
+  throw new TheorydbError(
+    'ErrInvalidModel',
+    `JSON value does not match type ${schema.type} for ${schema.attribute}`,
   );
 }
 

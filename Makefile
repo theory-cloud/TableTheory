@@ -6,6 +6,8 @@
 GOMOD := github.com/theory-cloud/tabletheory
 TOOLCHAIN := $(shell awk '/^toolchain / {print $$2}' go.mod | head -n 1)
 export GOTOOLCHAIN ?= $(TOOLCHAIN)
+GO_BIN_DIR := $(or $(shell go env GOBIN),$(shell go env GOPATH)/bin)
+GOLANGCI_LINT := $(GO_BIN_DIR)/golangci-lint
 UNIT_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress | grep -v /tests/integration)
 ALL_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress)
 INTEGRATION_PACKAGES := $(shell go list ./tests/integration/...)
@@ -78,7 +80,7 @@ fmt-check:
 # Run linters
 lint:
 	@echo "Running linters..."
-	@golangci-lint run --timeout=5m --config .golangci-v2.yml ./...
+	@"$(GOLANGCI_LINT)" run --timeout=5m --config .golangci-v2.yml ./...
 
 # Clean build artifacts
 clean:
@@ -155,8 +157,8 @@ docker-clean:
 # Install development dependencies
 install-tools:
 	@echo "Installing development tools..."
-	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
-	@go install github.com/golang/mock/mockgen@latest
+	@GOBIN="$(GO_BIN_DIR)" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+	@GOBIN="$(GO_BIN_DIR)" go install github.com/golang/mock/mockgen@latest
 
 # Generate mocks
 generate:

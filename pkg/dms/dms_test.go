@@ -366,6 +366,14 @@ func TestAttributeTypeFromField_TagsAndKinds(t *testing.T) {
 
 	tp, err := attributeTypeFromField(reflect.TypeOf(map[string]int{}), false, map[string]string{"json": "true"})
 	require.NoError(t, err)
+	require.Equal(t, "M", tp)
+
+	tp, err = attributeTypeFromField(reflect.TypeOf(""), false, map[string]string{"json": "true"})
+	require.NoError(t, err)
+	require.Equal(t, "S", tp)
+
+	tp, err = attributeTypeFromField(reflect.TypeOf([]byte{}), false, map[string]string{"json": "true"})
+	require.NoError(t, err)
 	require.Equal(t, "S", tp)
 
 	tp, err = attributeTypeFromField(reflect.TypeOf(""), false, map[string]string{"binary": "true"})
@@ -418,7 +426,7 @@ func TestFromMetadata_JsonAndBinaryTags(t *testing.T) {
 	}
 
 	require.True(t, attrByName["payload"].JSON)
-	require.Equal(t, "S", attrByName["payload"].Type)
+	require.Equal(t, "M", attrByName["payload"].Type)
 
 	require.True(t, attrByName["blob"].Binary)
 	require.Equal(t, "B", attrByName["blob"].Type)
@@ -440,7 +448,7 @@ models:
         required: true
         roles: ["pk"]
       - attribute: "bad_json"
-        type: "N"
+        type: "SS"
         optional: true
         json: true
 `))
