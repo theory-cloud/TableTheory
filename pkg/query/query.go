@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/internal/expr"
+	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/internal/numutil"
 	"github.com/theory-cloud/tabletheory/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/pkg/core"
@@ -176,6 +177,58 @@ func (q *Query) resolveGoFieldName(field string) string {
 		return meta.Name
 	}
 	return field
+}
+
+func (q *Query) attributeMetadata(field string) *core.AttributeMetadata {
+	if q == nil || q.metadata == nil || field == "" {
+		return nil
+	}
+	return q.metadata.AttributeMetadata(field)
+}
+
+func (q *Query) rawFieldMetadata(field string) *model.FieldMetadata {
+	if q == nil || q.rawMetadata == nil || field == "" {
+		return nil
+	}
+
+	if meta := q.rawMetadata.Fields[field]; meta != nil {
+		return meta
+	}
+	if meta := q.rawMetadata.FieldsByDBName[field]; meta != nil {
+		return meta
+	}
+
+	attrMeta := q.attributeMetadata(field)
+	if attrMeta == nil {
+		return nil
+	}
+
+	if attrMeta.Name != "" {
+		if meta := q.rawMetadata.Fields[attrMeta.Name]; meta != nil {
+			return meta
+		}
+	}
+	if attrMeta.DynamoDBName != "" {
+		if meta := q.rawMetadata.FieldsByDBName[attrMeta.DynamoDBName]; meta != nil {
+			return meta
+		}
+	}
+
+	return nil
+}
+
+func (q *Query) normalizeJSONFieldValue(field string, value any) (any, error) {
+	attrMeta := q.attributeMetadata(field)
+	if attrMeta == nil || !fieldcodec.HasJSONTag(attrMeta.Tags) {
+		return value, nil
+	}
+
+	var fieldType reflect.Type
+	if rawMeta := q.rawFieldMetadata(field); rawMeta != nil {
+		fieldType = rawMeta.Type
+	}
+
+	return fieldcodec.NormalizeJSONFieldValue(fieldType, value)
 }
 
 func cloneConditionValues(values map[string]any) map[string]any {
@@ -433,10 +486,15 @@ func (q *Query) Where(field string, op string, value any) core.Query {
 		q.recordBuilderError(err)
 		return q
 	}
+	normalized, err := q.normalizeJSONFieldValue(field, value)
+	if err != nil {
+		q.recordBuilderError(err)
+		return q
+	}
 	q.conditions = append(q.conditions, Condition{
 		Field:    field,
 		Operator: op,
-		Value:    value,
+		Value:    normalized,
 	})
 	return q
 }
@@ -452,7 +510,13 @@ func (q *Query) Filter(field string, op string, value any) core.Query {
 		q.builder = q.newBuilder()
 	}
 
-	if err := q.builder.AddFilterCondition("AND", q.resolveAttributeName(field), op, value); err != nil {
+	normalized, err := q.normalizeJSONFieldValue(field, value)
+	if err != nil {
+		q.recordBuilderError(err)
+		return q
+	}
+
+	if err := q.builder.AddFilterCondition("AND", q.resolveAttributeName(field), op, normalized); err != nil {
 		q.recordBuilderError(err)
 	}
 	return q
@@ -900,7 +964,15 @@ func (q *Query) buildUpdateExpressionFromMetadata(builder *expr.Builder, modelVa
 		}
 
 		fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-		if err := builder.AddUpdateSet(fieldMeta.DBName, fieldValue.Interface()); err != nil {
+		valueToSet := fieldValue.Interface()
+		if fieldcodec.HasJSONTag(fieldMeta.Tags) {
+			normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldMeta.Type, fieldValue)
+			if err != nil {
+				return fmt.Errorf("failed to normalize json field %s: %w", fieldName, err)
+			}
+			valueToSet = normalized
+		}
+		if err := builder.AddUpdateSet(fieldMeta.DBName, valueToSet); err != nil {
 			return fmt.Errorf("failed to build update for %s: %w", fieldName, err)
 		}
 	}
@@ -978,7 +1050,15 @@ func (q *Query) buildUpdateExpressionFromTags(builder *expr.Builder, modelValue 
 		}
 
 		attrName := q.resolveAttributeName(field.Name)
-		if err := builder.AddUpdateSet(attrName, fieldValue.Interface()); err != nil {
+		valueToSet := fieldValue.Interface()
+		if fieldcodec.HasJSONModifier(tag) {
+			normalized, err := fieldcodec.NormalizeJSONReflectValue(field.Type, fieldValue)
+			if err != nil {
+				return fmt.Errorf("failed to normalize json field %s: %w", field.Name, err)
+			}
+			valueToSet = normalized
+		}
+		if err := builder.AddUpdateSet(attrName, valueToSet); err != nil {
 			return fmt.Errorf("failed to build update for %s: %w", field.Name, err)
 		}
 	}
@@ -991,7 +1071,15 @@ func (q *Query) buildUpdateExpressionFromNamedFields(builder *expr.Builder, mode
 		if !fieldValue.IsValid() {
 			return fmt.Errorf("field %s not found in model", field)
 		}
-		if err := builder.AddUpdateSet(q.resolveAttributeName(field), fieldValue.Interface()); err != nil {
+		valueToSet := fieldValue.Interface()
+		if fieldStruct, ok := modelValue.Type().FieldByName(field); ok && fieldcodec.HasJSONModifier(fieldStruct.Tag.Get("theorydb")) {
+			normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldStruct.Type, fieldValue)
+			if err != nil {
+				return fmt.Errorf("failed to normalize json field %s: %w", field, err)
+			}
+			valueToSet = normalized
+		}
+		if err := builder.AddUpdateSet(q.resolveAttributeName(field), valueToSet); err != nil {
 			return fmt.Errorf("failed to build update for %s: %w", field, err)
 		}
 	}
@@ -2118,6 +2206,8 @@ func (q *Query) marshalFieldSourceValue(fieldMeta *model.FieldMetadata, fieldVal
 		return valueToConvert, nil
 	case fieldMeta.IsTTL:
 		return ttlUnixSecondsIfTime(fieldMeta.DBName, fieldValue, valueToConvert)
+	case fieldcodec.HasJSONTag(fieldMeta.Tags):
+		return fieldcodec.NormalizeJSONReflectValue(fieldMeta.Type, fieldValue)
 	default:
 		return valueToConvert, nil
 	}
@@ -2136,6 +2226,9 @@ func ttlUnixSecondsIfTime(fieldName string, fieldValue reflect.Value, value any)
 }
 
 func (q *Query) marshalAttributeValue(fieldMeta *model.FieldMetadata, value any) (types.AttributeValue, error) {
+	if fieldcodec.HasJSONTag(fieldMeta.Tags) {
+		return expr.ConvertToAttributeValue(value)
+	}
 	if q.converter != nil {
 		if fieldMeta.IsSet {
 			return q.converter.ConvertToSet(value, true)
@@ -2183,12 +2276,22 @@ func (q *Query) marshalItemTagged(item any) (map[string]types.AttributeValue, er
 			continue
 		}
 
-		var av types.AttributeValue
 		var err error
-		if q != nil && q.converter != nil {
-			av, err = q.converter.ToAttributeValue(fieldValue.Interface())
+		valueToConvert := fieldValue.Interface()
+		if fieldcodec.HasJSONModifier(tag) {
+			valueToConvert, err = fieldcodec.NormalizeJSONReflectValue(field.Type, fieldValue)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
+			}
+		}
+
+		var av types.AttributeValue
+		if fieldcodec.HasJSONModifier(tag) {
+			av, err = expr.ConvertToAttributeValue(valueToConvert)
+		} else if q != nil && q.converter != nil {
+			av, err = q.converter.ToAttributeValue(valueToConvert)
 		} else {
-			av, err = expr.ConvertToAttributeValue(fieldValue.Interface())
+			av, err = expr.ConvertToAttributeValue(valueToConvert)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
@@ -2239,7 +2342,13 @@ func (q *Query) OrFilter(field string, op string, value any) core.Query {
 		q.builder = q.newBuilder()
 	}
 
-	if err := q.builder.AddFilterCondition("OR", q.resolveAttributeName(field), op, value); err != nil {
+	normalized, err := q.normalizeJSONFieldValue(field, value)
+	if err != nil {
+		q.recordBuilderError(err)
+		return q
+	}
+
+	if err := q.builder.AddFilterCondition("OR", q.resolveAttributeName(field), op, normalized); err != nil {
 		q.recordBuilderError(err)
 	}
 	return q
@@ -2307,11 +2416,16 @@ func (q *Query) WithCondition(field, operator string, value any) core.Query {
 		q.recordBuilderError(err)
 		return q
 	}
+	normalized, err := q.normalizeJSONFieldValue(field, value)
+	if err != nil {
+		q.recordBuilderError(err)
+		return q
+	}
 	attrName := q.resolveAttributeName(field)
 	q.writeConditions = append(q.writeConditions, Condition{
 		Field:    attrName,
 		Operator: operator,
-		Value:    value,
+		Value:    normalized,
 	})
 	return q
 }

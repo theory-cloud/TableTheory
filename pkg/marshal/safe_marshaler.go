@@ -11,6 +11,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/expr"
+	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/pkg/model"
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
@@ -40,6 +42,7 @@ type safeFieldMarshaler struct {
 	namingConvention naming.Convention
 	omitEmpty        bool
 	inheritNaming    bool
+	isJSON           bool
 	isSet            bool
 	isCreatedAt      bool
 	isUpdatedAt      bool
@@ -175,6 +178,7 @@ func (m *SafeMarshaler) buildSafeStructMarshaler(typ reflect.Type, metadata *mod
 			namingConvention: metadata.NamingConvention,
 			omitEmpty:        fieldMeta.OmitEmpty,
 			inheritNaming:    true,
+			isJSON:           fieldcodec.HasJSONTag(fieldMeta.Tags),
 			isSet:            fieldMeta.IsSet,
 			isCreatedAt:      fieldMeta.IsCreatedAt,
 			isUpdatedAt:      fieldMeta.IsUpdatedAt,
@@ -198,6 +202,14 @@ func (m *SafeMarshaler) marshalValue(v reflect.Value, fieldMeta *safeFieldMarsha
 
 	if fieldMeta.omitEmpty && v.IsZero() {
 		return &types.AttributeValueMemberNULL{Value: true}, nil
+	}
+
+	if fieldMeta != nil && fieldMeta.isJSON {
+		normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldMeta.typ, v)
+		if err != nil {
+			return nil, err
+		}
+		return expr.ConvertToAttributeValue(normalized)
 	}
 
 	if av, ok, err := m.marshalTimeValue(v, fieldMeta); ok {
