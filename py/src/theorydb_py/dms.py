@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import MISSING, fields
-from decimal import Decimal
-from typing import Any, Union, cast, get_args, get_origin, get_type_hints
+from typing import Any, cast, get_type_hints
 
 import yaml
 
+from .attr_types import infer_storage_type, validate_json_storage_type
 from .errors import ValidationError
 from .model import ModelDefinition
 
@@ -31,6 +31,11 @@ def parse_dms_document(raw: str) -> dict[str, Any]:
     models = parsed.get("models")
     if not isinstance(models, list) or len(models) == 0:
         raise ValidationError("DMS document must include models[]")
+
+    for model in models:
+        if not isinstance(model, dict):
+            raise ValidationError("DMS model must be a map/object")
+        _normalize_dms_model(model, ignore_table_name=True)
 
     return parsed
 
@@ -146,13 +151,15 @@ def _normalize_dms_model(model: Mapping[str, Any], *, ignore_table_name: bool) -
 
         json_flag = bool(attr.get("json", False))
         binary_flag = bool(attr.get("binary", False))
-        if json_flag and attr_type != "S":
-            raise ValidationError(
-                f"DMS model {name}: attribute {attr_name}: json requires type S (got {attr_type})"
-            )
+        if json_flag:
+            validate_json_storage_type(attr_type, field_name=f"{name}.{attr_name}")
         if binary_flag and attr_type != "B":
             raise ValidationError(
                 f"DMS model {name}: attribute {attr_name}: binary requires type B (got {attr_type})"
+            )
+        if json_flag and attr_type in {"SS", "NS", "BS", "B"}:
+            raise ValidationError(
+                f"DMS model {name}: attribute {attr_name}: json fields must use S/N/BOOL/NULL/L/M (got {attr_type})"
             )
         if json_flag and binary_flag:
             raise ValidationError(f"DMS model {name}: attribute {attr_name}: cannot be both json and binary")
@@ -313,55 +320,17 @@ def _dms_type_for_field(model_type: type[Any], field_name: str, attr_def: Any) -
         annotation = get_type_hints(model_type, include_extras=True).get(field_name, Any)
     except Exception:
         annotation = getattr(model_type, "__annotations__", {}).get(field_name, Any)
-    annotation = _unwrap_optional(annotation)
-
-    if getattr(attr_def, "set", False):
-        origin = get_origin(annotation)
-        if origin is set:
-            (elem_type,) = get_args(annotation) or (Any,)
-        else:
-            elem_type = Any
-        elem_type = _unwrap_optional(elem_type)
-
-        if elem_type is str:
-            return "SS"
-        if elem_type in {int, float, Decimal}:
-            return "NS"
-        if elem_type in {bytes, bytearray}:
-            return "BS"
-        raise ValidationError(f"unsupported set element type: {field_name} ({elem_type})")
+    try:
+        storage_type = infer_storage_type(
+            annotation,
+            is_set=bool(getattr(attr_def, "set", False)),
+            is_json=bool(getattr(attr_def, "json", False)),
+            is_binary=bool(getattr(attr_def, "binary", False)),
+        )
+    except ValidationError as err:
+        raise ValidationError(f"unsupported attribute type for {field_name}: {err}") from err
 
     if getattr(attr_def, "json", False):
-        return "S"
+        validate_json_storage_type(storage_type, field_name=field_name)
 
-    if getattr(attr_def, "binary", False) or annotation in {bytes, bytearray}:
-        return "B"
-
-    if annotation is str:
-        return "S"
-    if annotation in {int, float, Decimal}:
-        return "N"
-    if annotation is bool:
-        return "BOOL"
-
-    origin = get_origin(annotation)
-    if origin in {dict, Mapping}:
-        return "M"
-    if origin in {list, Sequence, tuple}:
-        return "L"
-
-    # Default to string to avoid footguns in schema conversion.
-    return "S"
-
-
-def _unwrap_optional(annotation: Any) -> Any:
-    origin = get_origin(annotation)
-    if origin is not Union:
-        return annotation
-    args = get_args(annotation)
-    if not args:
-        return annotation
-    non_none = [a for a in args if a is not type(None)]  # noqa: E721
-    if len(args) == 2 and len(non_none) == 1:
-        return non_none[0]
-    return annotation
+    return storage_type

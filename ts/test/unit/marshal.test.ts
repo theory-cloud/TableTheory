@@ -41,6 +41,21 @@ assert.deepEqual(
   { S: '{"a":1,"b":2}' },
 );
 assert.deepEqual(
+  marshalScalar({ attribute: 'payload', type: 'S', json: true }, '{"a":1}'),
+  { S: '{"a":1}' },
+);
+assert.deepEqual(
+  marshalScalar(
+    { attribute: 'payload', type: 'M', json: true },
+    { b: 2, a: 1 },
+  ),
+  { M: { a: { N: '1' }, b: { N: '2' } } },
+);
+assert.deepEqual(
+  marshalScalar({ attribute: 'payload', type: 'M', json: true }, '{"a":1}'),
+  { M: { a: { N: '1' } } },
+);
+assert.deepEqual(
   marshalScalar({ attribute: 'payload', type: 'S', json: true }, null),
   {
     NULL: true,
@@ -118,6 +133,27 @@ assert.deepEqual(
     { attribute: 'payload', type: 'S', json: true },
     { S: '{"a":1,"b":2}' },
   ),
+  '{"a":1,"b":2}',
+);
+assert.deepEqual(
+  unmarshalScalar(
+    { attribute: 'payload', type: 'S', json: true },
+    { M: { a: { N: '1' } } },
+  ),
+  '{"a":1}',
+);
+assert.deepEqual(
+  unmarshalScalar(
+    { attribute: 'payload', type: 'M', json: true },
+    { M: { a: { N: '1' }, b: { N: '2' } } },
+  ),
+  { a: 1, b: 2 },
+);
+assert.deepEqual(
+  unmarshalScalar(
+    { attribute: 'payload', type: 'M', json: true },
+    { S: '{"a":1,"b":2}' },
+  ),
   { a: 1, b: 2 },
 );
 assert.equal(
@@ -182,9 +218,18 @@ assert.throws(() =>
     x: undefined,
   } as never),
 );
-assert.throws(() =>
+assert.equal(
   unmarshalScalar({ attribute: 'payload', type: 'S', json: true }, {
     S: '{',
+  } as never),
+  '{',
+);
+assert.throws(() =>
+  marshalScalar({ attribute: 'payload', type: 'M', json: true }, 'not-json'),
+);
+assert.throws(() =>
+  unmarshalScalar({ attribute: 'payload', type: 'M', json: true }, {
+    S: '"not-an-object"',
   } as never),
 );
 

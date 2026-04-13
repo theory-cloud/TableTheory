@@ -91,6 +91,32 @@ def test_filter_rejects_value_shape_errors() -> None:
         table.query("P1", filter=FilterCondition(field="note", op="between", values=("a",)))
 
 
+def test_filter_normalizes_json_document_values() -> None:
+    @dataclass(frozen=True)
+    class JsonRecord:
+        pk: str = theorydb_field(roles=["pk"])
+        sk: str = theorydb_field(roles=["sk"])
+        payload: dict[str, int] = theorydb_field(json=True, default_factory=dict)
+
+    client = FakeDynamoDBClient()
+
+    def validate(req: dict) -> None:
+        assert req["FilterExpression"] == "#f_payload = :f1"
+        assert req["ExpressionAttributeNames"]["#f_payload"] == "payload"
+        assert req["ExpressionAttributeValues"][":f1"] == {"M": {"a": {"N": "1"}}}
+
+    client.expect(
+        "query",
+        validate,
+        response={"Items": [], "LastEvaluatedKey": None},
+    )
+
+    model = ModelDefinition.from_dataclass(JsonRecord, table_name="tbl")
+    table: Table[JsonRecord] = Table(model, client=client)
+    table.query("P1", filter=FilterCondition.eq("payload", '{"a":1}'))
+    client.assert_no_pending()
+
+
 def test_scan_supports_filter_operators_and_grouping() -> None:
     client = FakeDynamoDBClient()
 

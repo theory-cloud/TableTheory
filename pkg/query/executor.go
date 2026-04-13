@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	customerrors "github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/naming"
@@ -912,6 +913,15 @@ func unmarshalItemField(item map[string]types.AttributeValue, field reflect.Stru
 		}
 	}
 
+	if fieldHasJSONTag(field) {
+		if err := fieldcodec.UnmarshalJSONFieldValue(av, dest, func() error {
+			return unmarshalAttributeValueWithConvention(av, dest, convention, true)
+		}); err != nil {
+			return fmt.Errorf("failed to unmarshal field %s: %w", field.Name, err)
+		}
+		return nil
+	}
+
 	if err := unmarshalAttributeValueWithConvention(av, dest, convention, true); err != nil {
 		return fmt.Errorf("failed to unmarshal field %s: %w", field.Name, err)
 	}
@@ -1390,6 +1400,10 @@ func fieldHasEncryptedTag(field reflect.StructField) bool {
 	}
 
 	return false
+}
+
+func fieldHasJSONTag(field reflect.StructField) bool {
+	return fieldcodec.HasJSONModifier(field.Tag.Get("theorydb"))
 }
 
 func looksLikeEncryptedEnvelope(av types.AttributeValue) bool {

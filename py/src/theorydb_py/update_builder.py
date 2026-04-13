@@ -235,7 +235,7 @@ class UpdateBuilder[T]:
                 ref, attr_def = update_name_ref(str(field_name))
                 if attr_def.encrypted:
                     raise ValidationError(f"encrypted fields cannot be used in list operations: {field_name}")
-                if attr_def.set or attr_def.json or attr_def.binary:
+                if attr_def.set or attr_def.binary or self._table._attribute_storage_type(attr_def) != "L":
                     raise ValidationError("list operations require a plain list attribute")
                 if not isinstance(values_list, list):
                     raise ValidationError("list operations require list values")
@@ -251,7 +251,7 @@ class UpdateBuilder[T]:
                 ref, attr_def = update_name_ref(str(field_name))
                 if attr_def.encrypted:
                     raise ValidationError(f"encrypted fields cannot be used in list operations: {field_name}")
-                if attr_def.set or attr_def.json or attr_def.binary:
+                if attr_def.set or attr_def.binary or self._table._attribute_storage_type(attr_def) != "L":
                     raise ValidationError("list operations require a plain list attribute")
                 if not isinstance(index, int) or index < 0:
                     raise ValidationError("list index must be a non-negative integer")
@@ -263,7 +263,7 @@ class UpdateBuilder[T]:
                 ref, attr_def = update_name_ref(str(field_name))
                 if attr_def.encrypted:
                     raise ValidationError(f"encrypted fields cannot be used in list operations: {field_name}")
-                if attr_def.set or attr_def.json or attr_def.binary:
+                if attr_def.set or attr_def.binary or self._table._attribute_storage_type(attr_def) != "L":
                     raise ValidationError("list operations require a plain list attribute")
                 if not isinstance(index, int) or index < 0:
                     raise ValidationError("list index must be a non-negative integer")

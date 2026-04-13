@@ -90,59 +90,73 @@ func (c *Converter) ToAttributeValue(value any) (types.AttributeValue, error) {
 }
 
 func (c *Converter) toAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	// Handle pointer types
-	if v.Kind() == reflect.Ptr {
+	indirect, isNull := indirectValueOrNull(v)
+	if isNull {
+		return &types.AttributeValueMemberNULL{Value: true}, nil
+	}
+
+	if av, handled, err := c.specialAttributeValue(indirect); handled {
+		return av, err
+	}
+
+	return c.attributeValueByKind(indirect, inheritedConvention, inheritNaming)
+}
+
+func indirectValueOrNull(v reflect.Value) (reflect.Value, bool) {
+	for {
+		if !v.IsValid() {
+			return reflect.Value{}, true
+		}
+
+		if v.Kind() != reflect.Ptr && v.Kind() != reflect.Interface {
+			return v, false
+		}
 		if v.IsNil() {
-			return &types.AttributeValueMemberNULL{Value: true}, nil
+			return reflect.Value{}, true
 		}
 		v = v.Elem()
 	}
+}
 
-	// Check for custom converter
+func (c *Converter) specialAttributeValue(v reflect.Value) (types.AttributeValue, bool, error) {
 	if converter, exists := c.lookupConverter(v.Type()); exists {
-		return converter.ToAttributeValue(v.Interface())
+		av, err := converter.ToAttributeValue(v.Interface())
+		return av, true, err
 	}
 
-	// Handle time.Time specially
-	if v.Type() == reflect.TypeOf(time.Time{}) {
-		t, ok := v.Interface().(time.Time)
-		if !ok {
-			return nil, fmt.Errorf("expected time.Time, got %T", v.Interface())
-		}
-		return &types.AttributeValueMemberS{Value: t.Format(time.RFC3339Nano)}, nil
+	if v.Type() != timeType {
+		return nil, false, nil
 	}
 
-	// Handle basic types
+	t, ok := v.Interface().(time.Time)
+	if !ok {
+		return nil, true, fmt.Errorf("expected time.Time, got %T", v.Interface())
+	}
+
+	return &types.AttributeValueMemberS{Value: t.Format(time.RFC3339Nano)}, true, nil
+}
+
+func (c *Converter) attributeValueByKind(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	switch v.Kind() {
 	case reflect.String:
 		return &types.AttributeValueMemberS{Value: v.String()}, nil
-
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return &types.AttributeValueMemberN{Value: strconv.FormatInt(v.Int(), 10)}, nil
-
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return &types.AttributeValueMemberN{Value: strconv.FormatUint(v.Uint(), 10)}, nil
-
 	case reflect.Float32, reflect.Float64:
 		return &types.AttributeValueMemberN{Value: strconv.FormatFloat(v.Float(), 'f', -1, 64)}, nil
-
 	case reflect.Bool:
 		return &types.AttributeValueMemberBOOL{Value: v.Bool()}, nil
-
 	case reflect.Slice:
 		if v.Type().Elem().Kind() == reflect.Uint8 {
-			// []byte -> Binary
 			return &types.AttributeValueMemberB{Value: v.Bytes()}, nil
 		}
-		// Handle other slices as lists
 		return c.sliceToListWithConvention(v, inheritedConvention, inheritNaming)
-
 	case reflect.Map:
 		return c.mapToAttributeValueMapWithConvention(v, inheritedConvention, inheritNaming)
-
 	case reflect.Struct:
 		return c.structToMapWithConvention(v, inheritedConvention, inheritNaming)
-
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedType, v.Type())
 	}
@@ -246,6 +260,10 @@ func (c *Converter) fromAttributeValueWithConvention(av types.AttributeValue, ta
 
 	target = ensureSettableConcreteTarget(target)
 
+	if target.Kind() == reflect.Interface && target.Type().NumMethod() == 0 {
+		return c.anyFromAttributeValue(av, target)
+	}
+
 	if converter, exists := c.lookupConverter(target.Type()); exists {
 		return converter.FromAttributeValue(av, target.Addr().Interface())
 	}
@@ -255,6 +273,19 @@ func (c *Converter) fromAttributeValueWithConvention(av types.AttributeValue, ta
 	}
 
 	return c.fromAttributeValueByType(av, target, inheritedConvention, inheritNaming)
+}
+
+func (c *Converter) anyFromAttributeValue(av types.AttributeValue, target reflect.Value) error {
+	value, err := attributeValueToAny(av)
+	if err != nil {
+		return err
+	}
+	if value == nil {
+		target.Set(reflect.Zero(target.Type()))
+		return nil
+	}
+	target.Set(reflect.ValueOf(value))
+	return nil
 }
 
 func ensureSettableConcreteTarget(target reflect.Value) reflect.Value {
@@ -548,6 +579,79 @@ func (c *Converter) binarySetToSlice(set [][]byte, target reflect.Value) error {
 
 	target.Set(slice)
 	return nil
+}
+
+func attributeValueToAny(av types.AttributeValue) (any, error) {
+	switch v := av.(type) {
+	case *types.AttributeValueMemberS:
+		return v.Value, nil
+	case *types.AttributeValueMemberN:
+		return parseNumberToAny(v.Value)
+	case *types.AttributeValueMemberBOOL:
+		return v.Value, nil
+	case *types.AttributeValueMemberNULL:
+		return nil, nil
+	case *types.AttributeValueMemberL:
+		return attributeValueListToAny(v.Value)
+	case *types.AttributeValueMemberM:
+		return attributeValueMapToAny(v.Value)
+	case *types.AttributeValueMemberSS:
+		return v.Value, nil
+	case *types.AttributeValueMemberNS:
+		return attributeValueNumberSetToFloat64(v.Value)
+	case *types.AttributeValueMemberBS:
+		return v.Value, nil
+	case *types.AttributeValueMemberB:
+		return v.Value, nil
+	default:
+		return nil, fmt.Errorf("unsupported AttributeValue type: %T", av)
+	}
+}
+
+func parseNumberToAny(value string) (any, error) {
+	if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return intVal, nil
+	}
+	if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+		return floatVal, nil
+	}
+	return nil, fmt.Errorf("invalid number: %s", value)
+}
+
+func attributeValueListToAny(values []types.AttributeValue) ([]any, error) {
+	out := make([]any, len(values))
+	for i, value := range values {
+		converted, err := attributeValueToAny(value)
+		if err != nil {
+			return nil, fmt.Errorf("index %d: %w", i, err)
+		}
+		out[i] = converted
+	}
+	return out, nil
+}
+
+func attributeValueMapToAny(values map[string]types.AttributeValue) (map[string]any, error) {
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		converted, err := attributeValueToAny(value)
+		if err != nil {
+			return nil, fmt.Errorf("key %s: %w", key, err)
+		}
+		out[key] = converted
+	}
+	return out, nil
+}
+
+func attributeValueNumberSetToFloat64(values []string) ([]float64, error) {
+	out := make([]float64, len(values))
+	for i, value := range values {
+		converted, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return nil, fmt.Errorf("index %d: %w", i, err)
+		}
+		out[i] = converted
+	}
+	return out, nil
 }
 
 // ConvertToSet determines if a slice should be converted to a DynamoDB set

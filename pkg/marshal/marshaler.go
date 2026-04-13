@@ -12,6 +12,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/expr"
+	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/pkg/model"
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
@@ -243,6 +245,12 @@ func (m *Marshaler) buildStructMarshaler(typ reflect.Type, metadata *model.Metad
 			isTTL:       fieldMeta.IsTTL,
 		}
 
+		if fieldcodec.HasJSONTag(fieldMeta.Tags) {
+			fm.marshalFunc = m.buildJSONMarshalFunc(field.Type, fieldMeta)
+			sm.fields = append(sm.fields, fm)
+			continue
+		}
+
 		// Prefer registered custom converters when available so callers can
 		// override marshaling behavior for specific types.
 		if m.hasCustomConverter(field.Type) {
@@ -291,6 +299,23 @@ func (m *Marshaler) buildPointerMarshalFunc(typ reflect.Type, fieldMeta *model.F
 			return &types.AttributeValueMemberNULL{Value: true}, nil
 		}
 		return elemFunc(p)
+	}
+}
+
+func (m *Marshaler) buildJSONMarshalFunc(typ reflect.Type, fieldMeta *model.FieldMetadata) func(unsafe.Pointer) (types.AttributeValue, error) {
+	return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
+		v := reflect.NewAt(typ, ptr).Elem()
+
+		if fieldMeta.OmitEmpty && v.IsZero() {
+			return &types.AttributeValueMemberNULL{Value: true}, nil
+		}
+
+		normalized, err := fieldcodec.NormalizeJSONReflectValue(typ, v)
+		if err != nil {
+			return nil, err
+		}
+
+		return expr.ConvertToAttributeValue(normalized)
 	}
 }
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -12,6 +11,7 @@ import boto3
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 
+from .attr_types import decode_json_field_from_storage, normalize_json_field_for_storage
 from .aws_errors import map_client_error as _map_client_error
 from .aws_errors import map_transaction_error as _map_transaction_error
 from .errors import (
@@ -120,6 +120,17 @@ class Table[T]:
                     "model has encrypted fields but kms_key_arn is not configured"
                 )
             self._kms_client = self._kms_client or boto3.client("kms")
+
+    def _attribute_storage_type(self, attr_def: AttributeDefinition) -> str:
+        if attr_def.storage_type is not None:
+            return attr_def.storage_type
+        if attr_def.json:
+            return "S"
+        if attr_def.binary:
+            return "B"
+        if attr_def.set:
+            return "SS"
+        return "S"
 
     def query(
         self,
@@ -962,7 +973,11 @@ class Table[T]:
             return self._serializer.serialize(None)
 
         if attr_def.json and value is not None:
-            value = json.dumps(value, separators=(",", ":"), sort_keys=True)
+            value = normalize_json_field_for_storage(
+                value,
+                storage_type=self._attribute_storage_type(attr_def),
+                field_name=attr_def.attribute_name,
+            )
 
         av = self._serializer.serialize(value)
 
@@ -1049,8 +1064,12 @@ class Table[T]:
                 raw = self._deserializer.deserialize(cast(Any, decrypted_av))
             else:
                 raw = self._deserializer.deserialize(item[attr_def.attribute_name])
-            if attr_def.json and isinstance(raw, str):
-                raw = json.loads(raw)
+            if attr_def.json:
+                raw = decode_json_field_from_storage(
+                    raw,
+                    storage_type=self._attribute_storage_type(attr_def),
+                    field_name=attr_def.attribute_name,
+                )
             if attr_def.converter is not None and raw is not None:
                 raw = attr_def.converter.from_dynamodb(raw)
 

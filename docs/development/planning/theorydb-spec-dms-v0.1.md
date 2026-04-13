@@ -112,9 +112,12 @@ Every `attributes[]` entry supports:
   - `rfc3339nano` (timestamps)
   - `unix_seconds` (TTL)
   - `int` (version)
-- `json` (bool, default false): store a JSON-compatible value as a DynamoDB `S` JSON blob.
-  - Requires `type: "S"`.
-  - Serialization MUST be deterministic (no insignificant whitespace; object keys sorted recursively).
+- `json` (bool, default false): mark the attribute as carrying a JSON-compatible value.
+  - Supported storage types are `S`, `N`, `BOOL`, `NULL`, `L`, and `M`.
+  - `type: "S"` is the string-carrier form: values are stored as raw JSON text.
+  - `type: "N"`, `BOOL`, `NULL`, `L`, and `M` use native DynamoDB scalar/document storage.
+  - Readers MUST accept both native DynamoDB values and legacy `S` JSON strings for compatibility.
+  - String-carrier serialization MUST be deterministic (no insignificant whitespace; object keys sorted recursively).
   - `null` values MUST be stored as DynamoDB `NULL` (not as the string `"null"`).
 - `binary` (bool, default false): indicates the attribute is treated as a binary blob.
   - Requires `type: "B"`.
