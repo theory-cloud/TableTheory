@@ -83,6 +83,7 @@ Thumbs.db
 
 # Cursor AI specific
 .cursor/
+.codex/
 
 # Project specific
 /docs/development/notes/
