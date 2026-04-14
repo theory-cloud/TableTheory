@@ -2,10 +2,8 @@
 
 This guide documents canonical usage patterns for the **Go** TableTheory SDK, designed to be copy-pasted into your application.
 
-Multi-language core patterns:
-
-- TypeScript: [ts/docs/core-patterns.md](../ts/docs/core-patterns.md)
-- Python: [py/docs/core-patterns.md](../py/docs/core-patterns.md)
+TypeScript and Python ship their own runtime-specific core-pattern guides as sibling package surfaces in the shared
+TheoryCloud TableTheory subtree. This page is the Go patterns guide.
 
 ## Lambda Optimization
 

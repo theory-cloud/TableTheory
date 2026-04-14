@@ -4,10 +4,8 @@
 
 **This document provides the official technical specification for the public **Go** TableTheory interfaces, functions, and types.**
 
-Multi-language API references:
-
-- TypeScript: [TypeScript API Reference](../ts/docs/api-reference.md)
-- Python: [Python API Reference](../py/docs/api-reference.md)
+TypeScript and Python ship their own runtime-specific API references as sibling package surfaces in the shared
+TheoryCloud TableTheory subtree. This page is the Go API reference.
 
 ## Table of Contents
 

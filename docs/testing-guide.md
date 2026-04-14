@@ -5,8 +5,8 @@ This guide explains how to write unit and integration tests for applications usi
 ## Quick Links (by SDK)
 
 - Go: this document (mocks in `pkg/mocks`)
-- TypeScript: [TypeScript Testing Guide](../ts/docs/testing-guide.md)
-- Python: [Python Testing Guide](../py/docs/testing-guide.md)
+- TypeScript: runtime-specific testing guide is staged alongside this document in the shared TableTheory subtree
+- Python: runtime-specific testing guide is staged alongside this document in the shared TableTheory subtree
 
 ## Unit Testing with Mocks
 

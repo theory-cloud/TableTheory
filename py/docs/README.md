@@ -11,7 +11,6 @@
 ### 📚 Core Documentation
 - [API Reference](./api-reference.md) – Public API (`ModelDefinition`, `Table`, query, batch, transactions, encryption, streams)
 - [Core Patterns](./core-patterns.md) – Canonical recipes (CRUD, pagination, batch, transactions, streams, encryption)
-- [Development Guidelines](./development-guidelines.md) – Python 3.14, mypy/ruff, formatting and typing conventions
 - [Testing Guide](./testing-guide.md) – Unit tests with strict fakes, integration tests with DynamoDB Local
 - [Troubleshooting](./troubleshooting.md) – Verified fixes for common runtime and configuration errors
 - [Migration Guide](./migration-guide.md) – Migrating from raw boto3 DynamoDB usage
@@ -41,6 +40,8 @@
 5. **Machine Parsable** – the YAML triad stays in sync with the code and tests.
 
 ## Contributing
-- Follow the conventions in [Pay Theory Documentation Guide](../../docs/PAY_THEORY_DOCUMENTATION_GUIDE.md).
+- Package maintainer guidance lives in repo-local `py/docs/development-guidelines.md` and is intentionally excluded
+  from the TheoryCloud user-facing surface.
+- Follow the repo-local maintainer standards in `docs/PAY_THEORY_DOCUMENTATION_GUIDE.md`.
 - Update `_concepts.yaml`, `_patterns.yaml`, and `_decisions.yaml` when behavior changes.
 - Keep examples aligned with `py/examples/` and contract tests.
