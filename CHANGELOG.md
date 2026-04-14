@@ -12,6 +12,18 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 
+## [1.5.4](https://github.com/theory-cloud/TableTheory/compare/v1.5.3...v1.5.4) (2026-04-13)
+
+
+### Bug Fixes
+
+* align multilang json field semantics ([4eb0a3b](https://github.com/theory-cloud/TableTheory/commit/4eb0a3bf89a8f12789806d4d1dbea4a6acd515a0))
+* clear rubric failures locally ([2c39a7b](https://github.com/theory-cloud/TableTheory/commit/2c39a7bccbd70b6b8ffc0ee74328442f8eb0cc17))
+* complete theorydb json field semantics ([93f36a1](https://github.com/theory-cloud/TableTheory/commit/93f36a179d5b36fc3d1f0c31fe69da0426fe5367))
+* remove unreachable json null branch return ([245429b](https://github.com/theory-cloud/TableTheory/commit/245429b8bdc9c3fb307253d44529a53cd1cc683c))
+* remove unreachable json null branch return ([aa7902b](https://github.com/theory-cloud/TableTheory/commit/aa7902bfeb560a967408fe038193f8a7e77b5989))
+* support map[string]any model round-trips ([9723c62](https://github.com/theory-cloud/TableTheory/commit/9723c628a0539133c7893a71b802d153fa0f37fd))
+
 ## [1.5.3](https://github.com/theory-cloud/TableTheory/compare/v1.5.2...v1.5.3) (2026-04-09)
 
 
