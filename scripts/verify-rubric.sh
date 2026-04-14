@@ -20,6 +20,7 @@ fi
 export PATH="${GO_BIN_DIR}:${PATH}"
 
 bash hgm-infra/verifiers/hgm-verify-rubric.sh
+bash ./scripts/verify-theorycloud-tabletheory-subtree.sh
 
 # Preserve legacy success line for scripts that grep for it.
 echo "rubric: PASS"
