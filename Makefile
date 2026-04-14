@@ -1,11 +1,13 @@
 # TableTheory Makefile
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory
 TOOLCHAIN := $(shell awk '/^toolchain / {print $$2}' go.mod | head -n 1)
 export GOTOOLCHAIN ?= $(TOOLCHAIN)
+GO_BIN_DIR := $(or $(shell go env GOBIN),$(shell go env GOPATH)/bin)
+GOLANGCI_LINT := $(GO_BIN_DIR)/golangci-lint
 UNIT_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress | grep -v /tests/integration)
 ALL_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress)
 INTEGRATION_PACKAGES := $(shell go list ./tests/integration/...)
@@ -78,7 +80,7 @@ fmt-check:
 # Run linters
 lint:
 	@echo "Running linters..."
-	@golangci-lint run --timeout=5m --config .golangci-v2.yml ./...
+	@"$(GOLANGCI_LINT)" run --timeout=5m --config .golangci-v2.yml ./...
 
 # Clean build artifacts
 clean:
@@ -155,8 +157,8 @@ docker-clean:
 # Install development dependencies
 install-tools:
 	@echo "Installing development tools..."
-	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
-	@go install github.com/golang/mock/mockgen@latest
+	@GOBIN="$(GO_BIN_DIR)" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+	@GOBIN="$(GO_BIN_DIR)" go install github.com/golang/mock/mockgen@latest
 
 # Generate mocks
 generate:
@@ -184,6 +186,18 @@ sec:
 
 rubric:
 	@./scripts/verify-rubric.sh
+
+stage-theorycloud-tabletheory-subtree:
+	@bash ./scripts/stage_theorycloud_tabletheory_subtree.sh --output "$${THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR:-/tmp/theorycloud-tabletheory-source}"
+
+verify-theorycloud-tabletheory-subtree:
+	@bash ./scripts/verify-theorycloud-tabletheory-subtree.sh "$${THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR:-/tmp/theorycloud-tabletheory-source}"
+
+sync-theorycloud-tabletheory-subtree:
+	@bash ./scripts/sync_theorycloud_tabletheory_subtree.sh --output "$${THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR:-/tmp/theorycloud-tabletheory-source}"
+
+trigger-theorycloud-publish:
+	@bash ./scripts/trigger_theorycloud_publish.sh
 
 # Show test coverage in browser
 coverage: test
@@ -240,6 +254,10 @@ help:
 	@echo "  make verify-planning-docs - Verify planning docs exist"
 	@echo "  make sec         - Run security gates (gosec + govulncheck + go mod verify)"
 	@echo "  make rubric      - Run full rubric gate set"
+	@echo "  make stage-theorycloud-tabletheory-subtree - Stage the theorycloud/tabletheory subtree locally"
+	@echo "  make verify-theorycloud-tabletheory-subtree - Verify the staged theorycloud/tabletheory subtree"
+	@echo "  make sync-theorycloud-tabletheory-subtree - Sync the staged theorycloud/tabletheory subtree to the configured stage prefix"
+	@echo "  make trigger-theorycloud-publish - Trigger the shared theorycloud publish endpoint for the configured stage"
 	@echo ""
 	@echo "Docker/DynamoDB:"
 	@echo "  make docker-up   - Start DynamoDB Local"

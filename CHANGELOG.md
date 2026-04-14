@@ -7,6 +7,65 @@
 * add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
 * add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage
 
+### Bug Fixes
+
+* add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
+* align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
+
+## [1.5.4](https://github.com/theory-cloud/TableTheory/compare/v1.5.3...v1.5.4) (2026-04-13)
+
+
+### Bug Fixes
+
+* align multilang json field semantics ([4eb0a3b](https://github.com/theory-cloud/TableTheory/commit/4eb0a3bf89a8f12789806d4d1dbea4a6acd515a0))
+* clear rubric failures locally ([2c39a7b](https://github.com/theory-cloud/TableTheory/commit/2c39a7bccbd70b6b8ffc0ee74328442f8eb0cc17))
+* complete theorydb json field semantics ([93f36a1](https://github.com/theory-cloud/TableTheory/commit/93f36a179d5b36fc3d1f0c31fe69da0426fe5367))
+* remove unreachable json null branch return ([245429b](https://github.com/theory-cloud/TableTheory/commit/245429b8bdc9c3fb307253d44529a53cd1cc683c))
+* remove unreachable json null branch return ([aa7902b](https://github.com/theory-cloud/TableTheory/commit/aa7902bfeb560a967408fe038193f8a7e77b5989))
+* support map[string]any model round-trips ([9723c62](https://github.com/theory-cloud/TableTheory/commit/9723c628a0539133c7893a71b802d153fa0f37fd))
+
+## [1.5.3](https://github.com/theory-cloud/TableTheory/compare/v1.5.2...v1.5.3) (2026-04-09)
+
+
+### Bug Fixes
+
+* address dependabot alerts 52-55 and pin Go 1.26.2 ([37e0fcb](https://github.com/theory-cloud/TableTheory/commit/37e0fcb982bd6dbf4d996d690b269daa067e4d2e))
+
+## [1.5.2](https://github.com/theory-cloud/TableTheory/compare/v1.5.1...v1.5.2) (2026-04-03)
+
+
+### Bug Fixes
+
+* add first-class DynamORM naming support ([4ef6e22](https://github.com/theory-cloud/TableTheory/commit/4ef6e225941a93c34aa51f35c0418c8ac51c0499))
+* address nested naming review feedback ([2cccc21](https://github.com/theory-cloud/TableTheory/commit/2cccc2194943049f460b540b603db7d9ac6c26e0))
+* bump example cryptography dependency ([452c78f](https://github.com/theory-cloud/TableTheory/commit/452c78f03cdff5cbb2c9ca18b68ead69239fe53a))
+* camel case nested dynamorm attributes ([4b24fe3](https://github.com/theory-cloud/TableTheory/commit/4b24fe3c0b016b55edcdd1444fad3b9eb57c6241))
+* clear rubric lint regressions ([f40bb1f](https://github.com/theory-cloud/TableTheory/commit/f40bb1f923320cd03556a6ca7add6f6fe3b526d3))
+* resolve rubric failures on dynamorm branch ([d2dd8e1](https://github.com/theory-cloud/TableTheory/commit/d2dd8e1da14a7d29eb88a1c53f3bc3eb2591bd9d))
+* resolve security alerts in examples ([d986a2f](https://github.com/theory-cloud/TableTheory/commit/d986a2f07aace9a5e8262a3c8a039885885fc6a6))
+
+## [1.5.1](https://github.com/theory-cloud/TableTheory/compare/v1.5.0...v1.5.1) (2026-03-28)
+
+
+### Bug Fixes
+
+* **ci:** unblock dependency scan gates ([addb0e4](https://github.com/theory-cloud/TableTheory/commit/addb0e46088cd066440fff3ddc12747304749896))
+* remediate dependabot dependency alerts ([b9fce7b](https://github.com/theory-cloud/TableTheory/commit/b9fce7ba34b4a0b9a39405bc4020eb678637d9a7))
+* remediate dependabot dependency alerts ([9a3dbcb](https://github.com/theory-cloud/TableTheory/commit/9a3dbcb3ec159568d12ea74aed6472d480767f5e))
+
+## [1.5.0](https://github.com/theory-cloud/TableTheory/compare/v1.4.2...v1.5.0) (2026-03-23)
+
+
+### Features
+
+* add TTL archival lifecycle support ([0f1b88d](https://github.com/theory-cloud/TableTheory/commit/0f1b88d7012ea3436964328a73978ff680137f94))
+* add TTL archival lifecycle support ([22ffedc](https://github.com/theory-cloud/TableTheory/commit/22ffedcfccff7f4732eaad50473a89bcffd7815e))
+
+
+### Bug Fixes
+
+* remediate rubric dependency scan failures ([0c6b9ee](https://github.com/theory-cloud/TableTheory/commit/0c6b9eec7d38719af075bb09a7908d0a97556ee8))
+
 ## [1.5.0-rc](https://github.com/theory-cloud/TableTheory/compare/v1.4.2...v1.5.0-rc) (2026-03-23)
 
 

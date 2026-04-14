@@ -97,6 +97,41 @@ import {
   const mock = createMockDynamoDBClient();
 
   mock.when(UpdateItemCommand, async (cmd) => {
+    assert.equal(cmd.input.UpdateExpression, 'SET #u1 = :u1, #u2 = :u2');
+    assert.deepEqual(cmd.input.ExpressionAttributeNames, {
+      '#u1': 'payload',
+      '#u2': 'response',
+    });
+    assert.deepEqual(cmd.input.ExpressionAttributeValues, {
+      ':u1': { M: { a: { N: '1' } } },
+      ':u2': { S: '{"ok":true}' },
+    } satisfies Record<string, AttributeValue>);
+    return { $metadata: {} };
+  });
+
+  const model = defineModel({
+    name: 'J',
+    table: { name: 't' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'payload', type: 'M', json: true, optional: true },
+      { attribute: 'response', type: 'S', json: true, optional: true },
+    ],
+  });
+
+  const client = new TheorydbClient(mock.client).register(model);
+  await client
+    .updateBuilder('J', { PK: 'A' })
+    .set('payload', '{"a":1}')
+    .set('response', '{"ok":true}')
+    .execute();
+}
+
+{
+  const mock = createMockDynamoDBClient();
+
+  mock.when(UpdateItemCommand, async (cmd) => {
     assert.equal(cmd.input.UpdateExpression, 'SET #u1[0] = :u1');
     assert.deepEqual(cmd.input.ExpressionAttributeNames, { '#u1': 'items' });
     assert.deepEqual(cmd.input.ExpressionAttributeValues, {

@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/expr"
+	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/pkg/model"
+	"github.com/theory-cloud/tabletheory/pkg/naming"
 	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
 )
 
@@ -32,15 +36,18 @@ type safeStructMarshaler struct {
 
 // safeFieldMarshaler contains cached information for marshaling a struct field
 type safeFieldMarshaler struct {
-	typ         reflect.Type
-	dbName      string
-	fieldIndex  []int
-	omitEmpty   bool
-	isSet       bool
-	isCreatedAt bool
-	isUpdatedAt bool
-	isVersion   bool
-	isTTL       bool
+	typ              reflect.Type
+	dbName           string
+	fieldIndex       []int
+	namingConvention naming.Convention
+	omitEmpty        bool
+	inheritNaming    bool
+	isJSON           bool
+	isSet            bool
+	isCreatedAt      bool
+	isUpdatedAt      bool
+	isVersion        bool
+	isTTL            bool
 }
 
 // NewSafeMarshaler creates a new safe marshaler (recommended for production)
@@ -165,15 +172,18 @@ func (m *SafeMarshaler) buildSafeStructMarshaler(typ reflect.Type, metadata *mod
 		}
 
 		fm := safeFieldMarshaler{
-			fieldIndex:  fieldMeta.IndexPath,
-			dbName:      fieldMeta.DBName,
-			typ:         field.Type,
-			omitEmpty:   fieldMeta.OmitEmpty,
-			isSet:       fieldMeta.IsSet,
-			isCreatedAt: fieldMeta.IsCreatedAt,
-			isUpdatedAt: fieldMeta.IsUpdatedAt,
-			isVersion:   fieldMeta.IsVersion,
-			isTTL:       fieldMeta.IsTTL,
+			fieldIndex:       fieldMeta.IndexPath,
+			dbName:           fieldMeta.DBName,
+			typ:              field.Type,
+			namingConvention: metadata.NamingConvention,
+			omitEmpty:        fieldMeta.OmitEmpty,
+			inheritNaming:    true,
+			isJSON:           fieldcodec.HasJSONTag(fieldMeta.Tags),
+			isSet:            fieldMeta.IsSet,
+			isCreatedAt:      fieldMeta.IsCreatedAt,
+			isUpdatedAt:      fieldMeta.IsUpdatedAt,
+			isVersion:        fieldMeta.IsVersion,
+			isTTL:            fieldMeta.IsTTL,
 		}
 
 		sm.fields = append(sm.fields, fm)
@@ -192,6 +202,14 @@ func (m *SafeMarshaler) marshalValue(v reflect.Value, fieldMeta *safeFieldMarsha
 
 	if fieldMeta.omitEmpty && v.IsZero() {
 		return &types.AttributeValueMemberNULL{Value: true}, nil
+	}
+
+	if fieldMeta != nil && fieldMeta.isJSON {
+		normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldMeta.typ, v)
+		if err != nil {
+			return nil, err
+		}
+		return expr.ConvertToAttributeValue(normalized)
 	}
 
 	if av, ok, err := m.marshalTimeValue(v, fieldMeta); ok {
@@ -262,7 +280,7 @@ func (m *SafeMarshaler) marshalValueByKind(v reflect.Value, fieldMeta *safeField
 	case reflect.Slice:
 		return m.marshalSliceValue(v, fieldMeta)
 	case reflect.Map:
-		return m.marshalMapValue(v)
+		return m.marshalMapValue(v, fieldMeta)
 	case reflect.Interface:
 		return m.marshalInterfaceValue(v, fieldMeta)
 	default:
@@ -282,7 +300,7 @@ func (m *SafeMarshaler) marshalStructValue(v reflect.Value, fieldMeta *safeField
 		return &types.AttributeValueMemberS{Value: t.Format(time.RFC3339Nano)}, nil
 	}
 
-	return m.marshalStruct(v)
+	return m.marshalStruct(v, fieldMeta)
 }
 
 func (m *SafeMarshaler) marshalSliceValue(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
@@ -301,14 +319,14 @@ func (m *SafeMarshaler) marshalSliceValue(v reflect.Value, fieldMeta *safeFieldM
 		return &types.AttributeValueMemberSS{Value: values}, nil
 	}
 
-	return m.marshalSlice(v)
+	return m.marshalSlice(v, fieldMeta)
 }
 
-func (m *SafeMarshaler) marshalMapValue(v reflect.Value) (types.AttributeValue, error) {
+func (m *SafeMarshaler) marshalMapValue(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	if v.IsNil() {
 		return &types.AttributeValueMemberNULL{Value: true}, nil
 	}
-	return m.marshalMap(v)
+	return m.marshalMap(v, fieldMeta)
 }
 
 func (m *SafeMarshaler) marshalInterfaceValue(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
@@ -319,10 +337,11 @@ func (m *SafeMarshaler) marshalInterfaceValue(v reflect.Value, fieldMeta *safeFi
 }
 
 // marshalSlice safely marshals a slice
-func (m *SafeMarshaler) marshalSlice(v reflect.Value) (types.AttributeValue, error) {
+func (m *SafeMarshaler) marshalSlice(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	list := make([]types.AttributeValue, v.Len())
+	childMeta := nestedFieldContext(fieldMeta)
 	for i := 0; i < v.Len(); i++ {
-		elem, err := m.marshalValue(v.Index(i), &safeFieldMarshaler{})
+		elem, err := m.marshalValue(v.Index(i), &childMeta)
 		if err != nil {
 			return nil, fmt.Errorf("slice index %d: %w", i, err)
 		}
@@ -332,11 +351,12 @@ func (m *SafeMarshaler) marshalSlice(v reflect.Value) (types.AttributeValue, err
 }
 
 // marshalMap safely marshals a map
-func (m *SafeMarshaler) marshalMap(v reflect.Value) (types.AttributeValue, error) {
+func (m *SafeMarshaler) marshalMap(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	avMap := make(map[string]types.AttributeValue, v.Len())
+	childMeta := nestedFieldContext(fieldMeta)
 	for _, key := range v.MapKeys() {
 		keyStr := fmt.Sprintf("%v", key.Interface())
-		val, err := m.marshalValue(v.MapIndex(key), &safeFieldMarshaler{})
+		val, err := m.marshalValue(v.MapIndex(key), &childMeta)
 		if err != nil {
 			return nil, fmt.Errorf("map key %s: %w", keyStr, err)
 		}
@@ -346,9 +366,14 @@ func (m *SafeMarshaler) marshalMap(v reflect.Value) (types.AttributeValue, error
 }
 
 // marshalStruct safely marshals a struct as a map
-func (m *SafeMarshaler) marshalStruct(v reflect.Value) (types.AttributeValue, error) {
+func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	structMap := make(map[string]types.AttributeValue)
 	typ := v.Type()
+	convention := resolveNestedNamingConvention(typ, fieldMeta)
+	childMeta := safeFieldMarshaler{
+		namingConvention: convention,
+		inheritNaming:    true,
+	}
 
 	for i := 0; i < v.NumField(); i++ {
 		field := typ.Field(i)
@@ -363,12 +388,96 @@ func (m *SafeMarshaler) marshalStruct(v reflect.Value) (types.AttributeValue, er
 			continue
 		}
 
-		av, err := m.marshalValue(fieldValue, &safeFieldMarshaler{})
+		av, err := m.marshalValue(fieldValue, &childMeta)
 		if err != nil {
 			return nil, fmt.Errorf("struct field %s: %w", field.Name, err)
 		}
 
-		structMap[field.Name] = av
+		attrName, skip := resolveNestedFieldName(field, convention)
+		if skip {
+			continue
+		}
+
+		structMap[attrName] = av
 	}
 	return &types.AttributeValueMemberM{Value: structMap}, nil
+}
+
+func nestedFieldContext(fieldMeta *safeFieldMarshaler) safeFieldMarshaler {
+	if fieldMeta == nil {
+		return safeFieldMarshaler{}
+	}
+
+	return safeFieldMarshaler{
+		namingConvention: fieldMeta.namingConvention,
+		inheritNaming:    fieldMeta.inheritNaming,
+	}
+}
+
+func resolveNestedNamingConvention(typ reflect.Type, fieldMeta *safeFieldMarshaler) naming.Convention {
+	if convention, ok := explicitNestedNamingConvention(typ); ok {
+		return convention
+	}
+
+	if fieldMeta != nil && fieldMeta.inheritNaming {
+		return fieldMeta.namingConvention
+	}
+
+	return naming.CamelCase
+}
+
+func explicitNestedNamingConvention(typ reflect.Type) (naming.Convention, bool) {
+	for i := 0; i < typ.NumField(); i++ {
+		tag := typ.Field(i).Tag.Get("theorydb")
+		if tag == "" {
+			continue
+		}
+
+		parts := strings.Split(tag, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if !strings.HasPrefix(part, "naming:") {
+				continue
+			}
+
+			switch strings.TrimPrefix(part, "naming:") {
+			case "snake_case":
+				return naming.SnakeCase, true
+			case "camel_case", "camelCase":
+				return naming.CamelCase, true
+			case "pascal_case", "pascalCase":
+				return naming.PascalCase, true
+			case "dynamorm", "legacy_dynamorm", "legacyDynamORM":
+				return naming.DynamORM, true
+			}
+		}
+	}
+
+	return naming.CamelCase, false
+}
+
+func resolveNestedFieldName(field reflect.StructField, convention naming.Convention) (string, bool) {
+	theorydbTag := field.Tag.Get("theorydb")
+	jsonTag := field.Tag.Get("json")
+	if theorydbTag == "-" || jsonTag == "-" {
+		return "", true
+	}
+
+	if theorydbTag != "" {
+		return naming.ResolveAttrNameWithConvention(field, convention)
+	}
+
+	if jsonTag != "" {
+		return safeJSONTagName(jsonTag), false
+	}
+
+	return naming.ConvertAttrName(field.Name, convention), false
+}
+
+func safeJSONTagName(tag string) string {
+	commaIdx := strings.IndexByte(tag, ',')
+	if commaIdx > 0 {
+		return tag[:commaIdx]
+	}
+	return tag
 }

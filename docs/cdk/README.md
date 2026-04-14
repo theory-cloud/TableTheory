@@ -76,8 +76,8 @@ type IdempotencyRecord struct {
     
     // Request/Response data
     RequestHash  string    `json:"request_hash"`
-    RequestBody  string    `theorydb:"json" json:"request_body"` // Stored as JSON
-    Response     string    `theorydb:"json" json:"response"`     // Can be up to 400KB
+    RequestBody  string    `theorydb:"json" json:"request_body"` // Stored as raw JSON text
+    Response     string    `theorydb:"json" json:"response"`     // String-backed JSON text, up to 400KB
     StatusCode   int       `json:"status_code"`
     
     // State management
@@ -110,8 +110,10 @@ const (
 - **Single Item per Key**: Using constant SK ensures one record per idempotency key
 - **Status Tracking**: Track request lifecycle (pending → processing → completed/failed)
 - **Lock Mechanism**: Prevent concurrent processing of same idempotency key
-- **Large Response Support**: Using `theorydb:"json"` tag for responses up to 400KB
+- **Large Response Support**: Using string-backed `theorydb:"json"` fields for large JSON payloads up to 400KB
 - **Multiple Query Patterns**: GSIs for function name, tenant, status, and timestamp queries
+
+`theorydb:"json"` stores structured fields as native DynamoDB JSON-compatible values and keeps string fields text-backed. This example uses `string` fields intentionally so the request and response bodies remain raw JSON text.
 
 ## 2. TableTheory Table Configuration
 

@@ -27,11 +27,12 @@ type User struct {
 
 By default, TableTheory uses your field name (or the configured naming convention) as the DynamoDB attribute name.
 
-TableTheory supports three attribute naming conventions:
+TableTheory supports four attribute naming conventions:
 
 - `camelCase` (default)
 - `snake_case` (opt-in)
 - `pascalCase` (opt-in; useful for legacy tables that use `ID`, `SK`, `GSI1PK`, etc)
+- `dynamorm` (opt-in; preserves legacy DynamORM semantics where primary keys are `PK`/`SK` and other fields are camelCase)
 
 To select a convention for a model, add a marker field (commonly a blank identifier) with a `naming:` tag:
 
@@ -41,6 +42,14 @@ type LegacyUser struct {
 
 	ID string `theorydb:"pk"`
 	SK string `theorydb:"sk"`
+}
+
+type LegacyDynamORMUser struct {
+	_ struct{} `theorydb:"naming:dynamorm"`
+
+	UserID    string `theorydb:"pk"`
+	Entity    string `theorydb:"sk"`
+	FirstName string
 }
 ```
 
@@ -185,6 +194,8 @@ type User struct {
 
 ## Next references
 
-- `docs/development-guidelines.md` (coding standards and tag expectations)
+- [Documentation Index](./README.md)
 - `docs/core-patterns.md` (canonical usage patterns)
 - `docs/api-reference.md` (full API surface)
+- Repo-local coding standards live in `docs/development-guidelines.md` and are intentionally excluded from the
+  TheoryCloud user-facing surface.

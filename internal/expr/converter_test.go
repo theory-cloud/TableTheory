@@ -220,6 +220,88 @@ func TestConvertFromAttributeValue_Struct(t *testing.T) {
 	assert.Equal(t, now, result.CreatedAt)
 }
 
+func TestConvertToAndFromAttributeValue_DefaultNestedStructUsesCamelCase(t *testing.T) {
+	type address struct {
+		PostalCode  string
+		CountryCode string
+	}
+
+	type profile struct {
+		DisplayName    string
+		MailingAddress address
+	}
+
+	av, err := ConvertToAttributeValue(profile{
+		DisplayName: "Ada Lovelace",
+		MailingAddress: address{
+			PostalCode:  "10001",
+			CountryCode: "US",
+		},
+	})
+	require.NoError(t, err)
+
+	profileAV, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, profileAV.Value, "displayName")
+	require.Contains(t, profileAV.Value, "mailingAddress")
+	require.NotContains(t, profileAV.Value, "DisplayName")
+	require.NotContains(t, profileAV.Value, "MailingAddress")
+
+	addressAV, ok := profileAV.Value["mailingAddress"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, addressAV.Value, "postalCode")
+	require.Contains(t, addressAV.Value, "countryCode")
+	require.NotContains(t, addressAV.Value, "PostalCode")
+	require.NotContains(t, addressAV.Value, "CountryCode")
+
+	var out profile
+	require.NoError(t, ConvertFromAttributeValue(av, &out))
+	require.Equal(t, "Ada Lovelace", out.DisplayName)
+	require.Equal(t, "10001", out.MailingAddress.PostalCode)
+	require.Equal(t, "US", out.MailingAddress.CountryCode)
+}
+
+func TestConvertToAndFromAttributeValue_NestedStructInheritsActiveConvention(t *testing.T) {
+	type nested struct {
+		MerchantTaxIDSecID string
+		IdentityID         string
+		DID                string
+		TPPID              string
+	}
+
+	type record struct {
+		_      struct{} `theorydb:"naming:snake_case"`
+		Nested nested
+	}
+
+	av, err := ConvertToAttributeValue(record{
+		Nested: nested{
+			MerchantTaxIDSecID: "tax-1",
+			IdentityID:         "identity-1",
+			DID:                "did-1",
+			TPPID:              "tpp-1",
+		},
+	})
+	require.NoError(t, err)
+
+	recordAV, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	nestedAV, ok := recordAV.Value["nested"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, nestedAV.Value, "merchant_tax_id_sec_id")
+	require.Contains(t, nestedAV.Value, "identity_id")
+	require.Contains(t, nestedAV.Value, "did")
+	require.Contains(t, nestedAV.Value, "tppid")
+	require.NotContains(t, nestedAV.Value, "merchantTaxIDSecID")
+
+	var out record
+	require.NoError(t, ConvertFromAttributeValue(av, &out))
+	require.Equal(t, "tax-1", out.Nested.MerchantTaxIDSecID)
+	require.Equal(t, "identity-1", out.Nested.IdentityID)
+	require.Equal(t, "did-1", out.Nested.DID)
+	require.Equal(t, "tpp-1", out.Nested.TPPID)
+}
+
 func TestConvertFromAttributeValue_NullHandling(t *testing.T) {
 	type NullableStruct struct {
 		StringPtr *string

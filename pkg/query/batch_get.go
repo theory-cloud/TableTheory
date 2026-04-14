@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/internal/expr"
+	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/pkg/core"
 )
 
@@ -675,6 +676,15 @@ func (q *Query) unmarshalItemWithMetadataToStruct(item map[string]types.Attribut
 
 		structField := destValue.FieldByIndex(fieldMeta.IndexPath)
 		if !structField.CanSet() {
+			continue
+		}
+
+		if fieldcodec.HasJSONTag(fieldMeta.Tags) {
+			if err := fieldcodec.UnmarshalJSONFieldValue(attrValue, structField, func() error {
+				return q.converter.FromAttributeValue(attrValue, structField.Addr().Interface())
+			}); err != nil {
+				return fmt.Errorf("failed to unmarshal field %s: %w", fieldMeta.Name, err)
+			}
 			continue
 		}
 

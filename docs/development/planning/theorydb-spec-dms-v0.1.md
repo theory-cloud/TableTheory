@@ -57,7 +57,7 @@ models:
     table:
       name: "users"
     naming:
-      convention: "camelCase" # camelCase | snake_case
+      convention: "camelCase" # camelCase | snake_case | dynamorm
     keys:
       partition: { attribute: "PK", type: "S" }
       sort:      { attribute: "SK", type: "S" } # optional
@@ -112,9 +112,12 @@ Every `attributes[]` entry supports:
   - `rfc3339nano` (timestamps)
   - `unix_seconds` (TTL)
   - `int` (version)
-- `json` (bool, default false): store a JSON-compatible value as a DynamoDB `S` JSON blob.
-  - Requires `type: "S"`.
-  - Serialization MUST be deterministic (no insignificant whitespace; object keys sorted recursively).
+- `json` (bool, default false): mark the attribute as carrying a JSON-compatible value.
+  - Supported storage types are `S`, `N`, `BOOL`, `NULL`, `L`, and `M`.
+  - `type: "S"` is the string-carrier form: values are stored as raw JSON text.
+  - `type: "N"`, `BOOL`, `NULL`, `L`, and `M` use native DynamoDB scalar/document storage.
+  - Readers MUST accept both native DynamoDB values and legacy `S` JSON strings for compatibility.
+  - String-carrier serialization MUST be deterministic (no insignificant whitespace; object keys sorted recursively).
   - `null` values MUST be stored as DynamoDB `NULL` (not as the string `"null"`).
 - `binary` (bool, default false): indicates the attribute is treated as a binary blob.
   - Requires `type: "B"`.
@@ -140,6 +143,7 @@ Each `indexes[]` entry supports:
 - If `naming.convention` is present, implementations MUST validate attribute names to that convention:
   - `camelCase`: `^[a-z][A-Za-z0-9]*$` with explicit allowance for `"PK"` / `"SK"` if used.
   - `snake_case`: `^[a-z][a-z0-9]*(_[a-z0-9]+)*$`.
+  - `dynamorm`: same validation as `camelCase`, but model-driven defaults MUST resolve `pk`/`sk` roles to `"PK"` / `"SK"` unless explicitly overridden.
 
 ### Timestamp encoding (`created_at`, `updated_at`)
 

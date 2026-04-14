@@ -49,10 +49,24 @@ func (ub *UpdateBuilder) mapFieldToDynamoDBName(field string) string {
 	return field
 }
 
+func (ub *UpdateBuilder) normalizeFieldValue(field string, value any) (any, error) {
+	if ub == nil || ub.query == nil {
+		return value, nil
+	}
+	return ub.query.normalizeJSONFieldValue(field, value)
+}
+
 // Set adds a SET expression to update a field
 func (ub *UpdateBuilder) Set(field string, value any) core.UpdateBuilder {
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
-	if err := ub.expr.AddUpdateSet(dbFieldName, value); err != nil && ub.buildErr == nil {
+	normalized, err := ub.normalizeFieldValue(field, value)
+	if err != nil {
+		if ub.buildErr == nil {
+			ub.buildErr = fmt.Errorf("Set(%s): %w", field, err)
+		}
+		return ub
+	}
+	if err := ub.expr.AddUpdateSet(dbFieldName, normalized); err != nil && ub.buildErr == nil {
 		ub.buildErr = fmt.Errorf("Set(%s): %w", field, err)
 	}
 	return ub
@@ -61,9 +75,16 @@ func (ub *UpdateBuilder) Set(field string, value any) core.UpdateBuilder {
 // SetIfNotExists sets a field only if it doesn't exist
 func (ub *UpdateBuilder) SetIfNotExists(field string, value any, defaultValue any) core.UpdateBuilder {
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
+	normalizedDefault, err := ub.normalizeFieldValue(field, defaultValue)
+	if err != nil {
+		if ub.buildErr == nil {
+			ub.buildErr = fmt.Errorf("SetIfNotExists(%s): %w", field, err)
+		}
+		return ub
+	}
 	// DynamoDB if_not_exists function syntax: SET field = if_not_exists(field, default_value)
 	// The 'value' parameter is ignored as DynamoDB if_not_exists only checks existence, not value comparison
-	err := ub.expr.AddUpdateFunction(dbFieldName, "if_not_exists", dbFieldName, defaultValue)
+	err = ub.expr.AddUpdateFunction(dbFieldName, "if_not_exists", dbFieldName, normalizedDefault)
 	if err != nil && ub.buildErr == nil {
 		ub.buildErr = fmt.Errorf("SetIfNotExists(%s): %w", field, err)
 	}
@@ -136,9 +157,16 @@ func (ub *UpdateBuilder) Delete(field string, value any) core.UpdateBuilder {
 // AppendToList appends values to the end of a list
 func (ub *UpdateBuilder) AppendToList(field string, values any) core.UpdateBuilder {
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
+	normalized, err := ub.normalizeFieldValue(field, values)
+	if err != nil {
+		if ub.buildErr == nil {
+			ub.buildErr = fmt.Errorf("AppendToList(%s): %w", field, err)
+		}
+		return ub
+	}
 	// Use list_append function to append values
 	// list_append(field, values) appends to the end
-	err := ub.expr.AddUpdateFunction(dbFieldName, "list_append", dbFieldName, values)
+	err = ub.expr.AddUpdateFunction(dbFieldName, "list_append", dbFieldName, normalized)
 	if err != nil && ub.buildErr == nil {
 		ub.buildErr = fmt.Errorf("AppendToList(%s): %w", field, err)
 	}
@@ -148,9 +176,16 @@ func (ub *UpdateBuilder) AppendToList(field string, values any) core.UpdateBuild
 // PrependToList prepends values to the beginning of a list
 func (ub *UpdateBuilder) PrependToList(field string, values any) core.UpdateBuilder {
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
+	normalized, err := ub.normalizeFieldValue(field, values)
+	if err != nil {
+		if ub.buildErr == nil {
+			ub.buildErr = fmt.Errorf("PrependToList(%s): %w", field, err)
+		}
+		return ub
+	}
 	// Use list_append function to prepend values
 	// list_append(values, field) prepends to the beginning
-	err := ub.expr.AddUpdateFunction(dbFieldName, "list_append", values, dbFieldName)
+	err = ub.expr.AddUpdateFunction(dbFieldName, "list_append", normalized, dbFieldName)
 	if err != nil && ub.buildErr == nil {
 		ub.buildErr = fmt.Errorf("PrependToList(%s): %w", field, err)
 	}
@@ -169,7 +204,14 @@ func (ub *UpdateBuilder) RemoveFromListAt(field string, index int) core.UpdateBu
 // SetListElement sets a specific element in a list
 func (ub *UpdateBuilder) SetListElement(field string, index int, value any) core.UpdateBuilder {
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
-	if err := ub.expr.AddUpdateSet(fmt.Sprintf("%s[%d]", dbFieldName, index), value); err != nil && ub.buildErr == nil {
+	normalized, err := ub.normalizeFieldValue(field, value)
+	if err != nil {
+		if ub.buildErr == nil {
+			ub.buildErr = fmt.Errorf("SetListElement(%s): %w", field, err)
+		}
+		return ub
+	}
+	if err := ub.expr.AddUpdateSet(fmt.Sprintf("%s[%d]", dbFieldName, index), normalized); err != nil && ub.buildErr == nil {
 		ub.buildErr = fmt.Errorf("SetListElement(%s): %w", field, err)
 	}
 	return ub
@@ -190,10 +232,18 @@ func (ub *UpdateBuilder) Condition(field string, operator string, value any) cor
 		}
 	}
 
+	normalized, err := ub.normalizeFieldValue(field, value)
+	if err != nil {
+		if ub.buildErr == nil {
+			ub.buildErr = fmt.Errorf("Condition(%s): %w", field, err)
+		}
+		return ub
+	}
+
 	ub.conditions = append(ub.conditions, updateCondition{
 		field:    field,
 		operator: operator,
-		value:    value,
+		value:    normalized,
 		logicOp:  "AND",
 	})
 	return ub
@@ -214,10 +264,18 @@ func (ub *UpdateBuilder) OrCondition(field string, operator string, value any) c
 		}
 	}
 
+	normalized, err := ub.normalizeFieldValue(field, value)
+	if err != nil {
+		if ub.buildErr == nil {
+			ub.buildErr = fmt.Errorf("OrCondition(%s): %w", field, err)
+		}
+		return ub
+	}
+
 	ub.conditions = append(ub.conditions, updateCondition{
 		field:    field,
 		operator: operator,
-		value:    value,
+		value:    normalized,
 		logicOp:  "OR",
 	})
 	return ub
@@ -524,6 +582,14 @@ func (ub *UpdateBuilder) ExecuteWithResult(result any) error {
 				normalized[attrName] = attrValue
 				if attrMeta := ub.query.metadata.AttributeMetadata(attrName); attrMeta != nil && attrMeta.Name != "" {
 					normalized[attrMeta.Name] = attrValue
+				}
+			}
+			if ub.query != nil && ub.query.rawMetadata != nil && ub.query.converter != nil {
+				return ub.query.unmarshalItemWithMetadata(normalized, result)
+			}
+			if reflect.ValueOf(result).Elem().Kind() == reflect.Struct {
+				if err := UnmarshalItem(normalized, result); err == nil {
+					return nil
 				}
 			}
 			mapAV := &types.AttributeValueMemberM{Value: normalized}

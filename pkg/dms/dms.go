@@ -368,6 +368,8 @@ func namingConventionString(c naming.Convention) string {
 		return "snake_case"
 	case naming.PascalCase:
 		return "pascalCase"
+	case naming.DynamORM:
+		return "dynamorm"
 	case naming.CamelCase:
 		fallthrough
 	default:
@@ -403,6 +405,10 @@ func attributeTypeFromField(t reflect.Type, isSet bool, tags map[string]string) 
 		return attributeTypeFromSetField(t)
 	}
 
+	if hasModifierTag(tags, "json") {
+		return attributeTypeFromJSONField(t), nil
+	}
+
 	if attrType, ok := attributeTypeFromTags(tags); ok {
 		return attrType, nil
 	}
@@ -416,10 +422,6 @@ func attributeTypeFromTags(tags map[string]string) (string, bool) {
 	}
 	if _, ok := tags["binary"]; ok {
 		return "B", true
-	}
-	if _, ok := tags["json"]; ok {
-		// JSON fields are stored as a string blob.
-		return "S", true
 	}
 	return "", false
 }
@@ -452,6 +454,27 @@ func attributeTypeFromSetField(t reflect.Type) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported set element kind: %s", elem.Kind())
 	}
+}
+
+func attributeTypeFromJSONField(t reflect.Type) string {
+	t = derefType(t)
+	if t == nil {
+		return "S"
+	}
+
+	if t == reflect.TypeOf(json.RawMessage{}) {
+		return "S"
+	}
+
+	if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8 {
+		return "S"
+	}
+
+	if t.Kind() == reflect.Interface && t.NumMethod() == 0 {
+		return "S"
+	}
+
+	return attributeTypeFromKind(t)
 }
 
 func attributeTypeFromKind(t reflect.Type) string {
@@ -528,18 +551,32 @@ func validateModelAttributes(m Model) (map[string]struct{}, error) {
 		if a.Required && a.Optional {
 			return nil, fmt.Errorf("DMS model %s: attribute %s cannot be both required and optional", m.Name, a.Attribute)
 		}
-		if a.JSON && a.Type != "S" {
-			return nil, fmt.Errorf("DMS model %s: attribute %s json requires type S (got %s)", m.Name, a.Attribute, a.Type)
-		}
 		if a.Binary && a.Type != "B" {
 			return nil, fmt.Errorf("DMS model %s: attribute %s binary requires type B (got %s)", m.Name, a.Attribute, a.Type)
 		}
 		if a.JSON && a.Binary {
 			return nil, fmt.Errorf("DMS model %s: attribute %s cannot be both json and binary", m.Name, a.Attribute)
 		}
+		if a.JSON && !isSupportedJSONAttributeType(a.Type) {
+			return nil, fmt.Errorf(
+				"DMS model %s: attribute %s json fields must use S/N/BOOL/NULL/L/M (got %s)",
+				m.Name,
+				a.Attribute,
+				a.Type,
+			)
+		}
 		seen[a.Attribute] = struct{}{}
 	}
 	return seen, nil
+}
+
+func isSupportedJSONAttributeType(attrType string) bool {
+	switch attrType {
+	case "S", "N", "BOOL", "NULL", "L", "M":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateModelKeyAttributesPresent(m Model, seen map[string]struct{}) error {

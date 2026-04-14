@@ -366,6 +366,14 @@ func TestAttributeTypeFromField_TagsAndKinds(t *testing.T) {
 
 	tp, err := attributeTypeFromField(reflect.TypeOf(map[string]int{}), false, map[string]string{"json": "true"})
 	require.NoError(t, err)
+	require.Equal(t, "M", tp)
+
+	tp, err = attributeTypeFromField(reflect.TypeOf(""), false, map[string]string{"json": "true"})
+	require.NoError(t, err)
+	require.Equal(t, "S", tp)
+
+	tp, err = attributeTypeFromField(reflect.TypeOf([]byte{}), false, map[string]string{"json": "true"})
+	require.NoError(t, err)
 	require.Equal(t, "S", tp)
 
 	tp, err = attributeTypeFromField(reflect.TypeOf(""), false, map[string]string{"binary": "true"})
@@ -418,7 +426,7 @@ func TestFromMetadata_JsonAndBinaryTags(t *testing.T) {
 	}
 
 	require.True(t, attrByName["payload"].JSON)
-	require.Equal(t, "S", attrByName["payload"].Type)
+	require.Equal(t, "M", attrByName["payload"].Type)
 
 	require.True(t, attrByName["blob"].Binary)
 	require.Equal(t, "B", attrByName["blob"].Type)
@@ -440,7 +448,7 @@ models:
         required: true
         roles: ["pk"]
       - attribute: "bad_json"
-        type: "N"
+        type: "SS"
         optional: true
         json: true
 `))
@@ -510,6 +518,21 @@ func TestFromMetadata_IndexAndKeyTypes(t *testing.T) {
 	require.Equal(t, "gsi1PK", got.Indexes[0].Partition.Attribute)
 	require.NotNil(t, got.Indexes[0].Sort)
 	require.Equal(t, "gsi1SK", got.Indexes[0].Sort.Attribute)
+}
+
+func TestFromMetadata_DynamORMNamingConvention(t *testing.T) {
+	t.Parallel()
+
+	reg := model.NewRegistry()
+	require.NoError(t, reg.Register(indexKeyTypeModel{}))
+	meta, err := reg.GetMetadata(indexKeyTypeModel{})
+	require.NoError(t, err)
+
+	meta.NamingConvention = naming.DynamORM
+
+	got, err := FromMetadata(meta)
+	require.NoError(t, err)
+	require.Equal(t, "dynamorm", got.Naming.Convention)
 }
 
 func TestScalarKeyTypeFromField(t *testing.T) {

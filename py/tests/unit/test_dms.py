@@ -6,6 +6,7 @@ import pytest
 
 from theorydb_py import (
     ModelDefinition,
+    ModelDefinitionError,
     Projection,
     ValidationError,
     assert_model_definition_equivalent_to_dms,
@@ -24,6 +25,13 @@ class _Demo:
     sk: str = theorydb_field(name="SK", roles=["sk"])
     value: str = theorydb_field(name="value", omitempty=True, default="")
     secret: str = theorydb_field(name="secret", encrypted=True, omitempty=True, default="")
+
+
+@dataclass(frozen=True)
+class _JsonDoc:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    payload: dict[str, int] = theorydb_field(name="payload", json=True, default_factory=dict)
+    response: str = theorydb_field(name="response", json=True, default="")
 
 
 def test_parse_dms_document_and_get_model() -> None:
@@ -110,6 +118,59 @@ def test_get_dms_model_errors() -> None:
         get_dms_model({"models": [{"name": "Other"}]}, "Demo")
 
 
+def test_parse_dms_document_accepts_native_json_types() -> None:
+    raw = """
+dms_version: "0.1"
+models:
+  - name: "_JsonDoc"
+    table: { name: "tbl" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "payload"
+        type: "M"
+        optional: true
+        json: true
+      - attribute: "response"
+        type: "S"
+        optional: true
+        json: true
+"""
+    doc = parse_dms_document(raw)
+    model = get_dms_model(doc, "_JsonDoc")
+    attrs = {attr["attribute"]: attr for attr in model["attributes"]}
+    assert attrs["payload"]["type"] == "M"
+    assert attrs["payload"]["json"] is True
+    assert attrs["response"]["type"] == "S"
+    assert attrs["response"]["json"] is True
+
+
+def test_parse_dms_document_rejects_json_set_storage_types() -> None:
+    raw = """
+dms_version: "0.1"
+models:
+  - name: "_BadJson"
+    table: { name: "tbl" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "payload"
+        type: "SS"
+        optional: true
+        json: true
+"""
+    with pytest.raises(ValidationError, match="json fields must use S/N/BOOL/NULL/L/M"):
+        parse_dms_document(raw)
+
+
 def test_model_definition_equivalence_to_dms_ignoring_table_name() -> None:
     raw = """
 dms_version: "0.1"
@@ -172,6 +233,16 @@ models:
     model = ModelDefinition.from_dataclass(_Demo, table_name="tbl")
     with pytest.raises(ValidationError):
         assert_model_definition_equivalent_to_dms(model, dms_model, ignore_table_name=True)
+
+
+def test_model_definition_to_dms_model_uses_json_storage_type() -> None:
+    model = ModelDefinition.from_dataclass(_JsonDoc, table_name="tbl")
+    dms_model = _model_definition_to_dms_model(model)
+    attrs = {attr["attribute"]: attr for attr in dms_model["attributes"]}
+    assert attrs["payload"]["type"] == "M"
+    assert attrs["payload"]["json"] is True
+    assert attrs["response"]["type"] == "S"
+    assert attrs["response"]["json"] is True
 
 
 @dataclass(frozen=True)
@@ -323,6 +394,5 @@ class _BadSetElement:
 
 
 def test_model_definition_to_dms_rejects_unsupported_set_element_type() -> None:
-    model = ModelDefinition.from_dataclass(_BadSetElement, table_name="tbl")
-    with pytest.raises(ValidationError, match="unsupported set element type"):
-        _model_definition_to_dms_model(model)
+    with pytest.raises(ModelDefinitionError, match="unsupported set element type"):
+        ModelDefinition.from_dataclass(_BadSetElement, table_name="tbl")
