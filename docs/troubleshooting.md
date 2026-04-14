@@ -2,10 +2,8 @@
 
 This guide provides solutions to common issues with verified fixes, categorized by the type of error you might encounter.
 
-Multi-language troubleshooting:
-
-- TypeScript: [ts/docs/troubleshooting.md](../ts/docs/troubleshooting.md)
-- Python: [py/docs/troubleshooting.md](../py/docs/troubleshooting.md)
+TypeScript and Python ship their own runtime-specific troubleshooting guides as sibling package surfaces in the shared
+TheoryCloud TableTheory subtree. This page is the Go troubleshooting guide.
 
 ## Quick Diagnosis
 

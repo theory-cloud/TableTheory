@@ -194,6 +194,8 @@ type User struct {
 
 ## Next references
 
-- `docs/development-guidelines.md` (coding standards and tag expectations)
+- [Documentation Index](./README.md)
 - `docs/core-patterns.md` (canonical usage patterns)
 - `docs/api-reference.md` (full API surface)
+- Repo-local coding standards live in `docs/development-guidelines.md` and are intentionally excluded from the
+  TheoryCloud user-facing surface.
