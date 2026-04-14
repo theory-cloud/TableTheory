@@ -14,7 +14,6 @@
 
 - [API Reference](./api-reference.md) – Public exports (`defineModel`, `TheorydbClient`, queries, transactions, encryption)
 - [Core Patterns](./core-patterns.md) – Canonical recipes (CRUD, query/cursor, batch, transactions, streams, encryption)
-- [Development Guidelines](./development-guidelines.md) – Node.js 24, TypeScript config, linting/formatting conventions
 - [Testing Guide](./testing-guide.md) – Unit tests with `testkit`, integration tests with DynamoDB Local
 - [Troubleshooting](./troubleshooting.md) – Verified fixes for common runtime and configuration errors
 - [Migration Guide](./migration-guide.md) – Migrating from raw AWS SDK v3 usage
@@ -49,6 +48,8 @@
 
 ## Contributing
 
-- Follow the conventions in [Pay Theory Documentation Guide](../../docs/PAY_THEORY_DOCUMENTATION_GUIDE.md).
+- Package maintainer guidance lives in repo-local `ts/docs/development-guidelines.md` and is intentionally excluded
+  from the TheoryCloud user-facing surface.
+- Follow the repo-local maintainer standards in `docs/PAY_THEORY_DOCUMENTATION_GUIDE.md`.
 - Update `_concepts.yaml`, `_patterns.yaml`, and `_decisions.yaml` when behavior changes.
 - Keep examples aligned with `ts/examples/` and contract tests.

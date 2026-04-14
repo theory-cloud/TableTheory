@@ -2,10 +2,8 @@
 
 This guide assists in migrating existing Go applications to use TableTheory, focusing on transitions from raw AWS SDK calls or other ORMs.
 
-Multi-language migration guides:
-
-- TypeScript: [ts/docs/migration-guide.md](../ts/docs/migration-guide.md)
-- Python: [py/docs/migration-guide.md](../py/docs/migration-guide.md)
+TypeScript and Python ship their own runtime-specific migration guides as sibling package surfaces in the shared
+TheoryCloud TableTheory subtree. This page is the Go migration guide.
 
 ## From Raw AWS SDK for Go (v2)
 

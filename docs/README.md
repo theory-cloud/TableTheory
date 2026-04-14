@@ -2,15 +2,16 @@
 
 <!-- AI Training: This is the documentation index for TableTheory -->
 
-**New to TableTheory?** Start with the getting-started guide for your language:
-[Go](./getting-started.md) | [TypeScript](../ts/docs/getting-started.md) | [Python](../py/docs/getting-started.md)
+**New to TableTheory?** Start with the [Go getting-started guide](./getting-started.md). TypeScript and Python
+runtime-specific package docs are staged alongside this surface as sibling package entrypoints in the shared
+TheoryCloud TableTheory subtree.
 
 | | |
 |---|---|
-| **API Reference** | [Go](./api-reference.md) &#124; [TypeScript](../ts/docs/api-reference.md) &#124; [Python](../py/docs/api-reference.md) |
-| **Core Guides** | [Core Patterns](./core-patterns.md) &#124; [Testing](./testing-guide.md) &#124; [Troubleshooting](./troubleshooting.md) |
-| **Schema** | [DMS v0.1 Spec](./development/planning/theorydb-spec-dms-v0.1.md) &#124; [Struct Definition Guide](./struct-definition-guide.md) |
-| **CDK** | [CDK Integration](./cdk/README.md) &#124; [Multi-lang Demo](../examples/cdk-multilang/README.md) |
+| **Go Guides** | [Getting Started](./getting-started.md) &#124; [API Reference](./api-reference.md) &#124; [Core Patterns](./core-patterns.md) &#124; [Testing](./testing-guide.md) &#124; [Troubleshooting](./troubleshooting.md) |
+| **Schema** | [Struct Definition Guide](./struct-definition-guide.md) &#124; DMS v0.1 remains a repo-local planning document and is not published to TheoryCloud |
+| **FaceTheory** | [ISR Cache Schema](./facetheory/isr-cache-schema.md) &#124; [ISR Transaction Recipes](./facetheory/isr-transaction-recipes.md) &#124; [TTL Cache Patterns](./facetheory/ttl-cache-patterns.md) &#124; [ISR Idempotency](./facetheory/isr-idempotency.md) |
+| **CDK** | [CDK Integration](./cdk/README.md) |
 | **Migration** | [Migration Guide](./migration-guide.md) |
 
 ---
@@ -22,8 +23,10 @@
 ### Multi-language SDKs
 
 - **Go (this folder):** [Getting Started](./getting-started.md), [Core Patterns](./core-patterns.md), [API Reference](./api-reference.md)
-- **TypeScript:** [ts/docs](../ts/docs/README.md)
-- **Python:** [py/docs](../py/docs/README.md)
+- **TypeScript:** package docs are authored under `ts/docs/` and published as a runtime-specific package surface
+  alongside the canonical Go docs.
+- **Python:** package docs are authored under `py/docs/` and published as a runtime-specific package surface
+  alongside the canonical Go docs.
 
 ### 🚀 Getting Started
 
@@ -37,7 +40,6 @@
 - [FaceTheory ISR Transaction Recipes](./facetheory/isr-transaction-recipes.md) – Correctness-first patterns for publishing metadata under lease
 - [FaceTheory TTL Cache Patterns](./facetheory/ttl-cache-patterns.md) – Freshness vs expiry, TTL lag, and operational guidance for ISR tables
 - [FaceTheory ISR Idempotency Patterns](./facetheory/isr-idempotency.md) – Request-id driven regeneration guidance and replay safety
-- [Development Guidelines](./development-guidelines.md) – Repo-wide coding standards (Go + TS + Python)
 - [Testing Guide](./testing-guide.md) – Repo-wide testing strategy (Go + TS + Python)
 - [Troubleshooting (Go)](./troubleshooting.md) – Go SDK troubleshooting (TypeScript/Python have their own)
 - [Struct Definition Guide (Go)](./struct-definition-guide.md) – Canonical guide for defining DynamoDB models in Go
@@ -53,11 +55,10 @@
 
 - [CDK Integration Guide](./cdk/README.md) – How to define tables in CDK for TableTheory models
 
-### 📝 Development Artifacts
+### 📝 Repo-local Maintainer Artifacts
 
-- [Development Notes](../hgm-infra/planning/theorydb-session-notes-template.md) – Session notes and progress tracking template
-- [Architectural Decisions](./development/decisions/template-decision.md) – Architectural choices and rationale templates
-- [Clarification Requests](./development/clarifications/template-clarification.md) – Templates for documenting questions and ambiguities
+- Planning, decision, and clarification templates live under `docs/development/**` and `hgm-infra/planning/**`.
+- These maintainer artifacts are intentionally excluded from the TheoryCloud user-facing TableTheory subtree.
 
 ## Audience
 
@@ -69,7 +70,8 @@
 
 ## Document Map
 
-- **Start here:** choose your SDK documentation: [Go](./getting-started.md), [TypeScript](../ts/docs/getting-started.md), [Python](../py/docs/getting-started.md).
+- **Start here:** begin with the [Go getting-started guide](./getting-started.md). TypeScript and Python package
+  guides are staged alongside this surface as runtime-specific package entrypoints.
 - **Use [Core Patterns](./core-patterns.md)** for copy-pasteable recipes in Go.
 - **Use [API Reference](./api-reference.md)** when you need detailed signature information for Go public methods.
 - **Use [Troubleshooting](./troubleshooting.md)** when encountering errors like `ValidationException` or `ResourceNotFoundException`.
@@ -84,7 +86,8 @@
 
 ## Contributing
 
-- Follow the conventions in [PAY_THEORY_DOCUMENTATION_GUIDE.md](./PAY_THEORY_DOCUMENTATION_GUIDE.md)
+- Maintainer authoring standards live in repo-local `docs/PAY_THEORY_DOCUMENTATION_GUIDE.md` and are intentionally
+  excluded from the TheoryCloud user-facing surface.
 - Validate examples against live code
 - Include CORRECT/INCORRECT blocks for integration snippets
 - Update troubleshooting alongside code changes
