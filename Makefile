@@ -1,6 +1,6 @@
 # TableTheory Makefile
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory
@@ -193,6 +193,12 @@ stage-theorycloud-tabletheory-subtree:
 verify-theorycloud-tabletheory-subtree:
 	@bash ./scripts/verify-theorycloud-tabletheory-subtree.sh "$${THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR:-/tmp/theorycloud-tabletheory-source}"
 
+sync-theorycloud-tabletheory-subtree:
+	@bash ./scripts/sync_theorycloud_tabletheory_subtree.sh --output "$${THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR:-/tmp/theorycloud-tabletheory-source}"
+
+trigger-theorycloud-publish:
+	@bash ./scripts/trigger_theorycloud_publish.sh
+
 # Show test coverage in browser
 coverage: test
 	@echo "Generating coverage report..."
@@ -250,6 +256,8 @@ help:
 	@echo "  make rubric      - Run full rubric gate set"
 	@echo "  make stage-theorycloud-tabletheory-subtree - Stage the theorycloud/tabletheory subtree locally"
 	@echo "  make verify-theorycloud-tabletheory-subtree - Verify the staged theorycloud/tabletheory subtree"
+	@echo "  make sync-theorycloud-tabletheory-subtree - Sync the staged theorycloud/tabletheory subtree to the configured stage prefix"
+	@echo "  make trigger-theorycloud-publish - Trigger the shared theorycloud publish endpoint for the configured stage"
 	@echo ""
 	@echo "Docker/DynamoDB:"
 	@echo "  make docker-up   - Start DynamoDB Local"
