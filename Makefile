@@ -1,6 +1,6 @@
 # TableTheory Makefile
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric stage-theorycloud-tabletheory-subtree
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory
@@ -187,6 +187,9 @@ sec:
 rubric:
 	@./scripts/verify-rubric.sh
 
+stage-theorycloud-tabletheory-subtree:
+	@bash ./scripts/stage_theorycloud_tabletheory_subtree.sh --output "$${THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR:-/tmp/theorycloud-tabletheory-source}"
+
 # Show test coverage in browser
 coverage: test
 	@echo "Generating coverage report..."
@@ -242,6 +245,7 @@ help:
 	@echo "  make verify-planning-docs - Verify planning docs exist"
 	@echo "  make sec         - Run security gates (gosec + govulncheck + go mod verify)"
 	@echo "  make rubric      - Run full rubric gate set"
+	@echo "  make stage-theorycloud-tabletheory-subtree - Stage the theorycloud/tabletheory subtree locally"
 	@echo ""
 	@echo "Docker/DynamoDB:"
 	@echo "  make docker-up   - Start DynamoDB Local"
