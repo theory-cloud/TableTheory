@@ -141,6 +141,131 @@ func TestUnmarshalItem_DynamORMNamingConvention_NestedStruct_PascalFallback_CON3
 	require.Equal(t, "US", out.Profile.MailingAddress.CountryCode)
 }
 
+func TestUnmarshalItem_PromotedAnonymousEmbeds_CON3(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+
+	type activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	expected := activity{
+		BaseObject: BaseObject{
+			ID:   "https://example.com/activities/1",
+			Type: "Create",
+			To: []string{
+				"https://www.w3.org/ns/activitystreams#Public",
+				"https://example.com/users/alice/followers",
+			},
+		},
+		Actor:  "https://example.com/users/alice",
+		Object: "https://example.com/notes/1",
+	}
+
+	testCases := []struct {
+		name string
+		item map[string]types.AttributeValue
+	}{
+		{
+			name: "flat promoted-field payload",
+			item: map[string]types.AttributeValue{
+				"id":     &types.AttributeValueMemberS{Value: expected.ID},
+				"type":   &types.AttributeValueMemberS{Value: expected.Type},
+				"to":     queryStringListAttributeValue(expected.To),
+				"actor":  &types.AttributeValueMemberS{Value: expected.Actor},
+				"object": &types.AttributeValueMemberS{Value: expected.Object},
+			},
+		},
+		{
+			name: "legacy nested helper payload",
+			item: map[string]types.AttributeValue{
+				"baseObject": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"id":   &types.AttributeValueMemberS{Value: expected.ID},
+					"type": &types.AttributeValueMemberS{Value: expected.Type},
+					"to":   queryStringListAttributeValue(expected.To),
+				}},
+				"actor":  &types.AttributeValueMemberS{Value: expected.Actor},
+				"object": &types.AttributeValueMemberS{Value: expected.Object},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out activity
+			require.NoError(t, UnmarshalItem(tc.item, &out))
+			require.Equal(t, expected, out)
+		})
+	}
+}
+
+func TestUnmarshalItem_NestedPromotedAnonymousEmbeds_CON3(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+	}
+
+	type activity struct {
+		BaseObject
+		Actor string
+	}
+
+	type envelope struct {
+		Activity activity
+	}
+
+	expected := envelope{
+		Activity: activity{
+			BaseObject: BaseObject{
+				ID:   "https://example.com/activities/1",
+				Type: "Like",
+			},
+			Actor: "https://example.com/users/alice",
+		},
+	}
+
+	testCases := []struct {
+		name string
+		item map[string]types.AttributeValue
+	}{
+		{
+			name: "nested flat promoted-field payload",
+			item: map[string]types.AttributeValue{
+				"activity": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"id":    &types.AttributeValueMemberS{Value: expected.Activity.ID},
+					"type":  &types.AttributeValueMemberS{Value: expected.Activity.Type},
+					"actor": &types.AttributeValueMemberS{Value: expected.Activity.Actor},
+				}},
+			},
+		},
+		{
+			name: "nested legacy anonymous-container payload",
+			item: map[string]types.AttributeValue{
+				"activity": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"baseObject": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+						"id":   &types.AttributeValueMemberS{Value: expected.Activity.ID},
+						"type": &types.AttributeValueMemberS{Value: expected.Activity.Type},
+					}},
+					"actor": &types.AttributeValueMemberS{Value: expected.Activity.Actor},
+				}},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out envelope
+			require.NoError(t, UnmarshalItem(tc.item, &out))
+			require.Equal(t, expected, out)
+		})
+	}
+}
+
 func TestResolveUnmarshalTarget_RejectsInvalidDestinations_CON3(t *testing.T) {
 	type model struct {
 		Name string
@@ -315,6 +440,14 @@ func TestLookupAndJSONHelpers_CON3(t *testing.T) {
 	valueAV, ok := av.(*types.AttributeValueMemberS)
 	require.True(t, ok)
 	require.Equal(t, "value", valueAV.Value)
+}
+
+func queryStringListAttributeValue(values []string) *types.AttributeValueMemberL {
+	items := make([]types.AttributeValue, 0, len(values))
+	for _, value := range values {
+		items = append(items, &types.AttributeValueMemberS{Value: value})
+	}
+	return &types.AttributeValueMemberL{Value: items}
 }
 
 func TestUnmarshalStringToStruct_JSON_CON3(t *testing.T) {
