@@ -137,3 +137,57 @@ func TestSafeMarshaler_MarshalItem_DynamORMNestedStructUsesCamelCase_COV6(t *tes
 	require.NotContains(t, addressAV, "PostalCode")
 	require.NotContains(t, addressAV, "CountryCode")
 }
+
+func TestSafeMarshaler_MarshalItem_PromotedAnonymousEmbedsLegacyShape_COV6(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+
+	type Activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	type item struct {
+		ID       string `theorydb:"pk"`
+		Entity   string `theorydb:"sk"`
+		Activity Activity
+	}
+
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&item{}))
+	meta, err := registry.GetMetadata(&item{})
+	require.NoError(t, err)
+
+	m := NewSafeMarshaler()
+	out, err := m.MarshalItem(item{
+		ID:     "USER#1",
+		Entity: "ACTIVITY#1",
+		Activity: Activity{
+			BaseObject: BaseObject{
+				ID:   "activity-1",
+				Type: "Create",
+				To:   []string{"acct:one", "acct:two"},
+			},
+			Actor:  "acct:actor",
+			Object: "note-1",
+		},
+	}, meta)
+	require.NoError(t, err)
+
+	activityAV := requireAVM(t, out["activity"]).Value
+	require.Contains(t, activityAV, "baseObject")
+	require.Contains(t, activityAV, "actor")
+	require.Contains(t, activityAV, "object")
+	require.NotContains(t, activityAV, "id")
+	require.NotContains(t, activityAV, "type")
+	require.NotContains(t, activityAV, "to")
+
+	baseObjectAV := requireAVM(t, activityAV["baseObject"]).Value
+	require.Equal(t, "activity-1", requireAVS(t, baseObjectAV["id"]).Value)
+	require.Equal(t, "Create", requireAVS(t, baseObjectAV["type"]).Value)
+	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, attributeValueStringList(t, baseObjectAV["to"]))
+}

@@ -302,6 +302,102 @@ func TestConvertToAndFromAttributeValue_NestedStructInheritsActiveConvention(t *
 	require.Equal(t, "tpp-1", out.Nested.TPPID)
 }
 
+func TestConvertToAttributeValue_PromotedAnonymousEmbeds_LegacyShape(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+
+	type Activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	av, err := ConvertToAttributeValue(Activity{
+		BaseObject: BaseObject{
+			ID:   "activity-1",
+			Type: "Create",
+			To:   []string{"acct:one", "acct:two"},
+		},
+		Actor:  "acct:actor",
+		Object: "note-1",
+	})
+	require.NoError(t, err)
+
+	activityAV, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, activityAV.Value, "baseObject")
+	require.Contains(t, activityAV.Value, "actor")
+	require.Contains(t, activityAV.Value, "object")
+	require.NotContains(t, activityAV.Value, "id")
+	require.NotContains(t, activityAV.Value, "type")
+	require.NotContains(t, activityAV.Value, "to")
+
+	baseObjectAV, ok := activityAV.Value["baseObject"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Equal(t, "activity-1", baseObjectAV.Value["id"].(*types.AttributeValueMemberS).Value)
+	require.Equal(t, "Create", baseObjectAV.Value["type"].(*types.AttributeValueMemberS).Value)
+	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, exprStringListValues(t, baseObjectAV.Value["to"]))
+}
+
+func TestConvertFromAttributeValue_PromotedAnonymousEmbeds(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+
+	type Activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	tests := []struct {
+		name string
+		item map[string]types.AttributeValue
+	}{
+		{
+			name: "flat payload",
+			item: map[string]types.AttributeValue{
+				"id":     &types.AttributeValueMemberS{Value: "activity-1"},
+				"type":   &types.AttributeValueMemberS{Value: "Create"},
+				"to":     exprStringListAttributeValue("acct:one", "acct:two"),
+				"actor":  &types.AttributeValueMemberS{Value: "acct:actor"},
+				"object": &types.AttributeValueMemberS{Value: "note-1"},
+			},
+		},
+		{
+			name: "legacy nested payload",
+			item: map[string]types.AttributeValue{
+				"baseObject": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"id":   &types.AttributeValueMemberS{Value: "activity-1"},
+					"type": &types.AttributeValueMemberS{Value: "Create"},
+					"to":   exprStringListAttributeValue("acct:one", "acct:two"),
+				}},
+				"actor":  &types.AttributeValueMemberS{Value: "acct:actor"},
+				"object": &types.AttributeValueMemberS{Value: "note-1"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out Activity
+			err := ConvertFromAttributeValue(&types.AttributeValueMemberM{Value: tt.item}, &out)
+			require.NoError(t, err)
+
+			require.Equal(t, "activity-1", out.ID)
+			require.Equal(t, "Create", out.Type)
+			require.Equal(t, []string{"acct:one", "acct:two"}, out.To)
+			require.Equal(t, "acct:actor", out.Actor)
+			require.Equal(t, "note-1", out.Object)
+		})
+	}
+}
+
 func TestConvertFromAttributeValue_NullHandling(t *testing.T) {
 	type NullableStruct struct {
 		StringPtr *string
@@ -453,4 +549,25 @@ func TestConvertFromAttributeValue_EmptyInterfaceConversions(t *testing.T) {
 		err := ConvertFromAttributeValue(&types.AttributeValueMemberN{Value: "not-a-number"}, &out)
 		require.Error(t, err)
 	})
+}
+
+func exprStringListAttributeValue(values ...string) types.AttributeValue {
+	list := make([]types.AttributeValue, len(values))
+	for i, value := range values {
+		list[i] = &types.AttributeValueMemberS{Value: value}
+	}
+	return &types.AttributeValueMemberL{Value: list}
+}
+
+func exprStringListValues(t *testing.T, av types.AttributeValue) []string {
+	t.Helper()
+
+	list, ok := av.(*types.AttributeValueMemberL)
+	require.True(t, ok)
+
+	values := make([]string, len(list.Value))
+	for i, item := range list.Value {
+		values[i] = item.(*types.AttributeValueMemberS).Value
+	}
+	return values
 }
