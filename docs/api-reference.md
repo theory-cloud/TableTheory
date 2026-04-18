@@ -195,6 +195,12 @@ Inserts the item used in `Model()`.
 
 Updates specific fields of the item used in `Model()`. If `fields` is empty, updates all non-key fields.
 
+- **Named-field compatibility**: On Go models with exported anonymous embedded structs, explicit field updates such as
+  `Update("Status")` continue to resolve promoted fields even when the value lives on an embedded base struct.
+- **Legacy write-shape compatibility**: When `fields` is empty and the query falls back to the tag-driven all-fields
+  helper path, anonymous embedded struct containers keep their historical nested write shape rather than flattening
+  promoted fields by default.
+
 #### `Delete() error`
 
 Deletes the item identified by the primary key in `Model()`.
@@ -328,12 +334,20 @@ Idempotent check-and-create.
 Unmarshals a raw AWS SDK item map into a struct.
 
 - **Use Case**: Processing manual SDK calls.
+- **Anonymous embedded struct compatibility (Go)**: Exported promoted fields decode from both:
+  - flat payloads such as `id`, `type`, `to`
+  - legacy nested anonymous-container payloads such as `BaseObject: { id, type, to }`
+- **Verification coverage**: The public API verifier and focused Go regression tests cover promoted-field decode on both
+  raw item maps and stream images.
+- **Migration guidance**: See the [migration guide's anonymous embedded helper compatibility section](./migration-guide.md#go-anonymous-embedded-struct-helper-compatibility).
 
 #### `UnmarshalStreamImage(image map[string]events.DynamoDBAttributeValue, dest any) error`
 
 Unmarshals a DynamoDB Stream Lambda event image into a struct.
 
 - **Use Case**: Lambda Triggers / DynamoDB Streams.
+- **Anonymous embedded struct compatibility (Go)**: Matches `UnmarshalItem` semantics for exported promoted fields,
+  including legacy nested anonymous-container decode compatibility.
 
 ---
 
