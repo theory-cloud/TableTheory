@@ -417,6 +417,48 @@ func TestExtractKey(t *testing.T) {
 	}
 }
 
+func TestExecuteUpdateBatch_PromotedAnonymousEmbeds_FieldAndKeyFallback(t *testing.T) {
+	type BaseFields struct {
+		PK     string `theorydb:"pk"`
+		Status string `theorydb:"attr:status"`
+	}
+
+	type activity struct {
+		BaseFields
+	}
+
+	executor := &cov4Executor{}
+	q := &Query{
+		metadata: &cov4Metadata{
+			table: "tbl",
+			pk:    core.KeySchema{PartitionKey: "pk"},
+		},
+		executor: executor,
+		ctx:      context.Background(),
+	}
+
+	err := q.executeUpdateBatch([]any{
+		activity{
+			BaseFields: BaseFields{
+				PK:     "activity-1",
+				Status: "active",
+			},
+		},
+	}, &BatchUpdateOptions{}, []string{"status"})
+	require.NoError(t, err)
+	require.NotNil(t, executor.lastUpdate)
+	require.NotEmpty(t, executor.lastUpdate.UpdateExpression)
+
+	foundStatus := false
+	for _, name := range executor.lastUpdate.ExpressionAttributeNames {
+		if name == "status" {
+			foundStatus = true
+			break
+		}
+	}
+	require.True(t, foundStatus, "expected status placeholder to be emitted for promoted embedded field")
+}
+
 func TestExecuteWithRetry(t *testing.T) {
 	t.Run("success on first try", func(t *testing.T) {
 		callCount := 0

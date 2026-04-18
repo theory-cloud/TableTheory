@@ -49,6 +49,71 @@ func TestUnmarshalStreamImage(t *testing.T) {
 	assert.Equal(t, []string{"ITEM1", "ITEM2"}, order.Items)
 }
 
+func TestUnmarshalStreamImage_PromotedAnonymousEmbeds(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
+	type Activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	expected := Activity{
+		BaseObject: BaseObject{
+			ID:   "https://example.com/activities/1",
+			Type: "Create",
+			To: []string{
+				"https://www.w3.org/ns/activitystreams#Public",
+				"https://example.com/users/alice/followers",
+			},
+		},
+		Actor:  "https://example.com/users/alice",
+		Object: "https://example.com/notes/1",
+	}
+
+	testCases := []struct {
+		streamImage map[string]events.DynamoDBAttributeValue
+		name        string
+	}{
+		{
+			name: "flat promoted-field payload",
+			streamImage: map[string]events.DynamoDBAttributeValue{
+				"id":     events.NewStringAttribute(expected.ID),
+				"type":   events.NewStringAttribute(expected.Type),
+				"to":     streamStringListAttributeValue(expected.To),
+				"actor":  events.NewStringAttribute(expected.Actor),
+				"object": events.NewStringAttribute(expected.Object),
+			},
+		},
+		{
+			name: "legacy nested helper payload",
+			streamImage: map[string]events.DynamoDBAttributeValue{
+				"baseObject": events.NewMapAttribute(map[string]events.DynamoDBAttributeValue{
+					"id":   events.NewStringAttribute(expected.ID),
+					"type": events.NewStringAttribute(expected.Type),
+					"to":   streamStringListAttributeValue(expected.To),
+				}),
+				"actor":  events.NewStringAttribute(expected.Actor),
+				"object": events.NewStringAttribute(expected.Object),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var activity Activity
+			err := UnmarshalStreamImage(tc.streamImage, &activity)
+			require.NoError(t, err)
+			require.Equal(t, expected, activity)
+		})
+	}
+}
+
 func TestUnmarshalStreamImage_ComplexTypes(t *testing.T) {
 	// Test individual conversions to ensure all types are handled
 	assert.NotNil(t, convertLambdaAttributeValue(events.NewStringAttribute("test")))
@@ -222,4 +287,12 @@ func TestUnmarshalStreamImage_MapInterface(t *testing.T) {
 	require.True(t, ok, "tags should be a []interface{}")
 	assert.Equal(t, "api", tags[0])
 	assert.Equal(t, "authentication", tags[1])
+}
+
+func streamStringListAttributeValue(values []string) events.DynamoDBAttributeValue {
+	items := make([]events.DynamoDBAttributeValue, 0, len(values))
+	for _, value := range values {
+		items = append(items, events.NewStringAttribute(value))
+	}
+	return events.NewListAttribute(items)
 }

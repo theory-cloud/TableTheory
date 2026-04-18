@@ -173,3 +173,79 @@ func getActiveUsersTableTheory(db tabletheory.DB) ([]User, error) {
     return users, err
 }
 ```
+
+## Go Anonymous Embedded Struct Helper Compatibility
+
+**Problem:** Some Go helper surfaces historically walked only direct struct fields. For models with exported anonymous embedded
+base structs, flat payloads such as `id`, `type`, and `to` could hydrate through the metadata-driven ORM path while generic
+helper decoders looked only for a nested anonymous-container map such as `BaseObject: { id, type, to }`.
+
+**Current compatibility contract:** Go helper reads now accept both shapes, and default helper writes stay legacy-safe.
+
+### What is guaranteed now
+
+- **Broadened decode support**: Go helper decoders accept both:
+  - flat promoted-field payloads such as `id`, `type`, `to`, `actor`, `object`
+  - legacy nested anonymous-container payloads such as `BaseObject: { id, type, to }`
+- **Public helper coverage**:
+  - `tabletheory.UnmarshalItem(...)`
+  - `tabletheory.UnmarshalStreamImage(...)`
+  - `pkg/types.Converter.FromAttributeValue(...)`
+- **Query helper coverage**: Named Go field updates such as `Update("Status")` and batch helper key/field selection now
+  resolve promoted fields that live on exported anonymous embedded structs.
+- **Default write compatibility**: Historical helper paths that encoded anonymous embedded structs under a container such as
+  `BaseObject` continue to do so by default. This repair does not silently flatten helper write output.
+
+### Opting in to flat helper writes
+
+New Go code can now request flat promoted-field helper encoding explicitly:
+
+```go
+converter := pkgtypes.NewConverter().WithFlatAnonymousEmbedEncoding()
+
+av, err := converter.ToAttributeValue(activity)
+if err != nil {
+    return err
+}
+
+q := query.New(&activity, metadata, executor).WithConverter(converter)
+_ = av
+_ = q
+```
+
+This opt-in is additive:
+
+- `pkg/types.Converter.ToAttributeValue(...)` flattens exported promoted fields from anonymous embeds
+- helper surfaces that accept the configured converter (for example `Query.WithConverter(...)` and marshaler factories
+  built with that converter) use the same flat helper encoding
+- default helper writes stay legacy-compatible when you do nothing
+
+### Why this is the safe path
+
+TableTheory is already used by production systems. The lowest-risk repair is therefore:
+
+1. broaden reads so old and new payload shapes both hydrate correctly
+2. preserve the current default helper write shape
+3. make any future flat helper encode mode additive and explicit rather than silent
+
+This avoids mixed-deployment write-shape surprises while still repairing real-world decode failures.
+
+### Verification coverage
+
+This compatibility contract is pinned by:
+
+- focused Go regression coverage in `pkg/types`, `pkg/query`, `internal/expr`, and `pkg/marshal`
+- public API verification for `tabletheory.UnmarshalItem(...)` and `tabletheory.UnmarshalStreamImage(...)`
+- integration coverage for promoted-field query/update behavior on embedded models
+
+### Release posture
+
+This repair is intended to remain **patch-compatible** on the current line:
+
+- decode support broadens
+- default helper writes remain unchanged
+- no default encode-shape flip is part of this repair
+
+Flat helper encoding now exists only as an **explicit opt-in** for new Go consumers. Any future default encode-shape
+convergence would still require migration notes and downstream coordination before it could even be considered for a future
+major release.
