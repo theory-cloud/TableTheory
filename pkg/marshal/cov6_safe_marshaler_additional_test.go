@@ -145,6 +145,7 @@ func TestSafeMarshaler_MarshalItem_PromotedAnonymousEmbedsLegacyShape_COV6(t *te
 		To   []string
 	}
 
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
 	type Activity struct {
 		BaseObject
 		Actor  string

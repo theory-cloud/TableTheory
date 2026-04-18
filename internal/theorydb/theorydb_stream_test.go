@@ -56,6 +56,7 @@ func TestUnmarshalStreamImage_PromotedAnonymousEmbeds(t *testing.T) {
 		To   []string
 	}
 
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
 	type Activity struct {
 		BaseObject
 		Actor  string
@@ -76,8 +77,8 @@ func TestUnmarshalStreamImage_PromotedAnonymousEmbeds(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name        string
 		streamImage map[string]events.DynamoDBAttributeValue
+		name        string
 	}{
 		{
 			name: "flat promoted-field payload",

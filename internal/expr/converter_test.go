@@ -309,6 +309,7 @@ func TestConvertToAttributeValue_PromotedAnonymousEmbeds_LegacyShape(t *testing.
 		To   []string
 	}
 
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
 	type Activity struct {
 		BaseObject
 		Actor  string
@@ -337,8 +338,8 @@ func TestConvertToAttributeValue_PromotedAnonymousEmbeds_LegacyShape(t *testing.
 
 	baseObjectAV, ok := activityAV.Value["baseObject"].(*types.AttributeValueMemberM)
 	require.True(t, ok)
-	require.Equal(t, "activity-1", baseObjectAV.Value["id"].(*types.AttributeValueMemberS).Value)
-	require.Equal(t, "Create", baseObjectAV.Value["type"].(*types.AttributeValueMemberS).Value)
+	require.Equal(t, "activity-1", exprStringValue(t, baseObjectAV.Value["id"]))
+	require.Equal(t, "Create", exprStringValue(t, baseObjectAV.Value["type"]))
 	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, exprStringListValues(t, baseObjectAV.Value["to"]))
 }
 
@@ -349,6 +350,7 @@ func TestConvertFromAttributeValue_PromotedAnonymousEmbeds(t *testing.T) {
 		To   []string
 	}
 
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
 	type Activity struct {
 		BaseObject
 		Actor  string
@@ -356,8 +358,8 @@ func TestConvertFromAttributeValue_PromotedAnonymousEmbeds(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
 		item map[string]types.AttributeValue
+		name string
 	}{
 		{
 			name: "flat payload",
@@ -567,7 +569,15 @@ func exprStringListValues(t *testing.T, av types.AttributeValue) []string {
 
 	values := make([]string, len(list.Value))
 	for i, item := range list.Value {
-		values[i] = item.(*types.AttributeValueMemberS).Value
+		values[i] = exprStringValue(t, item)
 	}
 	return values
+}
+
+func exprStringValue(t *testing.T, av types.AttributeValue) string {
+	t.Helper()
+
+	stringAV, ok := av.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	return stringAV.Value
 }

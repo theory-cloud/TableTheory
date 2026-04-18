@@ -19,6 +19,7 @@ type BaseObject struct {
 	To   []string
 }
 
+//nolint:govet // Field order mirrors the anonymous-embed contract fixture under verification.
 type Activity struct {
 	BaseObject
 	Actor  string
@@ -26,6 +27,21 @@ type Activity struct {
 }
 
 func main() {
+	mustVerify(verifySnakeCaseModelUnmarshal)
+	mustVerify(verifyPromotedActivityItemUnmarshal)
+	mustVerify(verifyPromotedActivityStreamUnmarshal)
+	mustVerify(verifyEncryptedUnmarshalFailsClosed)
+	fmt.Println("public-api-contracts: ok")
+}
+
+func mustVerify(fn func() error) {
+	if err := fn(); err != nil {
+		fmt.Fprintf(os.Stderr, "public-api-contracts: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func verifySnakeCaseModelUnmarshal() error {
 	type model struct {
 		_ struct{} `theorydb:"naming:snake_case"`
 
@@ -46,71 +62,62 @@ func main() {
 
 	var out model
 	if err := tabletheory.UnmarshalItem(item, &out); err != nil {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected error unmarshalling model\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected error unmarshalling model: %w", err)
 	}
 	if out.ID != "p1" || out.SK != "s1" || out.UserID != "u1" || out.Custom != "c" {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected field values after unmarshal\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected field values after unmarshal")
 	}
 	if !out.CreatedAt.Equal(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)) {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected CreatedAt after unmarshal\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected CreatedAt after unmarshal")
 	}
+	return nil
+}
 
-	expectedActivity := Activity{
-		BaseObject: BaseObject{
-			ID:   "https://example.com/activities/1",
-			Type: "Create",
-			To: []string{
-				"https://www.w3.org/ns/activitystreams#Public",
-				"https://example.com/users/alice/followers",
-			},
-		},
-		Actor:  "https://example.com/users/alice",
-		Object: "https://example.com/notes/1",
-	}
+func verifyPromotedActivityItemUnmarshal() error {
+	expectedActivity := contractActivity()
 
 	var flatActivity Activity
 	if err := tabletheory.UnmarshalItem(promotedActivityItem(expectedActivity), &flatActivity); err != nil {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected error unmarshalling flat promoted embed payload\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected error unmarshalling flat promoted embed payload: %w", err)
 	}
 	if !sameContractActivity(flatActivity, expectedActivity) {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected field values after flat promoted embed unmarshal\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected field values after flat promoted embed unmarshal")
 	}
 
 	var legacyActivity Activity
 	if err := tabletheory.UnmarshalItem(legacyPromotedActivityItem(expectedActivity), &legacyActivity); err != nil {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected error unmarshalling legacy promoted embed payload\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected error unmarshalling legacy promoted embed payload: %w", err)
 	}
 	if !sameContractActivity(legacyActivity, expectedActivity) {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected field values after legacy promoted embed unmarshal\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected field values after legacy promoted embed unmarshal")
 	}
+
+	return nil
+}
+
+func verifyPromotedActivityStreamUnmarshal() error {
+	expectedActivity := contractActivity()
 
 	var flatStreamActivity Activity
 	if err := tabletheory.UnmarshalStreamImage(promotedActivityStreamImage(expectedActivity), &flatStreamActivity); err != nil {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected error unmarshalling flat promoted embed stream image\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected error unmarshalling flat promoted embed stream image: %w", err)
 	}
 	if !sameContractActivity(flatStreamActivity, expectedActivity) {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected field values after flat promoted embed stream unmarshal\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected field values after flat promoted embed stream unmarshal")
 	}
 
 	var legacyStreamActivity Activity
 	if err := tabletheory.UnmarshalStreamImage(legacyPromotedActivityStreamImage(expectedActivity), &legacyStreamActivity); err != nil {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected error unmarshalling legacy promoted embed stream image\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected error unmarshalling legacy promoted embed stream image: %w", err)
 	}
 	if !sameContractActivity(legacyStreamActivity, expectedActivity) {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: unexpected field values after legacy promoted embed stream unmarshal\n")
-		os.Exit(1)
+		return fmt.Errorf("unexpected field values after legacy promoted embed stream unmarshal")
 	}
 
+	return nil
+}
+
+func verifyEncryptedUnmarshalFailsClosed() error {
 	type encryptedModel struct {
 		_ struct{} `theorydb:"naming:snake_case"`
 
@@ -129,11 +136,25 @@ func main() {
 	var encryptedOut encryptedModel
 	err := tabletheory.UnmarshalItem(encryptedItem, &encryptedOut)
 	if err == nil || !errors.Is(err, customerrors.ErrEncryptionNotConfigured) {
-		fmt.Fprintf(os.Stderr, "public-api-contracts: expected encrypted unmarshal to fail closed\n")
-		os.Exit(1)
+		return fmt.Errorf("expected encrypted unmarshal to fail closed")
 	}
 
-	fmt.Println("public-api-contracts: ok")
+	return nil
+}
+
+func contractActivity() Activity {
+	return Activity{
+		BaseObject: BaseObject{
+			ID:   "https://example.com/activities/1",
+			Type: "Create",
+			To: []string{
+				"https://www.w3.org/ns/activitystreams#Public",
+				"https://example.com/users/alice/followers",
+			},
+		},
+		Actor:  "https://example.com/users/alice",
+		Object: "https://example.com/notes/1",
+	}
 }
 
 func promotedActivityItem(activity Activity) map[string]types.AttributeValue {

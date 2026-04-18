@@ -148,6 +148,7 @@ func TestUnmarshalItem_PromotedAnonymousEmbeds_CON3(t *testing.T) {
 		To   []string
 	}
 
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
 	type activity struct {
 		BaseObject
 		Actor  string
@@ -168,8 +169,8 @@ func TestUnmarshalItem_PromotedAnonymousEmbeds_CON3(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name string
 		item map[string]types.AttributeValue
+		name string
 	}{
 		{
 			name: "flat promoted-field payload",
@@ -230,8 +231,8 @@ func TestUnmarshalItem_NestedPromotedAnonymousEmbeds_CON3(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name string
 		item map[string]types.AttributeValue
+		name string
 	}{
 		{
 			name: "nested flat promoted-field payload",

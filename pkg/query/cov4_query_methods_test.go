@@ -220,6 +220,7 @@ func TestQuery_buildUpdateExpressionFromTags_PromotedAnonymousEmbeds_PreservesLe
 		To   []string
 	}
 
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
 	type activity struct {
 		BaseObject
 		Actor string

@@ -17,6 +17,7 @@ func TestBuildVisibleFieldPlanIncludesPromotedFields(t *testing.T) {
 		Type string
 		To   []string
 	}
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
 	type Activity struct {
 		BaseObject
 		Actor  string

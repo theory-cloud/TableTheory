@@ -18,18 +18,18 @@ type LegacyAliasResolver func(field reflect.StructField) (aliases []string, skip
 // including promoted fields that arrived through exported anonymous embedded
 // structs. Anonymous struct containers themselves are intentionally omitted.
 type VisibleFieldPlan struct {
-	Field            reflect.StructField
 	IndexPath        []int
 	LegacyContainers []LegacyContainerPlan
+	Field            reflect.StructField
 }
 
 // LegacyContainerPlan records one anonymous embedded struct container on the
 // path to a promoted visible field, along with the aliases legacy helper
 // surfaces used for nested compatibility lookups.
 type LegacyContainerPlan struct {
-	Field     reflect.StructField
 	IndexPath []int
 	Aliases   []string
+	Field     reflect.StructField
 }
 
 // BuildVisibleFieldPlan enumerates exported visible fields for a struct using

@@ -690,6 +690,7 @@ func TestFromAttributeValue_PromotedAnonymousEmbeds(t *testing.T) {
 		Type string
 		To   []string
 	}
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
 	type Activity struct {
 		BaseObject
 		Actor  string
@@ -710,8 +711,8 @@ func TestFromAttributeValue_PromotedAnonymousEmbeds(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name string
 		item map[string]types.AttributeValue
+		name string
 	}{
 		{
 			name: "flat promoted-field payload",
