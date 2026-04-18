@@ -12,6 +12,23 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 
+## [1.6.0-rc](https://github.com/theory-cloud/TableTheory/compare/v1.5.5-rc...v1.6.0-rc) (2026-04-18)
+
+
+### Features
+
+* **go:** add opt-in flat encoding for anonymous embeds ([d25d85c](https://github.com/theory-cloud/TableTheory/commit/d25d85cc323a8c2e9c97fa20af24495f133d8c66))
+
+
+### Bug Fixes
+
+* **go:** add promoted-field plan for anonymous embeds ([0c6edbc](https://github.com/theory-cloud/TableTheory/commit/0c6edbca9ea3525b9693a452f6dd562949f393d0))
+* **go:** restore rubric for promoted embed helper parity ([5f7b861](https://github.com/theory-cloud/TableTheory/commit/5f7b86101caf5ed26e1b1bd506dd914b5cfbb4a6))
+* **marshal:** share anonymous-embed field traversal across helpers ([384ccdc](https://github.com/theory-cloud/TableTheory/commit/384ccdcaab94cd688df045c0789b12edfe785d51))
+* **query:** honor promoted anonymous embeds in public unmarshal helpers ([3128cc8](https://github.com/theory-cloud/TableTheory/commit/3128cc898bccbbda809de5dddfb9358f2883ca2e))
+* **query:** migrate remaining anonymous-embed helper walkers ([7dbdd5f](https://github.com/theory-cloud/TableTheory/commit/7dbdd5f1957b99b9205495cb4370988423ad83d1))
+* **types:** decode promoted anonymous embed fields ([c8404d3](https://github.com/theory-cloud/TableTheory/commit/c8404d39e79b2d1eed92c9ad66439a066404c84e))
+
 ## [1.5.5-rc](https://github.com/theory-cloud/TableTheory/compare/v1.5.4...v1.5.5-rc) (2026-04-14)
 
 
