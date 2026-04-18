@@ -1035,6 +1035,11 @@ func (q *Query) buildUpdateExpressionFromTags(builder *expr.Builder, modelValue 
 		return q.buildUpdateExpressionFromNamedFields(builder, modelValue, fields)
 	}
 
+	// Legacy tag-driven update helpers intentionally preserve anonymous embedded
+	// struct container writes (for example `BaseObject = {...}`) rather than
+	// flattening promoted fields. Focused regressions fence that compatibility
+	// shape so embedded-base models do not silently disappear while the public
+	// helper surface remains write-compatible.
 	primaryKey := q.metadata.PrimaryKey()
 	modelType := modelValue.Type()
 	for i := 0; i < modelType.NumField(); i++ {
@@ -1071,12 +1076,12 @@ func (q *Query) buildUpdateExpressionFromTags(builder *expr.Builder, modelValue 
 
 func (q *Query) buildUpdateExpressionFromNamedFields(builder *expr.Builder, modelValue reflect.Value, fields []string) error {
 	for _, field := range fields {
-		fieldValue := modelValue.FieldByName(field)
-		if !fieldValue.IsValid() {
+		fieldValue, fieldStruct, ok := q.findVisibleFieldByNames(modelValue, field)
+		if !ok {
 			return fmt.Errorf("field %s not found in model", field)
 		}
 		valueToSet := fieldValue.Interface()
-		if fieldStruct, ok := modelValue.Type().FieldByName(field); ok && fieldcodec.HasJSONModifier(fieldStruct.Tag.Get("theorydb")) {
+		if fieldcodec.HasJSONModifier(fieldStruct.Tag.Get("theorydb")) {
 			normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldStruct.Type, fieldValue)
 			if err != nil {
 				return fmt.Errorf("failed to normalize json field %s: %w", field, err)
@@ -1654,16 +1659,16 @@ func (q *Query) fillKeyValuesFromRawMetadata(modelValue reflect.Value, skGo stri
 
 func (q *Query) fillKeyValuesByName(modelValue reflect.Value, pkGo, skGo string, pkValue *any, pkFound *bool, skValue *any, skFound *bool) {
 	if !*pkFound {
-		field := modelValue.FieldByName(pkGo)
-		if field.IsValid() && !field.IsZero() {
+		field, _, ok := q.findVisibleFieldByNames(modelValue, pkGo)
+		if ok && field.IsValid() && !field.IsZero() {
 			*pkValue = field.Interface()
 			*pkFound = true
 		}
 	}
 
 	if skGo != "" && !*skFound {
-		field := modelValue.FieldByName(skGo)
-		if field.IsValid() && !field.IsZero() {
+		field, _, ok := q.findVisibleFieldByNames(modelValue, skGo)
+		if ok && field.IsValid() && !field.IsZero() {
 			*skValue = field.Interface()
 			*skFound = true
 		}
@@ -2260,6 +2265,9 @@ func (q *Query) marshalItemTagged(item any) (map[string]types.AttributeValue, er
 	modelType := modelValue.Type()
 	out := make(map[string]types.AttributeValue)
 
+	// Legacy tag-driven helper marshaling intentionally preserves anonymous
+	// embedded struct container writes (for example `BaseObject: {...}`) rather
+	// than flattening promoted fields. Focused regressions fence that shape.
 	for i := 0; i < modelType.NumField(); i++ {
 		field := modelType.Field(i)
 		if !field.IsExported() {
@@ -2318,6 +2326,113 @@ func (q *Query) marshalTaggedFieldAttributeValue(field reflect.StructField, fiel
 		}
 		return av, nil
 	}
+}
+
+func (q *Query) findVisibleFieldByNames(modelValue reflect.Value, names ...string) (reflect.Value, reflect.StructField, bool) {
+	if !modelValue.IsValid() || modelValue.Kind() != reflect.Struct {
+		return reflect.Value{}, reflect.StructField{}, false
+	}
+
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		fieldValue := modelValue.FieldByName(name)
+		fieldStruct, ok := modelValue.Type().FieldByName(name)
+		if fieldValue.IsValid() && ok {
+			return fieldValue, fieldStruct, true
+		}
+	}
+
+	fieldPlans, err := reflectutil.BuildVisibleFieldPlan(modelValue.Type(), nil)
+	if err != nil {
+		return reflect.Value{}, reflect.StructField{}, false
+	}
+
+	for _, fieldPlan := range fieldPlans {
+		if !queryFieldMatchesNames(q, fieldPlan.Field, names...) {
+			continue
+		}
+		return modelValue.FieldByIndex(fieldPlan.IndexPath), fieldPlan.Field, true
+	}
+
+	return reflect.Value{}, reflect.StructField{}, false
+}
+
+func queryFieldMatchesNames(q *Query, field reflect.StructField, names ...string) bool {
+	if len(names) == 0 {
+		return false
+	}
+
+	lookupNames := queryFieldLookupNames(q, field)
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		for _, candidate := range lookupNames {
+			if name == candidate {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func queryFieldLookupNames(q *Query, field reflect.StructField) []string {
+	names := make([]string, 0, 6)
+	names = appendQueryLookupName(names, field.Name)
+
+	if q != nil {
+		if meta := q.attributeMetadata(field.Name); meta != nil {
+			names = appendQueryLookupName(names, meta.Name)
+			names = appendQueryLookupName(names, meta.DynamoDBName)
+		}
+	}
+
+	names = appendQueryTagLookupNames(names, field.Tag.Get("dynamodb"))
+	names = appendQueryTheorydbLookupNames(names, field.Tag.Get("theorydb"))
+	return names
+}
+
+func appendQueryTagLookupNames(names []string, tag string) []string {
+	if tag == "" || tag == "-" {
+		return names
+	}
+
+	name := strings.TrimSpace(strings.Split(tag, ",")[0])
+	return appendQueryLookupName(names, name)
+}
+
+func appendQueryTheorydbLookupNames(names []string, tag string) []string {
+	if tag == "" || tag == "-" {
+		return names
+	}
+
+	name := strings.TrimSpace(strings.Split(tag, ",")[0])
+	if name == "" || name == "-" {
+		return names
+	}
+
+	names = appendQueryLookupName(names, name)
+	if strings.HasPrefix(name, "attr:") {
+		names = appendQueryLookupName(names, strings.TrimPrefix(name, "attr:"))
+	}
+	return names
+}
+
+func appendQueryLookupName(names []string, name string) []string {
+	if name == "" || name == "-" {
+		return names
+	}
+
+	for _, existing := range names {
+		if existing == name {
+			return names
+		}
+	}
+
+	return append(names, name)
 }
 
 func normalizeTaggedFieldValue(field reflect.StructField, fieldValue reflect.Value) (any, error) {

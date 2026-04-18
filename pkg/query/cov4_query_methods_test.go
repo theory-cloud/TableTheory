@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/theory-cloud/tabletheory/internal/expr"
 	"github.com/theory-cloud/tabletheory/pkg/core"
 )
 
@@ -172,6 +173,101 @@ func TestQuery_CreateOrUpdate_OmitsZeroValues(t *testing.T) {
 	require.Contains(t, executor.lastPutItem, "ID")
 	require.NotContains(t, executor.lastPutItem, "Optional")
 	require.NotContains(t, executor.lastPutItem, "When")
+}
+
+func TestQuery_Update_PromotedAnonymousEmbeddedKeyAndFieldFallback(t *testing.T) {
+	type BaseFields struct {
+		PK     string `theorydb:"pk"`
+		Status string `theorydb:"attr:status"`
+	}
+
+	type updateItem struct {
+		BaseFields
+	}
+
+	metadata := &cov4Metadata{
+		table: "tbl",
+		pk:    core.KeySchema{PartitionKey: "pk"},
+	}
+
+	executor := &cov4Executor{}
+	item := &updateItem{
+		BaseFields: BaseFields{
+			PK:     "id-1",
+			Status: "ok",
+		},
+	}
+	q := New(item, metadata, executor)
+
+	require.NoError(t, q.Update("status"))
+	require.NotNil(t, executor.lastUpdate)
+	require.NotEmpty(t, executor.lastUpdate.UpdateExpression)
+
+	foundStatus := false
+	for _, name := range executor.lastUpdate.ExpressionAttributeNames {
+		if name == "status" {
+			foundStatus = true
+			break
+		}
+	}
+	require.True(t, foundStatus, "expected status placeholder to be emitted for promoted embedded field")
+}
+
+func TestQuery_buildUpdateExpressionFromTags_PromotedAnonymousEmbeds_PreservesLegacyContainer(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+
+	type activity struct {
+		BaseObject
+		Actor string
+	}
+
+	item := &activity{
+		BaseObject: BaseObject{
+			ID:   "activity-1",
+			Type: "Create",
+			To:   []string{"acct:one", "acct:two"},
+		},
+		Actor: "acct:actor",
+	}
+
+	q := New(item, &cov4Metadata{
+		table: "tbl",
+		pk:    core.KeySchema{PartitionKey: "pk"},
+	}, &cov4Executor{})
+
+	modelValue, err := q.updateModelValue()
+	require.NoError(t, err)
+
+	builder := expr.NewBuilder()
+	require.NoError(t, q.buildUpdateExpressionFromTags(builder, modelValue, nil))
+
+	components := builder.Build()
+	require.NotEmpty(t, components.UpdateExpression)
+
+	foundBaseObject := false
+	for _, av := range components.ExpressionAttributeValues {
+		baseObjectAV, ok := av.(*types.AttributeValueMemberM)
+		if !ok {
+			continue
+		}
+
+		idAV, ok := baseObjectAV.Value["id"].(*types.AttributeValueMemberS)
+		if !ok || idAV.Value != "activity-1" {
+			continue
+		}
+
+		typeAV, ok := baseObjectAV.Value["type"].(*types.AttributeValueMemberS)
+		require.True(t, ok)
+		require.Equal(t, "Create", typeAV.Value)
+		foundBaseObject = true
+		break
+	}
+
+	require.True(t, foundBaseObject, "expected legacy BaseObject container update to remain present")
 }
 
 func TestQuery_buildConditionExpression_DefaultIfEmpty(t *testing.T) {

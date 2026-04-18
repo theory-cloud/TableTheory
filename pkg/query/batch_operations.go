@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 
@@ -283,8 +282,8 @@ func (q *Query) executeUpdateBatch(batch []any, opts *BatchUpdateOptions, fields
 		}
 
 		for _, field := range fields {
-			fieldValue := itemValue.FieldByName(field)
-			if fieldValue.IsValid() {
+			fieldValue, _, ok := q.findVisibleFieldByNames(itemValue, field)
+			if ok && fieldValue.IsValid() {
 				updateBuilder.Set(field, fieldValue.Interface())
 			}
 		}
@@ -432,44 +431,8 @@ func (q *Query) findKeyField(itemValue reflect.Value, keyName string) (reflect.V
 	}
 
 	goName := q.resolveGoFieldName(keyName)
-	if field := itemValue.FieldByName(goName); field.IsValid() {
+	if field, _, ok := q.findVisibleFieldByNames(itemValue, goName, keyName); ok {
 		return field, true
-	}
-	if field, ok := findFieldByTag(itemValue, keyName); ok {
-		return field, true
-	}
-	if keyName != goName {
-		if field, ok := findFieldByTag(itemValue, goName); ok {
-			return field, true
-		}
-	}
-	return reflect.Value{}, false
-}
-
-func findFieldByTag(itemValue reflect.Value, attrName string) (reflect.Value, bool) {
-	if attrName == "" || !itemValue.IsValid() || itemValue.Kind() != reflect.Struct {
-		return reflect.Value{}, false
-	}
-	typ := itemValue.Type()
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-		tag := field.Tag.Get("dynamodb")
-		if tag == "" {
-			tag = field.Tag.Get("theorydb")
-		}
-		if tag == "" {
-			continue
-		}
-		name := strings.Split(tag, ",")[0]
-		if name == "" {
-			continue
-		}
-		if name == attrName {
-			return itemValue.Field(i), true
-		}
 	}
 	return reflect.Value{}, false
 }
