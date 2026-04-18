@@ -196,6 +196,30 @@ helper decoders looked only for a nested anonymous-container map such as `BaseOb
 - **Default write compatibility**: Historical helper paths that encoded anonymous embedded structs under a container such as
   `BaseObject` continue to do so by default. This repair does not silently flatten helper write output.
 
+### Opting in to flat helper writes
+
+New Go code can now request flat promoted-field helper encoding explicitly:
+
+```go
+converter := pkgtypes.NewConverter().WithFlatAnonymousEmbedEncoding()
+
+av, err := converter.ToAttributeValue(activity)
+if err != nil {
+    return err
+}
+
+q := query.New(&activity, metadata, executor).WithConverter(converter)
+_ = av
+_ = q
+```
+
+This opt-in is additive:
+
+- `pkg/types.Converter.ToAttributeValue(...)` flattens exported promoted fields from anonymous embeds
+- helper surfaces that accept the configured converter (for example `Query.WithConverter(...)` and marshaler factories
+  built with that converter) use the same flat helper encoding
+- default helper writes stay legacy-compatible when you do nothing
+
 ### Why this is the safe path
 
 TableTheory is already used by production systems. The lowest-risk repair is therefore:
@@ -222,6 +246,6 @@ This repair is intended to remain **patch-compatible** on the current line:
 - default helper writes remain unchanged
 - no default encode-shape flip is part of this repair
 
-If a flat helper encode mode is added later, it should ship as an **explicit opt-in** for new Go consumers first. Only after
-that adoption cycle, migration notes, and downstream coordination would any default encode-shape convergence even be eligible
-for consideration in a future major release.
+Flat helper encoding now exists only as an **explicit opt-in** for new Go consumers. Any future default encode-shape
+convergence would still require migration notes and downstream coordination before it could even be considered for a future
+major release.

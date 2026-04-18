@@ -19,8 +19,9 @@ import (
 // Converter handles conversion between Go types and DynamoDB AttributeValues
 type Converter struct {
 	// customConverters allows registration of custom type converters
-	customConverters map[reflect.Type]CustomConverter
-	mu               sync.RWMutex
+	customConverters           map[reflect.Type]CustomConverter
+	flatAnonymousEmbedEncoding bool
+	mu                         sync.RWMutex
 }
 
 var timeType = reflect.TypeOf(time.Time{})
@@ -199,6 +200,14 @@ func (c *Converter) mapToAttributeValueMapWithConvention(v reflect.Value, inheri
 }
 
 func (c *Converter) structToMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+	if c.FlatAnonymousEmbedEncodingEnabled() {
+		return c.structToFlatMapWithConvention(v, inheritedConvention, inheritNaming)
+	}
+
+	return c.structToLegacyMapWithConvention(v, inheritedConvention, inheritNaming)
+}
+
+func (c *Converter) structToLegacyMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
 	m := make(map[string]types.AttributeValue)
 	t := v.Type()
 	convention, useTheorydbNaming := resolveStructNaming(t, inheritedConvention, inheritNaming)
@@ -235,6 +244,56 @@ func (c *Converter) structToMapWithConvention(v reflect.Value, inheritedConventi
 	}
 
 	return &types.AttributeValueMemberM{Value: m}, nil
+}
+
+func (c *Converter) structToFlatMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+	m := make(map[string]types.AttributeValue)
+	t := v.Type()
+	convention, useTheorydbNaming := resolveStructNaming(t, inheritedConvention, inheritNaming)
+
+	fieldPlans, err := reflectutil.BuildVisibleFieldPlan(t, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, fieldPlan := range fieldPlans {
+		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
+		if fieldValue.IsZero() {
+			continue
+		}
+
+		av, err := c.toAttributeValueWithConvention(fieldValue, convention, useTheorydbNaming)
+		if err != nil {
+			return nil, fmt.Errorf("field %s: %w", fieldPlan.Field.Name, err)
+		}
+
+		attrName, skip, err := resolveStructMarshalFieldName(fieldPlan.Field, convention, useTheorydbNaming)
+		if err != nil {
+			return nil, fmt.Errorf("field %s: %w", fieldPlan.Field.Name, err)
+		}
+		if skip {
+			continue
+		}
+
+		m[attrName] = av
+	}
+
+	return &types.AttributeValueMemberM{Value: m}, nil
+}
+
+func resolveStructMarshalFieldName(field reflect.StructField, convention naming.Convention, useTheorydbNaming bool) (string, bool, error) {
+	if !useTheorydbNaming {
+		return field.Name, false, nil
+	}
+
+	attrName, skip := naming.ResolveAttrNameWithConvention(field, convention)
+	if skip {
+		return "", true, nil
+	}
+	if err := naming.ValidateAttrName(attrName, convention); err != nil {
+		return "", false, err
+	}
+	return attrName, false, nil
 }
 
 // FromAttributeValue converts a DynamoDB AttributeValue to Go value

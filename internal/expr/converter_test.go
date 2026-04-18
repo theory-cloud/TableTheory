@@ -343,6 +343,45 @@ func TestConvertToAttributeValue_PromotedAnonymousEmbeds_LegacyShape(t *testing.
 	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, exprStringListValues(t, baseObjectAV.Value["to"]))
 }
 
+func TestConvertToAttributeValueWithOptions_PromotedAnonymousEmbeds_FlatShape(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
+	type Activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	av, err := ConvertToAttributeValueWithOptions(Activity{
+		BaseObject: BaseObject{
+			ID:   "activity-1",
+			Type: "Create",
+			To:   []string{"acct:one", "acct:two"},
+		},
+		Actor:  "acct:actor",
+		Object: "note-1",
+	}, ConvertOptions{FlatAnonymousEmbedEncoding: true})
+	require.NoError(t, err)
+
+	activityAV, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, activityAV.Value, "id")
+	require.Contains(t, activityAV.Value, "type")
+	require.Contains(t, activityAV.Value, "to")
+	require.Contains(t, activityAV.Value, "actor")
+	require.Contains(t, activityAV.Value, "object")
+	require.NotContains(t, activityAV.Value, "baseObject")
+
+	require.Equal(t, "activity-1", exprStringValue(t, activityAV.Value["id"]))
+	require.Equal(t, "Create", exprStringValue(t, activityAV.Value["type"]))
+	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, exprStringListValues(t, activityAV.Value["to"]))
+}
+
 func TestConvertFromAttributeValue_PromotedAnonymousEmbeds(t *testing.T) {
 	type BaseObject struct {
 		ID   string

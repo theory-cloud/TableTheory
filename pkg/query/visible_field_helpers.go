@@ -12,6 +12,19 @@ import (
 	"github.com/theory-cloud/tabletheory/internal/reflectutil"
 )
 
+type flatAnonymousEmbedEncodingLookup interface {
+	FlatAnonymousEmbedEncodingEnabled() bool
+}
+
+func (q *Query) usesFlatAnonymousEmbedEncoding() bool {
+	if q == nil || q.converter == nil {
+		return false
+	}
+
+	lookup, ok := q.converter.(flatAnonymousEmbedEncodingLookup)
+	return ok && lookup.FlatAnonymousEmbedEncodingEnabled()
+}
+
 func (q *Query) marshalTaggedFieldAttributeValue(field reflect.StructField, fieldValue reflect.Value) (types.AttributeValue, error) {
 	valueToConvert, err := normalizeTaggedFieldValue(field, fieldValue)
 	if err != nil {

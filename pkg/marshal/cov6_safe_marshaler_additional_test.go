@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
 )
 
 func TestSafeMarshaler_getOrBuildSafeStructMarshaler_RebuildsOnBadCache_COV6(t *testing.T) {
@@ -191,4 +192,58 @@ func TestSafeMarshaler_MarshalItem_PromotedAnonymousEmbedsLegacyShape_COV6(t *te
 	require.Equal(t, "activity-1", requireAVS(t, baseObjectAV["id"]).Value)
 	require.Equal(t, "Create", requireAVS(t, baseObjectAV["type"]).Value)
 	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, attributeValueStringList(t, baseObjectAV["to"]))
+}
+
+func TestSafeMarshaler_MarshalItem_PromotedAnonymousEmbedsFlatShape_COV6(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
+	type Activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	type item struct {
+		ID       string `theorydb:"pk"`
+		Entity   string `theorydb:"sk"`
+		Activity Activity
+	}
+
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&item{}))
+	meta, err := registry.GetMetadata(&item{})
+	require.NoError(t, err)
+
+	m := NewSafeMarshalerWithConverter(pkgTypes.NewConverter().WithFlatAnonymousEmbedEncoding())
+	out, err := m.MarshalItem(item{
+		ID:     "USER#1",
+		Entity: "ACTIVITY#1",
+		Activity: Activity{
+			BaseObject: BaseObject{
+				ID:   "activity-1",
+				Type: "Create",
+				To:   []string{"acct:one", "acct:two"},
+			},
+			Actor:  "acct:actor",
+			Object: "note-1",
+		},
+	}, meta)
+	require.NoError(t, err)
+
+	activityAV := requireAVM(t, out["activity"]).Value
+	require.Contains(t, activityAV, "id")
+	require.Contains(t, activityAV, "type")
+	require.Contains(t, activityAV, "to")
+	require.Contains(t, activityAV, "actor")
+	require.Contains(t, activityAV, "object")
+	require.NotContains(t, activityAV, "baseObject")
+
+	require.Equal(t, "activity-1", requireAVS(t, activityAV["id"]).Value)
+	require.Equal(t, "Create", requireAVS(t, activityAV["type"]).Value)
+	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, attributeValueStringList(t, activityAV["to"]))
 }

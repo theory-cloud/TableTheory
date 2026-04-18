@@ -344,6 +344,44 @@ func TestMarshalItemTagged_CoversJSONConverterAndErrorPaths(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, "Create", typeAV.Value)
 	})
+
+	t.Run("marshalItemTagged flattens anonymous embedded fields when converter opts in", func(t *testing.T) {
+		type BaseObject struct {
+			ID   string
+			Type string
+			To   []string
+		}
+
+		//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
+		type Activity struct {
+			BaseObject
+			Actor string
+		}
+
+		out, err := (&Query{converter: pkgtypes.NewConverter().WithFlatAnonymousEmbedEncoding()}).marshalItemTagged(Activity{
+			BaseObject: BaseObject{
+				ID:   "activity-1",
+				Type: "Create",
+				To:   []string{"acct:one", "acct:two"},
+			},
+			Actor: "acct:actor",
+		})
+		require.NoError(t, err)
+
+		require.Contains(t, out, "ID")
+		require.Contains(t, out, "Type")
+		require.Contains(t, out, "To")
+		require.Contains(t, out, "Actor")
+		require.NotContains(t, out, "BaseObject")
+
+		idAV, ok := out["ID"].(*types.AttributeValueMemberS)
+		require.True(t, ok)
+		require.Equal(t, "activity-1", idAV.Value)
+
+		typeAV, ok := out["Type"].(*types.AttributeValueMemberS)
+		require.True(t, ok)
+		require.Equal(t, "Create", typeAV.Value)
+	})
 }
 
 func TestQueryMetadataHelpers_CoverLookupBranches(t *testing.T) {

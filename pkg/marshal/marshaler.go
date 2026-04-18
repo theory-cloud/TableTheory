@@ -316,7 +316,9 @@ func (m *Marshaler) buildJSONMarshalFunc(typ reflect.Type, fieldMeta *model.Fiel
 			return nil, err
 		}
 
-		return expr.ConvertToAttributeValue(normalized)
+		return expr.ConvertToAttributeValueWithOptions(normalized, expr.ConvertOptions{
+			FlatAnonymousEmbedEncoding: converterRequestsFlatAnonymousEmbeds(m.converter),
+		})
 	}
 }
 
@@ -520,6 +522,7 @@ func (m *Marshaler) marshalStructComplex(v reflect.Value) (types.AttributeValue,
 
 func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, error) {
 	typ := v.Type()
+	flattenAnonymousEmbeds := converterRequestsFlatAnonymousEmbeds(m.converter)
 	fieldPlans, err := buildMarshalVisibleFieldPlans(typ)
 	if err != nil {
 		return nil, err
@@ -546,13 +549,13 @@ func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, e
 		if skip {
 			continue
 		}
-		containerNames, skip := resolveMarshalContainerNames(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
+		containerNames, skip := marshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
 			return resolveMarshalStructFieldName(field, m.namingConvention)
-		})
+		}, flattenAnonymousEmbeds)
 		if skip {
 			continue
 		}
-		if err := setLegacyNestedAttributeValue(structMap, containerNames, fieldName, av); err != nil {
+		if err := setMarshaledAttributeValue(structMap, containerNames, fieldName, av, flattenAnonymousEmbeds); err != nil {
 			return nil, fmt.Errorf("struct field %s: %w", field.Name, err)
 		}
 	}

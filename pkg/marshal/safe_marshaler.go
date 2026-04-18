@@ -203,7 +203,9 @@ func (m *SafeMarshaler) marshalValue(v reflect.Value, fieldMeta *safeFieldMarsha
 		if err != nil {
 			return nil, err
 		}
-		return expr.ConvertToAttributeValue(normalized)
+		return expr.ConvertToAttributeValueWithOptions(normalized, expr.ConvertOptions{
+			FlatAnonymousEmbedEncoding: converterRequestsFlatAnonymousEmbeds(m.converter),
+		})
 	}
 
 	if av, ok, err := m.marshalTimeValue(v, fieldMeta); ok {
@@ -363,6 +365,7 @@ func (m *SafeMarshaler) marshalMap(v reflect.Value, fieldMeta *safeFieldMarshale
 func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	typ := v.Type()
 	convention := resolveNestedNamingConvention(typ, fieldMeta)
+	flattenAnonymousEmbeds := converterRequestsFlatAnonymousEmbeds(m.converter)
 	fieldPlans, err := buildMarshalVisibleFieldPlans(typ)
 	if err != nil {
 		return nil, err
@@ -390,13 +393,13 @@ func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarsh
 		if skip {
 			continue
 		}
-		containerNames, skip := resolveMarshalContainerNames(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
+		containerNames, skip := marshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
 			return resolveNestedFieldName(field, convention)
-		})
+		}, flattenAnonymousEmbeds)
 		if skip {
 			continue
 		}
-		if err := setLegacyNestedAttributeValue(structMap, containerNames, attrName, av); err != nil {
+		if err := setMarshaledAttributeValue(structMap, containerNames, attrName, av, flattenAnonymousEmbeds); err != nil {
 			return nil, fmt.Errorf("struct field %s: %w", fieldPlan.Field.Name, err)
 		}
 	}

@@ -92,6 +92,46 @@ func TestMarshalStructAsMap_PromotedAnonymousEmbedsLegacyShape_COV6(t *testing.T
 	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, attributeValueStringList(t, baseObjectAV["to"]))
 }
 
+func TestMarshalStructAsMap_PromotedAnonymousEmbedsFlatShape_COV6(t *testing.T) {
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
+	type activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	m := New(pkgTypes.NewConverter().WithFlatAnonymousEmbedEncoding())
+
+	av, err := m.marshalStructAsMap(reflect.ValueOf(activity{
+		BaseObject: BaseObject{
+			ID:   "activity-1",
+			Type: "Create",
+			To:   []string{"acct:one", "acct:two"},
+		},
+		Actor:  "acct:actor",
+		Object: "note-1",
+	}))
+	require.NoError(t, err)
+
+	activityAV := requireAVM(t, av).Value
+	require.Contains(t, activityAV, "id")
+	require.Contains(t, activityAV, "type")
+	require.Contains(t, activityAV, "to")
+	require.Contains(t, activityAV, "actor")
+	require.Contains(t, activityAV, "object")
+	require.NotContains(t, activityAV, "baseObject")
+
+	require.Equal(t, "activity-1", requireAVS(t, activityAV["id"]).Value)
+	require.Equal(t, "Create", requireAVS(t, activityAV["type"]).Value)
+	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, attributeValueStringList(t, activityAV["to"]))
+}
+
 type cov6CustomType struct {
 	Value string
 }

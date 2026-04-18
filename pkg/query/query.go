@@ -1035,6 +1035,10 @@ func (q *Query) buildUpdateExpressionFromTags(builder *expr.Builder, modelValue 
 		return q.buildUpdateExpressionFromNamedFields(builder, modelValue, fields)
 	}
 
+	if q.usesFlatAnonymousEmbedEncoding() {
+		return q.buildUpdateExpressionFromTaggedVisibleFields(builder, modelValue, q.metadata.PrimaryKey())
+	}
+
 	// Legacy tag-driven update helpers intentionally preserve anonymous embedded
 	// struct container writes (for example `BaseObject = {...}`) rather than
 	// flattening promoted fields. Focused regressions fence that compatibility
@@ -2260,6 +2264,10 @@ func (q *Query) marshalItemTagged(item any) (map[string]types.AttributeValue, er
 	}
 	if modelValue.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("item must be a struct")
+	}
+
+	if q.usesFlatAnonymousEmbedEncoding() {
+		return q.marshalItemTaggedFlat(modelValue)
 	}
 
 	modelType := modelValue.Type()

@@ -200,6 +200,9 @@ Updates specific fields of the item used in `Model()`. If `fields` is empty, upd
 - **Legacy write-shape compatibility**: When `fields` is empty and the query falls back to the tag-driven all-fields
   helper path, anonymous embedded struct containers keep their historical nested write shape rather than flattening
   promoted fields by default.
+- **Opt-in flat helper writes (Go)**: If you explicitly want flat promoted-field helper encoding, provide
+  `Query.WithConverter(pkgtypes.NewConverter().WithFlatAnonymousEmbedEncoding())`. The default helper write shape does
+  not change unless you opt in.
 
 #### `Delete() error`
 
