@@ -682,6 +682,91 @@ func TestFromAttributeValue_ComplexTypes(t *testing.T) {
 	})
 }
 
+func TestFromAttributeValue_PromotedAnonymousEmbeds(t *testing.T) {
+	converter := NewConverter()
+
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+	type Activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	expected := Activity{
+		BaseObject: BaseObject{
+			ID:   "https://example.com/activities/1",
+			Type: "Create",
+			To: []string{
+				"https://www.w3.org/ns/activitystreams#Public",
+				"https://example.com/users/alice/followers",
+			},
+		},
+		Actor:  "https://example.com/users/alice",
+		Object: "https://example.com/notes/1",
+	}
+
+	testCases := []struct {
+		name string
+		item map[string]types.AttributeValue
+	}{
+		{
+			name: "flat promoted-field payload",
+			item: map[string]types.AttributeValue{
+				"id":     &types.AttributeValueMemberS{Value: expected.ID},
+				"type":   &types.AttributeValueMemberS{Value: expected.Type},
+				"to":     stringListAttributeValue(expected.To),
+				"actor":  &types.AttributeValueMemberS{Value: expected.Actor},
+				"object": &types.AttributeValueMemberS{Value: expected.Object},
+			},
+		},
+		{
+			name: "legacy nested helper payload with field names",
+			item: map[string]types.AttributeValue{
+				"BaseObject": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"ID":   &types.AttributeValueMemberS{Value: expected.ID},
+					"Type": &types.AttributeValueMemberS{Value: expected.Type},
+					"To":   stringListAttributeValue(expected.To),
+				}},
+				"Actor":  &types.AttributeValueMemberS{Value: expected.Actor},
+				"Object": &types.AttributeValueMemberS{Value: expected.Object},
+			},
+		},
+		{
+			name: "legacy nested helper payload with naming aliases",
+			item: map[string]types.AttributeValue{
+				"baseObject": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"id":   &types.AttributeValueMemberS{Value: expected.ID},
+					"type": &types.AttributeValueMemberS{Value: expected.Type},
+					"to":   stringListAttributeValue(expected.To),
+				}},
+				"actor":  &types.AttributeValueMemberS{Value: expected.Actor},
+				"object": &types.AttributeValueMemberS{Value: expected.Object},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var result Activity
+			err := converter.FromAttributeValue(&types.AttributeValueMemberM{Value: tc.item}, &result)
+			require.NoError(t, err)
+			require.Equal(t, expected, result)
+		})
+	}
+}
+
+func stringListAttributeValue(values []string) *types.AttributeValueMemberL {
+	items := make([]types.AttributeValue, 0, len(values))
+	for _, value := range values {
+		items = append(items, &types.AttributeValueMemberS{Value: value})
+	}
+	return &types.AttributeValueMemberL{Value: items}
+}
+
 // TestFromAttributeValue_ErrorCases tests error handling in FromAttributeValue
 func TestFromAttributeValue_ErrorCases(t *testing.T) {
 	converter := NewConverter()

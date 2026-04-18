@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
@@ -448,16 +449,15 @@ func (c *Converter) mapToStructWithConvention(m map[string]types.AttributeValue,
 	}
 
 	targetType := target.Type()
-
 	convention, _ := resolveStructNaming(targetType, inheritedConvention, inheritNaming)
 
-	for i := 0; i < targetType.NumField(); i++ {
-		field := targetType.Field(i)
-		if !field.IsExported() {
-			continue
-		}
+	fieldPlans, err := buildMapDecodeFieldPlans(targetType, convention)
+	if err != nil {
+		return err
+	}
 
-		attrNames, skip, err := resolveMapFieldLookupNames(field, convention)
+	for _, fieldPlan := range fieldPlans {
+		attrNames, skip, err := resolveMapFieldLookupNames(fieldPlan.Field, convention)
 		if err != nil {
 			return err
 		}
@@ -465,13 +465,16 @@ func (c *Converter) mapToStructWithConvention(m map[string]types.AttributeValue,
 			continue
 		}
 
-		av, exists := lookupMapFieldValue(m, attrNames...)
+		av, exists, err := lookupMapFieldPlanValue(m, fieldPlan, attrNames)
+		if err != nil {
+			return fmt.Errorf("field %s: %w", fieldPlan.Field.Name, err)
+		}
 		if !exists {
 			continue
 		}
 
-		if err := c.fromAttributeValueWithConvention(av, target.Field(i), convention, true); err != nil {
-			return fmt.Errorf("field %s: %w", field.Name, err)
+		if err := c.fromAttributeValueWithConvention(av, target.FieldByIndex(fieldPlan.IndexPath), convention, true); err != nil {
+			return fmt.Errorf("field %s: %w", fieldPlan.Field.Name, err)
 		}
 	}
 
@@ -508,6 +511,48 @@ func resolveMapFieldLookupNames(field reflect.StructField, convention naming.Con
 	}
 
 	return names, false, nil
+}
+
+func buildMapDecodeFieldPlans(targetType reflect.Type, convention naming.Convention) ([]reflectutil.VisibleFieldPlan, error) {
+	return reflectutil.BuildVisibleFieldPlan(targetType, func(field reflect.StructField) ([]string, bool, error) {
+		return resolveMapFieldLookupNames(field, convention)
+	})
+}
+
+func lookupMapFieldPlanValue(m map[string]types.AttributeValue, fieldPlan reflectutil.VisibleFieldPlan, attrNames []string) (types.AttributeValue, bool, error) {
+	if av, exists := lookupMapFieldValue(m, attrNames...); exists {
+		return av, true, nil
+	}
+
+	return lookupLegacyMapFieldPlanValue(m, fieldPlan.LegacyContainers, attrNames)
+}
+
+func lookupLegacyMapFieldPlanValue(m map[string]types.AttributeValue, containers []reflectutil.LegacyContainerPlan, attrNames []string) (types.AttributeValue, bool, error) {
+	if len(containers) == 0 {
+		return nil, false, nil
+	}
+
+	current := m
+	for _, container := range containers {
+		if len(container.Aliases) == 0 {
+			return nil, false, nil
+		}
+
+		av, exists := lookupMapFieldValue(current, container.Aliases...)
+		if !exists {
+			return nil, false, nil
+		}
+
+		nested, ok := av.(*types.AttributeValueMemberM)
+		if !ok {
+			return nil, false, fmt.Errorf("legacy anonymous container %s must decode from a map, got %T", container.Field.Name, av)
+		}
+
+		current = nested.Value
+	}
+
+	av, exists := lookupMapFieldValue(current, attrNames...)
+	return av, exists, nil
 }
 
 func appendMapLookupName(names []string, name string) []string {
