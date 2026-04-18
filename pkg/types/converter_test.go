@@ -8,6 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
 // TestNewConverter tests the converter constructor
@@ -15,6 +17,17 @@ func TestNewConverter(t *testing.T) {
 	converter := NewConverter()
 	assert.NotNil(t, converter)
 	assert.NotNil(t, converter.customConverters)
+	assert.False(t, converter.FlatAnonymousEmbedEncodingEnabled())
+
+	assert.Same(t, converter, converter.WithFlatAnonymousEmbedEncoding())
+	assert.True(t, converter.FlatAnonymousEmbedEncodingEnabled())
+}
+
+func TestFlatAnonymousEmbedEncoding_NilConverter(t *testing.T) {
+	var converter *Converter
+
+	require.Nil(t, converter.WithFlatAnonymousEmbedEncoding())
+	require.False(t, converter.FlatAnonymousEmbedEncodingEnabled())
 }
 
 func TestAttributeValueNumberSetToFloat64(t *testing.T) {
@@ -680,6 +693,220 @@ func TestFromAttributeValue_ComplexTypes(t *testing.T) {
 			[]byte("world"),
 		}, result)
 	})
+}
+
+func TestFromAttributeValue_PromotedAnonymousEmbeds(t *testing.T) {
+	converter := NewConverter()
+
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
+	type Activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	expected := Activity{
+		BaseObject: BaseObject{
+			ID:   "https://example.com/activities/1",
+			Type: "Create",
+			To: []string{
+				"https://www.w3.org/ns/activitystreams#Public",
+				"https://example.com/users/alice/followers",
+			},
+		},
+		Actor:  "https://example.com/users/alice",
+		Object: "https://example.com/notes/1",
+	}
+
+	testCases := []struct {
+		item map[string]types.AttributeValue
+		name string
+	}{
+		{
+			name: "flat promoted-field payload",
+			item: map[string]types.AttributeValue{
+				"id":     &types.AttributeValueMemberS{Value: expected.ID},
+				"type":   &types.AttributeValueMemberS{Value: expected.Type},
+				"to":     stringListAttributeValue(expected.To),
+				"actor":  &types.AttributeValueMemberS{Value: expected.Actor},
+				"object": &types.AttributeValueMemberS{Value: expected.Object},
+			},
+		},
+		{
+			name: "legacy nested helper payload with field names",
+			item: map[string]types.AttributeValue{
+				"BaseObject": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"ID":   &types.AttributeValueMemberS{Value: expected.ID},
+					"Type": &types.AttributeValueMemberS{Value: expected.Type},
+					"To":   stringListAttributeValue(expected.To),
+				}},
+				"Actor":  &types.AttributeValueMemberS{Value: expected.Actor},
+				"Object": &types.AttributeValueMemberS{Value: expected.Object},
+			},
+		},
+		{
+			name: "legacy nested helper payload with naming aliases",
+			item: map[string]types.AttributeValue{
+				"baseObject": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+					"id":   &types.AttributeValueMemberS{Value: expected.ID},
+					"type": &types.AttributeValueMemberS{Value: expected.Type},
+					"to":   stringListAttributeValue(expected.To),
+				}},
+				"actor":  &types.AttributeValueMemberS{Value: expected.Actor},
+				"object": &types.AttributeValueMemberS{Value: expected.Object},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var result Activity
+			err := converter.FromAttributeValue(&types.AttributeValueMemberM{Value: tc.item}, &result)
+			require.NoError(t, err)
+			require.Equal(t, expected, result)
+		})
+	}
+}
+
+func TestToAttributeValue_FlatAnonymousEmbedEncoding(t *testing.T) {
+	converter := NewConverter().WithFlatAnonymousEmbedEncoding()
+
+	type BaseObject struct {
+		ID   string
+		Type string
+		To   []string
+	}
+	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
+	type Activity struct {
+		BaseObject
+		Actor  string
+		Object string
+	}
+
+	av, err := converter.ToAttributeValue(Activity{
+		BaseObject: BaseObject{
+			ID:   "activity-1",
+			Type: "Create",
+			To:   []string{"acct:one", "acct:two"},
+		},
+		Actor:  "acct:actor",
+		Object: "note-1",
+	})
+	require.NoError(t, err)
+
+	activityAV, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, activityAV.Value, "ID")
+	require.Contains(t, activityAV.Value, "Type")
+	require.Contains(t, activityAV.Value, "To")
+	require.Contains(t, activityAV.Value, "Actor")
+	require.Contains(t, activityAV.Value, "Object")
+	require.NotContains(t, activityAV.Value, "BaseObject")
+
+	require.Equal(t, "activity-1", attributeValueString(t, activityAV.Value["ID"]))
+	require.Equal(t, "Create", attributeValueString(t, activityAV.Value["Type"]))
+	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, attributeValueStringSlice(t, activityAV.Value["To"]))
+}
+
+func TestToAttributeValue_FlatAnonymousEmbedEncoding_UsesNamingConvention(t *testing.T) {
+	converter := NewConverter().WithFlatAnonymousEmbedEncoding()
+
+	type BaseFields struct {
+		PK      string `theorydb:"pk" json:"pk"`
+		Ignored string `theorydb:"-" json:"-"`
+	}
+
+	type record struct {
+		_ struct{} `theorydb:"naming:snake_case"`
+		BaseFields
+		DisplayName string `json:"display_name"`
+	}
+
+	av, err := converter.ToAttributeValue(record{
+		BaseFields: BaseFields{
+			PK:      "acct#1",
+			Ignored: "drop-me",
+		},
+		DisplayName: "Ada Lovelace",
+	})
+	require.NoError(t, err)
+
+	recordAV, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Contains(t, recordAV.Value, "pk")
+	require.Contains(t, recordAV.Value, "display_name")
+	require.NotContains(t, recordAV.Value, "PK")
+	require.NotContains(t, recordAV.Value, "DisplayName")
+	require.NotContains(t, recordAV.Value, "Ignored")
+	require.NotContains(t, recordAV.Value, "_")
+
+	require.Equal(t, "acct#1", attributeValueString(t, recordAV.Value["pk"]))
+	require.Equal(t, "Ada Lovelace", attributeValueString(t, recordAV.Value["display_name"]))
+}
+
+func TestResolveStructMarshalFieldName(t *testing.T) {
+	type sample struct {
+		Visible string
+		Skipped string `theorydb:"-"`
+	}
+
+	visibleField, ok := reflect.TypeOf(sample{}).FieldByName("Visible")
+	require.True(t, ok)
+
+	attrName, skip, err := resolveStructMarshalFieldName(visibleField, naming.SnakeCase, true)
+	require.NoError(t, err)
+	require.False(t, skip)
+	require.Equal(t, "visible", attrName)
+
+	attrName, skip, err = resolveStructMarshalFieldName(visibleField, naming.CamelCase, false)
+	require.NoError(t, err)
+	require.False(t, skip)
+	require.Equal(t, "Visible", attrName)
+
+	skippedField, ok := reflect.TypeOf(sample{}).FieldByName("Skipped")
+	require.True(t, ok)
+
+	attrName, skip, err = resolveStructMarshalFieldName(skippedField, naming.SnakeCase, true)
+	require.NoError(t, err)
+	require.True(t, skip)
+	require.Empty(t, attrName)
+}
+
+func stringListAttributeValue(values []string) *types.AttributeValueMemberL {
+	items := make([]types.AttributeValue, 0, len(values))
+	for _, value := range values {
+		items = append(items, &types.AttributeValueMemberS{Value: value})
+	}
+	return &types.AttributeValueMemberL{Value: items}
+}
+
+func attributeValueString(t *testing.T, av types.AttributeValue) string {
+	t.Helper()
+
+	stringAV, ok := av.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	return stringAV.Value
+}
+
+func attributeValueStringSlice(t *testing.T, av types.AttributeValue) []string {
+	t.Helper()
+
+	listAV, ok := av.(*types.AttributeValueMemberL)
+	require.True(t, ok)
+
+	values := make([]string, len(listAV.Value))
+	for i, item := range listAV.Value {
+		stringAV, ok := item.(*types.AttributeValueMemberS)
+		require.True(t, ok)
+		values[i] = stringAV.Value
+	}
+
+	return values
 }
 
 // TestFromAttributeValue_ErrorCases tests error handling in FromAttributeValue

@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	customerrors "github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/naming"
@@ -862,16 +863,13 @@ func UnmarshalItem(item map[string]types.AttributeValue, dest any) error {
 		return err
 	}
 
-	// For each field in the struct
-	for i := 0; i < destType.NumField(); i++ {
-		field := destType.Field(i)
+	fieldPlans, err := buildUnmarshalFieldPlans(destType, convention)
+	if err != nil {
+		return err
+	}
 
-		// Skip unexported fields
-		if !field.IsExported() {
-			continue
-		}
-
-		if err := unmarshalItemField(item, field, destElem.Field(i), convention); err != nil {
+	for _, fieldPlan := range fieldPlans {
+		if err := unmarshalItemFieldWithPlan(item, fieldPlan, destElem.FieldByIndex(fieldPlan.IndexPath), convention); err != nil {
 			return err
 		}
 	}
@@ -895,12 +893,23 @@ func resolveUnmarshalTarget(dest any) (reflect.Value, reflect.Type, naming.Conve
 }
 
 func unmarshalItemField(item map[string]types.AttributeValue, field reflect.StructField, dest reflect.Value, convention naming.Convention) error {
+	return unmarshalItemFieldWithPlan(item, reflectutil.VisibleFieldPlan{
+		Field:     field,
+		IndexPath: field.Index,
+	}, dest, convention)
+}
+
+func unmarshalItemFieldWithPlan(item map[string]types.AttributeValue, fieldPlan reflectutil.VisibleFieldPlan, dest reflect.Value, convention naming.Convention) error {
+	field := fieldPlan.Field
 	attrNames, skip := resolveUnmarshalFieldLookupNames(field, convention)
 	if skip {
 		return nil
 	}
 
-	av, exists := lookupAttributeValue(item, attrNames...)
+	av, exists, err := lookupUnmarshalFieldPlanValue(item, fieldPlan, attrNames)
+	if err != nil {
+		return fmt.Errorf("failed to locate field %s: %w", field.Name, err)
+	}
 	if !exists {
 		return nil
 	}
@@ -967,6 +976,13 @@ func resolveUnmarshalFieldLookupNames(field reflect.StructField, convention nami
 	return names, false
 }
 
+func buildUnmarshalFieldPlans(destType reflect.Type, convention naming.Convention) ([]reflectutil.VisibleFieldPlan, error) {
+	return reflectutil.BuildVisibleFieldPlan(destType, func(field reflect.StructField) ([]string, bool, error) {
+		names, skip := resolveUnmarshalFieldLookupNames(field, convention)
+		return names, skip, nil
+	})
+}
+
 func appendDefaultLookupNames(names []string, field reflect.StructField, convention naming.Convention) []string {
 	names = appendLookupName(names, naming.ConvertAttrName(field.Name, convention))
 	names = appendLookupName(names, field.Name)
@@ -993,6 +1009,54 @@ func lookupAttributeValue(values map[string]types.AttributeValue, names ...strin
 		}
 	}
 	return nil, false
+}
+
+func lookupUnmarshalFieldPlanValue(
+	values map[string]types.AttributeValue,
+	fieldPlan reflectutil.VisibleFieldPlan,
+	names []string,
+) (types.AttributeValue, bool, error) {
+	if av, exists := lookupAttributeValue(values, names...); exists {
+		return av, true, nil
+	}
+
+	return lookupLegacyUnmarshalFieldPlanValue(values, fieldPlan.LegacyContainers, names)
+}
+
+func lookupLegacyUnmarshalFieldPlanValue(
+	values map[string]types.AttributeValue,
+	containers []reflectutil.LegacyContainerPlan,
+	names []string,
+) (types.AttributeValue, bool, error) {
+	if len(containers) == 0 {
+		return nil, false, nil
+	}
+
+	current := values
+	for _, container := range containers {
+		if len(container.Aliases) == 0 {
+			return nil, false, nil
+		}
+
+		av, exists := lookupAttributeValue(current, container.Aliases...)
+		if !exists {
+			return nil, false, nil
+		}
+
+		nested, ok := av.(*types.AttributeValueMemberM)
+		if !ok {
+			return nil, false, fmt.Errorf(
+				"legacy anonymous container %s must decode from a map, got %T",
+				container.Field.Name,
+				av,
+			)
+		}
+
+		current = nested.Value
+	}
+
+	av, exists := lookupAttributeValue(current, names...)
+	return av, exists, nil
 }
 
 func parseJSONAttributeName(tag string) string {
@@ -1226,23 +1290,25 @@ func unmarshalMapIntoStructWithConvention(values map[string]types.AttributeValue
 	destType := dest.Type()
 	convention, _ := resolveStructNaming(destType, inheritedConvention, inheritNaming)
 
-	for i := 0; i < destType.NumField(); i++ {
-		field := destType.Field(i)
-		if !field.IsExported() {
-			continue
-		}
+	fieldPlans, err := buildUnmarshalFieldPlans(destType, convention)
+	if err != nil {
+		return err
+	}
 
-		fieldValue := dest.Field(i)
-		attrNames, skip := resolveUnmarshalFieldLookupNames(field, convention)
+	for _, fieldPlan := range fieldPlans {
+		attrNames, skip := resolveUnmarshalFieldLookupNames(fieldPlan.Field, convention)
 		if skip {
 			continue
 		}
 
-		structVal, ok := lookupAttributeValue(values, attrNames...)
+		structVal, ok, err := lookupUnmarshalFieldPlanValue(values, fieldPlan, attrNames)
+		if err != nil {
+			return fmt.Errorf("field %s: %w", fieldPlan.Field.Name, err)
+		}
 		if !ok {
 			continue
 		}
-		if err := unmarshalAttributeValueWithConvention(structVal, fieldValue, convention, true); err != nil {
+		if err := unmarshalAttributeValueWithConvention(structVal, dest.FieldByIndex(fieldPlan.IndexPath), convention, true); err != nil {
 			return err
 		}
 	}
