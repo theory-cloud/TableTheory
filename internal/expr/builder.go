@@ -702,6 +702,21 @@ func (b *Builder) addValueSecure(value any) (string, error) {
 			b.values[placeholder] = av
 			return placeholder, nil
 		}
+
+		if converterRequestsFlatAnonymousEmbeds(b.converter) {
+			if err := validation.ValidateValue(value); err != nil {
+				return "", fmt.Errorf("security validation failed: %w", err)
+			}
+
+			av, err := b.converter.ToAttributeValue(value)
+			if err != nil {
+				return "", fmt.Errorf("flat anonymous-embed encoding failed for %T: %w", value, err)
+			}
+			b.valueCounter++
+			placeholder := fmt.Sprintf(":v%d", b.valueCounter)
+			b.values[placeholder] = av
+			return placeholder, nil
+		}
 	}
 
 	av, err := ConvertToAttributeValueSecure(value)

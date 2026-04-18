@@ -132,7 +132,7 @@ func TestConvertToAttributeValueWithConvention_InterfaceBranch_COV6(t *testing.T
 	}
 
 	var value any = nested{CreatedAt: "now"}
-	av, err := convertToAttributeValueWithConvention(reflect.ValueOf(&value).Elem(), naming.SnakeCase, true)
+	av, err := convertToAttributeValueWithConvention(reflect.ValueOf(&value).Elem(), naming.SnakeCase, true, ConvertOptions{})
 	require.NoError(t, err)
 
 	m, ok := av.(*types.AttributeValueMemberM)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
@@ -24,16 +25,22 @@ type Unmarshaler interface {
 
 // ConvertToAttributeValue converts a Go value to a DynamoDB AttributeValue
 func ConvertToAttributeValue(value any) (types.AttributeValue, error) {
-	return convertToAttributeValueWithConvention(reflect.ValueOf(value), naming.CamelCase, false)
+	return ConvertToAttributeValueWithOptions(value, ConvertOptions{})
 }
 
-func convertToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+// ConvertToAttributeValueWithOptions converts a Go value to a DynamoDB
+// AttributeValue using the provided helper-marshal options.
+func ConvertToAttributeValueWithOptions(value any, opts ConvertOptions) (types.AttributeValue, error) {
+	return convertToAttributeValueWithConvention(reflect.ValueOf(value), naming.CamelCase, false, opts)
+}
+
+func convertToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
 	prepared, terminalAV, done, err := prepareValueForConversion(v)
 	if done || err != nil {
 		return terminalAV, err
 	}
 
-	return convertConcreteValueToAttributeValue(prepared, inheritedConvention, inheritNaming)
+	return convertConcreteValueToAttributeValue(prepared, inheritedConvention, inheritNaming, opts)
 }
 
 func prepareValueForConversion(v reflect.Value) (reflect.Value, types.AttributeValue, bool, error) {
@@ -59,7 +66,7 @@ func prepareValueForConversion(v reflect.Value) (reflect.Value, types.AttributeV
 	}
 }
 
-func convertConcreteValueToAttributeValue(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+func convertConcreteValueToAttributeValue(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
 	switch v.Kind() {
 	case reflect.String:
 		return &types.AttributeValueMemberS{Value: v.String()}, nil
@@ -72,20 +79,20 @@ func convertConcreteValueToAttributeValue(v reflect.Value, inheritedConvention n
 	case reflect.Bool:
 		return &types.AttributeValueMemberBOOL{Value: v.Bool()}, nil
 	case reflect.Slice:
-		return convertSliceToAttributeValueWithConvention(v, inheritedConvention, inheritNaming)
+		return convertSliceToAttributeValueWithConvention(v, inheritedConvention, inheritNaming, opts)
 	case reflect.Map:
-		return convertMapToAttributeValueWithConvention(v, inheritedConvention, inheritNaming)
+		return convertMapToAttributeValueWithConvention(v, inheritedConvention, inheritNaming, opts)
 	case reflect.Struct:
 		if t, ok := v.Interface().(time.Time); ok {
 			return &types.AttributeValueMemberS{Value: t.Format(time.RFC3339Nano)}, nil
 		}
-		return convertStructToAttributeValueWithConvention(v, inheritedConvention, inheritNaming)
+		return convertStructToAttributeValueWithConvention(v, inheritedConvention, inheritNaming, opts)
 	default:
 		return nil, fmt.Errorf("unsupported type: %v", v.Type())
 	}
 }
 
-func convertSliceToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+func convertSliceToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
 	// Handle []byte as binary
 	if v.Type().Elem().Kind() == reflect.Uint8 {
 		return &types.AttributeValueMemberB{Value: v.Bytes()}, nil
@@ -94,7 +101,7 @@ func convertSliceToAttributeValueWithConvention(v reflect.Value, inheritedConven
 	// Handle other slices as lists
 	list := make([]types.AttributeValue, v.Len())
 	for i := 0; i < v.Len(); i++ {
-		item, err := convertToAttributeValueWithConvention(v.Index(i), inheritedConvention, inheritNaming)
+		item, err := convertToAttributeValueWithConvention(v.Index(i), inheritedConvention, inheritNaming, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +110,7 @@ func convertSliceToAttributeValueWithConvention(v reflect.Value, inheritedConven
 	return &types.AttributeValueMemberL{Value: list}, nil
 }
 
-func convertMapToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+func convertMapToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
 	// Handle map[string]any as M type
 	if v.Type().Key().Kind() != reflect.String {
 		return nil, fmt.Errorf("unsupported map type: %v", v.Type())
@@ -111,7 +118,7 @@ func convertMapToAttributeValueWithConvention(v reflect.Value, inheritedConventi
 
 	m := make(map[string]types.AttributeValue, v.Len())
 	for _, key := range v.MapKeys() {
-		val, err := convertToAttributeValueWithConvention(v.MapIndex(key), inheritedConvention, inheritNaming)
+		val, err := convertToAttributeValueWithConvention(v.MapIndex(key), inheritedConvention, inheritNaming, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +127,7 @@ func convertMapToAttributeValueWithConvention(v reflect.Value, inheritedConventi
 	return &types.AttributeValueMemberM{Value: m}, nil
 }
 
-func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
+func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
 	// General struct marshaling.
 	// Explicit theorydb:"json" field handling is applied by higher-level field codecs
 	// before values reach this generic converter.
@@ -128,30 +135,80 @@ func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConve
 	t := v.Type()
 	convention, _ := resolveStructNaming(t, inheritedConvention, inheritNaming)
 
-	for i := 0; i < v.NumField(); i++ {
-		field := t.Field(i)
-		if !field.IsExported() {
-			continue
-		}
+	fieldPlans, err := reflectutil.BuildVisibleFieldPlan(t, nil)
+	if err != nil {
+		return nil, err
+	}
 
-		fieldName, theorydbTag, jsonTag, ok := marshalFieldNameAndTags(field, convention)
+	for _, fieldPlan := range fieldPlans {
+		fieldName, theorydbTag, jsonTag, ok := marshalFieldNameAndTags(fieldPlan.Field, convention)
 		if !ok {
 			continue
 		}
 
-		fieldValue := v.Field(i)
+		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
 		if shouldOmitEmptyField(fieldValue, theorydbTag, jsonTag) {
 			continue
 		}
 
-		av, err := convertToAttributeValueWithConvention(fieldValue, convention, true)
+		av, err := convertToAttributeValueWithConvention(fieldValue, convention, true, opts)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
+			return nil, fmt.Errorf("failed to convert field %s: %w", fieldPlan.Field.Name, err)
 		}
-		m[fieldName] = av
+
+		containerNames, skip := exprMarshalContainerNames(t, fieldPlan.IndexPath, convention, opts)
+		if skip {
+			continue
+		}
+		if err := setExprMarshaledFieldValue(m, containerNames, fieldName, av); err != nil {
+			return nil, fmt.Errorf("failed to convert field %s: %w", fieldPlan.Field.Name, err)
+		}
 	}
 
 	return &types.AttributeValueMemberM{Value: m}, nil
+}
+
+func exprMarshalContainerNames(modelType reflect.Type, indexPath []int, convention naming.Convention, opts ConvertOptions) ([]string, bool) {
+	if convertOptionsRequestFlatAnonymousEmbeds(opts) {
+		return nil, false
+	}
+	if len(indexPath) <= 1 {
+		return nil, false
+	}
+
+	names := make([]string, 0, len(indexPath)-1)
+	for depth := 1; depth < len(indexPath); depth++ {
+		containerField := modelType.FieldByIndex(indexPath[:depth])
+		containerName, _, _, ok := marshalFieldNameAndTags(containerField, convention)
+		if !ok {
+			return nil, true
+		}
+		names = append(names, containerName)
+	}
+
+	return names, false
+}
+
+func setExprMarshaledFieldValue(root map[string]types.AttributeValue, containerNames []string, fieldName string, av types.AttributeValue) error {
+	current := root
+	for _, containerName := range containerNames {
+		existing, ok := current[containerName]
+		if !ok {
+			child := make(map[string]types.AttributeValue)
+			current[containerName] = &types.AttributeValueMemberM{Value: child}
+			current = child
+			continue
+		}
+
+		nested, ok := existing.(*types.AttributeValueMemberM)
+		if !ok {
+			return fmt.Errorf("legacy anonymous container %s must marshal as map, got %T", containerName, existing)
+		}
+		current = nested.Value
+	}
+
+	current[fieldName] = av
+	return nil
 }
 
 func marshalFieldNameAndTags(field reflect.StructField, convention naming.Convention) (string, string, string, bool) {
@@ -455,26 +512,73 @@ func unmarshalMapIntoMapWithConvention(m map[string]types.AttributeValue, v refl
 func unmarshalMapIntoStructWithConvention(m map[string]types.AttributeValue, v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
 	t := v.Type()
 	convention, _ := resolveStructNaming(t, inheritedConvention, inheritNaming)
-	for i := 0; i < v.NumField(); i++ {
-		field := t.Field(i)
-		if !field.IsExported() {
-			continue
-		}
 
-		fieldNames, skip := unmarshalFieldNames(field, convention)
+	fieldPlans, err := buildExprUnmarshalFieldPlans(t, convention)
+	if err != nil {
+		return err
+	}
+
+	for _, fieldPlan := range fieldPlans {
+		fieldNames, skip := unmarshalFieldNames(fieldPlan.Field, convention)
 		if skip {
 			continue
 		}
 
-		av, ok := lookupMapValue(m, fieldNames...)
+		av, ok, err := lookupExprFieldPlanValue(m, fieldPlan, fieldNames)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal field %s: %w", fieldPlan.Field.Name, err)
+		}
 		if !ok {
 			continue
 		}
-		if err := unmarshalAttributeValueWithConvention(av, v.Field(i), convention, true); err != nil {
-			return fmt.Errorf("failed to unmarshal field %s: %w", field.Name, err)
+		if err := unmarshalAttributeValueWithConvention(av, v.FieldByIndex(fieldPlan.IndexPath), convention, true); err != nil {
+			return fmt.Errorf("failed to unmarshal field %s: %w", fieldPlan.Field.Name, err)
 		}
 	}
 	return nil
+}
+
+func buildExprUnmarshalFieldPlans(targetType reflect.Type, convention naming.Convention) ([]reflectutil.VisibleFieldPlan, error) {
+	return reflectutil.BuildVisibleFieldPlan(targetType, func(field reflect.StructField) ([]string, bool, error) {
+		names, skip := unmarshalFieldNames(field, convention)
+		return names, skip, nil
+	})
+}
+
+func lookupExprFieldPlanValue(values map[string]types.AttributeValue, fieldPlan reflectutil.VisibleFieldPlan, names []string) (types.AttributeValue, bool, error) {
+	if value, ok := lookupMapValue(values, names...); ok {
+		return value, true, nil
+	}
+
+	return lookupLegacyExprFieldPlanValue(values, fieldPlan.LegacyContainers, names)
+}
+
+func lookupLegacyExprFieldPlanValue(values map[string]types.AttributeValue, containers []reflectutil.LegacyContainerPlan, names []string) (types.AttributeValue, bool, error) {
+	if len(containers) == 0 {
+		return nil, false, nil
+	}
+
+	current := values
+	for _, container := range containers {
+		if len(container.Aliases) == 0 {
+			return nil, false, nil
+		}
+
+		av, ok := lookupMapValue(current, container.Aliases...)
+		if !ok {
+			return nil, false, nil
+		}
+
+		nested, ok := av.(*types.AttributeValueMemberM)
+		if !ok {
+			return nil, false, fmt.Errorf("legacy anonymous container %s must decode from a map, got %T", container.Field.Name, av)
+		}
+
+		current = nested.Value
+	}
+
+	av, ok := lookupMapValue(current, names...)
+	return av, ok, nil
 }
 
 func unmarshalFieldNames(field reflect.StructField, convention naming.Convention) ([]string, bool) {

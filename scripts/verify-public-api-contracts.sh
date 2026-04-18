@@ -5,8 +5,8 @@ set -euo pipefail
 #
 # Primary target:
 # - `tabletheory.UnmarshalItem` and friends must respect canonical TableTheory tag semantics
-#   (pk/sk + naming/attr overrides) and fail closed for encrypted envelopes when no
-#   decryption context is available.
+#   (pk/sk + naming/attr overrides), must decode promoted anonymous embeds from
+#   flat and legacy nested payloads, and must fail closed for encrypted envelopes
+#   when no decryption context is available.
 
 go run ./scripts/internal/public_api_contracts
-

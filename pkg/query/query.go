@@ -1035,6 +1035,15 @@ func (q *Query) buildUpdateExpressionFromTags(builder *expr.Builder, modelValue 
 		return q.buildUpdateExpressionFromNamedFields(builder, modelValue, fields)
 	}
 
+	if q.usesFlatAnonymousEmbedEncoding() {
+		return q.buildUpdateExpressionFromTaggedVisibleFields(builder, modelValue, q.metadata.PrimaryKey())
+	}
+
+	// Legacy tag-driven update helpers intentionally preserve anonymous embedded
+	// struct container writes (for example `BaseObject = {...}`) rather than
+	// flattening promoted fields. Focused regressions fence that compatibility
+	// shape so embedded-base models do not silently disappear while the public
+	// helper surface remains write-compatible.
 	primaryKey := q.metadata.PrimaryKey()
 	modelType := modelValue.Type()
 	for i := 0; i < modelType.NumField(); i++ {
@@ -1071,12 +1080,12 @@ func (q *Query) buildUpdateExpressionFromTags(builder *expr.Builder, modelValue 
 
 func (q *Query) buildUpdateExpressionFromNamedFields(builder *expr.Builder, modelValue reflect.Value, fields []string) error {
 	for _, field := range fields {
-		fieldValue := modelValue.FieldByName(field)
-		if !fieldValue.IsValid() {
+		fieldValue, fieldStruct, ok := q.findVisibleFieldByNames(modelValue, field)
+		if !ok {
 			return fmt.Errorf("field %s not found in model", field)
 		}
 		valueToSet := fieldValue.Interface()
-		if fieldStruct, ok := modelValue.Type().FieldByName(field); ok && fieldcodec.HasJSONModifier(fieldStruct.Tag.Get("theorydb")) {
+		if fieldcodec.HasJSONModifier(fieldStruct.Tag.Get("theorydb")) {
 			normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldStruct.Type, fieldValue)
 			if err != nil {
 				return fmt.Errorf("failed to normalize json field %s: %w", field, err)
@@ -1654,16 +1663,16 @@ func (q *Query) fillKeyValuesFromRawMetadata(modelValue reflect.Value, skGo stri
 
 func (q *Query) fillKeyValuesByName(modelValue reflect.Value, pkGo, skGo string, pkValue *any, pkFound *bool, skValue *any, skFound *bool) {
 	if !*pkFound {
-		field := modelValue.FieldByName(pkGo)
-		if field.IsValid() && !field.IsZero() {
+		field, _, ok := q.findVisibleFieldByNames(modelValue, pkGo)
+		if ok && field.IsValid() && !field.IsZero() {
 			*pkValue = field.Interface()
 			*pkFound = true
 		}
 	}
 
 	if skGo != "" && !*skFound {
-		field := modelValue.FieldByName(skGo)
-		if field.IsValid() && !field.IsZero() {
+		field, _, ok := q.findVisibleFieldByNames(modelValue, skGo)
+		if ok && field.IsValid() && !field.IsZero() {
 			*skValue = field.Interface()
 			*skFound = true
 		}
@@ -2257,9 +2266,16 @@ func (q *Query) marshalItemTagged(item any) (map[string]types.AttributeValue, er
 		return nil, fmt.Errorf("item must be a struct")
 	}
 
+	if q.usesFlatAnonymousEmbedEncoding() {
+		return q.marshalItemTaggedFlat(modelValue)
+	}
+
 	modelType := modelValue.Type()
 	out := make(map[string]types.AttributeValue)
 
+	// Legacy tag-driven helper marshaling intentionally preserves anonymous
+	// embedded struct container writes (for example `BaseObject: {...}`) rather
+	// than flattening promoted fields. Focused regressions fence that shape.
 	for i := 0; i < modelType.NumField(); i++ {
 		field := modelType.Field(i)
 		if !field.IsExported() {
@@ -2289,43 +2305,6 @@ func (q *Query) marshalItemTagged(item any) (map[string]types.AttributeValue, er
 	}
 
 	return out, nil
-}
-
-func (q *Query) marshalTaggedFieldAttributeValue(field reflect.StructField, fieldValue reflect.Value) (types.AttributeValue, error) {
-	valueToConvert, err := normalizeTaggedFieldValue(field, fieldValue)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
-	}
-
-	tag := field.Tag.Get("theorydb")
-	switch {
-	case fieldcodec.HasJSONModifier(tag):
-		av, err := expr.ConvertToAttributeValue(valueToConvert)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
-		}
-		return av, nil
-	case q != nil && q.converter != nil:
-		av, err := q.converter.ToAttributeValue(valueToConvert)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
-		}
-		return av, nil
-	default:
-		av, err := expr.ConvertToAttributeValue(valueToConvert)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
-		}
-		return av, nil
-	}
-}
-
-func normalizeTaggedFieldValue(field reflect.StructField, fieldValue reflect.Value) (any, error) {
-	if !fieldcodec.HasJSONModifier(field.Tag.Get("theorydb")) {
-		return fieldValue.Interface(), nil
-	}
-
-	return fieldcodec.NormalizeJSONReflectValue(field.Type, fieldValue)
 }
 
 func (q *Query) updateTimestampsInModel() {

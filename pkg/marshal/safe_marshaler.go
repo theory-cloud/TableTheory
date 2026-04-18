@@ -160,15 +160,9 @@ func (m *SafeMarshaler) buildSafeStructMarshaler(typ reflect.Type, metadata *mod
 			sm.minFields++
 		}
 
-		// Get field information safely
-		field, ok := typ.FieldByName(fieldMeta.Name)
+		field, ok := safeStructFieldByIndexPath(typ, fieldMeta.IndexPath)
 		if !ok {
-			// Try by index if name lookup fails
-			if fieldMeta.Index < typ.NumField() {
-				field = typ.Field(fieldMeta.Index)
-			} else {
-				continue // Skip invalid fields
-			}
+			continue
 		}
 
 		fm := safeFieldMarshaler{
@@ -209,7 +203,9 @@ func (m *SafeMarshaler) marshalValue(v reflect.Value, fieldMeta *safeFieldMarsha
 		if err != nil {
 			return nil, err
 		}
-		return expr.ConvertToAttributeValue(normalized)
+		return expr.ConvertToAttributeValueWithOptions(normalized, expr.ConvertOptions{
+			FlatAnonymousEmbedEncoding: converterRequestsFlatAnonymousEmbeds(m.converter),
+		})
 	}
 
 	if av, ok, err := m.marshalTimeValue(v, fieldMeta); ok {
@@ -367,22 +363,22 @@ func (m *SafeMarshaler) marshalMap(v reflect.Value, fieldMeta *safeFieldMarshale
 
 // marshalStruct safely marshals a struct as a map
 func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
-	structMap := make(map[string]types.AttributeValue)
 	typ := v.Type()
 	convention := resolveNestedNamingConvention(typ, fieldMeta)
+	flattenAnonymousEmbeds := converterRequestsFlatAnonymousEmbeds(m.converter)
+	fieldPlans, err := buildMarshalVisibleFieldPlans(typ)
+	if err != nil {
+		return nil, err
+	}
+
+	structMap := make(map[string]types.AttributeValue, len(fieldPlans))
 	childMeta := safeFieldMarshaler{
 		namingConvention: convention,
 		inheritNaming:    true,
 	}
 
-	for i := 0; i < v.NumField(); i++ {
-		field := typ.Field(i)
-		// Skip unexported fields for security
-		if !field.IsExported() {
-			continue
-		}
-
-		fieldValue := v.Field(i)
+	for _, fieldPlan := range fieldPlans {
+		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
 		// Skip zero values for omitempty behavior
 		if fieldValue.IsZero() {
 			continue
@@ -390,17 +386,39 @@ func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarsh
 
 		av, err := m.marshalValue(fieldValue, &childMeta)
 		if err != nil {
-			return nil, fmt.Errorf("struct field %s: %w", field.Name, err)
+			return nil, fmt.Errorf("struct field %s: %w", fieldPlan.Field.Name, err)
 		}
 
-		attrName, skip := resolveNestedFieldName(field, convention)
+		attrName, skip := resolveNestedFieldName(fieldPlan.Field, convention)
 		if skip {
 			continue
 		}
-
-		structMap[attrName] = av
+		containerNames, skip := marshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
+			return resolveNestedFieldName(field, convention)
+		}, flattenAnonymousEmbeds)
+		if skip {
+			continue
+		}
+		if err := setMarshaledAttributeValue(structMap, containerNames, attrName, av, flattenAnonymousEmbeds); err != nil {
+			return nil, fmt.Errorf("struct field %s: %w", fieldPlan.Field.Name, err)
+		}
 	}
 	return &types.AttributeValueMemberM{Value: structMap}, nil
+}
+
+func safeStructFieldByIndexPath(typ reflect.Type, indexPath []int) (field reflect.StructField, ok bool) {
+	defer func() {
+		if recover() != nil {
+			field = reflect.StructField{}
+			ok = false
+		}
+	}()
+
+	if len(indexPath) == 0 {
+		return reflect.StructField{}, false
+	}
+
+	return typ.FieldByIndex(indexPath), true
 }
 
 func nestedFieldContext(fieldMeta *safeFieldMarshaler) safeFieldMarshaler {

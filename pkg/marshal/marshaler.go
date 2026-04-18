@@ -14,6 +14,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/internal/expr"
 	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/pkg/model"
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
@@ -315,7 +316,9 @@ func (m *Marshaler) buildJSONMarshalFunc(typ reflect.Type, fieldMeta *model.Fiel
 			return nil, err
 		}
 
-		return expr.ConvertToAttributeValue(normalized)
+		return expr.ConvertToAttributeValueWithOptions(normalized, expr.ConvertOptions{
+			FlatAnonymousEmbedEncoding: converterRequestsFlatAnonymousEmbeds(m.converter),
+		})
 	}
 }
 
@@ -518,16 +521,18 @@ func (m *Marshaler) marshalStructComplex(v reflect.Value) (types.AttributeValue,
 }
 
 func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, error) {
-	structMap := make(map[string]types.AttributeValue, v.NumField())
 	typ := v.Type()
+	flattenAnonymousEmbeds := converterRequestsFlatAnonymousEmbeds(m.converter)
+	fieldPlans, err := buildMarshalVisibleFieldPlans(typ)
+	if err != nil {
+		return nil, err
+	}
 
-	for i := 0; i < v.NumField(); i++ {
-		field := typ.Field(i)
-		if field.PkgPath != "" {
-			continue
-		}
+	structMap := make(map[string]types.AttributeValue, len(fieldPlans))
 
-		fieldValue := v.Field(i)
+	for _, fieldPlan := range fieldPlans {
+		field := fieldPlan.Field
+		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
 
 		jsonTag := field.Tag.Get("json")
 		hasOmitEmpty := jsonTag != "" && strings.Contains(jsonTag, "omitempty")
@@ -540,15 +545,79 @@ func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, e
 			return nil, fmt.Errorf("struct field %s: %w", field.Name, err)
 		}
 
-		fieldName := naming.ConvertAttrName(field.Name, m.namingConvention)
-		if jsonTag != "" && jsonTag != "-" {
-			fieldName = jsonTagName(jsonTag)
+		fieldName, skip := resolveMarshalStructFieldName(field, m.namingConvention)
+		if skip {
+			continue
 		}
-
-		structMap[fieldName] = av
+		containerNames, skip := marshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
+			return resolveMarshalStructFieldName(field, m.namingConvention)
+		}, flattenAnonymousEmbeds)
+		if skip {
+			continue
+		}
+		if err := setMarshaledAttributeValue(structMap, containerNames, fieldName, av, flattenAnonymousEmbeds); err != nil {
+			return nil, fmt.Errorf("struct field %s: %w", field.Name, err)
+		}
 	}
 
 	return &types.AttributeValueMemberM{Value: structMap}, nil
+}
+
+func buildMarshalVisibleFieldPlans(typ reflect.Type) ([]reflectutil.VisibleFieldPlan, error) {
+	return reflectutil.BuildVisibleFieldPlan(typ, nil)
+}
+
+func resolveMarshalStructFieldName(field reflect.StructField, convention naming.Convention) (string, bool) {
+	fieldName := naming.ConvertAttrName(field.Name, convention)
+	jsonTag := field.Tag.Get("json")
+	if jsonTag != "" && jsonTag != "-" {
+		fieldName = jsonTagName(jsonTag)
+	}
+	return fieldName, false
+}
+
+func resolveMarshalContainerNames(
+	modelType reflect.Type,
+	indexPath []int,
+	resolve func(reflect.StructField) (string, bool),
+) ([]string, bool) {
+	if len(indexPath) <= 1 {
+		return nil, false
+	}
+
+	names := make([]string, 0, len(indexPath)-1)
+	for depth := 1; depth < len(indexPath); depth++ {
+		field := modelType.FieldByIndex(indexPath[:depth])
+		name, skip := resolve(field)
+		if skip {
+			return nil, true
+		}
+		names = append(names, name)
+	}
+
+	return names, false
+}
+
+func setLegacyNestedAttributeValue(root map[string]types.AttributeValue, containerNames []string, fieldName string, av types.AttributeValue) error {
+	current := root
+	for _, containerName := range containerNames {
+		existing, ok := current[containerName]
+		if !ok {
+			child := make(map[string]types.AttributeValue)
+			current[containerName] = &types.AttributeValueMemberM{Value: child}
+			current = child
+			continue
+		}
+
+		nested, ok := existing.(*types.AttributeValueMemberM)
+		if !ok {
+			return fmt.Errorf("legacy anonymous container %s must marshal as map, got %T", containerName, existing)
+		}
+		current = nested.Value
+	}
+
+	current[fieldName] = av
+	return nil
 }
 
 func jsonTagName(tag string) string {
