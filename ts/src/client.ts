@@ -497,6 +497,12 @@ export class TheorydbClient {
             update.ExpressionAttributeNames = built.expressionAttributeNames;
             update.ExpressionAttributeValues = built.expressionAttributeValues;
           } else {
+            if (provider) {
+              throw new TheorydbError(
+                'ErrInvalidModel',
+                `Encrypted transaction updates for model ${model.name} must use updateFn`,
+              );
+            }
             update.UpdateExpression = a.updateExpression;
             update.ConditionExpression = a.conditionExpression;
             update.ExpressionAttributeNames = a.expressionAttributeNames;

@@ -2,6 +2,11 @@ import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 
 import type { UpdateBuilder } from './update-builder.js';
 
+/**
+ * Raw transaction updates bypass UpdateBuilder encryption/validation and are
+ * therefore only valid for models without encrypted attributes. Encrypted
+ * models must use `updateFn`.
+ */
 type TransactUpdateRaw = {
   kind: 'update';
   model: string;
