@@ -161,6 +161,37 @@ func appendQueryLookupName(names []string, name string) []string {
 	return append(names, name)
 }
 
+func (q *Query) resolveMatchedFieldAttributeName(field reflect.StructField) string {
+	if q != nil {
+		if meta := q.attributeMetadata(field.Name); meta != nil {
+			if meta.DynamoDBName != "" && meta.DynamoDBName != field.Name {
+				return meta.DynamoDBName
+			}
+			if meta.Name != "" && meta.Name != field.Name {
+				return meta.Name
+			}
+		}
+	}
+
+	if dynamodbName := parseAttributeName(field.Tag.Get("dynamodb")); dynamodbName != "" && dynamodbName != "-" {
+		return dynamodbName
+	}
+
+	for _, token := range strings.Split(field.Tag.Get("theorydb"), ",") {
+		token = strings.TrimSpace(token)
+		if !strings.HasPrefix(token, "attr:") {
+			continue
+		}
+
+		name := strings.TrimSpace(strings.TrimPrefix(token, "attr:"))
+		if name != "" && name != "-" {
+			return name
+		}
+	}
+
+	return field.Name
+}
+
 func normalizeTaggedFieldValue(field reflect.StructField, fieldValue reflect.Value) (any, error) {
 	if !fieldcodec.HasJSONModifier(field.Tag.Get("theorydb")) {
 		return fieldValue.Interface(), nil
