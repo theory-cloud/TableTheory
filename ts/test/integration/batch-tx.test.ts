@@ -11,6 +11,7 @@ import {
 import { TheorydbClient } from '../../src/client.js';
 import { TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
+import { createDeterministicEncryptionProvider } from '../../src/testkit/index.js';
 
 const endpoint = process.env.DYNAMODB_ENDPOINT ?? 'http://localhost:8000';
 const skipIntegration =
@@ -67,7 +68,38 @@ try {
     ],
   });
 
+  const encryptedUser = defineModel({
+    name: 'EncryptedUser',
+    table: { name: 'users_contract' },
+    naming: { convention: 'camelCase' },
+    keys: {
+      partition: { attribute: 'PK', type: 'S' },
+      sort: { attribute: 'SK', type: 'S' },
+    },
+    attributes: [
+      { attribute: 'PK', type: 'S', required: true, roles: ['pk'] },
+      { attribute: 'SK', type: 'S', required: true, roles: ['sk'] },
+      {
+        attribute: 'createdAt',
+        type: 'S',
+        format: 'rfc3339nano',
+        roles: ['created_at'],
+      },
+      {
+        attribute: 'updatedAt',
+        type: 'S',
+        format: 'rfc3339nano',
+        roles: ['updated_at'],
+      },
+      { attribute: 'version', type: 'N', format: 'int', roles: ['version'] },
+      { attribute: 'secret', type: 'S', encryption: { v: 1 }, optional: true },
+    ],
+  });
+
   const theorydb = new TheorydbClient(ddb).register(user);
+  const encryptedTheorydb = new TheorydbClient(ddb, {
+    encryption: createDeterministicEncryptionProvider('integration-seed'),
+  }).register(encryptedUser);
 
   const pk = `USER#batch-${Date.now()}`;
   const keys = [
@@ -131,6 +163,44 @@ try {
       ]),
     (err) => err instanceof TheorydbError && err.code === 'ErrConditionFailed',
   );
+
+  const encryptedKey = { PK: `${pk}#enc`, SK: 'PROFILE' };
+  await encryptedTheorydb.create('EncryptedUser', {
+    ...encryptedKey,
+    secret: 'before',
+  });
+
+  await assert.rejects(
+    () =>
+      encryptedTheorydb.transactWrite([
+        {
+          kind: 'update',
+          model: 'EncryptedUser',
+          key: encryptedKey,
+          updateExpression: 'SET #secret = :secret',
+          expressionAttributeNames: { '#secret': 'secret' },
+          expressionAttributeValues: { ':secret': { S: 'plaintext' } },
+        },
+      ]),
+    (err) => err instanceof TheorydbError && err.code === 'ErrInvalidModel',
+  );
+
+  await encryptedTheorydb.transactWrite([
+    {
+      kind: 'update',
+      model: 'EncryptedUser',
+      key: encryptedKey,
+      updateFn: (u) => {
+        u.set('secret', 'after');
+      },
+    },
+  ]);
+
+  const encryptedGot = await encryptedTheorydb.get(
+    'EncryptedUser',
+    encryptedKey,
+  );
+  assert.equal(encryptedGot.secret, 'after');
 } finally {
   ddb.destroy();
 }

@@ -17,6 +17,7 @@ import {
 import { TheorydbClient } from '../../src/client.js';
 import { TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
+import { createDeterministicEncryptionProvider } from '../../src/testkit/index.js';
 import type { TransactAction } from '../../src/transaction.js';
 
 const User = defineModel({
@@ -33,6 +34,20 @@ const User = defineModel({
     { attribute: 'createdAt', type: 'S', roles: ['created_at'] },
     { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
     { attribute: 'version', type: 'N', roles: ['version'] },
+  ],
+});
+
+const EncryptedUser = defineModel({
+  name: 'EncryptedUser',
+  table: { name: 'users_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'secret', type: 'S', encryption: { v: 1 } },
   ],
 });
 
@@ -303,6 +318,67 @@ class StubDdb {
   assert.ok(update?.UpdateExpression?.includes('if_not_exists'));
   assert.ok(update?.ConditionExpression?.includes('attribute_not_exists'));
   assert.ok(update?.ConditionExpression?.includes('<'));
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof TransactWriteItemsCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient, {
+    encryption: createDeterministicEncryptionProvider('seed'),
+  }).register(EncryptedUser);
+
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'update',
+          model: 'EncryptedUser',
+          key: { PK: 'A', SK: '1' },
+          updateExpression: 'SET #s = :s',
+          expressionAttributeNames: { '#s': 'secret' },
+          expressionAttributeValues: { ':s': { S: 'plaintext' } },
+        },
+      ]),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrInvalidModel' &&
+      e.message.includes('must use updateFn'),
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof TransactWriteItemsCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient, {
+    encryption: createDeterministicEncryptionProvider('seed'),
+  }).register(EncryptedUser);
+
+  await client.transactWrite([
+    {
+      kind: 'update',
+      model: 'EncryptedUser',
+      key: { PK: 'A', SK: '1' },
+      updateFn: (u) => {
+        u.set('secret', 'cipher-me');
+      },
+    },
+  ]);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  const update = cmd.input.TransactItems?.[0]?.Update;
+  assert.equal(update?.UpdateExpression, 'SET #u1 = :u1');
+  assert.deepEqual(update?.ExpressionAttributeNames, { '#u1': 'secret' });
+  const encrypted = update?.ExpressionAttributeValues?.[':u1'];
+  assert.ok(encrypted && 'M' in encrypted);
+  assert.ok(encrypted.M?.ct);
+  assert.ok(encrypted.M?.nonce);
+  assert.ok(encrypted.M?.edk);
 }
 
 {

@@ -74,6 +74,10 @@ const next = page.cursor
 - `batchWrite(modelName, { puts, deletes }, options?)`
 - `transactWrite(ops, options?)`
 
+For models with encrypted attributes, transaction `update` actions must use
+`updateFn`. Raw `updateExpression` transaction updates are rejected because they
+would bypass `UpdateBuilder` encryption and validation.
+
 ## Streams
 
 - `unmarshalStreamRecord(model, record, options?)`
