@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -389,7 +390,33 @@ func TestAddGroupFilter(t *testing.T) {
 	assert.Contains(t, components.FilterExpression, "(")
 	assert.Contains(t, components.FilterExpression, ")")
 	assert.Contains(t, components.FilterExpression, "#STATUS = :v1")
-	assert.Contains(t, components.FilterExpression, "#n2 = :v2") // verified - corrected placeholder
+	assert.Contains(t, components.FilterExpression, "#n2 = :v4")
+}
+
+func TestAddGroupFilter_DoesNotOverrideExistingPlaceholders(t *testing.T) {
+	mainBuilder := expr.NewBuilder()
+	require.NoError(t, mainBuilder.AddFilterCondition("AND", "tenant_id", "=", "tenant-a"))
+
+	subBuilder := expr.NewBuilder()
+	require.NoError(t, subBuilder.AddFilterCondition("AND", "status", "=", "public"))
+
+	mainBuilder.AddGroupFilter("AND", subBuilder.Build())
+
+	components := mainBuilder.Build()
+
+	assert.Equal(t, "tenant_id", components.ExpressionAttributeNames["#n1"])
+	assert.Equal(t, "status", components.ExpressionAttributeNames["#STATUS"])
+
+	tenantValue, ok := components.ExpressionAttributeValues[":v1"].(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	assert.Equal(t, "tenant-a", tenantValue.Value)
+
+	statusValue, ok := components.ExpressionAttributeValues[":v2"].(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	assert.Equal(t, "public", statusValue.Value)
+
+	assert.Contains(t, components.FilterExpression, "#n1 = :v1")
+	assert.Contains(t, components.FilterExpression, "(#STATUS = :v2)")
 }
 
 func TestConvertToSlice(t *testing.T) {

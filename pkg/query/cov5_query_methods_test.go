@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory/pkg/core"
@@ -135,4 +136,35 @@ func TestQuery_OrFilterGroup_CoversGroupedOrFilters_COV5(t *testing.T) {
 
 	var out []struct{}
 	require.NoError(t, q.All(&out))
+}
+
+func TestQuery_FilterGroup_PreservesEarlierFilterPlaceholders_COV5(t *testing.T) {
+	exec := &cov5QueryExecutor{}
+
+	q := New(&struct{}{}, cov5Metadata{
+		table:      "tbl",
+		primaryKey: core.KeySchema{PartitionKey: "pk"},
+	}, exec)
+
+	q.Filter("tenant_id", "=", "tenant-a")
+	q.FilterGroup(func(sub core.Query) {
+		sub.Filter("status", "=", "public")
+	})
+
+	var out []struct{}
+	require.NoError(t, q.All(&out))
+	require.NotNil(t, exec.lastScan)
+	require.Contains(t, exec.lastScan.FilterExpression, "#n1 = :v1")
+	require.Contains(t, exec.lastScan.FilterExpression, "(#STATUS = :v2)")
+
+	require.Equal(t, "tenant_id", exec.lastScan.ExpressionAttributeNames["#n1"])
+	require.Equal(t, "status", exec.lastScan.ExpressionAttributeNames["#STATUS"])
+
+	tenantValue, ok := exec.lastScan.ExpressionAttributeValues[":v1"].(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "tenant-a", tenantValue.Value)
+
+	statusValue, ok := exec.lastScan.ExpressionAttributeValues[":v2"].(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "public", statusValue.Value)
 }
