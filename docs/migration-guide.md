@@ -222,6 +222,9 @@ helper decoders looked only for a nested anonymous-container map such as `BaseOb
   resolve promoted fields that live on exported anonymous embedded structs.
 - **Default write compatibility**: Historical helper paths that encoded anonymous embedded structs under a container such as
   `BaseObject` continue to do so by default. This repair does not silently flatten helper write output.
+- **Anonymous-embed hook precedence**: When an anonymous embedded field has a registered custom converter or a
+  `MarshalDynamoDBAttributeValue()` hook, Go helper write paths marshal that embedded container through the hook before
+  any promoted-field traversal or flat anonymous-embed encoding is applied.
 
 ### Opting in to flat helper writes
 

@@ -771,6 +771,15 @@ func (b *Builder) addValueSecure(value any) (string, error) {
 			return placeholder, nil
 		}
 
+		if av, ok, err := attributeValueFromMarshalerHook(value); ok {
+			if err != nil {
+				return "", fmt.Errorf("custom marshaler failed for %T: %w", value, err)
+			}
+			placeholder := b.newValuePlaceholder()
+			b.values[placeholder] = av
+			return placeholder, nil
+		}
+
 		if converterRequestsFlatAnonymousEmbeds(b.converter) {
 			if err := validation.ValidateValue(value); err != nil {
 				return "", fmt.Errorf("security validation failed: %w", err)
@@ -794,6 +803,28 @@ func (b *Builder) addValueSecure(value any) (string, error) {
 	placeholder := b.newValuePlaceholder()
 	b.values[placeholder] = av
 	return placeholder, nil
+}
+
+func attributeValueFromMarshalerHook(value any) (types.AttributeValue, bool, error) {
+	if value == nil {
+		return nil, false, nil
+	}
+
+	if marshaler, ok := value.(Marshaler); ok {
+		av, err := marshaler.MarshalDynamoDBAttributeValue()
+		return av, true, err
+	}
+
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() {
+		return nil, false, nil
+	}
+	if marshaler, ok := addressableMarshaler(rv); ok {
+		av, err := marshaler.MarshalDynamoDBAttributeValue()
+		return av, true, err
+	}
+
+	return nil, false, nil
 }
 
 // convertToSliceSecure converts various slice types to []any with validation

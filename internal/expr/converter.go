@@ -55,6 +55,12 @@ func prepareValueForConversion(v reflect.Value) (reflect.Value, types.AttributeV
 				return reflect.Value{}, av, true, err
 			}
 		}
+		if v.Kind() != reflect.Ptr {
+			if marshaler, ok := addressableMarshaler(v); ok {
+				av, err := marshaler.MarshalDynamoDBAttributeValue()
+				return reflect.Value{}, av, true, err
+			}
+		}
 
 		if v.Kind() != reflect.Interface && v.Kind() != reflect.Ptr {
 			return v, nil, false, nil
@@ -64,6 +70,22 @@ func prepareValueForConversion(v reflect.Value) (reflect.Value, types.AttributeV
 		}
 		v = v.Elem()
 	}
+}
+
+func addressableMarshaler(v reflect.Value) (Marshaler, bool) {
+	if !v.IsValid() || v.Kind() == reflect.Ptr {
+		return nil, false
+	}
+
+	if v.CanAddr() {
+		marshaler, ok := v.Addr().Interface().(Marshaler)
+		return marshaler, ok
+	}
+
+	copyValue := reflect.New(v.Type()).Elem()
+	copyValue.Set(v)
+	marshaler, ok := copyValue.Addr().Interface().(Marshaler)
+	return marshaler, ok
 }
 
 func convertConcreteValueToAttributeValue(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
@@ -135,7 +157,7 @@ func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConve
 	t := v.Type()
 	convention, _ := resolveStructNaming(t, inheritedConvention, inheritNaming)
 
-	fieldPlans, err := reflectutil.BuildVisibleFieldPlan(t, nil)
+	fieldPlans, err := BuildMarshalVisibleFieldPlan(t, nil, true)
 	if err != nil {
 		return nil, err
 	}
