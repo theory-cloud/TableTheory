@@ -12,6 +12,55 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 
+## [1.6.0](https://github.com/theory-cloud/TableTheory/compare/v1.5.5...v1.6.0) (2026-04-18)
+
+
+### Features
+
+* **go:** add opt-in flat encoding for anonymous embeds ([d25d85c](https://github.com/theory-cloud/TableTheory/commit/d25d85cc323a8c2e9c97fa20af24495f133d8c66))
+
+
+### Bug Fixes
+
+* **go:** add promoted-field plan for anonymous embeds ([0c6edbc](https://github.com/theory-cloud/TableTheory/commit/0c6edbca9ea3525b9693a452f6dd562949f393d0))
+* **go:** restore rubric for promoted embed helper parity ([5f7b861](https://github.com/theory-cloud/TableTheory/commit/5f7b86101caf5ed26e1b1bd506dd914b5cfbb4a6))
+* **marshal:** share anonymous-embed field traversal across helpers ([384ccdc](https://github.com/theory-cloud/TableTheory/commit/384ccdcaab94cd688df045c0789b12edfe785d51))
+* **query:** honor promoted anonymous embeds in public unmarshal helpers ([3128cc8](https://github.com/theory-cloud/TableTheory/commit/3128cc898bccbbda809de5dddfb9358f2883ca2e))
+* **query:** migrate remaining anonymous-embed helper walkers ([7dbdd5f](https://github.com/theory-cloud/TableTheory/commit/7dbdd5f1957b99b9205495cb4370988423ad83d1))
+* **types:** decode promoted anonymous embed fields ([c8404d3](https://github.com/theory-cloud/TableTheory/commit/c8404d39e79b2d1eed92c9ad66439a066404c84e))
+
+## [1.6.0-rc](https://github.com/theory-cloud/TableTheory/compare/v1.5.5-rc...v1.6.0-rc) (2026-04-18)
+
+
+### Features
+
+* **go:** add opt-in flat encoding for anonymous embeds ([d25d85c](https://github.com/theory-cloud/TableTheory/commit/d25d85cc323a8c2e9c97fa20af24495f133d8c66))
+
+
+### Bug Fixes
+
+* **go:** add promoted-field plan for anonymous embeds ([0c6edbc](https://github.com/theory-cloud/TableTheory/commit/0c6edbca9ea3525b9693a452f6dd562949f393d0))
+* **go:** restore rubric for promoted embed helper parity ([5f7b861](https://github.com/theory-cloud/TableTheory/commit/5f7b86101caf5ed26e1b1bd506dd914b5cfbb4a6))
+* **marshal:** share anonymous-embed field traversal across helpers ([384ccdc](https://github.com/theory-cloud/TableTheory/commit/384ccdcaab94cd688df045c0789b12edfe785d51))
+* **query:** honor promoted anonymous embeds in public unmarshal helpers ([3128cc8](https://github.com/theory-cloud/TableTheory/commit/3128cc898bccbbda809de5dddfb9358f2883ca2e))
+* **query:** migrate remaining anonymous-embed helper walkers ([7dbdd5f](https://github.com/theory-cloud/TableTheory/commit/7dbdd5f1957b99b9205495cb4370988423ad83d1))
+* **types:** decode promoted anonymous embed fields ([c8404d3](https://github.com/theory-cloud/TableTheory/commit/c8404d39e79b2d1eed92c9ad66439a066404c84e))
+
+## [1.5.5-rc](https://github.com/theory-cloud/TableTheory/compare/v1.5.4...v1.5.5-rc) (2026-04-14)
+
+
+### Bug Fixes
+
+* **ci:** add local theorycloud subtree staging for tabletheory ([0760427](https://github.com/theory-cloud/TableTheory/commit/0760427d60010f404c12443adc19e2ec6367da0f))
+* **ci:** add local theorycloud subtree staging for tabletheory ([b7e6913](https://github.com/theory-cloud/TableTheory/commit/b7e6913cfee641cdda0f1975c4d7dd4f1cb054bf))
+* **ci:** add theorycloud subtree sync and publish commands ([c205c38](https://github.com/theory-cloud/TableTheory/commit/c205c380aaa179ad654a855512d3f289d2baed03))
+* **ci:** add theorycloud subtree sync and publish commands ([3a2c338](https://github.com/theory-cloud/TableTheory/commit/3a2c3381793c99648bd4347e36aea90ca3d6edc4))
+* **ci:** align theorycloud publish workflow with KT role contract ([002dfd1](https://github.com/theory-cloud/TableTheory/commit/002dfd1fa23c6c1827022f2af5d7ba36a173e2b6)), closes [#135](https://github.com/theory-cloud/TableTheory/issues/135)
+* **ci:** automate theorycloud subtree publishing for tabletheory ([7c47ed2](https://github.com/theory-cloud/TableTheory/commit/7c47ed26cf3e4c72ea67621912a3be8c455460ee))
+* **ci:** automate theorycloud subtree publishing for tabletheory ([849c359](https://github.com/theory-cloud/TableTheory/commit/849c35967094a663e00ffc8418f781c8e6726968))
+* **ci:** finalize theorycloud publish workflow against KT lab contract ([5f10fc0](https://github.com/theory-cloud/TableTheory/commit/5f10fc0f5271744bbf0f57c21ddaf65cd523129e))
+* **ci:** make theorycloud publish helper awscurl-compatible ([87945e2](https://github.com/theory-cloud/TableTheory/commit/87945e28d020ff5c516f6c13b4fe6b4e29ff22c5))
+
 ## [1.5.4](https://github.com/theory-cloud/TableTheory/compare/v1.5.3...v1.5.4) (2026-04-13)
 
 
