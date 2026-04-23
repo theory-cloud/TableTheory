@@ -12,6 +12,20 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 
+## [1.6.0-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.6.0-rc...v1.6.0-rc.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* **expr:** remap grouped filter placeholders on merge ([fd18b2a](https://github.com/theory-cloud/TableTheory/commit/fd18b2a097c26f7fdde4cf9fca216bf5cf8b02e1))
+* **marshal:** restore anonymous embed custom hook handling ([2a61893](https://github.com/theory-cloud/TableTheory/commit/2a61893fce94ad3184969b85fa6b88b147f20847))
+* **marshal:** restore anonymous embed custom hook handling ([a60ccb4](https://github.com/theory-cloud/TableTheory/commit/a60ccb4272ed287421cc5b246addc0f7c2eb910c))
+* **query:** bind named updates to matched attribute names ([a054b34](https://github.com/theory-cloud/TableTheory/commit/a054b34004b47ace31a18608b87467674411e424))
+* **scripts:** reject symlinks in subtree staging ([91764cd](https://github.com/theory-cloud/TableTheory/commit/91764cd2bba3ef11e7326d4e6302bfd784286e5b))
+* **scripts:** reject symlinks in subtree staging ([06747e6](https://github.com/theory-cloud/TableTheory/commit/06747e68a006537a26063fe26b395ac62c952918))
+* **ts:** raise fast-xml-parser override for audit baseline ([c24b50b](https://github.com/theory-cloud/TableTheory/commit/c24b50bd64c5aad035d6bc6b6d62d051ef104b87))
+* **ts:** reject raw transact updates on encrypted models ([f2bcf84](https://github.com/theory-cloud/TableTheory/commit/f2bcf84940b6137c406fbf4048052358210e0c90))
+
 ## [1.6.0](https://github.com/theory-cloud/TableTheory/compare/v1.5.5...v1.6.0) (2026-04-18)
 
 
