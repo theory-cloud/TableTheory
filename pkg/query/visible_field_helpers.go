@@ -39,6 +39,12 @@ func (q *Query) marshalTaggedFieldAttributeValue(field reflect.StructField, fiel
 			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
 		}
 		return av, nil
+	case taggedValueUsesExprMarshaler(valueToConvert):
+		av, err := expr.ConvertToAttributeValue(valueToConvert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert field %s: %w", field.Name, err)
+		}
+		return av, nil
 	case q != nil && q.converter != nil:
 		av, err := q.converter.ToAttributeValue(valueToConvert)
 		if err != nil {
@@ -52,6 +58,35 @@ func (q *Query) marshalTaggedFieldAttributeValue(field reflect.StructField, fiel
 		}
 		return av, nil
 	}
+}
+
+func taggedValueUsesExprMarshaler(value any) bool {
+	if value == nil {
+		return false
+	}
+	if _, ok := value.(expr.Marshaler); ok {
+		return true
+	}
+
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() {
+		return false
+	}
+	if rv.Kind() == reflect.Ptr {
+		return false
+	}
+
+	var candidate reflect.Value
+	if rv.CanAddr() {
+		candidate = rv.Addr()
+	} else {
+		copyValue := reflect.New(rv.Type()).Elem()
+		copyValue.Set(rv)
+		candidate = copyValue.Addr()
+	}
+
+	_, ok := candidate.Interface().(expr.Marshaler)
+	return ok
 }
 
 func (q *Query) findVisibleFieldByNames(modelValue reflect.Value, names ...string) (reflect.Value, reflect.StructField, bool) {
