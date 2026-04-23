@@ -523,7 +523,7 @@ func (m *Marshaler) marshalStructComplex(v reflect.Value) (types.AttributeValue,
 func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, error) {
 	typ := v.Type()
 	flattenAnonymousEmbeds := converterRequestsFlatAnonymousEmbeds(m.converter)
-	fieldPlans, err := buildMarshalVisibleFieldPlans(typ)
+	fieldPlans, err := buildMarshalVisibleFieldPlans(typ, m.converter)
 	if err != nil {
 		return nil, err
 	}
@@ -563,8 +563,8 @@ func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, e
 	return &types.AttributeValueMemberM{Value: structMap}, nil
 }
 
-func buildMarshalVisibleFieldPlans(typ reflect.Type) ([]reflectutil.VisibleFieldPlan, error) {
-	return reflectutil.BuildVisibleFieldPlan(typ, nil)
+func buildMarshalVisibleFieldPlans(typ reflect.Type, converter *pkgTypes.Converter) ([]reflectutil.VisibleFieldPlan, error) {
+	return expr.BuildMarshalVisibleFieldPlan(typ, converter, false)
 }
 
 func resolveMarshalStructFieldName(field reflect.StructField, convention naming.Convention) (string, bool) {

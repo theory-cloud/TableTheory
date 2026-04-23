@@ -366,7 +366,7 @@ func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarsh
 	typ := v.Type()
 	convention := resolveNestedNamingConvention(typ, fieldMeta)
 	flattenAnonymousEmbeds := converterRequestsFlatAnonymousEmbeds(m.converter)
-	fieldPlans, err := buildMarshalVisibleFieldPlans(typ)
+	fieldPlans, err := buildMarshalVisibleFieldPlans(typ, m.converter)
 	if err != nil {
 		return nil, err
 	}

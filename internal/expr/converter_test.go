@@ -382,6 +382,54 @@ func TestConvertToAttributeValueWithOptions_PromotedAnonymousEmbeds_FlatShape(t 
 	require.ElementsMatch(t, []string{"acct:one", "acct:two"}, exprStringListValues(t, activityAV.Value["to"]))
 }
 
+type ExprHookedSecret struct {
+	Value string
+}
+
+func (s *ExprHookedSecret) MarshalDynamoDBAttributeValue() (types.AttributeValue, error) {
+	return &types.AttributeValueMemberS{Value: "HOOK:" + s.Value}, nil
+}
+
+func TestBuildMarshalVisibleFieldPlan_AnonymousEmbeddedMarshalerFieldIsTerminal(t *testing.T) {
+	//nolint:govet // Field order mirrors the anonymous-embed hook contract under test.
+	type Payload struct {
+		ExprHookedSecret
+		Mode string
+	}
+
+	plans, err := BuildMarshalVisibleFieldPlan(reflect.TypeOf(Payload{}), nil, true)
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(plans))
+	for _, plan := range plans {
+		names = append(names, plan.Field.Name)
+	}
+
+	require.Contains(t, names, "ExprHookedSecret")
+	require.Contains(t, names, "Mode")
+	require.NotContains(t, names, "Value")
+}
+
+func TestBuildMarshalVisibleFieldPlan_AnonymousEmbeddedMarshalerFieldIsTerminal_Flat(t *testing.T) {
+	//nolint:govet // Field order mirrors the anonymous-embed hook contract under test.
+	type Payload struct {
+		ExprHookedSecret
+		Mode string
+	}
+
+	plans, err := BuildMarshalVisibleFieldPlan(reflect.TypeOf(Payload{}), nil, true)
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(plans))
+	for _, plan := range plans {
+		names = append(names, plan.Field.Name)
+	}
+
+	require.Contains(t, names, "ExprHookedSecret")
+	require.Contains(t, names, "Mode")
+	require.NotContains(t, names, "Value")
+}
+
 func TestConvertFromAttributeValue_PromotedAnonymousEmbeds(t *testing.T) {
 	type BaseObject struct {
 		ID   string

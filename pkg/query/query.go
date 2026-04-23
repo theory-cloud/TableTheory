@@ -1092,7 +1092,8 @@ func (q *Query) buildUpdateExpressionFromNamedFields(builder *expr.Builder, mode
 			}
 			valueToSet = normalized
 		}
-		if err := builder.AddUpdateSet(q.resolveAttributeName(field), valueToSet); err != nil {
+		attrName := q.resolveMatchedFieldAttributeName(fieldStruct)
+		if err := builder.AddUpdateSet(attrName, valueToSet); err != nil {
 			return fmt.Errorf("failed to build update for %s: %w", field, err)
 		}
 	}

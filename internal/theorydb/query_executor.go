@@ -3,17 +3,12 @@ package theorydb
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"math"
-	"os"
 	"reflect"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -108,23 +103,6 @@ func (qe *queryExecutor) session() *session.Session {
 	return qe.db.session
 }
 
-const envEncryptedStrict = "THEORYDB_ENCRYPTED_STRICT"
-
-func encryptedStrictMode() bool {
-	raw := strings.TrimSpace(os.Getenv(envEncryptedStrict))
-	if raw == "" {
-		return true
-	}
-
-	value, err := strconv.ParseBool(raw)
-	if err != nil {
-		log.Printf("theorydb: invalid %s=%q; defaulting to strict mode", envEncryptedStrict, raw)
-		return true
-	}
-
-	return value
-}
-
 func (qe *queryExecutor) decryptItem(item map[string]types.AttributeValue) error {
 	if len(item) == 0 || qe == nil || qe.metadata == nil || !encryption.MetadataHasEncryptedFields(qe.metadata) {
 		return nil
@@ -138,26 +116,10 @@ func (qe *queryExecutor) decryptItem(item map[string]types.AttributeValue) error
 		return err
 	}
 
-	strict := encryptedStrictMode()
-	partner := strings.TrimSpace(os.Getenv("PARTNER"))
-	environment := strings.TrimSpace(os.Getenv("ENVIRONMENT"))
-	if environment == "" {
-		environment = strings.TrimSpace(os.Getenv("STAGE"))
-	}
-
 	for attrName, attrValue := range item {
 		fieldMeta, ok := qe.metadata.FieldsByDBName[attrName]
 		if !ok || fieldMeta == nil || !fieldMeta.IsEncrypted {
 			continue
-		}
-
-		// Compatibility mode: tolerate legacy plaintext (non-envelope) reads for encrypted-tag fields.
-		// This prevents an outage when a backfill hasn't yet migrated old data into envelopes.
-		if !strict {
-			if _, ok := attrValue.(*types.AttributeValueMemberM); !ok {
-				logEncryptedCompatPlaintext(qe.metadata, fieldMeta, item, attrValue, partner, environment)
-				continue
-			}
 		}
 
 		decrypted, err := svc.DecryptAttributeValue(qe.ctxOrBackground(), fieldMeta.DBName, attrValue)
@@ -172,81 +134,6 @@ func (qe *queryExecutor) decryptItem(item map[string]types.AttributeValue) error
 	}
 
 	return nil
-}
-
-func logEncryptedCompatPlaintext(metadata *model.Metadata, fieldMeta *model.FieldMetadata, item map[string]types.AttributeValue, attrValue types.AttributeValue, partner, environment string) {
-	keyHash := safeItemKeyHash(metadata, item)
-	modelName := ""
-	if metadata != nil && metadata.Type != nil {
-		modelName = metadata.Type.Name()
-	}
-
-	log.Printf(
-		"theorydb: encrypted compat plaintext encountered strict=false model=%s field=%s attr=%s av_type=%s key_hash=%s partner=%s environment=%s",
-		modelName,
-		fieldMeta.Name,
-		fieldMeta.DBName,
-		attributeValueType(attrValue),
-		keyHash,
-		partner,
-		environment,
-	)
-}
-
-func safeItemKeyHash(metadata *model.Metadata, item map[string]types.AttributeValue) string {
-	if metadata == nil || metadata.PrimaryKey == nil || metadata.PrimaryKey.PartitionKey == nil {
-		return ""
-	}
-
-	pkName := metadata.PrimaryKey.PartitionKey.DBName
-	pk := attributeValueString(item[pkName])
-
-	sk := ""
-	if metadata.PrimaryKey.SortKey != nil {
-		skName := metadata.PrimaryKey.SortKey.DBName
-		sk = attributeValueString(item[skName])
-	}
-
-	sum := sha256.Sum256([]byte(pk + "|" + sk))
-	return hex.EncodeToString(sum[:6])
-}
-
-func attributeValueString(av types.AttributeValue) string {
-	switch v := av.(type) {
-	case *types.AttributeValueMemberS:
-		return v.Value
-	case *types.AttributeValueMemberN:
-		return v.Value
-	default:
-		return ""
-	}
-}
-
-func attributeValueType(av types.AttributeValue) string {
-	switch av.(type) {
-	case *types.AttributeValueMemberS:
-		return "S"
-	case *types.AttributeValueMemberN:
-		return "N"
-	case *types.AttributeValueMemberB:
-		return "B"
-	case *types.AttributeValueMemberBOOL:
-		return "BOOL"
-	case *types.AttributeValueMemberNULL:
-		return "NULL"
-	case *types.AttributeValueMemberL:
-		return "L"
-	case *types.AttributeValueMemberM:
-		return "M"
-	case *types.AttributeValueMemberSS:
-		return "SS"
-	case *types.AttributeValueMemberNS:
-		return "NS"
-	case *types.AttributeValueMemberBS:
-		return "BS"
-	default:
-		return fmt.Sprintf("%T", av)
-	}
 }
 
 func (qe *queryExecutor) encryptItem(item map[string]types.AttributeValue) error {
