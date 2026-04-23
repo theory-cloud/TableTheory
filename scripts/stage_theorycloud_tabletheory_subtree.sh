@@ -123,23 +123,58 @@ def stage_rel_path(stage_prefix: str, rel_path: str) -> str:
     return f"{stage_prefix}/{rel_path}"
 
 
+def resolve_within_repo(repo_root: Path, path: Path, label: str) -> Path:
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError:
+        fail(f"{label} {path} does not exist")
+    except OSError as exc:
+        fail(f"unable to resolve {label} {path}: {exc}")
+
+    try:
+        resolved.relative_to(repo_root)
+    except ValueError:
+        fail(f"{label} {path} resolves outside repo root: {resolved}")
+
+    return resolved
+
+
 def collect_surface(repo_root: Path, root: str, stage_prefix: str, exclusions: tuple[str, ...]) -> tuple[list[tuple[Path, str]], list[str]]:
-    surface_root = (repo_root / root).resolve()
+    surface_root = repo_root / root
     if not surface_root.is_dir():
         fail(f"docs root {surface_root} does not exist")
+    if surface_root.is_symlink():
+        fail(f"docs root {surface_root} must not be a symlink")
+
+    surface_root = resolve_within_repo(repo_root, surface_root, "docs root")
 
     included: list[tuple[Path, str]] = []
     excluded: list[str] = []
 
-    for path in sorted(surface_root.rglob("*")):
-        if not path.is_file():
-            continue
-        rel_path = path.relative_to(surface_root).as_posix()
-        staged_path = stage_rel_path(stage_prefix, rel_path)
-        if is_excluded(rel_path, exclusions):
-            excluded.append(staged_path)
-            continue
-        included.append((path, staged_path))
+    for current_root, dirnames, filenames in os.walk(surface_root, topdown=True, followlinks=False):
+        current_path = Path(current_root)
+
+        safe_dirnames: list[str] = []
+        for dirname in sorted(dirnames):
+            dir_path = current_path / dirname
+            if dir_path.is_symlink():
+                fail(f"symlinked docs input {dir_path.relative_to(repo_root)} is not allowed")
+            resolve_within_repo(repo_root, dir_path, "docs directory")
+            safe_dirnames.append(dirname)
+        dirnames[:] = safe_dirnames
+
+        for filename in sorted(filenames):
+            path = current_path / filename
+            if path.is_symlink():
+                fail(f"symlinked docs input {path.relative_to(repo_root)} is not allowed")
+
+            resolved_path = resolve_within_repo(repo_root, path, "docs input")
+            rel_path = path.relative_to(surface_root).as_posix()
+            staged_path = stage_rel_path(stage_prefix, rel_path)
+            if is_excluded(rel_path, exclusions):
+                excluded.append(staged_path)
+                continue
+            included.append((resolved_path, staged_path))
 
     return included, excluded
 
@@ -200,7 +235,7 @@ def main() -> None:
     for source_path, staged_rel in included:
         destination_path = subtree_root / staged_rel
         destination_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, destination_path)
+        shutil.copy2(source_path, destination_path, follow_symlinks=False)
 
     manifest = OrderedDict(
         [

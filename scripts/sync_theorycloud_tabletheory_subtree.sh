@@ -147,6 +147,7 @@ if [[ ! -f "${SUBTREE_DIR}/source-manifest.json" ]]; then
 fi
 
 sync_flags=()
+sync_flags+=(--no-follow-symlinks)
 if [[ "${SYNC_DELETE,,}" == "true" ]]; then
   sync_flags+=(--delete)
 fi
