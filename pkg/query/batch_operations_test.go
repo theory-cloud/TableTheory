@@ -814,62 +814,69 @@ func TestBatchDeleteWithOptions(t *testing.T) {
 }
 
 func TestExecuteBatchesParallel(t *testing.T) {
-	// Test concurrent execution
 	items := make([][]any, 10)
 	for i := 0; i < 10; i++ {
 		items[i] = []any{TestItem{ID: fmt.Sprintf("%d", i)}}
 	}
 
 	var mu sync.Mutex
-	var executionOrder []int
+	const expectedConcurrency = 3
+	currentConcurrency := 0
+	maxConcurrency := 0
+	handlerCalls := 0
+	concurrencyReached := make(chan struct{})
+	releaseHandlers := make(chan struct{})
+	var reachOnce sync.Once
 
 	q := &Query{
 		metadata: &TestMetadata{},
 		ctx:      context.Background(),
-		// Mock the execution to track order
 	}
 
-	// Monkey patch the executeUpdateBatch method for testing
-	// In real tests, we'd use dependency injection
 	processed := 0
 	total := 10
 
 	opts := &BatchUpdateOptions{
 		Parallel:       true,
-		MaxConcurrency: 3,
+		MaxConcurrency: expectedConcurrency,
 		ErrorHandler: func(item any, err error) error {
-			// Track execution order
-			if batch, ok := item.([]any); ok && len(batch) > 0 {
-				if testItem, ok := batch[0].(TestItem); ok {
-					mu.Lock()
-					for i, id := range []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"} {
-						if testItem.ID == id {
-							executionOrder = append(executionOrder, i)
-							break
-						}
-					}
-					mu.Unlock()
+			mu.Lock()
+			handlerCalls++
+			currentConcurrency++
+			if currentConcurrency > maxConcurrency {
+				maxConcurrency = currentConcurrency
+				if maxConcurrency == expectedConcurrency {
+					reachOnce.Do(func() {
+						close(concurrencyReached)
+					})
 				}
 			}
+			mu.Unlock()
+
+			<-releaseHandlers
+
+			mu.Lock()
+			currentConcurrency--
+			mu.Unlock()
 			return nil
 		},
 	}
 
-	err := q.executeBatchesParallel(items, opts, []string{"Name"}, &processed, total)
-	assert.NoError(t, err)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- q.executeBatchesParallel(items, opts, []string{"Name"}, &processed, total)
+	}()
 
-	// Verify all batches were attempted
-	assert.Len(t, executionOrder, 10)
-
-	// Verify they didn't all execute sequentially (some parallelism occurred)
-	// This is a weak test but better than nothing
-	isSequential := true
-	for i := 1; i < len(executionOrder); i++ {
-		if executionOrder[i] < executionOrder[i-1] {
-			isSequential = false
-			break
-		}
+	select {
+	case <-concurrencyReached:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for parallel batch handlers to overlap")
 	}
-	// With parallel execution, we expect some out-of-order execution
-	assert.False(t, isSequential, "Expected some parallel execution")
+
+	close(releaseHandlers)
+
+	err := <-errCh
+	assert.NoError(t, err)
+	assert.Equal(t, total, handlerCalls)
+	assert.Equal(t, expectedConcurrency, maxConcurrency, "expected handlers to overlap up to the configured concurrency")
 }
