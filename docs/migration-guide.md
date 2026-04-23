@@ -174,6 +174,33 @@ func getActiveUsersTableTheory(db tabletheory.DB) ([]User, error) {
 }
 ```
 
+## Go Encrypted Read Fail-Closed Restoration
+
+**Problem:** A recent Go compatibility path allowed encrypted-tag reads to accept legacy plaintext when
+`THEORYDB_ENCRYPTED_STRICT=false`. That softened TableTheory's fail-closed encryption model by allowing
+non-envelope values to bypass decryption and flow into application structs as accepted plaintext.
+
+**Current contract:** Go encrypted-tag reads are fail-closed again. Encrypted fields must be stored as
+valid TableTheory encryption envelopes. If a read encounters plaintext or any other non-envelope value for
+an encrypted field, the read returns an `EncryptedFieldError` that wraps
+`pkg/errors.ErrInvalidEncryptedEnvelope`.
+
+### Migration impact
+
+- `THEORYDB_ENCRYPTED_STRICT=false` no longer permits plaintext fallback for encrypted-tag reads.
+- Deployments that still have legacy plaintext in encrypted attributes must backfill those records into
+  valid envelopes before upgrading to this behavior.
+- If plaintext remains in storage, reads now fail instead of silently hydrating application models with
+  accepted plaintext.
+
+### Safe upgrade path
+
+1. Identify every encrypted attribute that may still contain legacy plaintext.
+2. Backfill those attributes into valid TableTheory envelopes with the intended KMS key.
+3. Verify the backfill before rollout so production reads do not trip `EncryptedFieldError` after upgrade.
+4. Remove any operational reliance on `THEORYDB_ENCRYPTED_STRICT=false`; it is no longer a supported
+   compatibility escape hatch for encrypted-tag reads.
+
 ## Go Anonymous Embedded Struct Helper Compatibility
 
 **Problem:** Some Go helper surfaces historically walked only direct struct fields. For models with exported anonymous embedded
@@ -195,6 +222,9 @@ helper decoders looked only for a nested anonymous-container map such as `BaseOb
   resolve promoted fields that live on exported anonymous embedded structs.
 - **Default write compatibility**: Historical helper paths that encoded anonymous embedded structs under a container such as
   `BaseObject` continue to do so by default. This repair does not silently flatten helper write output.
+- **Anonymous-embed hook precedence**: When an anonymous embedded field has a registered custom converter or a
+  `MarshalDynamoDBAttributeValue()` hook, Go helper write paths marshal that embedded container through the hook before
+  any promoted-field traversal or flat anonymous-embed encoding is applied.
 
 ### Opting in to flat helper writes
 

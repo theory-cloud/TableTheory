@@ -104,6 +104,21 @@ func TestEncryptedTag_WriteTimeEncryption(t *testing.T) {
 		require.Contains(t, envelope, "ct")
 	})
 
+	t.Run("Update rejects modifier lookup names on metadata path", func(t *testing.T) {
+		httpClient.mu.Lock()
+		httpClient.requests = nil
+		httpClient.callCount = make(map[string]int)
+		httpClient.mu.Unlock()
+
+		err := db.Model(&encryptedTagWriteModel{
+			PK:     "pk2b",
+			SK:     "sk2b",
+			Secret: "new-secret",
+		}).Update("encrypted")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "field 'encrypted' not found in model metadata")
+	})
+
 	t.Run("UpdateBuilder encrypts expression attribute values", func(t *testing.T) {
 		httpClient.mu.Lock()
 		httpClient.requests = nil

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -206,20 +207,90 @@ func (b *Builder) AddFilterCondition(logicalOp, field, operator string, value an
 
 // AddGroupFilter adds a grouped filter expression
 func (b *Builder) AddGroupFilter(logicalOp string, components ExpressionComponents) {
+	nameRemaps := make(map[string]string)
 	for ph, name := range components.ExpressionAttributeNames {
-		b.names[ph] = name
+		targetPlaceholder := ph
+		if existingName, exists := b.names[ph]; exists && existingName != name {
+			targetPlaceholder = b.newNamePlaceholder()
+			nameRemaps[ph] = targetPlaceholder
+		}
+		b.names[targetPlaceholder] = name
 	}
+
+	valueRemaps := make(map[string]string)
 	for ph, val := range components.ExpressionAttributeValues {
-		b.values[ph] = val
+		targetPlaceholder := ph
+		if _, exists := b.values[ph]; exists {
+			targetPlaceholder = b.newValuePlaceholder()
+			valueRemaps[ph] = targetPlaceholder
+		}
+		b.values[targetPlaceholder] = val
 	}
 
 	if components.FilterExpression != "" {
-		groupExpr := "(" + components.FilterExpression + ")"
+		groupExpr := components.FilterExpression
+		if len(nameRemaps) > 0 || len(valueRemaps) > 0 {
+			groupExpr = remapPlaceholders(groupExpr, nameRemaps, valueRemaps)
+		}
+		groupExpr = "(" + groupExpr + ")"
 		b.filterConditions = append(b.filterConditions, groupExpr)
 		if len(b.filterConditions) > 1 {
 			b.filterOperators = append(b.filterOperators, logicalOp)
 		}
 	}
+}
+
+func (b *Builder) newNamePlaceholder() string {
+	for {
+		b.nameCounter++
+		placeholder := fmt.Sprintf("#n%d", b.nameCounter)
+		if _, exists := b.names[placeholder]; !exists {
+			return placeholder
+		}
+	}
+}
+
+func (b *Builder) newValuePlaceholder() string {
+	for {
+		b.valueCounter++
+		placeholder := fmt.Sprintf(":v%d", b.valueCounter)
+		if _, exists := b.values[placeholder]; !exists {
+			return placeholder
+		}
+	}
+}
+
+func remapPlaceholders(expr string, nameRemaps, valueRemaps map[string]string) string {
+	if expr == "" {
+		return ""
+	}
+
+	type replacement struct {
+		from string
+		to   string
+	}
+
+	replacements := make([]replacement, 0, len(nameRemaps)+len(valueRemaps))
+	for from, to := range nameRemaps {
+		replacements = append(replacements, replacement{from: from, to: to})
+	}
+	for from, to := range valueRemaps {
+		replacements = append(replacements, replacement{from: from, to: to})
+	}
+
+	slices.SortFunc(replacements, func(a, b replacement) int {
+		if len(a.from) == len(b.from) {
+			return strings.Compare(a.from, b.from)
+		}
+		return len(b.from) - len(a.from)
+	})
+
+	replacementPairs := make([]string, 0, len(replacements)*2)
+	for _, replacement := range replacements {
+		replacementPairs = append(replacementPairs, replacement.from, replacement.to)
+	}
+
+	return strings.NewReplacer(replacementPairs...).Replace(expr)
 }
 
 // AddProjection adds fields to the projection expression
@@ -654,8 +725,7 @@ func (b *Builder) addNameSecure(name string) string {
 				processedParts[i] = placeholder
 			} else {
 				// Use placeholder for consistency and security
-				b.nameCounter++
-				placeholder := fmt.Sprintf("#n%d", b.nameCounter)
+				placeholder := b.newNamePlaceholder()
 				b.names[placeholder] = part
 				processedParts[i] = placeholder
 			}
@@ -673,8 +743,7 @@ func (b *Builder) addNameSecure(name string) string {
 	}
 
 	// Generate new placeholder for non-reserved words (for consistency)
-	b.nameCounter++
-	placeholder := fmt.Sprintf("#n%d", b.nameCounter)
+	placeholder := b.newNamePlaceholder()
 	b.names[placeholder] = name
 	return placeholder
 }
@@ -697,8 +766,16 @@ func (b *Builder) addValueSecure(value any) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("custom converter failed for %T: %w", value, err)
 			}
-			b.valueCounter++
-			placeholder := fmt.Sprintf(":v%d", b.valueCounter)
+			placeholder := b.newValuePlaceholder()
+			b.values[placeholder] = av
+			return placeholder, nil
+		}
+
+		if av, ok, err := attributeValueFromMarshalerHook(value); ok {
+			if err != nil {
+				return "", fmt.Errorf("custom marshaler failed for %T: %w", value, err)
+			}
+			placeholder := b.newValuePlaceholder()
 			b.values[placeholder] = av
 			return placeholder, nil
 		}
@@ -712,8 +789,7 @@ func (b *Builder) addValueSecure(value any) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("flat anonymous-embed encoding failed for %T: %w", value, err)
 			}
-			b.valueCounter++
-			placeholder := fmt.Sprintf(":v%d", b.valueCounter)
+			placeholder := b.newValuePlaceholder()
 			b.values[placeholder] = av
 			return placeholder, nil
 		}
@@ -724,10 +800,31 @@ func (b *Builder) addValueSecure(value any) (string, error) {
 		return "", fmt.Errorf("failed to convert value type %T: %w", value, err)
 	}
 
-	b.valueCounter++
-	placeholder := fmt.Sprintf(":v%d", b.valueCounter)
+	placeholder := b.newValuePlaceholder()
 	b.values[placeholder] = av
 	return placeholder, nil
+}
+
+func attributeValueFromMarshalerHook(value any) (types.AttributeValue, bool, error) {
+	if value == nil {
+		return nil, false, nil
+	}
+
+	if marshaler, ok := value.(Marshaler); ok {
+		av, err := marshaler.MarshalDynamoDBAttributeValue()
+		return av, true, err
+	}
+
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() {
+		return nil, false, nil
+	}
+	if marshaler, ok := addressableMarshaler(rv); ok {
+		av, err := marshaler.MarshalDynamoDBAttributeValue()
+		return av, true, err
+	}
+
+	return nil, false, nil
 }
 
 // convertToSliceSecure converts various slice types to []any with validation
@@ -902,8 +999,7 @@ func (b *Builder) addValueAsSet(value any) (string, error) {
 		return "", err
 	}
 
-	b.valueCounter++
-	placeholder := fmt.Sprintf(":v%d", b.valueCounter)
+	placeholder := b.newValuePlaceholder()
 	b.values[placeholder] = av
 	return placeholder, nil
 }

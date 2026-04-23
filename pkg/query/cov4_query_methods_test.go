@@ -214,6 +214,44 @@ func TestQuery_Update_PromotedAnonymousEmbeddedKeyAndFieldFallback(t *testing.T)
 	require.True(t, foundStatus, "expected status placeholder to be emitted for promoted embedded field")
 }
 
+func TestQuery_Update_UsesCanonicalAttributeNameForTheoryDBModifierLookup(t *testing.T) {
+	type updateItem struct {
+		PK     string `theorydb:"pk"`
+		Secret string `theorydb:"encrypted,attr:secret"`
+	}
+
+	metadata := &cov4Metadata{
+		table: "tbl",
+		pk:    core.KeySchema{PartitionKey: "pk"},
+	}
+
+	executor := &cov4Executor{}
+	item := &updateItem{
+		PK:     "id-1",
+		Secret: "top-secret",
+	}
+
+	q := New(item, metadata, executor)
+
+	require.NoError(t, q.Update("encrypted"))
+	require.NotNil(t, executor.lastUpdate)
+	require.NotEmpty(t, executor.lastUpdate.UpdateExpression)
+
+	foundSecret := false
+	foundEncrypted := false
+	for _, name := range executor.lastUpdate.ExpressionAttributeNames {
+		if name == "secret" {
+			foundSecret = true
+		}
+		if name == "encrypted" {
+			foundEncrypted = true
+		}
+	}
+
+	require.True(t, foundSecret, "expected canonical attribute name to be used for encrypted field")
+	require.False(t, foundEncrypted, "modifier token must not become a DynamoDB attribute name")
+}
+
 func TestQuery_buildUpdateExpressionFromTags_PromotedAnonymousEmbeds_PreservesLegacyContainer(t *testing.T) {
 	type BaseObject struct {
 		ID   string

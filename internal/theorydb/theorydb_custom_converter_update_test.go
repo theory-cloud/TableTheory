@@ -125,6 +125,22 @@ type TestModelWithCustomID struct {
 	CustomID TestCustomID `theorydb:"attr:custom_id"`
 }
 
+// TestAnonymousPayloadEnvelope exercises a nested struct that anonymously embeds
+// a custom-converted type. The nested helper marshaling path must run the
+// embedded converter before promoted-field traversal.
+//
+//nolint:govet // Field order mirrors the anonymous-embed hook contract under test.
+type TestAnonymousPayloadEnvelope struct {
+	TestPayloadJSON
+	Kind string `theorydb:"attr:kind"`
+}
+
+type TestModelWithAnonymousEmbeddedPayload struct {
+	ID      string                       `theorydb:"pk"`
+	Entity  string                       `theorydb:"sk"`
+	Payload TestAnonymousPayloadEnvelope `theorydb:"attr:payload"`
+}
+
 func setupPayloadConverterTestDB(t *testing.T) (*DB, *capturingHTTPClient) {
 	client := newCapturingHTTPClient(nil)
 	stubSessionConfigLoad(t, func(ctx context.Context, opts ...func(*config.LoadOptions) error) (aws.Config, error) {
@@ -564,4 +580,40 @@ func TestCustomConverterRegressionGuard(t *testing.T) {
 		}
 		assert.True(t, found, "Update should marshal custom_id via converter")
 	})
+}
+
+func TestCustomConverter_NestedAnonymousEmbedUsesHook(t *testing.T) {
+	db, _ := setupPayloadConverterTestDB(t)
+
+	record := &TestModelWithAnonymousEmbeddedPayload{
+		ID:     "nested-1",
+		Entity: "PAYLOAD",
+		Payload: TestAnonymousPayloadEnvelope{
+			TestPayloadJSON: TestPayloadJSON{
+				Data: map[string]interface{}{
+					"secret": "plaintext",
+					"count":  2,
+				},
+			},
+			Kind: "task",
+		},
+	}
+
+	require.NoError(t, db.registry.Register(&TestModelWithAnonymousEmbeddedPayload{}))
+	metadata, err := db.registry.GetMetadata(&TestModelWithAnonymousEmbeddedPayload{})
+	require.NoError(t, err)
+
+	item, err := db.marshaler.MarshalItem(record, metadata)
+	require.NoError(t, err)
+
+	payloadAV, ok := item["payload"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.NotContains(t, payloadAV.Value, "data")
+	kindAV, ok := payloadAV.Value["kind"].(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "task", kindAV.Value)
+
+	embeddedAV, ok := payloadAV.Value["testPayloadJSON"].(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.JSONEq(t, mustJSON(t, record.Payload.Data), embeddedAV.Value)
 }

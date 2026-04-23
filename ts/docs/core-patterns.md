@@ -82,17 +82,18 @@ await db.transactWrite([
     kind: 'update',
     model: 'User',
     key: { PK: 'U#1', SK: 'TX' },
-    updateExpression: 'SET #ws = if_not_exists(#ws, :ws) ADD #count :inc',
-    conditionExpression: 'attribute_not_exists(#count) OR #count < :maxAllowed',
-    expressionAttributeNames: { '#ws': 'WindowStart', '#count': 'Count' },
-    expressionAttributeValues: {
-      ':ws': { S: '2026-01-23T00:00:00Z' },
-      ':inc': { N: '1' },
-      ':maxAllowed': { N: '100' },
+    updateFn: (u) => {
+      u.setIfNotExists('WindowStart', undefined, '2026-01-23T00:00:00Z');
+      u.add('Count', 1);
+      u.conditionNotExists('Count').orCondition('Count', '<', 100);
     },
   },
 ]);
 ```
+
+For models with encrypted attributes, transaction updates **must** use `updateFn`.
+Raw `updateExpression` transaction updates are only supported for models without
+encrypted attributes.
 
 ## Pattern: Streams unmarshalling
 

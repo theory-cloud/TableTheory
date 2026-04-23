@@ -203,6 +203,9 @@ Updates specific fields of the item used in `Model()`. If `fields` is empty, upd
 - **Opt-in flat helper writes (Go)**: If you explicitly want flat promoted-field helper encoding, provide
   `Query.WithConverter(pkgtypes.NewConverter().WithFlatAnonymousEmbedEncoding())`. The default helper write shape does
   not change unless you opt in.
+- **Anonymous-embed hook precedence (Go)**: If an anonymous embedded field has a registered custom converter or a
+  `MarshalDynamoDBAttributeValue()` hook, Go helper writes apply that hook to the embedded container before any
+  promoted-field traversal or flat anonymous-embed encoding is considered.
 
 #### `Delete() error`
 

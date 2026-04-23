@@ -35,6 +35,14 @@ func (c *cov7Converter) FlatAnonymousEmbedEncodingEnabled() bool {
 
 type cov7CustomType string
 
+type cov7MarshalerValue struct {
+	Value string
+}
+
+func (v cov7MarshalerValue) MarshalDynamoDBAttributeValue() (types.AttributeValue, error) {
+	return &types.AttributeValueMemberS{Value: "HOOK:" + v.Value}, nil
+}
+
 func TestBuilder_addValueSecure_CustomConverterAndValidationPaths_COV7(t *testing.T) {
 	t.Run("CustomConverterSuccess", func(t *testing.T) {
 		converter := &cov7Converter{
@@ -107,6 +115,21 @@ func TestBuilder_addValueSecure_CustomConverterAndValidationPaths_COV7(t *testin
 		require.True(t, converter.toCalled)
 		_, ok := b.values[ref].(*types.AttributeValueMemberM)
 		require.True(t, ok)
+	})
+
+	t.Run("FlatAnonymousEmbedEncodingStillHonorsMarshalerHooks", func(t *testing.T) {
+		converter := &cov7Converter{flat: true}
+		b := NewBuilderWithConverter(converter)
+
+		ref, err := b.addValueSecure(cov7MarshalerValue{Value: "plaintext"})
+		require.NoError(t, err)
+		require.Equal(t, ":v1", ref)
+		require.True(t, converter.hasCalled)
+		require.False(t, converter.toCalled)
+
+		av, ok := b.values[ref].(*types.AttributeValueMemberS)
+		require.True(t, ok)
+		require.Equal(t, "HOOK:plaintext", av.Value)
 	})
 }
 

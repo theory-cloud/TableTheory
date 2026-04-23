@@ -9,12 +9,11 @@ import (
 
 	"github.com/theory-cloud/tabletheory/internal/expr"
 	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/pkg/core"
 )
 
 func (q *Query) marshalItemTaggedFlat(modelValue reflect.Value) (map[string]types.AttributeValue, error) {
-	fieldPlans, err := reflectutil.BuildVisibleFieldPlan(modelValue.Type(), nil)
+	fieldPlans, err := expr.BuildMarshalVisibleFieldPlan(modelValue.Type(), q.converter, true)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +49,7 @@ func (q *Query) buildUpdateExpressionFromTaggedVisibleFields(
 	modelValue reflect.Value,
 	primaryKey core.KeySchema,
 ) error {
-	fieldPlans, err := reflectutil.BuildVisibleFieldPlan(modelValue.Type(), nil)
+	fieldPlans, err := expr.BuildMarshalVisibleFieldPlan(modelValue.Type(), q.converter, true)
 	if err != nil {
 		return err
 	}

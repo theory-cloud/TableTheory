@@ -149,23 +149,58 @@ def stage_rel_path(stage_prefix: str, rel_path: str) -> str:
     return f"{stage_prefix}/{rel_path}"
 
 
+def resolve_within_repo(repo_root: Path, path: Path, label: str) -> Path:
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError:
+        fail(f"{label} {path} does not exist")
+    except OSError as exc:
+        fail(f"unable to resolve {label} {path}: {exc}")
+
+    try:
+        resolved.relative_to(repo_root)
+    except ValueError:
+        fail(f"{label} {path} resolves outside repo root: {resolved}")
+
+    return resolved
+
+
 def collect_expected(repo_root: Path) -> tuple[list[str], list[str]]:
     included: list[str] = []
     excluded: list[str] = []
 
     for surface in SURFACES:
-        surface_root = (repo_root / surface["root"]).resolve()
+        surface_root = repo_root / surface["root"]
         if not surface_root.is_dir():
             fail(f"missing docs root {surface_root}")
-        for path in sorted(surface_root.rglob("*")):
-            if not path.is_file():
-                continue
-            rel_path = path.relative_to(surface_root).as_posix()
-            staged_rel = stage_rel_path(surface["stage_prefix"], rel_path)
-            if is_excluded(rel_path, surface["exclusions"]):
-                excluded.append(staged_rel)
-            else:
-                included.append(staged_rel)
+        if surface_root.is_symlink():
+            fail(f"docs root {surface_root} must not be a symlink")
+
+        surface_root = resolve_within_repo(repo_root, surface_root, "docs root")
+        for current_root, dirnames, filenames in os.walk(surface_root, topdown=True, followlinks=False):
+            current_path = Path(current_root)
+
+            safe_dirnames: list[str] = []
+            for dirname in sorted(dirnames):
+                dir_path = current_path / dirname
+                if dir_path.is_symlink():
+                    fail(f"symlinked docs input {dir_path.relative_to(repo_root)} is not allowed")
+                resolve_within_repo(repo_root, dir_path, "docs directory")
+                safe_dirnames.append(dirname)
+            dirnames[:] = safe_dirnames
+
+            for filename in sorted(filenames):
+                path = current_path / filename
+                if path.is_symlink():
+                    fail(f"symlinked docs input {path.relative_to(repo_root)} is not allowed")
+
+                resolve_within_repo(repo_root, path, "docs input")
+                rel_path = path.relative_to(surface_root).as_posix()
+                staged_rel = stage_rel_path(surface["stage_prefix"], rel_path)
+                if is_excluded(rel_path, surface["exclusions"]):
+                    excluded.append(staged_rel)
+                else:
+                    included.append(staged_rel)
 
     return sorted(dict.fromkeys(included)), sorted(dict.fromkeys(excluded))
 
@@ -270,6 +305,31 @@ def verify_doc_links(subtree_root: Path) -> None:
                     fail(f"{md.relative_to(subtree_root)} has broken link fragment {raw}")
 
 
+def collect_staged_files(subtree_root: Path) -> list[str]:
+    actual_rel_paths: list[str] = []
+
+    for current_root, dirnames, filenames in os.walk(subtree_root, topdown=True, followlinks=False):
+        current_path = Path(current_root)
+
+        safe_dirnames: list[str] = []
+        for dirname in sorted(dirnames):
+            dir_path = current_path / dirname
+            if dir_path.is_symlink():
+                fail(f"staged subtree contains symlinked directory {dir_path.relative_to(subtree_root)}")
+            safe_dirnames.append(dirname)
+        dirnames[:] = safe_dirnames
+
+        for filename in sorted(filenames):
+            path = current_path / filename
+            if path.is_symlink():
+                fail(f"staged subtree contains symlinked file {path.relative_to(subtree_root)}")
+            if path.name == "source-manifest.json":
+                continue
+            actual_rel_paths.append(path.relative_to(subtree_root).as_posix())
+
+    return sorted(actual_rel_paths)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -301,11 +361,7 @@ def main() -> None:
         fail(f"unexpected docs wrapper at {subtree_root / 'docs'}")
 
     expected_included, expected_excluded = collect_expected(repo_root)
-    actual_rel_paths = sorted(
-        path.relative_to(subtree_root).as_posix()
-        for path in subtree_root.rglob("*")
-        if path.is_file() and path.name != "source-manifest.json"
-    )
+    actual_rel_paths = collect_staged_files(subtree_root)
 
     missing = sorted(set(expected_included) - set(actual_rel_paths))
     extra = sorted(set(actual_rel_paths) - set(expected_included))

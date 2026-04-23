@@ -106,7 +106,7 @@ func TestEncryptedTag_ReadTimeDecryption(t *testing.T) {
 		require.NotContains(t, err.Error(), "plaintext")
 	})
 
-	t.Run("Compatibility mode tolerates legacy plaintext", func(t *testing.T) {
+	t.Run("Compatibility toggle no longer accepts legacy plaintext", func(t *testing.T) {
 		t.Setenv("THEORYDB_ENCRYPTED_STRICT", "false")
 
 		item := map[string]types.AttributeValue{
@@ -115,9 +115,14 @@ func TestEncryptedTag_ReadTimeDecryption(t *testing.T) {
 			"secret": &types.AttributeValueMemberS{Value: "plaintext"},
 		}
 
-		var out encryptedTagWriteModel
-		require.NoError(t, executor.decryptItem(item))
-		require.NoError(t, executor.unmarshalItem(item, &out))
-		require.Equal(t, "plaintext", out.Secret)
+		err := executor.decryptItem(item)
+		require.Error(t, err)
+
+		var fieldErr *theorydbErrors.EncryptedFieldError
+		require.True(t, errors.As(err, &fieldErr))
+		require.Equal(t, "decrypt", fieldErr.Operation)
+		require.Equal(t, "Secret", fieldErr.Field)
+		require.ErrorIs(t, err, theorydbErrors.ErrInvalidEncryptedEnvelope)
+		require.NotContains(t, err.Error(), "plaintext")
 	})
 }
