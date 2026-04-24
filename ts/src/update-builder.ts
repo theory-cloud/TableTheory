@@ -20,6 +20,10 @@ import {
 } from './marshal.js';
 import type { AttributeSchema, Model } from './model.js';
 import type { SendOptions } from './send-options.js';
+import {
+  assertMutableWritePolicy,
+  assertProtectedFieldsCanMutate,
+} from './write-policy.js';
 
 export type ReturnValuesOption =
   | 'NONE'
@@ -381,6 +385,7 @@ export class UpdateBuilder {
     if (this.updateOps.length === 0) {
       throw new TheorydbError('ErrInvalidOperator', 'No updates provided');
     }
+    assertMutableWritePolicy(this.model, 'update builder');
     if (modelHasEncryptedAttributes(this.model) && !this.encryption) {
       throw new TheorydbError(
         'ErrEncryptionNotConfigured',
@@ -718,6 +723,7 @@ export class UpdateBuilder {
         `Cannot update key field: ${field}`,
       );
     }
+    assertProtectedFieldsCanMutate(this.model, [field]);
   }
 }
 

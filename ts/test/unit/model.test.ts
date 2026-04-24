@@ -92,7 +92,7 @@ const userSchema: ModelSchema = {
     ...userSchema,
     write_policy: {
       mode: 'mutable',
-      protected_attributes: ['nickname'],
+      protected_attributes: ['nickname', 'nickname'],
     },
     attributes: [
       ...userSchema.attributes,
@@ -103,6 +103,29 @@ const userSchema: ModelSchema = {
   const model = defineModel(schema);
   assert.equal(model.writePolicy.mode, 'mutable');
   assert.deepEqual(model.writePolicy.protectedAttributes, ['nickname']);
+}
+
+{
+  const schema = {
+    ...userSchema,
+    write_policy: {
+      mode: 'append_only',
+    },
+    attributes: [
+      ...userSchema.attributes,
+      { attribute: 'emailHash', type: 'S', optional: true },
+    ],
+  } as unknown as ModelSchema;
+
+  assert.throws(
+    () => defineModel(schema),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(String(err.message), /Unsupported write_policy.mode/);
+      return true;
+    },
+  );
 }
 
 {
