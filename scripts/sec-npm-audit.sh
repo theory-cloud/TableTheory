@@ -18,4 +18,8 @@ if [[ -f "contract-tests/runners/ts/package.json" ]]; then
   npm --prefix contract-tests/runners/ts audit --package-lock-only --audit-level=low
 fi
 
+if [[ -f "examples/cdk-multilang/package.json" ]]; then
+  npm --prefix examples/cdk-multilang audit --package-lock-only --audit-level=low
+fi
+
 echo "npm-audit: PASS"
