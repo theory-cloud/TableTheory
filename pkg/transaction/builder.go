@@ -1105,6 +1105,13 @@ func (m *metadataAdapter) VersionFieldName() string {
 	return ""
 }
 
+func (m *metadataAdapter) WritePolicy() model.WritePolicy {
+	if m.meta == nil {
+		return model.DefaultWritePolicy()
+	}
+	return m.meta.WritePolicy
+}
+
 func convertFieldMetadata(field *model.FieldMetadata) *core.AttributeMetadata {
 	if field == nil {
 		return nil
