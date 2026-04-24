@@ -107,8 +107,8 @@ type Metadata struct {
 	UpdatedAtField   *FieldMetadata
 	TableName        string
 	Indexes          []IndexSchema
-	NamingConvention naming.Convention
 	WritePolicy      WritePolicy
+	NamingConvention naming.Convention
 }
 
 // KeySchema represents a primary key or index key schema

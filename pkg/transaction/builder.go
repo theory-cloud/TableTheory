@@ -207,6 +207,10 @@ func (b *Builder) addOperation(opType operationType, model any, fields []string,
 		b.recordError(err)
 		return
 	}
+	if err := validateWritePolicyForOperation(opType, metadata, fields); err != nil {
+		b.recordError(err)
+		return
+	}
 
 	b.operations = append(b.operations, transactOperation{
 		typ:        opType,
@@ -216,6 +220,26 @@ func (b *Builder) addOperation(opType operationType, model any, fields []string,
 		updateFn:   updateFn,
 		conditions: cloneTransactConditions(conditions),
 	})
+}
+
+func validateWritePolicyForOperation(opType operationType, metadata *model.Metadata, fields []string) error {
+	switch opType {
+	case opCreate, opConditionCheck:
+		return nil
+	case opPut:
+		return rejectWriteOnceMutation(metadata, "transaction put")
+	case opUpdate:
+		if err := rejectWriteOnceMutation(metadata, "transaction update"); err != nil {
+			return err
+		}
+		return rejectProtectedFieldMutation(metadata, fields)
+	case opUpdateWithBuilder:
+		return rejectWriteOnceMutation(metadata, "transaction update builder")
+	case opDelete:
+		return rejectWriteOnceMutation(metadata, "transaction delete")
+	default:
+		return nil
+	}
 }
 
 func (b *Builder) recordError(err error) {

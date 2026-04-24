@@ -782,7 +782,14 @@ func (q *Query) Create() error {
 		TableName: q.metadata.TableName(),
 	}
 
-	conditionExpr, names, values, err := q.buildConditionExpression(nil, false, false, false)
+	conditionBuilder := q.newBuilder()
+	if q.writePolicy().Mode == model.WritePolicyModeWriteOnce {
+		if defaultErr := q.addDefaultCondition(conditionBuilder); defaultErr != nil {
+			return defaultErr
+		}
+	}
+
+	conditionExpr, names, values, err := q.buildConditionExpression(conditionBuilder, false, false, false)
 	if err != nil {
 		return err
 	}
@@ -815,6 +822,9 @@ func (q *Query) Create() error {
 // CreateOrUpdate creates a new item or updates an existing one (upsert)
 func (q *Query) CreateOrUpdate() error {
 	if err := q.checkBuilderError(); err != nil {
+		return err
+	}
+	if err := q.rejectWriteOnceMutation("upsert"); err != nil {
 		return err
 	}
 	item, err := q.marshalItem(q.model)
@@ -891,6 +901,17 @@ func (q *Query) Update(fields ...string) error {
 	modelValue, err := q.updateModelValue()
 	if err != nil {
 		return err
+	}
+	if policyErr := q.rejectWriteOnceMutation("update"); policyErr != nil {
+		return policyErr
+	}
+
+	policyFields, err := q.updatePolicyFields(modelValue, fields)
+	if err != nil {
+		return err
+	}
+	if policyErr := q.rejectProtectedFieldMutation(policyFields, nil); policyErr != nil {
+		return policyErr
 	}
 
 	builder := q.newBuilder()
@@ -1146,6 +1167,9 @@ func (q *Query) Delete() error {
 	if err := q.checkBuilderError(); err != nil {
 		return err
 	}
+	if err := q.rejectWriteOnceMutation("delete"); err != nil {
+		return err
+	}
 
 	key, keyErr := q.buildPrimaryKeyMap("delete")
 	if keyErr != nil {
@@ -1304,6 +1328,9 @@ func (q *Query) ScanAllSegments(dest any, totalSegments int32) error {
 // BatchCreate creates multiple items
 func (q *Query) BatchCreate(items any) error {
 	if err := q.checkBuilderError(); err != nil {
+		return err
+	}
+	if err := q.rejectWriteOnceMutation("batch create"); err != nil {
 		return err
 	}
 	// Validate items is a slice

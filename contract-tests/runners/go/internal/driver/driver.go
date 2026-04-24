@@ -14,6 +14,7 @@ import (
 	"github.com/theory-cloud/tabletheory"
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
+	"github.com/theory-cloud/tabletheory/pkg/model"
 	"github.com/theory-cloud/tabletheory/pkg/session"
 )
 
@@ -88,6 +89,7 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"lifecycle.timestamps",
 		"optimistic_lock.version",
 		"ttl.epoch_seconds",
+		"release_state.write_policy",
 	}
 }
 
@@ -172,10 +174,13 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 	}
 }
 
-func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[string]any, fields []string, _ []string) error {
+func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[string]any, fields []string, protectedAttributes []string) error {
 	instance, err := modelFromMap(model, item)
 	if err != nil {
 		return err
+	}
+	if mutatesProtectedAttribute(fields, protectedAttributes) {
+		return fmt.Errorf("%w: per-call protected attribute", theorydbErrors.ErrProtectedFieldMutation)
 	}
 	return d.db.WithContext(ctx).Model(instance).Update(fields...)
 }
@@ -316,6 +321,22 @@ func asInt64(v any) (int64, error) {
 	}
 }
 
+func mutatesProtectedAttribute(fields []string, protectedAttributes []string) bool {
+	if len(fields) == 0 || len(protectedAttributes) == 0 {
+		return false
+	}
+	protected := make(map[string]struct{}, len(protectedAttributes))
+	for _, attr := range protectedAttributes {
+		protected[attr] = struct{}{}
+	}
+	for _, field := range fields {
+		if _, ok := protected[field]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // ---- Models (Go reference) ----
 
 // User matches the v0.1 DMS fixture under `contract-tests/dms/v0.1/models/user.yml`.
@@ -365,6 +386,13 @@ type ReleaseStateActual struct {
 
 func (ReleaseStateActual) TableName() string { return "release_state_contract" }
 
+func (ReleaseStateActual) WritePolicy() model.WritePolicy {
+	return model.WritePolicy{
+		Mode:                model.WritePolicyModeMutable,
+		ProtectedAttributes: []string{"pinnedReleaseId"},
+	}
+}
+
 // ReleaseStateEvent matches the v0.1 release-state event-row DMS fixture.
 type ReleaseStateEvent struct {
 	PK         string         `theorydb:"pk"`
@@ -378,6 +406,10 @@ type ReleaseStateEvent struct {
 }
 
 func (ReleaseStateEvent) TableName() string { return "release_state_contract" }
+
+func (ReleaseStateEvent) WritePolicy() model.WritePolicy {
+	return model.WritePolicy{Mode: model.WritePolicyModeWriteOnce}
+}
 
 func userFromMap(item map[string]any) (*User, error) {
 	u := &User{}
