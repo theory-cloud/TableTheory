@@ -1,7 +1,7 @@
 import YAML from 'yaml';
 
 import { TheorydbError } from './errors.js';
-import type { ModelSchema } from './model.js';
+import { defineModel, type ModelSchema } from './model.js';
 
 export interface DmsDocument {
   dms_version: string;
@@ -39,6 +39,9 @@ export function parseDmsDocument(raw: string): DmsDocument {
       'ErrInvalidModel',
       'DMS document must include models[]',
     );
+  }
+  for (const model of doc.models) {
+    defineModel(model);
   }
 
   return doc as DmsDocument;

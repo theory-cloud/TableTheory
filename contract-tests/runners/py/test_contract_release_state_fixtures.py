@@ -50,3 +50,49 @@ def test_release_state_p0_scenarios_are_capability_gated() -> None:
         assert scenario["name"].startswith("p0.release_state.")
         required = scenario.get("requires_capabilities")
         assert isinstance(required, list) and required, f"{path.name} must declare required capabilities"
+        _validate_scenario_steps(path.name, scenario)
+
+
+def _validate_scenario_steps(name: str, scenario: dict[str, Any]) -> None:
+    steps = scenario.get("steps")
+    assert isinstance(steps, list) and steps, f"{name} must declare steps[]"
+
+    for index, step in enumerate(steps):
+        assert isinstance(step, dict), f"{name} step {index} must be an object"
+        op = step.get("op")
+        assert isinstance(op, str) and op, f"{name} step {index} must declare op"
+
+        if op == "sleep":
+            continue
+        if op in {"create", "update", "save"}:
+            assert isinstance(step.get("item"), dict) and step["item"], f"{name} step {index} {op} needs item"
+            continue
+        if op in {"get", "delete"}:
+            assert isinstance(step.get("key"), dict) and step["key"], f"{name} step {index} {op} needs key"
+            continue
+        if op == "transition_append_event":
+            _validate_transition_actual(name, index, step.get("actual"))
+            _validate_transition_event(name, index, step.get("event"))
+            continue
+        if op == "validate_provenance":
+            assert isinstance(step.get("item"), dict) and step["item"], (
+                f"{name} step {index} validate_provenance needs item"
+            )
+            continue
+
+        raise AssertionError(f"{name} step {index} has unsupported op {op!r}")
+
+
+def _validate_transition_actual(name: str, index: int, value: Any) -> None:
+    assert isinstance(value, dict), f"{name} step {index} transition actual must be an object"
+    assert isinstance(value.get("model"), str) and value["model"], (
+        f"{name} step {index} actual.model required"
+    )
+    assert isinstance(value.get("key"), dict) and value["key"], f"{name} step {index} actual.key required"
+    assert isinstance(value.get("set"), dict) and value["set"], f"{name} step {index} actual.set required"
+
+
+def _validate_transition_event(name: str, index: int, value: Any) -> None:
+    assert isinstance(value, dict), f"{name} step {index} transition event must be an object"
+    assert isinstance(value.get("model"), str) and value["model"], f"{name} step {index} event.model required"
+    assert isinstance(value.get("item"), dict) and value["item"], f"{name} step {index} event.item required"

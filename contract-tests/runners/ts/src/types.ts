@@ -1,6 +1,16 @@
 export type DmsVersion = "0.1";
 
-export type ScalarType = "S" | "N" | "B" | "BOOL" | "NULL" | "M" | "L" | "SS" | "NS" | "BS";
+export type ScalarType =
+  | "S"
+  | "N"
+  | "B"
+  | "BOOL"
+  | "NULL"
+  | "M"
+  | "L"
+  | "SS"
+  | "NS"
+  | "BS";
 
 export interface DmsDocument {
   dms_version: DmsVersion;
@@ -65,11 +75,23 @@ export interface Step {
   protected_attributes?: string[];
   item?: Record<string, unknown>;
   key?: Record<string, unknown>;
-  actual?: Record<string, unknown>;
-  event?: Record<string, unknown>;
+  actual?: TransitionActual;
+  event?: TransitionEvent;
   ms?: number;
   save?: Record<string, string>;
   expect?: Expectation;
+}
+
+export interface TransitionActual {
+  model: string;
+  key: Record<string, unknown>;
+  set: Record<string, unknown>;
+  expected_version?: number;
+}
+
+export interface TransitionEvent {
+  model: string;
+  item: Record<string, unknown>;
 }
 
 export interface Expectation {

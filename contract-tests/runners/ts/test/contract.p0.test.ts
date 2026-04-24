@@ -25,7 +25,9 @@ test("P0 contract scenarios (ts runner)", async (t) => {
   assert.ok(scenarios.length > 0);
 
   const endpoint = process.env.DYNAMODB_ENDPOINT ?? "http://localhost:8000";
-  const skipIntegration = process.env.SKIP_INTEGRATION === "true" || process.env.SKIP_INTEGRATION === "1";
+  const skipIntegration =
+    process.env.SKIP_INTEGRATION === "true" ||
+    process.env.SKIP_INTEGRATION === "1";
   const ddb = new DynamoDBClient({
     region: process.env.AWS_REGION ?? "us-east-1",
     endpoint,
@@ -39,7 +41,9 @@ test("P0 contract scenarios (ts runner)", async (t) => {
     await pingDynamo(ddb);
   } catch (err) {
     if (skipIntegration) {
-      t.skip(`DynamoDB Local not reachable (SKIP_INTEGRATION set; endpoint: ${endpoint})`);
+      t.skip(
+        `DynamoDB Local not reachable (SKIP_INTEGRATION set; endpoint: ${endpoint})`,
+      );
       return;
     }
     throw err;
@@ -52,18 +56,20 @@ test("P0 contract scenarios (ts runner)", async (t) => {
     await t.test(s.name, async (st) => {
       const missing = missingCapabilities(s, driver);
       if (missing.length > 0) {
-        st.skip(`scenario requires unsupported capabilities: ${missing.join(", ")}`);
+        st.skip(
+          `scenario requires unsupported capabilities: ${missing.join(", ")}`,
+        );
         return;
       }
 
-      const model = models.get(s.model);
-      assert.ok(model, `unknown model: ${s.model}`);
-      await runScenario({ ddb, driver, scenario: s, model });
+      await runScenario({ ddb, driver, scenario: s, models });
     });
   }
 });
 
 function missingCapabilities(scenario: Scenario, driver: Driver): string[] {
   const supported = new Set(driver.capabilities());
-  return (scenario.requires_capabilities ?? []).filter((capability) => !supported.has(capability));
+  return (scenario.requires_capabilities ?? []).filter(
+    (capability) => !supported.has(capability),
+  );
 }

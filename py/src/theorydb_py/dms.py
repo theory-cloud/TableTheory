@@ -109,6 +109,7 @@ def _normalize_dms_model(model: Mapping[str, Any], *, ignore_table_name: bool) -
             },
             "sort": None,
         },
+        "write_policy": {"mode": "mutable", "protected_attributes": []},
         "attributes": [],
         "indexes": [],
     }
@@ -181,6 +182,9 @@ def _normalize_dms_model(model: Mapping[str, Any], *, ignore_table_name: bool) -
     attrs.sort(key=lambda a: cast(str, a["attribute"]))
     out["attributes"] = attrs
 
+    attr_names = {cast(str, attr["attribute"]) for attr in attrs}
+    out["write_policy"] = _normalize_write_policy(model.get("write_policy"), name=name, attributes=attr_names)
+
     indexes_raw = model.get("indexes") or []
     if not isinstance(indexes_raw, list):
         raise ValidationError(f"DMS model {name}: indexes must be a list")
@@ -232,6 +236,31 @@ def _normalize_dms_model(model: Mapping[str, Any], *, ignore_table_name: bool) -
     return out
 
 
+def _normalize_write_policy(raw: Any, *, name: str, attributes: set[str]) -> dict[str, Any]:
+    if raw is None:
+        return {"mode": "mutable", "protected_attributes": []}
+    if not isinstance(raw, dict):
+        raise ValidationError(f"DMS model {name}: write_policy must be a map/object")
+
+    mode = raw.get("mode", "mutable")
+    if mode not in {"mutable", "write_once"}:
+        raise ValidationError(f"DMS model {name}: unsupported write_policy.mode: {mode!r}")
+
+    protected_raw = raw.get("protected_attributes", [])
+    if not isinstance(protected_raw, list):
+        raise ValidationError(f"DMS model {name}: write_policy.protected_attributes must be a list")
+
+    protected: list[str] = []
+    for attr in protected_raw:
+        if not isinstance(attr, str) or not attr:
+            raise ValidationError(f"DMS model {name}: write_policy protected attributes must be strings")
+        if attr not in attributes:
+            raise ValidationError(f"DMS model {name}: write_policy protected attribute not found: {attr}")
+        protected.append(attr)
+
+    return {"mode": mode, "protected_attributes": sorted(protected)}
+
+
 def _model_definition_to_dms_model(model: ModelDefinition[Any]) -> dict[str, Any]:
     dc_fields = {f.name: f for f in fields(model.model_type)}
     out_attrs: list[dict[str, Any]] = []
@@ -266,6 +295,10 @@ def _model_definition_to_dms_model(model: ModelDefinition[Any]) -> dict[str, Any
         "keys": {
             "partition": {"attribute": model.pk.attribute_name, "type": _key_type_for_attr(model, model.pk)},
             "sort": None,
+        },
+        "write_policy": {
+            "mode": model.write_policy.mode,
+            "protected_attributes": sorted(model.write_policy.protected_attributes),
         },
         "attributes": out_attrs,
         "indexes": [],

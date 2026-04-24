@@ -49,10 +49,7 @@ func TestContract_P0(t *testing.T) {
 				t.Skipf("scenario requires unsupported capabilities: %v", missing)
 			}
 
-			model, ok := models[s.Model]
-			require.True(t, ok, "unknown model %s", s.Model)
-
-			r.RunScenario(t, ctx, s, model)
+			r.RunScenario(t, ctx, s, models)
 		})
 	}
 }
