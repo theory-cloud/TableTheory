@@ -25,6 +25,10 @@ const (
 	ErrInvalidModel      ErrorCode = "ErrInvalidModel"
 	ErrMissingPrimaryKey ErrorCode = "ErrMissingPrimaryKey"
 	ErrInvalidOperator   ErrorCode = "ErrInvalidOperator"
+
+	ErrImmutableModelMutation          ErrorCode = "ErrImmutableModelMutation"
+	ErrProtectedFieldMutation          ErrorCode = "ErrProtectedFieldMutation"
+	ErrRejectedDeployAuthorityEvidence ErrorCode = "ErrRejectedDeployAuthorityEvidence"
 )
 
 type Driver interface {
@@ -47,6 +51,12 @@ func MapError(err error) ErrorCode {
 		return ErrMissingPrimaryKey
 	case errors.Is(err, theorydbErrors.ErrInvalidOperator):
 		return ErrInvalidOperator
+	case errors.Is(err, theorydbErrors.ErrImmutableModelMutation):
+		return ErrImmutableModelMutation
+	case errors.Is(err, theorydbErrors.ErrProtectedFieldMutation):
+		return ErrProtectedFieldMutation
+	case errors.Is(err, theorydbErrors.ErrRejectedDeployAuthorityEvidence):
+		return ErrRejectedDeployAuthorityEvidence
 	default:
 		return ""
 	}
