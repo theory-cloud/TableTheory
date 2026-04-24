@@ -45,6 +45,16 @@ export interface IndexSchema {
   projection?: { type: 'ALL' | 'KEYS_ONLY' | 'INCLUDE'; fields?: string[] };
 }
 
+export interface WritePolicySchema {
+  mode?: 'mutable' | 'write_once';
+  protected_attributes?: string[];
+}
+
+export interface WritePolicy {
+  mode: 'mutable' | 'write_once';
+  protectedAttributes: readonly string[];
+}
+
 export interface ModelSchema {
   name: string;
   table: { name: string };
@@ -53,6 +63,7 @@ export interface ModelSchema {
     partition: KeySchema;
     sort?: KeySchema;
   };
+  write_policy?: WritePolicySchema;
   attributes: AttributeSchema[];
   indexes?: IndexSchema[];
 }
@@ -73,6 +84,7 @@ export interface Model {
   readonly attributes: ReadonlyMap<string, Readonly<AttributeSchema>>;
   readonly indexes: ReadonlyMap<string, Readonly<IndexSchema>>;
   readonly roles: Readonly<ModelRoles>;
+  readonly writePolicy: Readonly<WritePolicy>;
 }
 
 function isSupportedJsonStorageType(type: ScalarType): boolean {
@@ -106,6 +118,7 @@ export function defineModel(schema: ModelSchema): Model {
     attributes,
     indexes,
     roles: resolveRoles(schema),
+    writePolicy: resolveWritePolicy(schema),
   };
 }
 
@@ -166,6 +179,8 @@ function validateModelSchema(schema: ModelSchema): void {
     }
     attributeNames.add(attr.attribute);
   }
+
+  validateWritePolicy(schema, attributeNames);
 
   const pk = schema.keys.partition.attribute;
   const pkAttr = schema.attributes.find((a) => a.attribute === pk);
@@ -268,6 +283,42 @@ function validateModelSchema(schema: ModelSchema): void {
   }
 }
 
+function validateWritePolicy(
+  schema: ModelSchema,
+  attributeNames: ReadonlySet<string>,
+): void {
+  const policy = schema.write_policy;
+  const mode = policy?.mode ?? 'mutable';
+  if (mode !== 'mutable' && mode !== 'write_once') {
+    throw new TheorydbError(
+      'ErrInvalidModel',
+      `Unsupported write_policy.mode: ${String(policy?.mode)}`,
+    );
+  }
+
+  const protectedAttributes = policy?.protected_attributes ?? [];
+  if (!Array.isArray(protectedAttributes)) {
+    throw new TheorydbError(
+      'ErrInvalidModel',
+      'write_policy.protected_attributes must be an array',
+    );
+  }
+  for (const attr of protectedAttributes) {
+    if (typeof attr !== 'string' || attr.length === 0) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        'write_policy.protected_attributes must contain attribute names',
+      );
+    }
+    if (!attributeNames.has(attr)) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        `write_policy protected attribute not found: ${attr}`,
+      );
+    }
+  }
+}
+
 function resolveRoles(schema: ModelSchema): ModelRoles {
   const roles: ModelRoles = { pk: schema.keys.partition.attribute };
   if (schema.keys.sort) roles.sk = schema.keys.sort.attribute;
@@ -300,4 +351,13 @@ function resolveRoles(schema: ModelSchema): ModelRoles {
   }
 
   return roles;
+}
+
+function resolveWritePolicy(schema: ModelSchema): WritePolicy {
+  return {
+    mode: schema.write_policy?.mode ?? 'mutable',
+    protectedAttributes: [
+      ...(schema.write_policy?.protected_attributes ?? []),
+    ].sort(),
+  };
 }

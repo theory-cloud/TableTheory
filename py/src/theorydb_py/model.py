@@ -70,6 +70,25 @@ class IndexDefinition:
     projection: Projection = field(default_factory=Projection.all)
 
 
+@dataclass(frozen=True)
+class WritePolicy:
+    mode: str = "mutable"
+    protected_attributes: Sequence[str] = ()
+
+    def __post_init__(self) -> None:
+        if self.mode not in {"mutable", "write_once"}:
+            raise ModelDefinitionError(f"unsupported write_policy.mode: {self.mode}")
+        if isinstance(self.protected_attributes, str):
+            raise ModelDefinitionError("write_policy protected attributes must be a sequence of names")
+        protected = tuple(self.protected_attributes)
+        object.__setattr__(self, "protected_attributes", protected)
+        for attr in protected:
+            if not isinstance(attr, str):
+                raise ModelDefinitionError("write_policy protected attributes must contain strings")
+            if not attr:
+                raise ModelDefinitionError("write_policy protected attributes must be non-empty")
+
+
 @overload
 def theorydb_field(
     *,
@@ -180,6 +199,7 @@ class ModelDefinition[T]:
     sk: AttributeDefinition | None
     attributes: Mapping[str, AttributeDefinition]
     indexes: tuple[IndexDefinition, ...]
+    write_policy: WritePolicy = field(default_factory=WritePolicy)
 
     @classmethod
     def from_dataclass(
@@ -188,6 +208,7 @@ class ModelDefinition[T]:
         *,
         table_name: str | None = None,
         indexes: Sequence[IndexSpec] = (),
+        write_policy: WritePolicy | None = None,
     ) -> ModelDefinition[T]:
         if not is_dataclass(model_type):
             raise ModelDefinitionError("model_type must be a dataclass")
@@ -316,6 +337,12 @@ class ModelDefinition[T]:
                 )
             )
 
+        resolved_write_policy = write_policy or WritePolicy()
+        attribute_names = {attr.attribute_name for attr in attributes.values()}
+        for attr in resolved_write_policy.protected_attributes:
+            if attr not in attribute_names:
+                raise ModelDefinitionError(f"write_policy protected attribute not found: {attr}")
+
         return cls(
             model_type=model_type,
             table_name=table_name,
@@ -323,4 +350,5 @@ class ModelDefinition[T]:
             sk=sk,
             attributes=attributes,
             indexes=tuple(resolved_indexes),
+            write_policy=resolved_write_policy,
         )

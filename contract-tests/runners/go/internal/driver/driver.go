@@ -25,13 +25,33 @@ const (
 	ErrInvalidModel      ErrorCode = "ErrInvalidModel"
 	ErrMissingPrimaryKey ErrorCode = "ErrMissingPrimaryKey"
 	ErrInvalidOperator   ErrorCode = "ErrInvalidOperator"
+
+	ErrImmutableModelMutation          ErrorCode = "ErrImmutableModelMutation"
+	ErrProtectedFieldMutation          ErrorCode = "ErrProtectedFieldMutation"
+	ErrRejectedDeployAuthorityEvidence ErrorCode = "ErrRejectedDeployAuthorityEvidence"
 )
 
 type Driver interface {
+	Capabilities() []string
 	Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error
 	Get(ctx context.Context, model string, key map[string]any) (map[string]any, error)
-	Update(ctx context.Context, model string, item map[string]any, fields []string) error
+	Update(ctx context.Context, model string, item map[string]any, fields []string, protectedAttributes []string) error
+	Save(ctx context.Context, model string, item map[string]any) error
 	Delete(ctx context.Context, model string, key map[string]any) error
+	TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error
+	ValidateProvenance(ctx context.Context, model string, item map[string]any) error
+}
+
+type TransitionActual struct {
+	Model           string
+	Key             map[string]any
+	Set             map[string]any
+	ExpectedVersion *int64
+}
+
+type TransitionEvent struct {
+	Model string
+	Item  map[string]any
 }
 
 func MapError(err error) ErrorCode {
@@ -46,6 +66,12 @@ func MapError(err error) ErrorCode {
 		return ErrMissingPrimaryKey
 	case errors.Is(err, theorydbErrors.ErrInvalidOperator):
 		return ErrInvalidOperator
+	case errors.Is(err, theorydbErrors.ErrImmutableModelMutation):
+		return ErrImmutableModelMutation
+	case errors.Is(err, theorydbErrors.ErrProtectedFieldMutation):
+		return ErrProtectedFieldMutation
+	case errors.Is(err, theorydbErrors.ErrRejectedDeployAuthorityEvidence):
+		return ErrRejectedDeployAuthorityEvidence
 	default:
 		return ""
 	}
@@ -53,6 +79,16 @@ func MapError(err error) ErrorCode {
 
 type TheorydbDriver struct {
 	db core.ExtendedDB
+}
+
+func (d *TheorydbDriver) Capabilities() []string {
+	return []string{
+		"crud",
+		"omitempty",
+		"lifecycle.timestamps",
+		"optimistic_lock.version",
+		"ttl.epoch_seconds",
+	}
 }
 
 func NewTheorydbDriver() (*TheorydbDriver, error) {
@@ -117,17 +153,39 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 			return nil, err
 		}
 		return normalizeOrder(out), nil
+	case "ReleaseStateActual":
+		var out ReleaseStateActual
+		err := d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeReleaseStateActual(out), nil
+	case "ReleaseStateEvent":
+		var out ReleaseStateEvent
+		err := d.db.WithContext(ctx).Model(&ReleaseStateEvent{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeReleaseStateEvent(out), nil
 	default:
 		return nil, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
 }
 
-func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[string]any, fields []string) error {
+func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[string]any, fields []string, _ []string) error {
 	instance, err := modelFromMap(model, item)
 	if err != nil {
 		return err
 	}
 	return d.db.WithContext(ctx).Model(instance).Update(fields...)
+}
+
+func (d *TheorydbDriver) Save(ctx context.Context, model string, item map[string]any) error {
+	instance, err := modelFromMap(model, item)
+	if err != nil {
+		return err
+	}
+	return d.db.WithContext(ctx).Model(instance).CreateOrUpdate()
 }
 
 func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[string]any) error {
@@ -141,9 +199,26 @@ func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[strin
 		return d.db.WithContext(ctx).Model(&User{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "Order":
 		return d.db.WithContext(ctx).Model(&Order{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+	case "ReleaseStateActual":
+		return d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+	case "ReleaseStateEvent":
+		return d.db.WithContext(ctx).Model(&ReleaseStateEvent{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	default:
 		return fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
+}
+
+func (d *TheorydbDriver) TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error {
+	return fmt.Errorf(
+		"%w: transition_append_event not implemented for %s/%s",
+		theorydbErrors.ErrInvalidModel,
+		actual.Model,
+		event.Model,
+	)
+}
+
+func (d *TheorydbDriver) ValidateProvenance(ctx context.Context, model string, item map[string]any) error {
+	return fmt.Errorf("%w: validate_provenance not implemented for %s", theorydbErrors.ErrInvalidModel, model)
 }
 
 func keyValues(key map[string]any) (string, string, error) {
@@ -164,6 +239,10 @@ func modelFromMap(model string, item map[string]any) (any, error) {
 		return userFromMap(item)
 	case "Order":
 		return orderFromMap(item)
+	case "ReleaseStateActual":
+		return releaseStateActualFromMap(item)
+	case "ReleaseStateEvent":
+		return releaseStateEventFromMap(item)
 	default:
 		return nil, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
@@ -184,6 +263,32 @@ func asStringSlice(v any) ([]string, error) {
 		return out, nil
 	default:
 		return nil, fmt.Errorf("expected []string, got %T", v)
+	}
+}
+
+func asStringMap(v any) (map[string]any, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch m := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(m))
+		for k, value := range m {
+			out[k] = value
+		}
+		return out, nil
+	case map[any]any:
+		out := make(map[string]any, len(m))
+		for k, value := range m {
+			key, ok := k.(string)
+			if !ok {
+				return nil, fmt.Errorf("expected string map key, got %T", k)
+			}
+			out[key] = value
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("expected map[string]any, got %T", v)
 	}
 }
 
@@ -243,6 +348,36 @@ type Order struct {
 }
 
 func (Order) TableName() string { return "orders_contract" }
+
+// ReleaseStateActual matches the v0.1 release-state actual-row DMS fixture.
+type ReleaseStateActual struct {
+	PK                string         `theorydb:"pk"`
+	SK                string         `theorydb:"sk"`
+	Status            string         `theorydb:"omitempty"`
+	PinnedReleaseID   string         `theorydb:"attr:pinnedReleaseId,omitempty"`
+	PreviousReleaseID string         `theorydb:"attr:previousReleaseId,omitempty"`
+	Provenance        map[string]any `theorydb:"json,omitempty"`
+	Confidence        map[string]any `theorydb:"json,omitempty"`
+
+	UpdatedAt time.Time `theorydb:"updated_at"`
+	Version   int64     `theorydb:"version"`
+}
+
+func (ReleaseStateActual) TableName() string { return "release_state_contract" }
+
+// ReleaseStateEvent matches the v0.1 release-state event-row DMS fixture.
+type ReleaseStateEvent struct {
+	PK         string         `theorydb:"pk"`
+	SK         string         `theorydb:"sk"`
+	ReleaseID  string         `theorydb:"attr:releaseId,omitempty"`
+	EventType  string         `theorydb:"attr:eventType,omitempty"`
+	Provenance map[string]any `theorydb:"json,omitempty"`
+	Confidence map[string]any `theorydb:"json,omitempty"`
+	RecordedAt string         `theorydb:"attr:recordedAt,omitempty"`
+	TTL        int64          `theorydb:"ttl,omitempty"`
+}
+
+func (ReleaseStateEvent) TableName() string { return "release_state_contract" }
 
 func userFromMap(item map[string]any) (*User, error) {
 	u := &User{}
@@ -317,6 +452,88 @@ func orderFromMap(item map[string]any) (*Order, error) {
 	return o, nil
 }
 
+func releaseStateActualFromMap(item map[string]any) (*ReleaseStateActual, error) {
+	actual := &ReleaseStateActual{}
+	if v, ok := item["PK"]; ok {
+		actual.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["SK"]; ok {
+		actual.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["status"]; ok {
+		actual.Status = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["pinnedReleaseId"]; ok {
+		actual.PinnedReleaseID = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["previousReleaseId"]; ok {
+		actual.PreviousReleaseID = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["provenance"]; ok {
+		provenance, err := asStringMap(v)
+		if err != nil {
+			return nil, err
+		}
+		actual.Provenance = provenance
+	}
+	if v, ok := item["confidence"]; ok {
+		confidence, err := asStringMap(v)
+		if err != nil {
+			return nil, err
+		}
+		actual.Confidence = confidence
+	}
+	if v, ok := item["version"]; ok {
+		n, err := asInt64(v)
+		if err != nil {
+			return nil, err
+		}
+		actual.Version = n
+	}
+	return actual, nil
+}
+
+func releaseStateEventFromMap(item map[string]any) (*ReleaseStateEvent, error) {
+	event := &ReleaseStateEvent{}
+	if v, ok := item["PK"]; ok {
+		event.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["SK"]; ok {
+		event.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["releaseId"]; ok {
+		event.ReleaseID = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["eventType"]; ok {
+		event.EventType = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["provenance"]; ok {
+		provenance, err := asStringMap(v)
+		if err != nil {
+			return nil, err
+		}
+		event.Provenance = provenance
+	}
+	if v, ok := item["confidence"]; ok {
+		confidence, err := asStringMap(v)
+		if err != nil {
+			return nil, err
+		}
+		event.Confidence = confidence
+	}
+	if v, ok := item["recordedAt"]; ok {
+		event.RecordedAt = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["ttl"]; ok {
+		n, err := asInt64(v)
+		if err != nil {
+			return nil, err
+		}
+		event.TTL = n
+	}
+	return event, nil
+}
+
 func normalizeUser(u User) map[string]any {
 	out := map[string]any{
 		"PK":        u.PK,
@@ -330,6 +547,33 @@ func normalizeUser(u User) map[string]any {
 		"ttl":       u.TTL,
 	}
 	return out
+}
+
+func normalizeReleaseStateActual(actual ReleaseStateActual) map[string]any {
+	return map[string]any{
+		"PK":                actual.PK,
+		"SK":                actual.SK,
+		"status":            actual.Status,
+		"pinnedReleaseId":   actual.PinnedReleaseID,
+		"previousReleaseId": actual.PreviousReleaseID,
+		"provenance":        actual.Provenance,
+		"confidence":        actual.Confidence,
+		"updatedAt":         actual.UpdatedAt.Format(time.RFC3339Nano),
+		"version":           actual.Version,
+	}
+}
+
+func normalizeReleaseStateEvent(event ReleaseStateEvent) map[string]any {
+	return map[string]any{
+		"PK":         event.PK,
+		"SK":         event.SK,
+		"releaseId":  event.ReleaseID,
+		"eventType":  event.EventType,
+		"provenance": event.Provenance,
+		"confidence": event.Confidence,
+		"recordedAt": event.RecordedAt,
+		"ttl":        event.TTL,
+	}
 }
 
 func normalizeOrder(o Order) map[string]any {

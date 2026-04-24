@@ -9,7 +9,10 @@ export type ErrorCode =
   | 'ErrTableNotFound'
   | 'ErrEncryptedFieldNotQueryable'
   | 'ErrEncryptionNotConfigured'
-  | 'ErrInvalidEncryptedEnvelope';
+  | 'ErrInvalidEncryptedEnvelope'
+  | 'ErrImmutableModelMutation'
+  | 'ErrProtectedFieldMutation'
+  | 'ErrRejectedDeployAuthorityEvidence';
 
 export class TheorydbError extends Error {
   readonly code: ErrorCode;

@@ -15,12 +15,13 @@ type Document struct {
 }
 
 type Model struct {
-	Name       string      `yaml:"name"`
-	Table      Table       `yaml:"table"`
-	Naming     Naming      `yaml:"naming"`
-	Keys       Keys        `yaml:"keys"`
-	Attributes []Attribute `yaml:"attributes"`
-	Indexes    []Index     `yaml:"indexes"`
+	Name        string      `yaml:"name"`
+	Table       Table       `yaml:"table"`
+	Naming      Naming      `yaml:"naming"`
+	Keys        Keys        `yaml:"keys"`
+	WritePolicy WritePolicy `yaml:"write_policy"`
+	Attributes  []Attribute `yaml:"attributes"`
+	Indexes     []Index     `yaml:"indexes"`
 }
 
 type Table struct {
@@ -34,6 +35,11 @@ type Naming struct {
 type Keys struct {
 	Partition KeyAttribute  `yaml:"partition"`
 	Sort      *KeyAttribute `yaml:"sort"`
+}
+
+type WritePolicy struct {
+	Mode                string   `yaml:"mode"`
+	ProtectedAttributes []string `yaml:"protected_attributes"`
 }
 
 type KeyAttribute struct {

@@ -14,6 +14,9 @@ models:
     keys:
       partition: { attribute: "PK", type: "S" }
       sort: { attribute: "SK", type: "S" }
+    write_policy:
+      mode: "write_once"
+      protected_attributes: ["value"]
     attributes:
       - attribute: "PK"
         type: "S"
@@ -36,6 +39,8 @@ models:
   assert.equal(model.tableName, 'tbl');
   assert.equal(model.roles.pk, 'PK');
   assert.equal(model.roles.sk, 'SK');
+  assert.equal(model.writePolicy.mode, 'write_once');
+  assert.deepEqual(model.writePolicy.protectedAttributes, ['value']);
 }
 
 {
@@ -75,6 +80,35 @@ payload: !!binary "Zm9v"
     (err) => {
       assert.ok(err instanceof TheorydbError);
       assert.equal(err.code, 'ErrInvalidModel');
+      return true;
+    },
+  );
+}
+
+{
+  const raw = `
+dms_version: "0.1"
+models:
+  - name: "BadPolicy"
+    table: { name: "tbl" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    write_policy:
+      mode: "mutable"
+      protected_attributes: ["missing"]
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+`;
+
+  assert.throws(
+    () => parseDmsDocument(raw),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(err.message, /protected attribute not found/);
       return true;
     },
   );

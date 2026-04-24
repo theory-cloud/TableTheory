@@ -61,6 +61,9 @@ models:
     keys:
       partition: { attribute: "PK", type: "S" }
       sort:      { attribute: "SK", type: "S" } # optional
+    write_policy:
+      mode: "mutable"              # mutable | write_once; optional, defaults to mutable
+      protected_attributes: []     # optional, defaults to []
     attributes:
       - attribute: "PK"
         type: "S"
@@ -124,6 +127,35 @@ Every `attributes[]` entry supports:
 - `encryption` (object, optional): indicates the attribute is stored as an encrypted envelope (see below).
 - `tags` (object, optional): extension metadata; must not change core semantics without a spec update.
 
+### Model write policy fields (v0.1)
+
+Every `models[]` entry MAY include `write_policy`. When omitted, implementations MUST behave as if the model declared:
+
+```yaml
+write_policy:
+  mode: "mutable"
+  protected_attributes: []
+```
+
+`write_policy` supports:
+
+- `mode` (`mutable` | `write_once`, default `mutable`):
+  - `mutable`: generic create, update, upsert/save, and delete APIs use the runtime's ordinary semantics.
+  - `write_once`: high-level TableTheory APIs may create a new item but MUST reject generic mutation after creation.
+    Generic update, upsert/save/overwrite, and delete operations MUST fail before issuing a mutating DynamoDB request.
+    Write-once duplicate creates that use an explicit if-not-exists condition MAY surface the ordinary conditional-write
+    error.
+- `protected_attributes` (string[], default empty): canonical DynamoDB attribute names that ordinary high-level mutation
+  APIs MUST NOT change. Implementations MUST validate that every listed attribute exists in `attributes[]`.
+
+Protected attributes are a mutation guard, not a deletion guard. A `mutable` model with `protected_attributes` still allows
+generic delete under the runtime's ordinary delete semantics. A `write_once` model rejects generic delete because the whole
+model is immutable after creation.
+
+Per-call options MAY add extra protected attributes for a single operation, but MUST NOT remove or loosen model-level
+protection. Phase 1 deliberately defines no ergonomic public bypass in TableTheory; raw DynamoDB clients and raw
+transaction seams remain the low-level escape hatch for exceptional operational repair.
+
 ### Index fields (v0.1)
 
 Each `indexes[]` entry supports:
@@ -168,6 +200,55 @@ Each `indexes[]` entry supports:
   - implementations MUST atomically increment version by `+1` as part of the update (DynamoDB `ADD`).
 - On delete (optional but recommended):
   - if `currentVersion` is provided and non-empty, include a condition `version == currentVersion`.
+
+### Release-state write policy semantics
+
+Release-state tables commonly use two complementary shapes:
+
+- **Actual-state rows** (`write_policy.mode: mutable`) hold the current state and protect operational pin fields such as
+  `pinnedReleaseId`.
+- **Event-history rows** (`write_policy.mode: write_once`) provide an immutable audit/event stream.
+
+When both the actual-state transition and the event-history append are DynamoDB writes in the same account/region,
+implementations SHOULD use one DynamoDB transaction for the actual-state mutation and event append. If the workflow also
+has an external side effect (for example Lambda alias movement or CodePipeline execution), TableTheory MUST NOT pretend
+DynamoDB can make that external system atomic. The internal DynamoDB state transition remains transactional, and the
+external side effect is coordinated with explicit retry, reconciliation, or outbox behavior.
+
+Release-state provenance and confidence are deterministic metadata conventions, not free-form notes. If present, the
+recommended attribute shape is:
+
+```json
+{
+  "provenance": {
+    "mode": "native | imported | inferred",
+    "system": "release-control-plane | partner-factory | service-ci",
+    "kind": "factory_batch_manifest | submodule_pin | codepipeline_execution | operator_command",
+    "ref": "stable source path / ARN / URL",
+    "commit_sha": "optional source repo commit",
+    "observed_at": "RFC3339",
+    "recorded_at": "RFC3339",
+    "import_run_id": "optional",
+    "evidence": [
+      {
+        "kind": "factory_batch_manifest | submodule_pin | codepipeline_execution | operator_command",
+        "source": "release-control-plane | partner-factory | service-ci",
+        "ref": "stable source path / ARN / URL",
+        "observed_at": "RFC3339",
+        "digest": "optional stable digest"
+      }
+    ]
+  },
+  "confidence": {
+    "level": "high | medium | low",
+    "reasons": ["unique_factory_manifest_match"]
+  }
+}
+```
+
+For authoritative actual-state rows, ambiguous or conflicting evidence MUST be rejected rather than stored as
+low-confidence deploy state. Low confidence is visibility-only and MUST NOT be accepted as deploy authority. Ambiguous
+imports MAY be preserved as immutable evidence/event rows for audit visibility.
 
 ### `omit_empty` emptiness rules (deterministic)
 
@@ -246,6 +327,9 @@ Implementations MUST expose typed errors (or stable error codes) for these cases
 - `ErrEncryptedFieldNotQueryable`
 - `ErrEncryptionNotConfigured`
 - `ErrInvalidEncryptedEnvelope`
+- `ErrImmutableModelMutation`
+- `ErrProtectedFieldMutation`
+- `ErrRejectedDeployAuthorityEvidence`
 
 ## Versioning & compatibility
 

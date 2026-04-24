@@ -22,6 +22,9 @@ models:
     keys:
       partition: { attribute: "PK", type: "S" }
       sort: { attribute: "SK", type: "S" }
+    write_policy:
+      mode: "write_once"
+      protected_attributes: ["value"]
     attributes:
       - attribute: "PK"
         type: "S"
@@ -31,6 +34,9 @@ models:
         type: "S"
         required: true
         roles: ["sk"]
+      - attribute: "value"
+        type: "S"
+        optional: true
 `)
 
 	doc, err := ParseDocument(raw)
@@ -43,6 +49,8 @@ models:
 	require.Equal(t, "PK", m.Keys.Partition.Attribute)
 	require.NotNil(t, m.Keys.Sort)
 	require.Equal(t, "SK", m.Keys.Sort.Attribute)
+	require.Equal(t, "write_once", m.WritePolicy.Mode)
+	require.Equal(t, []string{"value"}, m.WritePolicy.ProtectedAttributes)
 }
 
 func TestFindModelNilDocument(t *testing.T) {
@@ -239,6 +247,38 @@ func TestValidateDocument_Errors(t *testing.T) {
 				}},
 			},
 			want: "missing sort key attribute",
+		},
+		{
+			name: "invalid_write_policy_mode",
+			doc: &Document{
+				DMSVersion: "0.1",
+				Models: []Model{{
+					Name:        "A",
+					Table:       Table{Name: "t"},
+					Keys:        Keys{Partition: KeyAttribute{Attribute: "PK", Type: "S"}},
+					WritePolicy: WritePolicy{Mode: "frozen"},
+					Attributes: []Attribute{
+						{Attribute: "PK", Type: "S"},
+					},
+				}},
+			},
+			want: "unsupported write_policy.mode",
+		},
+		{
+			name: "unknown_protected_attribute",
+			doc: &Document{
+				DMSVersion: "0.1",
+				Models: []Model{{
+					Name:        "A",
+					Table:       Table{Name: "t"},
+					Keys:        Keys{Partition: KeyAttribute{Attribute: "PK", Type: "S"}},
+					WritePolicy: WritePolicy{ProtectedAttributes: []string{"missing"}},
+					Attributes: []Attribute{
+						{Attribute: "PK", Type: "S"},
+					},
+				}},
+			},
+			want: "protected attribute not found",
 		},
 	}
 

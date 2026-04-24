@@ -58,6 +58,15 @@ var (
 
 	// ErrEncryptedFieldNotQueryable is returned when a theorydb:"encrypted" field is used in query/filter conditions.
 	ErrEncryptedFieldNotQueryable = errors.New("encrypted fields are not queryable/filterable")
+
+	// ErrImmutableModelMutation is returned when a write-once model is mutated through a generic high-level API.
+	ErrImmutableModelMutation = errors.New("immutable model mutation")
+
+	// ErrProtectedFieldMutation is returned when a protected model attribute is mutated through a generic high-level API.
+	ErrProtectedFieldMutation = errors.New("protected field mutation")
+
+	// ErrRejectedDeployAuthorityEvidence is returned when provenance/confidence evidence is not deploy-authoritative.
+	ErrRejectedDeployAuthorityEvidence = errors.New("rejected deploy authority evidence")
 )
 
 // EncryptedFieldError wraps failures related to theorydb:"encrypted" fields (encryption/decryption).
