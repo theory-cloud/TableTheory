@@ -1,0 +1,60 @@
+name: "p0.release_state.provenance_confidence"
+dms_version: "0.1"
+requires_capabilities: ["release_state.provenance_confidence"]
+model: "ReleaseStateActual"
+table:
+  name: "release_state_contract"
+steps:
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#service-a"
+      SK: "ACTUAL"
+      status: "active"
+      pinnedReleaseId: "rel_001"
+      provenance:
+        mode: "native"
+        system: "release-control-plane"
+        kind: "operator_command"
+        ref: "operator://deploy/service-a/rel_001"
+        observed_at: "2026-04-24T19:00:00Z"
+        recorded_at: "2026-04-24T19:00:01Z"
+        evidence:
+          - kind: "operator_command"
+            source: "release-control-plane"
+            ref: "operator://deploy/service-a/rel_001"
+            observed_at: "2026-04-24T19:00:00Z"
+      confidence:
+        level: "high"
+        reasons: ["operator_command_authority"]
+    expect:
+      ok: true
+
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#service-b"
+      SK: "ACTUAL"
+      status: "active"
+      pinnedReleaseId: "rel_ambiguous"
+      provenance:
+        mode: "imported"
+        system: "partner-factory"
+        kind: "factory_batch_manifest"
+        ref: "s3://factory/manifests/ambiguous.json"
+        observed_at: "2026-04-24T19:10:00Z"
+        recorded_at: "2026-04-24T19:10:01Z"
+        evidence:
+          - kind: "factory_batch_manifest"
+            source: "partner-factory"
+            ref: "s3://factory/manifests/a.json"
+            observed_at: "2026-04-24T19:09:59Z"
+          - kind: "submodule_pin"
+            source: "service-ci"
+            ref: "https://github.com/acme/service-b/tree/conflicting"
+            observed_at: "2026-04-24T19:09:59Z"
+      confidence:
+        level: "low"
+        reasons: ["conflicting_evidence"]
+    expect:
+      error: "ErrRejectedDeployAuthorityEvidence"

@@ -10,9 +10,13 @@ export type ErrorCode =
   | "ErrInvalidOperator"
   | "ErrEncryptedFieldNotQueryable"
   | "ErrEncryptionNotConfigured"
-  | "ErrInvalidEncryptedEnvelope";
+  | "ErrInvalidEncryptedEnvelope"
+  | "ErrImmutableModelMutation"
+  | "ErrProtectedFieldMutation"
+  | "ErrRejectedDeployAuthorityEvidence";
 
 export interface Driver {
+  capabilities(): readonly string[];
   create(model: string, item: Record<string, unknown>, opts: { ifNotExists?: boolean }): Promise<void>;
   get(model: string, key: Record<string, unknown>): Promise<Record<string, unknown>>;
   update(model: string, item: Record<string, unknown>, fields: string[]): Promise<void>;
@@ -24,6 +28,16 @@ export class TheorydbDriver implements Driver {
 
   constructor(ddb: DynamoDBClient, models: Model[]) {
     this.client = new TheorydbClient(ddb).register(...models);
+  }
+
+  capabilities(): readonly string[] {
+    return [
+      "crud",
+      "omitempty",
+      "lifecycle.timestamps",
+      "optimistic_lock.version",
+      "ttl.epoch_seconds",
+    ];
   }
 
   async create(model: string, item: Record<string, unknown>, opts: { ifNotExists?: boolean }): Promise<void> {

@@ -28,6 +28,7 @@ const (
 )
 
 type Driver interface {
+	Capabilities() []string
 	Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error
 	Get(ctx context.Context, model string, key map[string]any) (map[string]any, error)
 	Update(ctx context.Context, model string, item map[string]any, fields []string) error
@@ -53,6 +54,16 @@ func MapError(err error) ErrorCode {
 
 type TheorydbDriver struct {
 	db core.ExtendedDB
+}
+
+func (d *TheorydbDriver) Capabilities() []string {
+	return []string{
+		"crud",
+		"omitempty",
+		"lifecycle.timestamps",
+		"optimistic_lock.version",
+		"ttl.epoch_seconds",
+	}
 }
 
 func NewTheorydbDriver() (*TheorydbDriver, error) {

@@ -16,6 +16,10 @@ export interface DmsModel {
     partition: { attribute: string; type: "S" | "N" | "B" };
     sort?: { attribute: string; type: "S" | "N" | "B" };
   };
+  write_policy?: {
+    mode?: "mutable" | "write_once";
+    protected_attributes?: string[];
+  };
   attributes: Array<{
     attribute: string;
     type: ScalarType;
@@ -39,17 +43,30 @@ export interface DmsModel {
 export interface Scenario {
   name: string;
   dms_version: DmsVersion;
+  requires_capabilities?: string[];
   model: string;
   table?: { name?: string };
   steps: Step[];
 }
 
 export interface Step {
-  op: "create" | "get" | "update" | "delete" | "sleep";
+  op:
+    | "create"
+    | "get"
+    | "update"
+    | "delete"
+    | "sleep"
+    | "save"
+    | "transition_append_event"
+    | "validate_provenance";
+  model?: string;
   if_not_exists?: boolean;
   fields?: string[];
+  protected_attributes?: string[];
   item?: Record<string, unknown>;
   key?: Record<string, unknown>;
+  actual?: Record<string, unknown>;
+  event?: Record<string, unknown>;
   ms?: number;
   save?: Record<string, string>;
   expect?: Expectation;
