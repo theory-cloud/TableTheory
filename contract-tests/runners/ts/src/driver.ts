@@ -71,6 +71,7 @@ export class TheorydbDriver implements Driver {
       "lifecycle.timestamps",
       "optimistic_lock.version",
       "ttl.epoch_seconds",
+      "release_state.write_policy",
     ];
   }
 
@@ -93,16 +94,20 @@ export class TheorydbDriver implements Driver {
     model: string,
     item: Record<string, unknown>,
     fields: string[],
-    _opts?: { protectedAttributes?: readonly string[] },
+    opts?: { protectedAttributes?: readonly string[] },
   ): Promise<void> {
-    await this.client.update(model, item, fields);
+    await this.client.update(
+      model,
+      item,
+      fields,
+      opts?.protectedAttributes
+        ? { protectedAttributes: opts.protectedAttributes }
+        : {},
+    );
   }
 
-  async save(model: string, _item: Record<string, unknown>): Promise<void> {
-    throw new TheorydbError(
-      "ErrInvalidModel",
-      `save not implemented for contract model ${model}`,
-    );
+  async save(model: string, item: Record<string, unknown>): Promise<void> {
+    await this.client.save(model, item);
   }
 
   async delete(model: string, key: Record<string, unknown>): Promise<void> {

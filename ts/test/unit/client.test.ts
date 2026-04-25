@@ -51,6 +51,45 @@ const EncryptedUser = defineModel({
   ],
 });
 
+const ReleaseStateActual = defineModel({
+  name: 'ReleaseStateActual',
+  table: { name: 'release_state_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  write_policy: {
+    mode: 'mutable',
+    protected_attributes: ['pinnedReleaseId'],
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'status', type: 'S', optional: true },
+    { attribute: 'pinnedReleaseId', type: 'S', optional: true },
+    { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
+    { attribute: 'version', type: 'N', roles: ['version'] },
+  ],
+});
+
+const ReleaseStateEvent = defineModel({
+  name: 'ReleaseStateEvent',
+  table: { name: 'release_state_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  write_policy: {
+    mode: 'write_once',
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'releaseId', type: 'S', optional: true },
+    { attribute: 'eventType', type: 'S', optional: true },
+  ],
+});
+
 class StubDdb {
   sent: unknown[] = [];
   calls = 0;
@@ -76,6 +115,23 @@ class StubDdb {
   const cmd = ddb.sent[0];
   assert.ok(cmd instanceof PutItemCommand);
   assert.equal(cmd.input.TableName, 'users_contract');
+  assert.equal(cmd.input.ConditionExpression, 'attribute_not_exists(#pk)');
+  assert.deepEqual(cmd.input.ExpressionAttributeNames, { '#pk': 'PK' });
+}
+
+{
+  const ddb = new StubDdb(() => ({}));
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateEvent,
+  );
+
+  await client.create('ReleaseStateEvent', {
+    PK: 'RELEASE#service-a',
+    SK: 'EVENT#1',
+    eventType: 'promoted',
+  });
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof PutItemCommand);
   assert.equal(cmd.input.ConditionExpression, 'attribute_not_exists(#pk)');
   assert.deepEqual(cmd.input.ExpressionAttributeNames, { '#pk': 'PK' });
 }
@@ -128,6 +184,20 @@ class StubDdb {
 
 {
   const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof PutItemCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  await client.save('User', { PK: 'A', SK: 'B', nickname: 'saved' });
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof PutItemCommand);
+  assert.equal(cmd.input.ConditionExpression, undefined);
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
     if (cmd instanceof UpdateItemCommand) return {};
     throw new Error('unexpected');
   });
@@ -156,6 +226,85 @@ class StubDdb {
 }
 
 {
+  const ddb = new StubDdb(() => {
+    throw new Error('write_once mutation should not send');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      client.update(
+        'ReleaseStateEvent',
+        { PK: 'RELEASE#service-a', SK: 'EVENT#1', eventType: 'mutated' },
+        ['eventType'],
+      ),
+    (e) => e instanceof TheorydbError && e.code === 'ErrImmutableModelMutation',
+  );
+  await assert.rejects(
+    () =>
+      client.save('ReleaseStateEvent', {
+        PK: 'RELEASE#service-a',
+        SK: 'EVENT#1',
+        eventType: 'overwritten',
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrImmutableModelMutation',
+  );
+  await assert.rejects(
+    () =>
+      client.batchWrite('ReleaseStateEvent', {
+        puts: [{ PK: 'RELEASE#service-a', SK: 'EVENT#2' }],
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrImmutableModelMutation',
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof UpdateItemCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+  );
+
+  await client.update(
+    'ReleaseStateActual',
+    { PK: 'RELEASE#service-a', SK: 'ACTUAL', status: 'warming', version: 0 },
+    ['status'],
+  );
+  assert.ok(ddb.sent[0] instanceof UpdateItemCommand);
+
+  await assert.rejects(
+    () =>
+      client.update(
+        'ReleaseStateActual',
+        {
+          PK: 'RELEASE#service-a',
+          SK: 'ACTUAL',
+          pinnedReleaseId: 'rel_002',
+          version: 1,
+        },
+        ['pinnedReleaseId'],
+      ),
+    (e) => e instanceof TheorydbError && e.code === 'ErrProtectedFieldMutation',
+  );
+  await assert.rejects(
+    () =>
+      client.update(
+        'ReleaseStateActual',
+        { PK: 'RELEASE#service-a', SK: 'ACTUAL', status: 'active', version: 1 },
+        ['status'],
+        { protectedAttributes: ['status'] },
+      ),
+    (e) => e instanceof TheorydbError && e.code === 'ErrProtectedFieldMutation',
+  );
+  assert.equal(ddb.sent.length, 1);
+}
+
+{
   const ddb = new StubDdb((cmd) => {
     if (cmd instanceof DeleteItemCommand) return {};
     throw new Error('unexpected');
@@ -165,6 +314,24 @@ class StubDdb {
   );
   await client.delete('User', { PK: 'A', SK: 'B' });
   assert.ok(ddb.sent[0] instanceof DeleteItemCommand);
+}
+
+{
+  const ddb = new StubDdb(() => {
+    throw new Error('write_once delete should not send');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateEvent,
+  );
+  await assert.rejects(
+    () =>
+      client.delete('ReleaseStateEvent', {
+        PK: 'RELEASE#service-a',
+        SK: 'EVENT#1',
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrImmutableModelMutation',
+  );
+  assert.equal(ddb.sent.length, 0);
 }
 
 {
@@ -318,6 +485,105 @@ class StubDdb {
   assert.ok(update?.UpdateExpression?.includes('if_not_exists'));
   assert.ok(update?.ConditionExpression?.includes('attribute_not_exists'));
   assert.ok(update?.ConditionExpression?.includes('<'));
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof TransactWriteItemsCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateEvent,
+  );
+
+  await client.transactWrite([
+    {
+      kind: 'put',
+      model: 'ReleaseStateEvent',
+      item: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+    },
+  ]);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  const put = cmd.input.TransactItems?.[0]?.Put;
+  assert.equal(put?.ConditionExpression, 'attribute_not_exists(#pk)');
+  assert.deepEqual(put?.ExpressionAttributeNames, { '#pk': 'PK' });
+}
+
+{
+  const ddb = new StubDdb(() => {
+    throw new Error('write_once transaction mutation should not send');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'update',
+          model: 'ReleaseStateEvent',
+          key: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+          updateExpression: 'SET #e = :e',
+          expressionAttributeNames: { '#e': 'eventType' },
+          expressionAttributeValues: { ':e': { S: 'mutated' } },
+        },
+      ]),
+    (e) => e instanceof TheorydbError && e.code === 'ErrImmutableModelMutation',
+  );
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'delete',
+          model: 'ReleaseStateEvent',
+          key: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+        },
+      ]),
+    (e) => e instanceof TheorydbError && e.code === 'ErrImmutableModelMutation',
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  const ddb = new StubDdb(() => {
+    throw new Error('protected transaction update should not send');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+  );
+
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'update',
+          model: 'ReleaseStateActual',
+          key: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+          updateExpression: 'SET #p = :p',
+          expressionAttributeNames: { '#p': 'pinnedReleaseId' },
+          expressionAttributeValues: { ':p': { S: 'rel_002' } },
+        },
+      ]),
+    (e) => e instanceof TheorydbError && e.code === 'ErrProtectedFieldMutation',
+  );
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'update',
+          model: 'ReleaseStateActual',
+          key: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+          updateFn: (u) => {
+            u.set('pinnedReleaseId', 'rel_002');
+          },
+        },
+      ]),
+    (e) => e instanceof TheorydbError && e.code === 'ErrProtectedFieldMutation',
+  );
+  assert.equal(ddb.sent.length, 0);
 }
 
 {

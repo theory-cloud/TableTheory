@@ -45,6 +45,13 @@ import {
   modelHasEncryptedAttributes,
   type EncryptionProvider,
 } from './encryption.js';
+import {
+  assertMutableWritePolicy,
+  assertProtectedFieldsCanMutate,
+  assertRawUpdateExpressionAllowed,
+  isWriteOnceModel,
+  type WritePolicyOptions,
+} from './write-policy.js';
 
 export class TheorydbClient {
   private readonly models = new Map<string, Model>();
@@ -134,15 +141,44 @@ export class TheorydbClient {
         )
       : marshalPutItem(model, item, { now });
 
+    const requireIfNotExists = opts.ifNotExists || isWriteOnceModel(model);
     const cmd = new PutItemCommand({
       TableName: model.tableName,
       Item: putItem,
-      ...(opts.ifNotExists
+      ...(requireIfNotExists
         ? {
             ConditionExpression: 'attribute_not_exists(#pk)',
             ExpressionAttributeNames: { '#pk': model.roles.pk },
           }
         : {}),
+    });
+
+    try {
+      await this.ddb.send(cmd, this.sendOptions);
+    } catch (err) {
+      throw mapDynamoError(err);
+    }
+  }
+
+  async save(modelName: string, item: Record<string, unknown>): Promise<void> {
+    const model = this.requireModel(modelName);
+    assertMutableWritePolicy(model, 'save');
+
+    const now = this.now();
+    const putItem = modelHasEncryptedAttributes(model)
+      ? await marshalPutItemEncrypted(
+          model,
+          item,
+          this.requireEncryption(model),
+          {
+            now,
+          },
+        )
+      : marshalPutItem(model, item, { now });
+
+    const cmd = new PutItemCommand({
+      TableName: model.tableName,
+      Item: putItem,
     });
 
     try {
@@ -183,8 +219,10 @@ export class TheorydbClient {
     modelName: string,
     item: Record<string, unknown>,
     fields: string[],
+    opts: WritePolicyOptions = {},
   ): Promise<void> {
     const model = this.requireModel(modelName);
+    assertMutableWritePolicy(model, 'update');
     const provider = modelHasEncryptedAttributes(model)
       ? this.requireEncryption(model)
       : undefined;
@@ -225,6 +263,12 @@ export class TheorydbClient {
       values[':now'] = { S: now };
       setParts.push('#updatedAt = :now');
     }
+
+    assertProtectedFieldsCanMutate(
+      model,
+      policyFieldsForUpdate(model, fields),
+      opts.protectedAttributes ?? [],
+    );
 
     for (const field of fields) {
       const fieldIndex = setParts.length + removeParts.length;
@@ -305,6 +349,7 @@ export class TheorydbClient {
 
   async delete(modelName: string, key: Record<string, unknown>): Promise<void> {
     const model = this.requireModel(modelName);
+    assertMutableWritePolicy(model, 'delete');
     if (modelHasEncryptedAttributes(model)) this.requireEncryption(model);
     const cmd = new DeleteItemCommand({
       TableName: model.tableName,
@@ -388,6 +433,12 @@ export class TheorydbClient {
     opts: RetryOptions = {},
   ): Promise<BatchWriteResult> {
     const model = this.requireModel(modelName);
+    if ((req.puts?.length ?? 0) > 0) {
+      assertMutableWritePolicy(model, 'batch put');
+    }
+    if ((req.deletes?.length ?? 0) > 0) {
+      assertMutableWritePolicy(model, 'batch delete');
+    }
     const provider = modelHasEncryptedAttributes(model)
       ? this.requireEncryption(model)
       : undefined;
@@ -468,7 +519,7 @@ export class TheorydbClient {
             TableName: model.tableName,
             Item: item,
           };
-          if (a.ifNotExists) {
+          if (a.ifNotExists || isWriteOnceModel(model)) {
             put.ConditionExpression = 'attribute_not_exists(#pk)';
             put.ExpressionAttributeNames = { '#pk': model.roles.pk };
           }
@@ -476,13 +527,15 @@ export class TheorydbClient {
           break;
         }
         case 'update': {
+          assertMutableWritePolicy(model, 'transaction update');
           const update: Update = {
             TableName: model.tableName,
             Key: marshalKey(model, a.key),
             UpdateExpression: '',
           };
 
-          if ('updateFn' in a) {
+          const updateFn = 'updateFn' in a ? a.updateFn : undefined;
+          if (typeof updateFn === 'function') {
             const builder = new UpdateBuilder(
               this.ddb,
               model,
@@ -490,20 +543,32 @@ export class TheorydbClient {
               provider,
               this.sendOptions,
             );
-            await a.updateFn(builder);
+            await updateFn(builder);
             const built = await builder.build();
             update.UpdateExpression = built.updateExpression;
             update.ConditionExpression = built.conditionExpression;
             update.ExpressionAttributeNames = built.expressionAttributeNames;
             update.ExpressionAttributeValues = built.expressionAttributeValues;
           } else {
+            const updateExpression = a.updateExpression;
+            if (!updateExpression) {
+              throw new TheorydbError(
+                'ErrInvalidOperator',
+                'Transaction update requires an updateExpression',
+              );
+            }
+            assertRawUpdateExpressionAllowed(
+              model,
+              updateExpression,
+              a.expressionAttributeNames,
+            );
             if (provider) {
               throw new TheorydbError(
                 'ErrInvalidModel',
                 `Encrypted transaction updates for model ${model.name} must use updateFn`,
               );
             }
-            update.UpdateExpression = a.updateExpression;
+            update.UpdateExpression = updateExpression;
             update.ConditionExpression = a.conditionExpression;
             update.ExpressionAttributeNames = a.expressionAttributeNames;
             update.ExpressionAttributeValues = a.expressionAttributeValues;
@@ -513,6 +578,7 @@ export class TheorydbClient {
           break;
         }
         case 'delete':
+          assertMutableWritePolicy(model, 'transaction delete');
           transactItems.push({
             Delete: {
               TableName: model.tableName,
@@ -575,4 +641,14 @@ export class TheorydbClient {
       this.sendOptions,
     );
   }
+}
+
+function policyFieldsForUpdate(
+  model: Model,
+  fields: readonly string[],
+): string[] {
+  const out = [...fields];
+  if (model.roles.updatedAt) out.push(model.roles.updatedAt);
+  if (model.roles.version) out.push(model.roles.version);
+  return out;
 }

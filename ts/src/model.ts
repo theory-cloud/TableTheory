@@ -357,7 +357,7 @@ function resolveWritePolicy(schema: ModelSchema): WritePolicy {
   return {
     mode: schema.write_policy?.mode ?? 'mutable',
     protectedAttributes: [
-      ...(schema.write_policy?.protected_attributes ?? []),
+      ...new Set(schema.write_policy?.protected_attributes ?? []),
     ].sort(),
   };
 }
