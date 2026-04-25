@@ -241,6 +241,6 @@ Before promoting a TableTheory release candidate that includes release-state saf
 
 ## Runtime docs
 
-- Go examples live under `examples/`.
+- Go examples live under `examples/release-state/`.
 - TypeScript package docs live under `ts/docs/`.
 - Python package docs live under `py/docs/`.

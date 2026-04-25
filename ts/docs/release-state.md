@@ -1,8 +1,8 @@
 # Release-State Patterns for TypeScript
 
 Use release-state helpers when a Node.js service needs an authoritative registry row plus immutable event history.
-The shared contract is described in the root [release-state safety patterns](../../docs/release-state-patterns.md)
-guide; this page names the TypeScript API surface.
+The shared contract is described in the root `docs/release-state-patterns.md` guide; this page names the TypeScript
+API surface.
 
 ## APIs
 

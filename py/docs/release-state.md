@@ -1,8 +1,8 @@
 # Release-State Patterns for Python
 
 Use release-state helpers when a Python service needs an authoritative registry row plus immutable event history.
-The shared contract is described in the root [release-state safety patterns](../../docs/release-state-patterns.md)
-guide; this page names the Python API surface.
+The shared contract is described in the root `docs/release-state-patterns.md` guide; this page names the Python API
+surface.
 
 ## APIs
 
