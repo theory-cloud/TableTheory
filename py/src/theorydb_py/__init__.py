@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from .multiaccount import AccountConfig, MultiAccountSessions
     from .optimizer import QueryOptimizer, QueryPlan, QueryShape, ScanShape
     from .protection import ConcurrencyLimiter, SimpleLimiter
+    from .release_state import transition_release_state
     from .runtime import (
         AwsCallMetric,
         create_lambda_boto3_config,
@@ -210,6 +211,10 @@ def __getattr__(name: str) -> Any:
         from . import lease
 
         return getattr(lease, name)
+    if name == "transition_release_state":
+        from .release_state import transition_release_state
+
+        return transition_release_state
     raise AttributeError(name)
 
 
@@ -282,6 +287,7 @@ __all__ = [
     "TransactPut",
     "TransactUpdate",
     "TransactWriteAction",
+    "transition_release_state",
     "UpdateAdd",
     "UpdateSetIfNotExists",
     "TransactionCanceledError",

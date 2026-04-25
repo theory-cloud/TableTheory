@@ -2,6 +2,7 @@ import type { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { TheorydbClient } from "../../../../ts/src/client.js";
 import { TheorydbError } from "../../../../ts/src/errors.js";
 import type { Model } from "../../../../ts/src/model.js";
+import { transitionReleaseState } from "../../../../ts/src/release-state.js";
 
 export type ErrorCode =
   | "ErrItemNotFound"
@@ -72,6 +73,7 @@ export class TheorydbDriver implements Driver {
       "optimistic_lock.version",
       "ttl.epoch_seconds",
       "release_state.write_policy",
+      "release_state.transactional_transition",
     ];
   }
 
@@ -118,10 +120,14 @@ export class TheorydbDriver implements Driver {
     actual: TransitionActual,
     event: TransitionEvent,
   ): Promise<void> {
-    throw new TheorydbError(
-      "ErrInvalidModel",
-      `transition_append_event not implemented for ${actual.model}/${event.model}`,
-    );
+    await transitionReleaseState(this.client, {
+      actualModel: actual.model,
+      actualKey: actual.key,
+      set: actual.set,
+      eventModel: event.model,
+      eventItem: event.item,
+      expectedVersion: actual.expectedVersion,
+    });
   }
 
   async validateProvenance(
