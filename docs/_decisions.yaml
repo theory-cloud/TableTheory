@@ -93,6 +93,25 @@ decisions:
           example: |
             db.Transact().ConditionCheck(item, tabletheory.Condition("Status", "=", "ACTIVE")).Execute()
 
+  release_state_modeling:
+    question: "How should I model release or deploy authority?"
+    decision_tree:
+      - condition: "You need to answer what release is currently authoritative"
+        choice: "Use a mutable actual-state row with model-level protected pin fields"
+        reason: "The row can transition while generic helpers cannot mutate protected registry pins"
+      - condition: "You need an audit/event record"
+        choice: "Use a write_once event-history model"
+        reason: "Generic update/save/delete APIs reject mutation of immutable history"
+      - condition: "Actual-state transition and event append are both DynamoDB writes in one account/region/table context"
+        choice: "Use the release-state transition helper"
+        reason: "It commits the actual update and event append in one DynamoDB transaction"
+      - condition: "The transition also needs Lambda alias, CodePipeline, DNS, or another external side effect"
+        choice: "Use outbox/retry/reconciliation around the external side effect"
+        reason: "DynamoDB cannot make external systems atomic"
+      - condition: "Evidence is ambiguous, conflicting, or low confidence"
+        choice: "Reject it as deploy authority and store it only as immutable visibility/audit evidence"
+        reason: "Low confidence is visibility-only and must not authorize deployment state"
+
   gsi_design:
     question: "How should I design Global Secondary Indexes (GSIs)?"
     decision_tree:

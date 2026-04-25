@@ -117,6 +117,23 @@ concepts:
       - Delete: "Add delete operation to tx"
       - Execute: "Commit transaction"
 
+  release_state:
+    type: pattern
+    language: multi
+    purpose: "Model release/deploy authority with mutable actual-state rows and immutable event history"
+    provides:
+      - model_level_write_policy
+      - protected_registry_fields
+      - transactional_transition_event_append
+      - deterministic_provenance_confidence
+      - outbox_reconciliation_guidance
+    requires:
+      - dynamodb_transactions
+      - explicit_external_side_effect_reconciliation
+    dont_use_when:
+      - attempting_to_make_external_systems_dynamodb_atomic
+      - storing_ambiguous_evidence_as_deploy_authority
+
   struct_tags:
     type: mechanism
     purpose: "Map Go structs to DynamoDB attributes"

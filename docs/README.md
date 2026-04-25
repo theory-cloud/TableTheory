@@ -10,6 +10,7 @@ TheoryCloud TableTheory subtree.
 |---|---|
 | **Go Guides** | [Getting Started](./getting-started.md) &#124; [API Reference](./api-reference.md) &#124; [Core Patterns](./core-patterns.md) &#124; [Testing](./testing-guide.md) &#124; [Troubleshooting](./troubleshooting.md) |
 | **Schema** | [Struct Definition Guide](./struct-definition-guide.md) &#124; DMS v0.1 remains a repo-local planning document and is not published to TheoryCloud |
+| **Release State** | [Release-State Safety Patterns](./release-state-patterns.md) |
 | **FaceTheory** | [ISR Cache Schema](./facetheory/isr-cache-schema.md) &#124; [ISR Transaction Recipes](./facetheory/isr-transaction-recipes.md) &#124; [TTL Cache Patterns](./facetheory/ttl-cache-patterns.md) &#124; [ISR Idempotency](./facetheory/isr-idempotency.md) |
 | **CDK** | [CDK Integration](./cdk/README.md) |
 | **Migration** | [Migration Guide](./migration-guide.md) |
@@ -36,6 +37,8 @@ TheoryCloud TableTheory subtree.
 
 - [API Reference (Go)](./api-reference.md) – Go SDK public API (DB, Query, Transactions)
 - [Core Patterns (Go)](./core-patterns.md) – Go SDK canonical usage patterns (Lambda, Batch, Streams)
+- [Release-State Safety Patterns](./release-state-patterns.md) – Immutable event history, protected registry fields,
+  transactional transitions, outbox/reconciliation, and deterministic provenance/confidence
 - [FaceTheory ISR Cache Schema](./facetheory/isr-cache-schema.md) – Recommended cache metadata + regeneration lease item shapes
 - [FaceTheory ISR Transaction Recipes](./facetheory/isr-transaction-recipes.md) – Correctness-first patterns for publishing metadata under lease
 - [FaceTheory TTL Cache Patterns](./facetheory/ttl-cache-patterns.md) – Freshness vs expiry, TTL lag, and operational guidance for ISR tables
