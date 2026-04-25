@@ -127,6 +127,36 @@ patterns:
           - unexpected_data_states
           - difficult_to_debug_consistency_issues
 
+  release_state:
+    name: "Release-State Actual/Event Split"
+    problem: "Release/deploy authority can drift when mutable state, audit history, and external side effects are mixed"
+    solution: "Keep one mutable actual-state row with protected fields, append immutable write-once event rows, and use a DynamoDB transaction for the internal transition"
+    correct_example: |
+      # ✅ CORRECT: actual-state update and event append share one transaction.
+      # External side effects are handled by outbox/reconciliation.
+      transitionReleaseState(client, {
+        actualModel: "ReleaseStateActual",
+        actualKey: { PK: "RELEASE#service-a", SK: "ACTUAL" },
+        set: { status: "active", previousReleaseId: "rel_001" },
+        eventModel: "ReleaseStateEvent",
+        eventItem: { PK: "RELEASE#service-a", SK: "EVENT#rel_002" },
+      })
+    anti_patterns:
+      - name: "Helper-only immutability"
+        why: "Generic update/save APIs can still mutate safety-critical release records"
+        incorrect_example: |
+          # ❌ INCORRECT: event model is mutable and relies on callers never updating it.
+        consequences:
+          - mutable_audit_history
+          - release_authority_corruption
+      - name: "External side effect hidden as atomic"
+        why: "Lambda alias and CodePipeline changes are outside DynamoDB's transaction boundary"
+        incorrect_example: |
+          # ❌ INCORRECT: update DynamoDB and flip Lambda alias without outbox/reconciliation.
+        consequences:
+          - split_brain_release_state
+          - unreconciled_external_drift
+
   stream_processing:
     name: "DynamoDB Stream Processing"
     problem: "Manually parsing `events.DynamoDBAttributeValue` to Go structs is tedious and error-prone"
