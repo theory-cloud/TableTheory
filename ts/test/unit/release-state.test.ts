@@ -8,7 +8,10 @@ import {
 import { TheorydbClient } from '../../src/client.js';
 import { TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
-import { transitionReleaseState } from '../../src/release-state.js';
+import {
+  transitionReleaseState,
+  validateDeployAuthorityMetadata,
+} from '../../src/release-state.js';
 
 const ReleaseStateActual = defineModel({
   name: 'ReleaseStateActual',
@@ -116,4 +119,79 @@ class StubDdb {
     (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
   );
   assert.equal(ddb.sent.length, 0);
+}
+
+function validDeployAuthorityItem(): Record<string, unknown> {
+  return {
+    provenance: {
+      mode: 'native',
+      system: 'release-control-plane',
+      kind: 'operator_command',
+      ref: 'operator://deploy/service-a/rel_001',
+      observed_at: '2026-04-24T19:00:00Z',
+      recorded_at: '2026-04-24T19:00:01Z',
+      evidence: [
+        {
+          kind: 'operator_command',
+          source: 'release-control-plane',
+          ref: 'operator://deploy/service-a/rel_001',
+          observed_at: '2026-04-24T19:00:00Z',
+        },
+      ],
+    },
+    confidence: {
+      level: 'high',
+      reasons: ['operator_command_authority'],
+    },
+  };
+}
+
+{
+  assert.doesNotThrow(() =>
+    validateDeployAuthorityMetadata(validDeployAuthorityItem()),
+  );
+  assert.doesNotThrow(() => validateDeployAuthorityMetadata({ PK: 'A' }));
+}
+
+{
+  const item = validDeployAuthorityItem();
+  item.provenance = {
+    mode: 'imported',
+    system: 'partner-factory',
+    kind: 'factory_batch_manifest',
+    ref: 's3://factory/manifests/ambiguous.json',
+    observed_at: '2026-04-24T19:10:00Z',
+    recorded_at: '2026-04-24T19:10:01Z',
+    evidence: [
+      {
+        kind: 'factory_batch_manifest',
+        source: 'partner-factory',
+        ref: 's3://factory/manifests/a.json',
+        observed_at: '2026-04-24T19:09:59Z',
+      },
+      {
+        kind: 'submodule_pin',
+        source: 'service-ci',
+        ref: 'https://github.com/acme/service-b/tree/conflicting',
+        observed_at: '2026-04-24T19:09:59Z',
+      },
+    ],
+  };
+  item.confidence = { level: 'low', reasons: ['conflicting_evidence'] };
+
+  assert.throws(
+    () => validateDeployAuthorityMetadata(item),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrRejectedDeployAuthorityEvidence',
+  );
+}
+
+{
+  const item = validDeployAuthorityItem();
+  (item.provenance as Record<string, unknown>).notes = 'free form';
+  assert.throws(
+    () => validateDeployAuthorityMetadata(item),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
 }

@@ -5,8 +5,15 @@ from typing import Any
 
 import pytest
 
-from theorydb_py import ModelDefinition, Table, WritePolicy, theorydb_field, transition_release_state
-from theorydb_py.errors import ValidationError
+from theorydb_py import (
+    ModelDefinition,
+    Table,
+    WritePolicy,
+    theorydb_field,
+    transition_release_state,
+    validate_deploy_authority_metadata,
+)
+from theorydb_py.errors import RejectedDeployAuthorityEvidenceError, ValidationError
 from theorydb_py.mocks import FakeDynamoDBClient
 
 
@@ -116,3 +123,71 @@ def test_transition_release_state_requires_shared_context_and_blocks_version_set
             set_values={"version": 2},
             event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
         )
+
+
+def _valid_deploy_authority_item() -> dict[str, Any]:
+    return {
+        "provenance": {
+            "mode": "native",
+            "system": "release-control-plane",
+            "kind": "operator_command",
+            "ref": "operator://deploy/service-a/rel_001",
+            "observed_at": "2026-04-24T19:00:00Z",
+            "recorded_at": "2026-04-24T19:00:01Z",
+            "evidence": [
+                {
+                    "kind": "operator_command",
+                    "source": "release-control-plane",
+                    "ref": "operator://deploy/service-a/rel_001",
+                    "observed_at": "2026-04-24T19:00:00Z",
+                }
+            ],
+        },
+        "confidence": {
+            "level": "high",
+            "reasons": ["operator_command_authority"],
+        },
+    }
+
+
+def test_validate_deploy_authority_metadata_accepts_deterministic_high_confidence() -> None:
+    validate_deploy_authority_metadata(_valid_deploy_authority_item())
+    validate_deploy_authority_metadata({"PK": "RELEASE#service-a"})
+
+
+def test_validate_deploy_authority_metadata_rejects_conflicting_evidence() -> None:
+    item = _valid_deploy_authority_item()
+    item["provenance"] = {
+        "mode": "imported",
+        "system": "partner-factory",
+        "kind": "factory_batch_manifest",
+        "ref": "s3://factory/manifests/ambiguous.json",
+        "observed_at": "2026-04-24T19:10:00Z",
+        "recorded_at": "2026-04-24T19:10:01Z",
+        "evidence": [
+            {
+                "kind": "factory_batch_manifest",
+                "source": "partner-factory",
+                "ref": "s3://factory/manifests/a.json",
+                "observed_at": "2026-04-24T19:09:59Z",
+            },
+            {
+                "kind": "submodule_pin",
+                "source": "service-ci",
+                "ref": "https://github.com/acme/service-b/tree/conflicting",
+                "observed_at": "2026-04-24T19:09:59Z",
+            },
+        ],
+    }
+    item["confidence"] = {"level": "low", "reasons": ["conflicting_evidence"]}
+
+    with pytest.raises(RejectedDeployAuthorityEvidenceError):
+        validate_deploy_authority_metadata(item)
+
+
+def test_validate_deploy_authority_metadata_rejects_free_form_notes() -> None:
+    item = _valid_deploy_authority_item()
+    item["provenance"]["notes"] = "human note"
+
+    with pytest.raises(ValidationError):
+        validate_deploy_authority_metadata(item)

@@ -159,7 +159,10 @@ func TestTransitionAppendEventAddsTransactionalUpdateAndCreate(t *testing.T) {
 }
 
 func TestAddTransitionAppendEventValidatesInput(t *testing.T) {
-	err := AddTransitionAppendEvent(&fakeTransactionBuilder{}, TransitionAppendEventInput{})
+	err := TransitionAppendEvent(context.Background(), nil, TransitionAppendEventInput{})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+
+	err = AddTransitionAppendEvent(&fakeTransactionBuilder{}, TransitionAppendEventInput{})
 	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
 
 	err = AddTransitionAppendEvent(&fakeTransactionBuilder{}, TransitionAppendEventInput{

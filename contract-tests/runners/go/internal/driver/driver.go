@@ -92,6 +92,7 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"ttl.epoch_seconds",
 		"release_state.write_policy",
 		"release_state.transactional_transition",
+		"release_state.provenance_confidence",
 	}
 }
 
@@ -124,6 +125,9 @@ func NewTheorydbDriver() (*TheorydbDriver, error) {
 }
 
 func (d *TheorydbDriver) Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error {
+	if err := validateReleaseStateMetadataIfPresent(model, item); err != nil {
+		return err
+	}
 	instance, err := modelFromMap(model, item)
 	if err != nil {
 		return err
@@ -188,6 +192,9 @@ func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[stri
 }
 
 func (d *TheorydbDriver) Save(ctx context.Context, model string, item map[string]any) error {
+	if err := validateReleaseStateMetadataIfPresent(model, item); err != nil {
+		return err
+	}
 	instance, err := modelFromMap(model, item)
 	if err != nil {
 		return err
@@ -243,7 +250,22 @@ func (d *TheorydbDriver) TransitionAppendEvent(ctx context.Context, actual Trans
 }
 
 func (d *TheorydbDriver) ValidateProvenance(ctx context.Context, model string, item map[string]any) error {
-	return fmt.Errorf("%w: validate_provenance not implemented for %s", theorydbErrors.ErrInvalidModel, model)
+	if model != "ReleaseStateActual" {
+		return fmt.Errorf("%w: validate_provenance unsupported for %s", theorydbErrors.ErrInvalidModel, model)
+	}
+	return releasestate.ValidateDeployAuthorityMetadata(item)
+}
+
+func validateReleaseStateMetadataIfPresent(model string, item map[string]any) error {
+	if model != "ReleaseStateActual" {
+		return nil
+	}
+	_, hasProvenance := item["provenance"]
+	_, hasConfidence := item["confidence"]
+	if !hasProvenance && !hasConfidence {
+		return nil
+	}
+	return releasestate.ValidateDeployAuthorityMetadata(item)
 }
 
 func keyValues(key map[string]any) (string, string, error) {

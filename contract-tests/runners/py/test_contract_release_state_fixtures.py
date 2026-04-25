@@ -14,10 +14,12 @@ from theorydb_py import (
     ImmutableModelMutationError,
     ModelDefinition,
     ProtectedFieldMutationError,
+    RejectedDeployAuthorityEvidenceError,
     Table,
     WritePolicy,
     theorydb_field,
     transition_release_state,
+    validate_deploy_authority_metadata,
 )
 
 
@@ -75,10 +77,11 @@ def test_release_state_scenarios_execute_for_python() -> None:
         _load_yaml(scenario_dir / "06-release-state-write-policy.yml"),
         _load_yaml(scenario_dir / "07-release-state-protected-fields.yml"),
         _load_yaml(scenario_dir / "08-release-state-transactional-transition.yml"),
+        _load_yaml(scenario_dir / "09-release-state-provenance-confidence.yml"),
     ]
 
     for scenario in scenarios:
-        assert "release_state.write_policy" in scenario.get("requires_capabilities", [])
+        assert scenario.get("requires_capabilities", [])
         driver = _ReleaseStatePyDriver()
         for step in scenario["steps"]:
             result, error = _capture_contract_result(
@@ -183,6 +186,7 @@ class _ReleaseStatePyDriver:
         table = self.tables[model_name]
 
         if step["op"] == "create":
+            self._validate_metadata_if_present(model_name, step["item"])
             kwargs: dict[str, Any] = {}
             if step.get("if_not_exists"):
                 kwargs = {
@@ -193,6 +197,7 @@ class _ReleaseStatePyDriver:
             return
 
         if step["op"] == "save":
+            self._validate_metadata_if_present(model_name, step["item"])
             table.save(self._item(model_name, step["item"]))
             return
 
@@ -229,7 +234,20 @@ class _ReleaseStatePyDriver:
             )
             return None
 
+        if step["op"] == "validate_provenance":
+            if model_name != "ReleaseStateActual":
+                raise AssertionError(f"unsupported validate_provenance model: {model_name}")
+            validate_deploy_authority_metadata(step["item"])
+            return None
+
         raise AssertionError(f"unsupported executable op: {step['op']}")
+
+    @staticmethod
+    def _validate_metadata_if_present(model_name: str, item: dict[str, Any]) -> None:
+        if model_name != "ReleaseStateActual":
+            return
+        if "provenance" in item or "confidence" in item:
+            validate_deploy_authority_metadata(item)
 
     @staticmethod
     def _item(model_name: str, item: dict[str, Any]) -> Any:
@@ -372,6 +390,8 @@ def _capture_contract_result(fn: Any) -> tuple[Any, str | None]:
         return None, "ErrProtectedFieldMutation"
     except ConditionFailedError:
         return None, "ErrConditionFailed"
+    except RejectedDeployAuthorityEvidenceError:
+        return None, "ErrRejectedDeployAuthorityEvidence"
 
 
 def _assert_contract_expectation(
