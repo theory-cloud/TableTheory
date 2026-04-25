@@ -17,9 +17,15 @@ test("loads DMS models + P0 scenarios", async () => {
   const models = await loadModelsDir(path.join(root, "dms", "v0.1", "models"));
   assert.ok(models.has("User"));
   assert.ok(models.has("Order"));
+  assert.equal(models.get("ReleaseStateActual")?.write_policy?.mode, "mutable");
+  assert.deepEqual(models.get("ReleaseStateActual")?.write_policy?.protected_attributes, [
+    "pinnedReleaseId",
+  ]);
+  assert.equal(models.get("ReleaseStateEvent")?.write_policy?.mode, "write_once");
 
   const scenarios = await loadScenariosDir(path.join(root, "scenarios", "p0"));
   assert.ok(scenarios.length >= 1);
+  assert.ok(scenarios.some((s) => s.name === "p0.release_state.write_policy"));
 });
 
 test("golden cursor decodes to expected JSON", async () => {

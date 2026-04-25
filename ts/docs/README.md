@@ -14,6 +14,8 @@
 
 - [API Reference](./api-reference.md) – Public exports (`defineModel`, `TheorydbClient`, queries, transactions, encryption)
 - [Core Patterns](./core-patterns.md) – Canonical recipes (CRUD, query/cursor, batch, transactions, streams, encryption)
+- [Release-State Patterns](./release-state.md) – Write policies, protected registry pins, transactional transitions,
+  and deterministic provenance/confidence helpers
 - [Testing Guide](./testing-guide.md) – Unit tests with `testkit`, integration tests with DynamoDB Local
 - [Troubleshooting](./troubleshooting.md) – Verified fixes for common runtime and configuration errors
 - [Migration Guide](./migration-guide.md) – Migrating from raw AWS SDK v3 usage

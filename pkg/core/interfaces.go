@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/pkg/model"
 	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
 )
 
@@ -363,6 +364,14 @@ type ModelMetadata interface {
 	Indexes() []IndexSchema
 	AttributeMetadata(field string) *AttributeMetadata
 	VersionFieldName() string
+}
+
+// WritePolicyProvider is an optional metadata extension for runtimes that
+// expose model-level write policy guardrails. It is intentionally separate
+// from ModelMetadata so existing custom ModelMetadata implementations remain
+// source-compatible.
+type WritePolicyProvider interface {
+	WritePolicy() model.WritePolicy
 }
 
 // KeySchema represents a primary key or index key schema

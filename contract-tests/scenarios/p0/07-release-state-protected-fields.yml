@@ -1,0 +1,54 @@
+name: "p0.release_state.protected_fields"
+dms_version: "0.1"
+requires_capabilities: ["release_state.write_policy"]
+model: "ReleaseStateActual"
+table:
+  name: "release_state_contract"
+steps:
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#service-a"
+      SK: "ACTUAL"
+      status: "active"
+      pinnedReleaseId: "rel_001"
+    expect:
+      ok: true
+
+  - op: update
+    fields: ["status"]
+    item:
+      PK: "RELEASE#service-a"
+      SK: "ACTUAL"
+      status: "warming"
+      version: 0
+    expect:
+      ok: true
+
+  - op: update
+    fields: ["pinnedReleaseId"]
+    item:
+      PK: "RELEASE#service-a"
+      SK: "ACTUAL"
+      pinnedReleaseId: "rel_002"
+      version: 1
+    expect:
+      error: "ErrProtectedFieldMutation"
+
+  - op: update
+    fields: ["status"]
+    protected_attributes: ["status"]
+    item:
+      PK: "RELEASE#service-a"
+      SK: "ACTUAL"
+      status: "active"
+      version: 1
+    expect:
+      error: "ErrProtectedFieldMutation"
+
+  - op: delete
+    key:
+      PK: "RELEASE#service-a"
+      SK: "ACTUAL"
+    expect:
+      ok: true

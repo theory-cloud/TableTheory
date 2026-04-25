@@ -56,8 +56,26 @@ func (ub *UpdateBuilder) normalizeFieldValue(field string, value any) (any, erro
 	return ub.query.normalizeJSONFieldValue(field, value)
 }
 
+func (ub *UpdateBuilder) rejectMutation(field string) bool {
+	if ub == nil || ub.buildErr != nil || ub.query == nil {
+		return ub != nil && ub.buildErr != nil
+	}
+	if err := ub.query.rejectWriteOnceMutation("update builder"); err != nil {
+		ub.buildErr = err
+		return true
+	}
+	if err := ub.query.rejectProtectedFieldMutation([]string{field}, nil); err != nil {
+		ub.buildErr = err
+		return true
+	}
+	return false
+}
+
 // Set adds a SET expression to update a field
 func (ub *UpdateBuilder) Set(field string, value any) core.UpdateBuilder {
+	if ub.rejectMutation(field) {
+		return ub
+	}
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
 	normalized, err := ub.normalizeFieldValue(field, value)
 	if err != nil {
@@ -74,6 +92,9 @@ func (ub *UpdateBuilder) Set(field string, value any) core.UpdateBuilder {
 
 // SetIfNotExists sets a field only if it doesn't exist
 func (ub *UpdateBuilder) SetIfNotExists(field string, value any, defaultValue any) core.UpdateBuilder {
+	if ub.rejectMutation(field) {
+		return ub
+	}
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
 	normalizedDefault, err := ub.normalizeFieldValue(field, defaultValue)
 	if err != nil {
@@ -93,6 +114,9 @@ func (ub *UpdateBuilder) SetIfNotExists(field string, value any, defaultValue an
 
 // Add increments a numeric field (atomic counter)
 func (ub *UpdateBuilder) Add(field string, value any) core.UpdateBuilder {
+	if ub.rejectMutation(field) {
+		return ub
+	}
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
 	if err := ub.expr.AddUpdateAdd(dbFieldName, value); err != nil && ub.buildErr == nil {
 		ub.buildErr = fmt.Errorf("Add(%s): %w", field, err)
@@ -112,6 +136,9 @@ func (ub *UpdateBuilder) Decrement(field string) core.UpdateBuilder {
 
 // Remove removes an attribute from the item
 func (ub *UpdateBuilder) Remove(field string) core.UpdateBuilder {
+	if ub.rejectMutation(field) {
+		return ub
+	}
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
 	if err := ub.expr.AddUpdateRemove(dbFieldName); err != nil && ub.buildErr == nil {
 		ub.buildErr = fmt.Errorf("Remove(%s): %w", field, err)
@@ -121,6 +148,9 @@ func (ub *UpdateBuilder) Remove(field string) core.UpdateBuilder {
 
 // Delete removes elements from a set
 func (ub *UpdateBuilder) Delete(field string, value any) core.UpdateBuilder {
+	if ub.rejectMutation(field) {
+		return ub
+	}
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
 
 	// DynamoDB DELETE action is for removing elements from a set
@@ -156,6 +186,9 @@ func (ub *UpdateBuilder) Delete(field string, value any) core.UpdateBuilder {
 
 // AppendToList appends values to the end of a list
 func (ub *UpdateBuilder) AppendToList(field string, values any) core.UpdateBuilder {
+	if ub.rejectMutation(field) {
+		return ub
+	}
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
 	normalized, err := ub.normalizeFieldValue(field, values)
 	if err != nil {
@@ -175,6 +208,9 @@ func (ub *UpdateBuilder) AppendToList(field string, values any) core.UpdateBuild
 
 // PrependToList prepends values to the beginning of a list
 func (ub *UpdateBuilder) PrependToList(field string, values any) core.UpdateBuilder {
+	if ub.rejectMutation(field) {
+		return ub
+	}
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
 	normalized, err := ub.normalizeFieldValue(field, values)
 	if err != nil {
@@ -194,6 +230,9 @@ func (ub *UpdateBuilder) PrependToList(field string, values any) core.UpdateBuil
 
 // RemoveFromListAt removes an element from a list at a specific index
 func (ub *UpdateBuilder) RemoveFromListAt(field string, index int) core.UpdateBuilder {
+	if ub.rejectMutation(field) {
+		return ub
+	}
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
 	if err := ub.expr.AddUpdateRemove(fmt.Sprintf("%s[%d]", dbFieldName, index)); err != nil && ub.buildErr == nil {
 		ub.buildErr = fmt.Errorf("RemoveFromListAt(%s): %w", field, err)
@@ -203,6 +242,9 @@ func (ub *UpdateBuilder) RemoveFromListAt(field string, index int) core.UpdateBu
 
 // SetListElement sets a specific element in a list
 func (ub *UpdateBuilder) SetListElement(field string, index int, value any) core.UpdateBuilder {
+	if ub.rejectMutation(field) {
+		return ub
+	}
 	dbFieldName := ub.mapFieldToDynamoDBName(field)
 	normalized, err := ub.normalizeFieldValue(field, value)
 	if err != nil {

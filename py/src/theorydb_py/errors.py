@@ -25,6 +25,18 @@ class ValidationError(TheorydbPyError):
     pass
 
 
+class ImmutableModelMutationError(TheorydbPyError):
+    pass
+
+
+class ProtectedFieldMutationError(TheorydbPyError):
+    pass
+
+
+class RejectedDeployAuthorityEvidenceError(TheorydbPyError):
+    pass
+
+
 class BatchRetryExceededError(TheorydbPyError):
     def __init__(self, *, operation: str, unprocessed_count: int) -> None:
         super().__init__(f"{operation}: retry limit exceeded (unprocessed={unprocessed_count})")

@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError
 from .aws_errors import map_client_error as _map_client_error
 from .errors import ValidationError
 from .model import AttributeDefinition
+from .write_policy import assert_mutable_write_policy, assert_protected_fields_can_mutate
 
 if TYPE_CHECKING:
     from .table import Table
@@ -119,6 +120,7 @@ class UpdateBuilder[T]:
 
     def _build_request(self) -> dict[str, Any]:
         key = self._table._to_key(self._pk, self._sk)
+        assert_mutable_write_policy(self._table._model, "update builder")
 
         names: dict[str, str] = {}
         update_values: dict[str, Any] = {}
@@ -139,6 +141,8 @@ class UpdateBuilder[T]:
                 self._table._model.sk is not None and field_name == self._table._model.sk.python_name
             ):
                 raise ValidationError(f"cannot update key field: {field_name}")
+
+            assert_protected_fields_can_mutate(self._table._model, [field_name])
 
             attr_def = self._table._model.attributes[field_name]
             ref = f"#u_{field_name}"

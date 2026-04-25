@@ -9,6 +9,7 @@ from theorydb_py import (
     ModelDefinitionError,
     Projection,
     ValidationError,
+    WritePolicy,
     assert_model_definition_equivalent_to_dms,
     get_dms_model,
     gsi,
@@ -44,6 +45,9 @@ models:
     keys:
       partition: { attribute: "PK", type: "S" }
       sort: { attribute: "SK", type: "S" }
+    write_policy:
+      mode: "write_once"
+      protected_attributes: ["value"]
     attributes:
       - attribute: "PK"
         type: "S"
@@ -66,6 +70,12 @@ models:
     doc = parse_dms_document(raw)
     model = get_dms_model(doc, "Demo")
     assert model["name"] == "Demo"
+    normalized = _model_definition_to_dms_model(
+        ModelDefinition.from_dataclass(
+            _Demo, table_name="tbl", write_policy=WritePolicy("write_once", ("value",))
+        )
+    )
+    assert normalized["write_policy"] == {"mode": "write_once", "protected_attributes": ["value"]}
 
 
 def test_parse_dms_document_rejects_unsupported_version() -> None:
@@ -168,6 +178,27 @@ models:
         json: true
 """
     with pytest.raises(ValidationError, match="json fields must use S/N/BOOL/NULL/L/M"):
+        parse_dms_document(raw)
+
+
+def test_parse_dms_document_rejects_unknown_protected_attribute() -> None:
+    raw = """
+dms_version: "0.1"
+models:
+  - name: "_BadPolicy"
+    table: { name: "tbl" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    write_policy:
+      mode: "mutable"
+      protected_attributes: ["missing"]
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+"""
+    with pytest.raises(ValidationError, match="protected attribute not found"):
         parse_dms_document(raw)
 
 

@@ -9,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/theory-cloud/tabletheory/pkg/model"
 )
 
 func mustQuery(v any) Query {
@@ -879,6 +881,17 @@ func TestModelMetadataInterface(t *testing.T) {
 
 		mockMeta.AssertExpectations(t)
 	})
+}
+
+type mockWritePolicyProvider struct{}
+
+func (mockWritePolicyProvider) WritePolicy() model.WritePolicy {
+	return model.WritePolicy{Mode: model.WritePolicyModeWriteOnce}
+}
+
+func TestWritePolicyProviderInterface(t *testing.T) {
+	var provider WritePolicyProvider = mockWritePolicyProvider{}
+	assert.Equal(t, model.WritePolicyModeWriteOnce, provider.WritePolicy().Mode)
 }
 
 // TestDBTransaction tests transaction behavior

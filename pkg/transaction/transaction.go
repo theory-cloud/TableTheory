@@ -159,6 +159,13 @@ func (tx *Transaction) Update(model any) error {
 }
 
 func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata *model.Metadata) (string, map[string]string, map[string]types.AttributeValue, error) {
+	if err := rejectWriteOnceMutation(metadata, "transaction update"); err != nil {
+		return "", nil, nil, err
+	}
+	if err := rejectProtectedFieldMutation(metadata, fieldsMutatedByTransactionUpdate(modelValue, metadata)); err != nil {
+		return "", nil, nil, err
+	}
+
 	updateExpression := "SET "
 	expressionAttributeNames := make(map[string]string)
 	expressionAttributeValues := make(map[string]types.AttributeValue)
@@ -269,6 +276,9 @@ func (tx *Transaction) Delete(model any) error {
 	metadata, err := tx.registry.GetMetadata(model)
 	if err != nil {
 		return fmt.Errorf("failed to get model metadata: %w", err)
+	}
+	if policyErr := rejectWriteOnceMutation(metadata, "transaction delete"); policyErr != nil {
+		return policyErr
 	}
 
 	// Extract primary key

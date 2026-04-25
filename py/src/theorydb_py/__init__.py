@@ -10,9 +10,12 @@ from .errors import (
     BatchRetryExceededError,
     ConditionFailedError,
     EncryptionNotConfiguredError,
+    ImmutableModelMutationError,
     LeaseHeldError,
     LeaseNotOwnedError,
     NotFoundError,
+    ProtectedFieldMutationError,
+    RejectedDeployAuthorityEvidenceError,
     TheorydbPyError,
     TransactionCanceledError,
     ValidationError,
@@ -24,6 +27,7 @@ from .model import (
     ModelDefinition,
     ModelDefinitionError,
     Projection,
+    WritePolicy,
     gsi,
     lsi,
     theorydb_field,
@@ -57,6 +61,7 @@ if TYPE_CHECKING:
     from .multiaccount import AccountConfig, MultiAccountSessions
     from .optimizer import QueryOptimizer, QueryPlan, QueryShape, ScanShape
     from .protection import ConcurrencyLimiter, SimpleLimiter
+    from .release_state import transition_release_state, validate_deploy_authority_metadata
     from .runtime import (
         AwsCallMetric,
         create_lambda_boto3_config,
@@ -206,6 +211,10 @@ def __getattr__(name: str) -> Any:
         from . import lease
 
         return getattr(lease, name)
+    if name in {"transition_release_state", "validate_deploy_authority_metadata"}:
+        from . import release_state
+
+        return getattr(release_state, name)
     raise AttributeError(name)
 
 
@@ -220,6 +229,7 @@ __all__ = [
     "BatchRetryExceededError",
     "build_create_table_request",
     "ConditionFailedError",
+    "ImmutableModelMutationError",
     "LeaseHeldError",
     "LeaseNotOwnedError",
     "count_distinct",
@@ -244,6 +254,8 @@ __all__ = [
     "ModelDefinitionError",
     "NotFoundError",
     "Projection",
+    "ProtectedFieldMutationError",
+    "RejectedDeployAuthorityEvidenceError",
     "FilterCondition",
     "FilterGroup",
     "ConcurrencyLimiter",
@@ -275,11 +287,14 @@ __all__ = [
     "TransactPut",
     "TransactUpdate",
     "TransactWriteAction",
+    "transition_release_state",
+    "validate_deploy_authority_metadata",
     "UpdateAdd",
     "UpdateSetIfNotExists",
     "TransactionCanceledError",
     "Table",
     "ValidationError",
+    "WritePolicy",
     "__repo_version__",
     "__version__",
     "theorydb_field",

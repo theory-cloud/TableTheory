@@ -288,6 +288,67 @@ import {
 
 {
   const mock = createMockDynamoDBClient();
+  mock.when(UpdateItemCommand, async () => {
+    throw new Error('write_once update builder should not send');
+  });
+
+  const model = defineModel({
+    name: 'Event',
+    table: { name: 't' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    write_policy: { mode: 'write_once' },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'eventType', type: 'S', optional: true },
+    ],
+  });
+
+  const client = new TheorydbClient(mock.client).register(model);
+  await assert.rejects(
+    () =>
+      client
+        .updateBuilder('Event', { PK: 'A' })
+        .set('eventType', 'mutated')
+        .execute(),
+    (e) => e instanceof TheorydbError && e.code === 'ErrImmutableModelMutation',
+  );
+  assert.equal(mock.calls.length, 0);
+}
+
+{
+  const mock = createMockDynamoDBClient();
+  mock.when(UpdateItemCommand, async () => {
+    throw new Error('protected update builder should not send');
+  });
+
+  const model = defineModel({
+    name: 'Actual',
+    table: { name: 't' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    write_policy: {
+      mode: 'mutable',
+      protected_attributes: ['pinnedReleaseId'],
+    },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'pinnedReleaseId', type: 'S', optional: true },
+    ],
+  });
+
+  const client = new TheorydbClient(mock.client).register(model);
+  await assert.rejects(
+    () =>
+      client
+        .updateBuilder('Actual', { PK: 'A' })
+        .set('pinnedReleaseId', 'rel_002')
+        .execute(),
+    (e) => e instanceof TheorydbError && e.code === 'ErrProtectedFieldMutation',
+  );
+  assert.equal(mock.calls.length, 0);
+}
+
+{
+  const mock = createMockDynamoDBClient();
   mock.when(UpdateItemCommand, async () => ({ $metadata: {} }));
   const provider = createDeterministicEncryptionProvider('seed');
 

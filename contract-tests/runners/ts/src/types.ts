@@ -1,6 +1,16 @@
 export type DmsVersion = "0.1";
 
-export type ScalarType = "S" | "N" | "B" | "BOOL" | "NULL" | "M" | "L" | "SS" | "NS" | "BS";
+export type ScalarType =
+  | "S"
+  | "N"
+  | "B"
+  | "BOOL"
+  | "NULL"
+  | "M"
+  | "L"
+  | "SS"
+  | "NS"
+  | "BS";
 
 export interface DmsDocument {
   dms_version: DmsVersion;
@@ -15,6 +25,10 @@ export interface DmsModel {
   keys: {
     partition: { attribute: string; type: "S" | "N" | "B" };
     sort?: { attribute: string; type: "S" | "N" | "B" };
+  };
+  write_policy?: {
+    mode?: "mutable" | "write_once";
+    protected_attributes?: string[];
   };
   attributes: Array<{
     attribute: string;
@@ -39,20 +53,45 @@ export interface DmsModel {
 export interface Scenario {
   name: string;
   dms_version: DmsVersion;
+  requires_capabilities?: string[];
   model: string;
   table?: { name?: string };
   steps: Step[];
 }
 
 export interface Step {
-  op: "create" | "get" | "update" | "delete" | "sleep";
+  op:
+    | "create"
+    | "get"
+    | "update"
+    | "delete"
+    | "sleep"
+    | "save"
+    | "transition_append_event"
+    | "validate_provenance";
+  model?: string;
   if_not_exists?: boolean;
   fields?: string[];
+  protected_attributes?: string[];
   item?: Record<string, unknown>;
   key?: Record<string, unknown>;
+  actual?: TransitionActual;
+  event?: TransitionEvent;
   ms?: number;
   save?: Record<string, string>;
   expect?: Expectation;
+}
+
+export interface TransitionActual {
+  model: string;
+  key: Record<string, unknown>;
+  set: Record<string, unknown>;
+  expected_version?: number;
+}
+
+export interface TransitionEvent {
+  model: string;
+  item: Record<string, unknown>;
 }
 
 export interface Expectation {

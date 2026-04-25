@@ -21,12 +21,13 @@ type Document struct {
 }
 
 type Model struct {
-	Name       string      `yaml:"name" json:"name"`
-	Table      Table       `yaml:"table" json:"table"`
-	Naming     Naming      `yaml:"naming" json:"naming"`
-	Keys       Keys        `yaml:"keys" json:"keys"`
-	Attributes []Attribute `yaml:"attributes" json:"attributes"`
-	Indexes    []Index     `yaml:"indexes" json:"indexes"`
+	Name        string      `yaml:"name" json:"name"`
+	Table       Table       `yaml:"table" json:"table"`
+	Naming      Naming      `yaml:"naming" json:"naming"`
+	Keys        Keys        `yaml:"keys" json:"keys"`
+	WritePolicy WritePolicy `yaml:"write_policy" json:"write_policy"`
+	Attributes  []Attribute `yaml:"attributes" json:"attributes"`
+	Indexes     []Index     `yaml:"indexes" json:"indexes"`
 }
 
 type Table struct {
@@ -45,6 +46,11 @@ type Keys struct {
 type KeyAttribute struct {
 	Attribute string `yaml:"attribute" json:"attribute"`
 	Type      string `yaml:"type" json:"type"`
+}
+
+type WritePolicy struct {
+	Mode                string   `yaml:"mode" json:"mode"`
+	ProtectedAttributes []string `yaml:"protected_attributes" json:"protected_attributes"`
 }
 
 type Attribute struct {
@@ -150,8 +156,9 @@ func FromMetadata(meta *model.Metadata) (Model, error) {
 				Type:      scalarKeyTypeFromField(meta.PrimaryKey.PartitionKey.Type),
 			},
 		},
-		Attributes: make([]Attribute, 0, len(meta.FieldsByDBName)),
-		Indexes:    make([]Index, 0, len(meta.Indexes)),
+		WritePolicy: WritePolicy{Mode: "mutable", ProtectedAttributes: []string{}},
+		Attributes:  make([]Attribute, 0, len(meta.FieldsByDBName)),
+		Indexes:     make([]Index, 0, len(meta.Indexes)),
 	}
 
 	if meta.PrimaryKey.SortKey != nil {
@@ -260,12 +267,13 @@ func normalizeJSONCompatible(value any, path string) (any, error) {
 }
 
 type normalizedModel struct {
-	Name       string            `json:"name"`
-	TableName  string            `json:"table_name,omitempty"`
-	Naming     string            `json:"naming,omitempty"`
-	Keys       Keys              `json:"keys"`
-	Attributes []normalizedAttr  `json:"attributes"`
-	Indexes    []normalizedIndex `json:"indexes"`
+	Name        string            `json:"name"`
+	TableName   string            `json:"table_name,omitempty"`
+	Naming      string            `json:"naming,omitempty"`
+	Keys        Keys              `json:"keys"`
+	WritePolicy WritePolicy       `json:"write_policy"`
+	Attributes  []normalizedAttr  `json:"attributes"`
+	Indexes     []normalizedIndex `json:"indexes"`
 }
 
 type normalizedAttr struct {
@@ -295,9 +303,10 @@ func normalizeForCompare(m Model, opts CompareOptions) normalizedModel {
 	}
 
 	out := normalizedModel{
-		Name:   m.Name,
-		Naming: convention,
-		Keys:   m.Keys,
+		Name:        m.Name,
+		Naming:      convention,
+		Keys:        m.Keys,
+		WritePolicy: normalizeWritePolicy(m.WritePolicy),
 	}
 	if !opts.IgnoreTableName {
 		out.TableName = m.Table.Name
@@ -523,7 +532,38 @@ func validateModel(m Model) error {
 	if err != nil {
 		return err
 	}
+	if err := validateWritePolicy(m, seen); err != nil {
+		return err
+	}
 	return validateModelKeyAttributesPresent(m, seen)
+}
+
+func normalizeWritePolicy(policy WritePolicy) WritePolicy {
+	mode := policy.Mode
+	if mode == "" {
+		mode = "mutable"
+	}
+	protected := append([]string(nil), policy.ProtectedAttributes...)
+	sort.Strings(protected)
+	if protected == nil {
+		protected = []string{}
+	}
+	return WritePolicy{Mode: mode, ProtectedAttributes: protected}
+}
+
+func validateWritePolicy(m Model, seen map[string]struct{}) error {
+	policy := normalizeWritePolicy(m.WritePolicy)
+	switch policy.Mode {
+	case "mutable", "write_once":
+	default:
+		return fmt.Errorf("DMS model %s: unsupported write_policy.mode %q", m.Name, policy.Mode)
+	}
+	for _, attr := range policy.ProtectedAttributes {
+		if _, ok := seen[attr]; !ok {
+			return fmt.Errorf("DMS model %s: write_policy protected attribute not found: %s", m.Name, attr)
+		}
+	}
+	return nil
 }
 
 func validateModelKeys(m Model) error {

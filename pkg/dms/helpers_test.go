@@ -38,6 +38,9 @@ func TestNormalizeForCompare_SortsDeterministically(t *testing.T) {
 		Keys: Keys{
 			Partition: KeyAttribute{Attribute: "PK", Type: "S"},
 		},
+		WritePolicy: WritePolicy{
+			ProtectedAttributes: []string{"zeta", "alpha"},
+		},
 		Attributes: []Attribute{
 			{
 				Attribute: "zeta",
@@ -75,6 +78,8 @@ func TestNormalizeForCompare_SortsDeterministically(t *testing.T) {
 	normalized := normalizeForCompare(modelValue, CompareOptions{})
 	require.Equal(t, "camelCase", normalized.Naming)
 	require.Equal(t, "tbl", normalized.TableName)
+	require.Equal(t, "mutable", normalized.WritePolicy.Mode)
+	require.Equal(t, []string{"alpha", "zeta"}, normalized.WritePolicy.ProtectedAttributes)
 	require.Equal(t, "alpha", normalized.Attributes[0].Attribute)
 	require.Equal(t, []string{"created_at", "updated_at"}, normalized.Attributes[0].Roles)
 	require.True(t, normalized.Attributes[0].Encrypted)

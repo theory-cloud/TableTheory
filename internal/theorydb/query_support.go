@@ -253,3 +253,10 @@ func (ma *metadataAdapter) VersionFieldName() string {
 	}
 	return ""
 }
+
+func (ma *metadataAdapter) WritePolicy() model.WritePolicy {
+	if ma == nil || ma.metadata == nil {
+		return model.DefaultWritePolicy()
+	}
+	return ma.metadata.WritePolicy
+}

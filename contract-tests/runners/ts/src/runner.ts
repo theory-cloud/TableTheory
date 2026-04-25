@@ -29,9 +29,10 @@ export async function runScenario(opts: {
   ddb: DynamoDBClient;
   driver: Driver;
   scenario: Scenario;
-  model: DmsModel;
+  models: ReadonlyMap<string, DmsModel>;
 }): Promise<void> {
-  const { ddb, driver, scenario, model } = opts;
+  const { ddb, driver, scenario, models } = opts;
+  const model = modelByName(models, scenario.model);
 
   const tableName = scenario.table?.name ?? model.table.name;
   assert.ok(tableName, "table name required");
@@ -41,7 +42,7 @@ export async function runScenario(opts: {
   const vars = new Map<string, unknown>();
 
   for (const step of scenario.steps) {
-    await runStep({ ddb, driver, step, scenario, model, tableName, vars });
+    await runStep({ ddb, driver, step, scenario, models, tableName, vars });
   }
 }
 
@@ -50,11 +51,11 @@ async function runStep(opts: {
   driver: Driver;
   step: Step;
   scenario: Scenario;
-  model: DmsModel;
+  models: ReadonlyMap<string, DmsModel>;
   tableName: string;
   vars: Map<string, unknown>;
 }): Promise<void> {
-  const { ddb, driver, step, scenario, model, tableName, vars } = opts;
+  const { ddb, driver, step, scenario, models, tableName, vars } = opts;
 
   if (step.op === "sleep") {
     const ms = step.ms ?? 0;
@@ -62,10 +63,13 @@ async function runStep(opts: {
     return;
   }
 
+  const modelName = step.model ?? scenario.model;
+  const model = modelByName(models, modelName);
+
   if (step.op === "create") {
     const item = step.item ?? {};
     const err = await captureError(() =>
-      driver.create(scenario.model, item, { ifNotExists: step.if_not_exists }),
+      driver.create(modelName, item, { ifNotExists: step.if_not_exists }),
     );
     assertExpectation(step.expect, { err, model, vars });
     return;
@@ -75,22 +79,31 @@ async function runStep(opts: {
     const item = step.item ?? {};
     const fields = step.fields ?? [];
     const err = await captureError(() =>
-      driver.update(scenario.model, item, fields),
+      driver.update(modelName, item, fields, {
+        protectedAttributes: step.protected_attributes,
+      }),
     );
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "save") {
+    const item = step.item ?? {};
+    const err = await captureError(() => driver.save(modelName, item));
     assertExpectation(step.expect, { err, model, vars });
     return;
   }
 
   if (step.op === "delete") {
     const key = step.key ?? {};
-    const err = await captureError(() => driver.delete(scenario.model, key));
+    const err = await captureError(() => driver.delete(modelName, key));
     assertExpectation(step.expect, { err, model, vars });
     return;
   }
 
   if (step.op === "get") {
     const key = step.key ?? {};
-    const res = await captureResult(() => driver.get(scenario.model, key));
+    const res = await captureResult(() => driver.get(modelName, key));
 
     let raw: Record<string, AttributeValue> | undefined;
     if (!res.err) {
@@ -102,11 +115,57 @@ async function runStep(opts: {
       }
     }
 
-    assertExpectation(step.expect, { err: res.err, item: res.value, raw, model, vars });
+    assertExpectation(step.expect, {
+      err: res.err,
+      item: res.value,
+      raw,
+      model,
+      vars,
+    });
+    return;
+  }
+
+  if (step.op === "transition_append_event") {
+    assert.ok(step.actual, "transition_append_event actual is required");
+    assert.ok(step.event, "transition_append_event event is required");
+    const { actual, event } = step;
+    const err = await captureError(() =>
+      driver.transitionAppendEvent(
+        {
+          model: actual.model,
+          key: actual.key,
+          set: actual.set,
+          expectedVersion: actual.expected_version,
+        },
+        {
+          model: event.model,
+          item: event.item,
+        },
+      ),
+    );
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "validate_provenance") {
+    const item = step.item ?? {};
+    const err = await captureError(() =>
+      driver.validateProvenance(modelName, item),
+    );
+    assertExpectation(step.expect, { err, model, vars });
     return;
   }
 
   throw new Error(`unsupported op: ${step.op}`);
+}
+
+function modelByName(
+  models: ReadonlyMap<string, DmsModel>,
+  name: string,
+): DmsModel {
+  const model = models.get(name);
+  assert.ok(model, `unknown model: ${name}`);
+  return model;
 }
 
 function assertExpectation(
@@ -165,19 +224,26 @@ function assertExpectation(
   }
 
   if (expect.item_field_equals_var && item) {
-    for (const [attr, varName] of Object.entries(expect.item_field_equals_var)) {
+    for (const [attr, varName] of Object.entries(
+      expect.item_field_equals_var,
+    )) {
       assert.equal(item[attr], vars.get(varName));
     }
   }
 
   if (expect.item_field_not_equals_var && item) {
-    for (const [attr, varName] of Object.entries(expect.item_field_not_equals_var)) {
+    for (const [attr, varName] of Object.entries(
+      expect.item_field_not_equals_var,
+    )) {
       assert.notEqual(item[attr], vars.get(varName));
     }
   }
 }
 
-function attributeByName(model: DmsModel, name: string): DmsModel["attributes"][number] | undefined {
+function attributeByName(
+  model: DmsModel,
+  name: string,
+): DmsModel["attributes"][number] | undefined {
   return model.attributes.find((a) => a.attribute === name);
 }
 
@@ -227,7 +293,9 @@ function attributeValueTypeName(av: AttributeValue): string {
   return "UNKNOWN";
 }
 
-async function captureError(fn: () => Promise<unknown>): Promise<unknown | undefined> {
+async function captureError(
+  fn: () => Promise<unknown>,
+): Promise<unknown | undefined> {
   try {
     await fn();
     return undefined;
@@ -236,7 +304,9 @@ async function captureError(fn: () => Promise<unknown>): Promise<unknown | undef
   }
 }
 
-async function captureResult<T>(fn: () => Promise<T>): Promise<{ value?: T; err?: unknown }> {
+async function captureResult<T>(
+  fn: () => Promise<T>,
+): Promise<{ value?: T; err?: unknown }> {
   try {
     return { value: await fn() };
   } catch (err) {
@@ -262,7 +332,10 @@ async function getRawItem(
   return out.Item;
 }
 
-function marshalKey(model: DmsModel, key: Record<string, unknown>): Record<string, AttributeValue> {
+function marshalKey(
+  model: DmsModel,
+  key: Record<string, unknown>,
+): Record<string, AttributeValue> {
   const out: Record<string, AttributeValue> = {};
   const pk = model.keys.partition.attribute;
   out[pk] = scalarToAv(model.keys.partition.type, key[pk]);
@@ -287,7 +360,11 @@ function scalarToAv(type: string, value: unknown): AttributeValue {
   }
 }
 
-async function recreateTable(ddb: DynamoDBClient, tableName: string, model: DmsModel): Promise<void> {
+async function recreateTable(
+  ddb: DynamoDBClient,
+  tableName: string,
+  model: DmsModel,
+): Promise<void> {
   try {
     await ddb.send(new DeleteTableCommand({ TableName: tableName }));
   } catch (err) {
@@ -309,10 +386,15 @@ function isResourceNotFound(err: unknown): boolean {
   );
 }
 
-async function waitTableExists(ddb: DynamoDBClient, tableName: string): Promise<void> {
+async function waitTableExists(
+  ddb: DynamoDBClient,
+  tableName: string,
+): Promise<void> {
   for (let i = 0; i < 60; i++) {
     try {
-      const resp = await ddb.send(new DescribeTableCommand({ TableName: tableName }));
+      const resp = await ddb.send(
+        new DescribeTableCommand({ TableName: tableName }),
+      );
       if (resp.Table?.TableStatus === "ACTIVE") return;
     } catch (err) {
       if (!isResourceNotFound(err)) throw err;
@@ -322,7 +404,10 @@ async function waitTableExists(ddb: DynamoDBClient, tableName: string): Promise<
   throw new Error(`timeout waiting for table exists: ${tableName}`);
 }
 
-async function waitTableNotExists(ddb: DynamoDBClient, tableName: string): Promise<void> {
+async function waitTableNotExists(
+  ddb: DynamoDBClient,
+  tableName: string,
+): Promise<void> {
   for (let i = 0; i < 40; i++) {
     try {
       await ddb.send(new DescribeTableCommand({ TableName: tableName }));
@@ -334,7 +419,10 @@ async function waitTableNotExists(ddb: DynamoDBClient, tableName: string): Promi
   }
 }
 
-function createTableInput(tableName: string, model: DmsModel): CreateTableCommandInput {
+function createTableInput(
+  tableName: string,
+  model: DmsModel,
+): CreateTableCommandInput {
   const defs = new Map<string, "S" | "N" | "B">();
 
   const addDef = (attr: { attribute: string; type: "S" | "N" | "B" }): void => {
@@ -356,7 +444,10 @@ function createTableInput(tableName: string, model: DmsModel): CreateTableComman
     { AttributeName: model.keys.partition.attribute, KeyType: "HASH" },
   ];
   if (model.keys.sort) {
-    keySchema.push({ AttributeName: model.keys.sort.attribute, KeyType: "RANGE" });
+    keySchema.push({
+      AttributeName: model.keys.sort.attribute,
+      KeyType: "RANGE",
+    });
   }
 
   const gsis: GlobalSecondaryIndex[] = [];
@@ -372,7 +463,10 @@ function createTableInput(tableName: string, model: DmsModel): CreateTableComman
       { AttributeName: idx.partition.attribute, KeyType: "HASH" },
     ];
     if (idx.sort) {
-      indexKeySchema.push({ AttributeName: idx.sort.attribute, KeyType: "RANGE" });
+      indexKeySchema.push({
+        AttributeName: idx.sort.attribute,
+        KeyType: "RANGE",
+      });
     }
 
     if (idx.type === "LSI") {
@@ -400,4 +494,3 @@ function createTableInput(tableName: string, model: DmsModel): CreateTableComman
     LocalSecondaryIndexes: lsis.length ? lsis : undefined,
   };
 }
-
