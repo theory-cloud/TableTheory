@@ -23,6 +23,9 @@ contract-tests/
   attribute `type`.
 - Set attributes (`SS`/`NS`/`BS`) must be compared **order-insensitively**.
 - Cursor fixtures must be compared **byte-for-byte** (`.cursor` string).
+- P0 scenarios that describe newly specified behavior before every runtime has shipped support MUST declare
+  `requires_capabilities`. Runners skip capability-gated scenarios until their runtime advertises that capability; the
+  follow-up runtime milestone removes the skip by adding the advertised capability and making the scenario pass.
 
 ## Run (local)
 

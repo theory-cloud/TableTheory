@@ -1,4 +1,5 @@
 await import('./unit/basic.test.js');
+await import('./unit/errors.test.js');
 await import('./unit/model.test.js');
 await import('./unit/dms.test.js');
 await import('./unit/cursor.test.js');
@@ -20,5 +21,6 @@ await import('./unit/lambda.test.js');
 await import('./unit/multiaccount.test.js');
 await import('./unit/validation.test.js');
 await import('./unit/protection.test.js');
+await import('./unit/release-state.test.js');
 await import('./unit/lease.test.js');
 await import('./unit/facetheory-isr.test.js');

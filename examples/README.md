@@ -58,6 +58,18 @@ AWS Lambda integration examples:
 
 **What you'll learn:** Serverless architecture, Lambda optimization, event handling
 
+### 🛡️ [Release-State Registry](release-state/)
+**Safety-critical release/deploy authority patterns**
+
+Release-state registry example showing:
+- Mutable actual-state rows with protected registry pin fields
+- Immutable write-once event-history rows
+- Transactional actual-state transition plus event append
+- Deterministic provenance/confidence metadata
+- Outbox rows for external side effects such as Lambda alias updates
+
+**What you'll learn:** Release-state write policies, deploy authority validation, audit/outbox reconciliation
+
 ### ✨ Feature Spotlights
 - **[feature_spotlight.go](feature_spotlight.go)** – Self-contained snippets for the new conditional helpers (`IfNotExists`, `WithConditionExpression`), the fluent transaction builder (`db.Transact()`/`TransactWrite()`), and the retry-aware `BatchGetBuilder` with custom `core.RetryPolicy`, progress callbacks, and chunk-level error handling.
 
@@ -149,7 +161,8 @@ EOF
 
 ### Advanced Path
 7. **[Multi-Tenant SaaS](multi-tenant/)** - Enterprise architecture patterns
-8. **[Feature Spotlights](feature_spotlight.go)** - Deep dives on transactions, conditionals, and BatchGet builder
+8. **[Release-State Registry](release-state/)** - Safety-critical actual/event/outbox patterns
+9. **[Feature Spotlights](feature_spotlight.go)** - Deep dives on transactions, conditionals, and BatchGet builder
 
 ## Common Patterns Demonstrated
 

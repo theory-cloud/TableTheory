@@ -65,6 +65,13 @@ func (q *Query) BatchUpdateWithOptions(items []any, fields []string, options ...
 
 // batchUpdateWithOptionsInternal is the actual implementation with the internal signature
 func (q *Query) batchUpdateWithOptionsInternal(items any, opts *BatchUpdateOptions, fields ...string) error {
+	if err := q.rejectWriteOnceMutation("batch update"); err != nil {
+		return err
+	}
+	if err := q.rejectProtectedFieldMutation(fields, nil); err != nil {
+		return err
+	}
+
 	// Validate input
 	itemsValue := reflect.ValueOf(items)
 	if itemsValue.Kind() != reflect.Slice {
@@ -97,6 +104,9 @@ func (q *Query) BatchDelete(keys []any) error {
 func (q *Query) BatchDeleteWithOptions(keys []any, opts *BatchUpdateOptions) error {
 	if len(keys) == 0 {
 		return nil
+	}
+	if err := q.rejectWriteOnceMutation("batch delete"); err != nil {
+		return err
 	}
 
 	// Prepare key batches
@@ -644,6 +654,16 @@ func (q *Query) BatchWriteWithOptions(putItems []any, deleteKeys []any, opts *Ba
 	totalItems := len(putItems) + len(deleteKeys)
 	if totalItems == 0 {
 		return nil
+	}
+	if len(putItems) > 0 {
+		if err := q.rejectWriteOnceMutation("batch put"); err != nil {
+			return err
+		}
+	}
+	if len(deleteKeys) > 0 {
+		if err := q.rejectWriteOnceMutation("batch delete"); err != nil {
+			return err
+		}
 	}
 
 	// Validate batch size

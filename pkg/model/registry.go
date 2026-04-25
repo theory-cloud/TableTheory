@@ -4,6 +4,7 @@ package model
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
@@ -106,6 +107,7 @@ type Metadata struct {
 	UpdatedAtField   *FieldMetadata
 	TableName        string
 	Indexes          []IndexSchema
+	WritePolicy      WritePolicy
 	NamingConvention naming.Convention
 }
 
@@ -179,6 +181,10 @@ func parseMetadata(modelType reflect.Type) (*Metadata, error) {
 		return nil, err
 	}
 
+	if err := applyWritePolicy(modelType, metadata); err != nil {
+		return nil, err
+	}
+
 	return metadata, nil
 }
 
@@ -187,10 +193,92 @@ func newMetadata(modelType reflect.Type, tableName string, convention naming.Con
 		Type:             modelType,
 		TableName:        tableName,
 		NamingConvention: convention,
+		WritePolicy:      DefaultWritePolicy(),
 		Fields:           make(map[string]*FieldMetadata),
 		FieldsByDBName:   make(map[string]*FieldMetadata),
 		Indexes:          make([]IndexSchema, 0),
 	}
+}
+
+func applyWritePolicy(modelType reflect.Type, metadata *Metadata) error {
+	policy, ok := writePolicyFromModel(modelType)
+	if !ok {
+		metadata.WritePolicy = DefaultWritePolicy()
+		return nil
+	}
+
+	normalized, err := normalizeWritePolicy(policy, metadata)
+	if err != nil {
+		return err
+	}
+	metadata.WritePolicy = normalized
+	return nil
+}
+
+type writePolicyProvider interface {
+	WritePolicy() WritePolicy
+}
+
+func writePolicyFromModel(modelType reflect.Type) (WritePolicy, bool) {
+	if provider, ok := reflect.New(modelType).Elem().Interface().(writePolicyProvider); ok {
+		return provider.WritePolicy(), true
+	}
+	if provider, ok := reflect.New(modelType).Interface().(writePolicyProvider); ok {
+		return provider.WritePolicy(), true
+	}
+	return WritePolicy{}, false
+}
+
+func normalizeWritePolicy(policy WritePolicy, metadata *Metadata) (WritePolicy, error) {
+	mode := policy.Mode
+	if mode == "" {
+		mode = WritePolicyModeMutable
+	}
+	switch mode {
+	case WritePolicyModeMutable, WritePolicyModeWriteOnce:
+	default:
+		return WritePolicy{}, fmt.Errorf("%w: unsupported write_policy.mode %q", errors.ErrInvalidModel, mode)
+	}
+
+	protected, err := resolveProtectedAttributes(policy.ProtectedAttributes, metadata)
+	if err != nil {
+		return WritePolicy{}, err
+	}
+
+	return WritePolicy{
+		Mode:                mode,
+		ProtectedAttributes: protected,
+	}, nil
+}
+
+func resolveProtectedAttributes(attributes []string, metadata *Metadata) ([]string, error) {
+	if len(attributes) == 0 {
+		return []string{}, nil
+	}
+
+	protected := make(map[string]struct{}, len(attributes))
+	for _, attr := range attributes {
+		attr = strings.TrimSpace(attr)
+		if attr == "" {
+			return nil, fmt.Errorf("%w: write_policy protected attributes must be non-empty", errors.ErrInvalidModel)
+		}
+
+		fieldMeta := metadata.Fields[attr]
+		if fieldMeta == nil {
+			fieldMeta = metadata.FieldsByDBName[attr]
+		}
+		if fieldMeta == nil {
+			return nil, fmt.Errorf("%w: write_policy protected attribute not found: %s", errors.ErrInvalidModel, attr)
+		}
+		protected[fieldMeta.DBName] = struct{}{}
+	}
+
+	resolved := make([]string, 0, len(protected))
+	for attr := range protected {
+		resolved = append(resolved, attr)
+	}
+	sort.Strings(resolved)
+	return resolved, nil
 }
 
 func resolveTableName(modelType reflect.Type) string {

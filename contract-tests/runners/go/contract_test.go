@@ -45,10 +45,11 @@ func TestContract_P0(t *testing.T) {
 			s, err := scenario.LoadFile(path)
 			require.NoError(t, err)
 
-			model, ok := models[s.Model]
-			require.True(t, ok, "unknown model %s", s.Model)
+			if missing := scenario.MissingCapabilities(s.RequiresCapabilities, drv.Capabilities()); len(missing) > 0 {
+				t.Skipf("scenario requires unsupported capabilities: %v", missing)
+			}
 
-			r.RunScenario(t, ctx, s, model)
+			r.RunScenario(t, ctx, s, models)
 		})
 	}
 }

@@ -67,7 +67,10 @@ func (r *Runner) Ping(ctx context.Context) error {
 	return err
 }
 
-func (r *Runner) RunScenario(t require.TestingT, ctx context.Context, s *scenario.Scenario, model spec.Model) {
+func (r *Runner) RunScenario(t require.TestingT, ctx context.Context, s *scenario.Scenario, models map[string]spec.Model) {
+	model, ok := models[s.Model]
+	require.True(t, ok, "unknown model %s", s.Model)
+
 	tableName := s.Table.Name
 	if tableName == "" {
 		tableName = model.Table.Name
@@ -79,11 +82,15 @@ func (r *Runner) RunScenario(t require.TestingT, ctx context.Context, s *scenari
 
 	for i := range s.Steps {
 		step := s.Steps[i]
-		r.runStep(t, ctx, s, model, tableName, step)
+		r.runStep(t, ctx, s, models, tableName, step)
 	}
 }
 
-func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Scenario, model spec.Model, tableName string, step scenario.Step) {
+func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Scenario, models map[string]spec.Model, tableName string, step scenario.Step) {
+	modelName := stepModelName(s, step)
+	model, ok := models[modelName]
+	require.True(t, ok, "unknown model %s", modelName)
+
 	switch step.Op {
 	case "sleep":
 		if step.Ms > 0 {
@@ -92,22 +99,27 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		return
 
 	case "create":
-		err := r.driver.Create(ctx, s.Model, step.Item, step.IfNotExists)
+		err := r.driver.Create(ctx, modelName, step.Item, step.IfNotExists)
 		r.assertStepResult(t, step.Expect, nil, err, nil, model)
 		return
 
 	case "update":
-		err := r.driver.Update(ctx, s.Model, step.Item, step.Fields)
+		err := r.driver.Update(ctx, modelName, step.Item, step.Fields, step.ProtectedAttributes)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "save":
+		err := r.driver.Save(ctx, modelName, step.Item)
 		r.assertStepResult(t, step.Expect, nil, err, nil, model)
 		return
 
 	case "delete":
-		err := r.driver.Delete(ctx, s.Model, step.Key)
+		err := r.driver.Delete(ctx, modelName, step.Key)
 		r.assertStepResult(t, step.Expect, nil, err, nil, model)
 		return
 
 	case "get":
-		item, err := r.driver.Get(ctx, s.Model, step.Key)
+		item, err := r.driver.Get(ctx, modelName, step.Key)
 		raw, rawErr := r.getRawItem(ctx, tableName, model, step.Key)
 		if err == nil && rawErr != nil {
 			err = rawErr
@@ -122,9 +134,36 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		r.assertStepResult(t, step.Expect, item, err, raw, model)
 		return
 
+	case "transition_append_event":
+		require.NotNil(t, step.Actual, "transition_append_event actual is required")
+		require.NotNil(t, step.Event, "transition_append_event event is required")
+		err := r.driver.TransitionAppendEvent(ctx, driver.TransitionActual{
+			Model:           step.Actual.Model,
+			Key:             step.Actual.Key,
+			Set:             step.Actual.Set,
+			ExpectedVersion: step.Actual.ExpectedVersion,
+		}, driver.TransitionEvent{
+			Model: step.Event.Model,
+			Item:  step.Event.Item,
+		})
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "validate_provenance":
+		err := r.driver.ValidateProvenance(ctx, modelName, step.Item)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
 	default:
 		require.FailNow(t, fmt.Sprintf("unsupported op: %s", step.Op))
 	}
+}
+
+func stepModelName(s *scenario.Scenario, step scenario.Step) string {
+	if step.Model != "" {
+		return step.Model
+	}
+	return s.Model
 }
 
 func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectation, item map[string]any, err error, raw map[string]types.AttributeValue, model spec.Model) {

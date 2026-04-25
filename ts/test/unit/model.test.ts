@@ -61,6 +61,8 @@ const userSchema: ModelSchema = {
   const model = defineModel(schema);
   assert.equal(model.name, 'User');
   assert.equal(model.tableName, 'users_contract');
+  assert.equal(model.writePolicy.mode, 'mutable');
+  assert.deepEqual(model.writePolicy.protectedAttributes, []);
   assert.equal(model.roles.pk, 'PK');
   assert.equal(model.roles.sk, 'SK');
   assert.equal(model.roles.createdAt, 'createdAt');
@@ -80,6 +82,71 @@ const userSchema: ModelSchema = {
     (err) => {
       assert.ok(err instanceof TheorydbError);
       assert.equal(err.code, 'ErrInvalidModel');
+      return true;
+    },
+  );
+}
+
+{
+  const schema: ModelSchema = {
+    ...userSchema,
+    write_policy: {
+      mode: 'mutable',
+      protected_attributes: ['nickname', 'nickname'],
+    },
+    attributes: [
+      ...userSchema.attributes,
+      { attribute: 'emailHash', type: 'S', optional: true },
+    ],
+  };
+
+  const model = defineModel(schema);
+  assert.equal(model.writePolicy.mode, 'mutable');
+  assert.deepEqual(model.writePolicy.protectedAttributes, ['nickname']);
+}
+
+{
+  const schema = {
+    ...userSchema,
+    write_policy: {
+      mode: 'append_only',
+    },
+    attributes: [
+      ...userSchema.attributes,
+      { attribute: 'emailHash', type: 'S', optional: true },
+    ],
+  } as unknown as ModelSchema;
+
+  assert.throws(
+    () => defineModel(schema),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(String(err.message), /Unsupported write_policy.mode/);
+      return true;
+    },
+  );
+}
+
+{
+  const schema: ModelSchema = {
+    ...userSchema,
+    write_policy: {
+      mode: 'mutable',
+      protected_attributes: ['missing'],
+    },
+    attributes: [
+      ...userSchema.attributes,
+      { attribute: 'emailHash', type: 'S', optional: true },
+    ],
+  };
+
+  assert.throws(
+    () => defineModel(schema),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(String(err.message), /protected attribute not found/);
       return true;
     },
   );

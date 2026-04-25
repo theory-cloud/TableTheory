@@ -86,6 +86,21 @@ func TestErrorTypes(t *testing.T) {
 			err:      ErrInvalidOperator,
 			expected: "invalid query operator",
 		},
+		{
+			name:     "ErrImmutableModelMutation",
+			err:      ErrImmutableModelMutation,
+			expected: "immutable model mutation",
+		},
+		{
+			name:     "ErrProtectedFieldMutation",
+			err:      ErrProtectedFieldMutation,
+			expected: "protected field mutation",
+		},
+		{
+			name:     "ErrRejectedDeployAuthorityEvidence",
+			err:      ErrRejectedDeployAuthorityEvidence,
+			expected: "rejected deploy authority evidence",
+		},
 	}
 
 	for _, tt := range tests {

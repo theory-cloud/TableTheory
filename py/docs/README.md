@@ -11,6 +11,8 @@
 ### 📚 Core Documentation
 - [API Reference](./api-reference.md) – Public API (`ModelDefinition`, `Table`, query, batch, transactions, encryption, streams)
 - [Core Patterns](./core-patterns.md) – Canonical recipes (CRUD, pagination, batch, transactions, streams, encryption)
+- [Release-State Patterns](./release-state.md) – Write policies, protected registry pins, transactional transitions,
+  and deterministic provenance/confidence helpers
 - [Testing Guide](./testing-guide.md) – Unit tests with strict fakes, integration tests with DynamoDB Local
 - [Troubleshooting](./troubleshooting.md) – Verified fixes for common runtime and configuration errors
 - [Migration Guide](./migration-guide.md) – Migrating from raw boto3 DynamoDB usage

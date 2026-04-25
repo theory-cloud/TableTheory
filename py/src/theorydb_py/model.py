@@ -70,6 +70,43 @@ class IndexDefinition:
     projection: Projection = field(default_factory=Projection.all)
 
 
+@dataclass(frozen=True)
+class WritePolicy:
+    mode: str = "mutable"
+    protected_attributes: Sequence[str] = ()
+
+    def __post_init__(self) -> None:
+        mode = self.mode or "mutable"
+        if mode not in {"mutable", "write_once"}:
+            raise ModelDefinitionError(f"unsupported write_policy.mode: {self.mode}")
+        object.__setattr__(self, "mode", mode)
+        if isinstance(self.protected_attributes, str):
+            raise ModelDefinitionError("write_policy protected attributes must be a sequence of names")
+        protected: set[str] = set()
+        for attr in self.protected_attributes:
+            if not isinstance(attr, str):
+                raise ModelDefinitionError("write_policy protected attributes must contain strings")
+            attr = attr.strip()
+            if not attr:
+                raise ModelDefinitionError("write_policy protected attributes must be non-empty")
+            protected.add(attr)
+        object.__setattr__(self, "protected_attributes", tuple(sorted(protected)))
+
+
+def _resolve_write_policy(
+    policy: WritePolicy | None, attributes: Mapping[str, AttributeDefinition]
+) -> WritePolicy:
+    resolved = policy or WritePolicy()
+    protected: set[str] = set()
+    by_attribute_name = {attr.attribute_name: attr for attr in attributes.values()}
+    for attr in resolved.protected_attributes:
+        attr_def = attributes.get(attr) or by_attribute_name.get(attr)
+        if attr_def is None:
+            raise ModelDefinitionError(f"write_policy protected attribute not found: {attr}")
+        protected.add(attr_def.attribute_name)
+    return WritePolicy(mode=resolved.mode, protected_attributes=tuple(sorted(protected)))
+
+
 @overload
 def theorydb_field(
     *,
@@ -180,6 +217,7 @@ class ModelDefinition[T]:
     sk: AttributeDefinition | None
     attributes: Mapping[str, AttributeDefinition]
     indexes: tuple[IndexDefinition, ...]
+    write_policy: WritePolicy = field(default_factory=WritePolicy)
 
     @classmethod
     def from_dataclass(
@@ -188,6 +226,7 @@ class ModelDefinition[T]:
         *,
         table_name: str | None = None,
         indexes: Sequence[IndexSpec] = (),
+        write_policy: WritePolicy | None = None,
     ) -> ModelDefinition[T]:
         if not is_dataclass(model_type):
             raise ModelDefinitionError("model_type must be a dataclass")
@@ -316,6 +355,8 @@ class ModelDefinition[T]:
                 )
             )
 
+        resolved_write_policy = _resolve_write_policy(write_policy, attributes)
+
         return cls(
             model_type=model_type,
             table_name=table_name,
@@ -323,4 +364,5 @@ class ModelDefinition[T]:
             sk=sk,
             attributes=attributes,
             indexes=tuple(resolved_indexes),
+            write_policy=resolved_write_policy,
         )

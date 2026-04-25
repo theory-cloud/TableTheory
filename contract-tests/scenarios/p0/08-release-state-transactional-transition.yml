@@ -1,0 +1,55 @@
+name: "p0.release_state.transactional_transition"
+dms_version: "0.1"
+requires_capabilities: ["release_state.write_policy", "release_state.transactional_transition"]
+model: "ReleaseStateActual"
+table:
+  name: "release_state_contract"
+steps:
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#service-a"
+      SK: "ACTUAL"
+      status: "active"
+      pinnedReleaseId: "rel_001"
+    expect:
+      ok: true
+
+  - op: transition_append_event
+    actual:
+      model: "ReleaseStateActual"
+      key:
+        PK: "RELEASE#service-a"
+        SK: "ACTUAL"
+      expected_version: 0
+      set:
+        status: "active"
+        previousReleaseId: "rel_001"
+    event:
+      model: "ReleaseStateEvent"
+      item:
+        PK: "RELEASE#service-a"
+        SK: "EVENT#2026-04-24T19:05:00Z"
+        releaseId: "rel_002"
+        eventType: "promoted"
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "RELEASE#service-a"
+      SK: "ACTUAL"
+    expect:
+      item_contains:
+        previousReleaseId: "rel_001"
+        version: 1
+
+  - op: get
+    model: "ReleaseStateEvent"
+    key:
+      PK: "RELEASE#service-a"
+      SK: "EVENT#2026-04-24T19:05:00Z"
+    expect:
+      item_contains:
+        releaseId: "rel_002"
+        eventType: "promoted"

@@ -1,0 +1,41 @@
+name: "p0.release_state.write_policy"
+dms_version: "0.1"
+requires_capabilities: ["release_state.write_policy"]
+model: "ReleaseStateEvent"
+table:
+  name: "release_state_contract"
+steps:
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#service-a"
+      SK: "EVENT#2026-04-24T19:00:00Z"
+      releaseId: "rel_001"
+      eventType: "promoted"
+    expect:
+      ok: true
+
+  - op: update
+    fields: ["eventType"]
+    item:
+      PK: "RELEASE#service-a"
+      SK: "EVENT#2026-04-24T19:00:00Z"
+      eventType: "mutated"
+    expect:
+      error: "ErrImmutableModelMutation"
+
+  - op: save
+    item:
+      PK: "RELEASE#service-a"
+      SK: "EVENT#2026-04-24T19:00:00Z"
+      releaseId: "rel_001"
+      eventType: "overwritten"
+    expect:
+      error: "ErrImmutableModelMutation"
+
+  - op: delete
+    key:
+      PK: "RELEASE#service-a"
+      SK: "EVENT#2026-04-24T19:00:00Z"
+    expect:
+      error: "ErrImmutableModelMutation"
