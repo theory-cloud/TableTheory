@@ -2,6 +2,10 @@ import type { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { TheorydbClient } from "../../../../ts/src/client.js";
 import { TheorydbError } from "../../../../ts/src/errors.js";
 import type { Model } from "../../../../ts/src/model.js";
+import {
+  transitionReleaseState,
+  validateDeployAuthorityMetadata,
+} from "../../../../ts/src/release-state.js";
 
 export type ErrorCode =
   | "ErrItemNotFound"
@@ -72,6 +76,8 @@ export class TheorydbDriver implements Driver {
       "optimistic_lock.version",
       "ttl.epoch_seconds",
       "release_state.write_policy",
+      "release_state.transactional_transition",
+      "release_state.provenance_confidence",
     ];
   }
 
@@ -80,6 +86,7 @@ export class TheorydbDriver implements Driver {
     item: Record<string, unknown>,
     opts: { ifNotExists?: boolean },
   ): Promise<void> {
+    validateReleaseStateMetadataIfPresent(model, item);
     await this.client.create(model, item, { ifNotExists: opts.ifNotExists });
   }
 
@@ -107,6 +114,7 @@ export class TheorydbDriver implements Driver {
   }
 
   async save(model: string, item: Record<string, unknown>): Promise<void> {
+    validateReleaseStateMetadataIfPresent(model, item);
     await this.client.save(model, item);
   }
 
@@ -118,19 +126,36 @@ export class TheorydbDriver implements Driver {
     actual: TransitionActual,
     event: TransitionEvent,
   ): Promise<void> {
-    throw new TheorydbError(
-      "ErrInvalidModel",
-      `transition_append_event not implemented for ${actual.model}/${event.model}`,
-    );
+    await transitionReleaseState(this.client, {
+      actualModel: actual.model,
+      actualKey: actual.key,
+      set: actual.set,
+      eventModel: event.model,
+      eventItem: event.item,
+      expectedVersion: actual.expectedVersion,
+    });
   }
 
   async validateProvenance(
     model: string,
-    _item: Record<string, unknown>,
+    item: Record<string, unknown>,
   ): Promise<void> {
-    throw new TheorydbError(
-      "ErrInvalidModel",
-      `validate_provenance not implemented for ${model}`,
-    );
+    if (model !== "ReleaseStateActual") {
+      throw new TheorydbError(
+        "ErrInvalidModel",
+        `validate_provenance unsupported for ${model}`,
+      );
+    }
+    validateDeployAuthorityMetadata(item);
+  }
+}
+
+function validateReleaseStateMetadataIfPresent(
+  model: string,
+  item: Record<string, unknown>,
+): void {
+  if (model !== "ReleaseStateActual") return;
+  if (Object.hasOwn(item, "provenance") || Object.hasOwn(item, "confidence")) {
+    validateDeployAuthorityMetadata(item);
   }
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/model"
+	"github.com/theory-cloud/tabletheory/pkg/releasestate"
 	"github.com/theory-cloud/tabletheory/pkg/session"
 )
 
@@ -90,6 +91,8 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"optimistic_lock.version",
 		"ttl.epoch_seconds",
 		"release_state.write_policy",
+		"release_state.transactional_transition",
+		"release_state.provenance_confidence",
 	}
 }
 
@@ -122,6 +125,9 @@ func NewTheorydbDriver() (*TheorydbDriver, error) {
 }
 
 func (d *TheorydbDriver) Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error {
+	if err := validateReleaseStateMetadataIfPresent(model, item); err != nil {
+		return err
+	}
 	instance, err := modelFromMap(model, item)
 	if err != nil {
 		return err
@@ -186,6 +192,9 @@ func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[stri
 }
 
 func (d *TheorydbDriver) Save(ctx context.Context, model string, item map[string]any) error {
+	if err := validateReleaseStateMetadataIfPresent(model, item); err != nil {
+		return err
+	}
 	instance, err := modelFromMap(model, item)
 	if err != nil {
 		return err
@@ -214,16 +223,49 @@ func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[strin
 }
 
 func (d *TheorydbDriver) TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error {
-	return fmt.Errorf(
-		"%w: transition_append_event not implemented for %s/%s",
-		theorydbErrors.ErrInvalidModel,
-		actual.Model,
-		event.Model,
-	)
+	if actual.Model != "ReleaseStateActual" || event.Model != "ReleaseStateEvent" {
+		return fmt.Errorf("%w: unsupported transition models %s/%s", theorydbErrors.ErrInvalidModel, actual.Model, event.Model)
+	}
+
+	actualItem := make(map[string]any, len(actual.Key))
+	for k, v := range actual.Key {
+		actualItem[k] = v
+	}
+	actualModel, err := releaseStateActualFromMap(actualItem)
+	if err != nil {
+		return err
+	}
+
+	eventModel, err := releaseStateEventFromMap(event.Item)
+	if err != nil {
+		return err
+	}
+
+	return releasestate.TransitionAppendEvent(ctx, d.db, releasestate.TransitionAppendEventInput{
+		Actual:          actualModel,
+		Event:           eventModel,
+		Set:             actual.Set,
+		ExpectedVersion: actual.ExpectedVersion,
+	})
 }
 
 func (d *TheorydbDriver) ValidateProvenance(ctx context.Context, model string, item map[string]any) error {
-	return fmt.Errorf("%w: validate_provenance not implemented for %s", theorydbErrors.ErrInvalidModel, model)
+	if model != "ReleaseStateActual" {
+		return fmt.Errorf("%w: validate_provenance unsupported for %s", theorydbErrors.ErrInvalidModel, model)
+	}
+	return releasestate.ValidateDeployAuthorityMetadata(item)
+}
+
+func validateReleaseStateMetadataIfPresent(model string, item map[string]any) error {
+	if model != "ReleaseStateActual" {
+		return nil
+	}
+	_, hasProvenance := item["provenance"]
+	_, hasConfidence := item["confidence"]
+	if !hasProvenance && !hasConfidence {
+		return nil
+	}
+	return releasestate.ValidateDeployAuthorityMetadata(item)
 }
 
 func keyValues(key map[string]any) (string, string, error) {

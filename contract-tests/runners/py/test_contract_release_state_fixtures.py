@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import asdict, dataclass, is_dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
@@ -12,9 +14,12 @@ from theorydb_py import (
     ImmutableModelMutationError,
     ModelDefinition,
     ProtectedFieldMutationError,
+    RejectedDeployAuthorityEvidenceError,
     Table,
     WritePolicy,
     theorydb_field,
+    transition_release_state,
+    validate_deploy_authority_metadata,
 )
 
 
@@ -65,31 +70,24 @@ def test_release_state_p0_scenarios_are_capability_gated() -> None:
         _validate_scenario_steps(path.name, scenario)
 
 
-def test_release_state_write_policy_scenarios_execute_for_python() -> None:
+def test_release_state_scenarios_execute_for_python() -> None:
     root = _repo_root()
     scenario_dir = root / "contract-tests" / "scenarios" / "p0"
     scenarios = [
         _load_yaml(scenario_dir / "06-release-state-write-policy.yml"),
         _load_yaml(scenario_dir / "07-release-state-protected-fields.yml"),
+        _load_yaml(scenario_dir / "08-release-state-transactional-transition.yml"),
+        _load_yaml(scenario_dir / "09-release-state-provenance-confidence.yml"),
     ]
 
     for scenario in scenarios:
-        assert "release_state.write_policy" in scenario.get("requires_capabilities", [])
+        assert scenario.get("requires_capabilities", [])
         driver = _ReleaseStatePyDriver()
         for step in scenario["steps"]:
-            error = _capture_contract_error(
+            result, error = _capture_contract_result(
                 lambda driver=driver, scenario=scenario, step=step: driver.run_step(scenario, step)
             )
-            expected = step.get("expect", {})
-            if expected.get("ok") is True:
-                assert error is None, f"{scenario['name']} step {step['op']} expected ok, got {error}"
-                continue
-            if "error" in expected:
-                assert error == expected["error"], (
-                    f"{scenario['name']} step {step['op']} expected {expected['error']}, got {error}"
-                )
-                continue
-            assert error is None
+            _assert_contract_expectation(scenario["name"], step, result, error)
 
 
 def _validate_scenario_steps(name: str, scenario: dict[str, Any]) -> None:
@@ -183,11 +181,12 @@ class _ReleaseStatePyDriver:
             ),
         }
 
-    def run_step(self, scenario: dict[str, Any], step: dict[str, Any]) -> None:
+    def run_step(self, scenario: dict[str, Any], step: dict[str, Any]) -> Any:
         model_name = step.get("model") or scenario["model"]
         table = self.tables[model_name]
 
         if step["op"] == "create":
+            self._validate_metadata_if_present(model_name, step["item"])
             kwargs: dict[str, Any] = {}
             if step.get("if_not_exists"):
                 kwargs = {
@@ -198,6 +197,7 @@ class _ReleaseStatePyDriver:
             return
 
         if step["op"] == "save":
+            self._validate_metadata_if_present(model_name, step["item"])
             table.save(self._item(model_name, step["item"]))
             return
 
@@ -219,10 +219,35 @@ class _ReleaseStatePyDriver:
 
         if step["op"] == "get":
             key = step["key"]
-            table.get(key["PK"], key["SK"], consistent_read=True)
-            return
+            return _contract_item(table.get(key["PK"], key["SK"], consistent_read=True))
+
+        if step["op"] == "transition_append_event":
+            actual = step["actual"]
+            event = step["event"]
+            transition_release_state(
+                self.tables[actual["model"]],
+                self.tables[event["model"]],
+                actual_key=actual["key"],
+                expected_version=actual.get("expected_version"),
+                set_values=actual["set"],
+                event_item=self._item(event["model"], event["item"]),
+            )
+            return None
+
+        if step["op"] == "validate_provenance":
+            if model_name != "ReleaseStateActual":
+                raise AssertionError(f"unsupported validate_provenance model: {model_name}")
+            validate_deploy_authority_metadata(step["item"])
+            return None
 
         raise AssertionError(f"unsupported executable op: {step['op']}")
+
+    @staticmethod
+    def _validate_metadata_if_present(model_name: str, item: dict[str, Any]) -> None:
+        if model_name != "ReleaseStateActual":
+            return
+        if "provenance" in item or "confidence" in item:
+            validate_deploy_authority_metadata(item)
 
     @staticmethod
     def _item(model_name: str, item: dict[str, Any]) -> Any:
@@ -253,15 +278,63 @@ class _InMemoryDynamoDBClient:
         return {}
 
     def update_item(self, **req: Any) -> dict[str, Any]:
+        return self._apply_update(req, self.items)
+
+    def transact_write_items(self, **req: Any) -> dict[str, Any]:
+        draft = deepcopy(self.items)
+        for action in req["TransactItems"]:
+            if "Put" in action:
+                put = action["Put"]
+                key = self._key(put["TableName"], put["Item"])
+                if not self._condition_matches(put, draft.get(key)):
+                    raise ConditionFailedError("conditional write failed")
+                draft[key] = dict(put["Item"])
+                continue
+            if "Update" in action:
+                self._apply_update(action["Update"], draft)
+                continue
+            raise AssertionError(f"unsupported transact action: {action!r}")
+        self.items = draft
+        return {}
+
+    def _apply_update(
+        self,
+        req: dict[str, Any],
+        items: dict[tuple[str, str, str], dict[str, Any]],
+    ) -> dict[str, Any]:
         key = self._key(req["TableName"], req["Key"])
-        item = dict(self.items[key])
+        item = dict(items[key])
+        if not self._condition_matches(req, item):
+            raise ConditionFailedError("conditional write failed")
         names = req.get("ExpressionAttributeNames", {})
         values = req.get("ExpressionAttributeValues", {})
         for assignment in _set_assignments(req["UpdateExpression"]):
             left, right = [part.strip() for part in assignment.split("=", 1)]
             item[names[left]] = values[right]
-        self.items[key] = item
+        for assignment in _add_assignments(req["UpdateExpression"]):
+            left, right = [part.strip() for part in assignment.split(None, 1)]
+            attr = names[left]
+            item[attr] = _add_number(item.get(attr), values[right])
+        items[key] = item
         return {"Attributes": dict(item)}
+
+    def _condition_matches(self, req: dict[str, Any], item: dict[str, Any] | None) -> bool:
+        condition = req.get("ConditionExpression", "")
+        if not condition:
+            return True
+        names = req.get("ExpressionAttributeNames", {})
+        values = req.get("ExpressionAttributeValues", {})
+        if "attribute_not_exists" in condition:
+            if item is not None:
+                return False
+        equality = re.search(r"(#[A-Za-z0-9_]+)\s*=\s*(:[A-Za-z0-9_]+)", condition)
+        if equality:
+            if item is None:
+                return False
+            left, right = equality.groups()
+            if item.get(names[left]) != values[right]:
+                return False
+        return True
 
     @staticmethod
     def _key(table_name: str, attrs: dict[str, Any]) -> tuple[str, str, str]:
@@ -275,6 +348,24 @@ def _set_assignments(update_expression: str) -> list[str]:
     return [part.strip() for part in match.group(1).split(",") if part.strip()]
 
 
+def _add_assignments(update_expression: str) -> list[str]:
+    match = re.search(r"\bADD\b([\s\S]*?)(?=\b(?:SET|REMOVE|DELETE)\b|$)", update_expression)
+    if not match:
+        return []
+    return [part.strip() for part in match.group(1).split(",") if part.strip()]
+
+
+def _add_number(current: dict[str, Any] | None, increment: dict[str, Any]) -> dict[str, str]:
+    current_value = Decimal(str((current or {"N": "0"})["N"]))
+    increment_value = Decimal(str(increment["N"]))
+    result = current_value + increment_value
+    if result == result.to_integral_value():
+        text = str(int(result))
+    else:
+        text = format(result, "f")
+    return {"N": text}
+
+
 def _av_to_string(value: dict[str, Any]) -> str:
     if "S" in value:
         return str(value["S"])
@@ -283,13 +374,46 @@ def _av_to_string(value: dict[str, Any]) -> str:
     raise AssertionError(f"unsupported key attribute value: {value!r}")
 
 
-def _capture_contract_error(fn: Any) -> str | None:
+def _contract_item(value: Any) -> dict[str, Any]:
+    if is_dataclass(value):
+        return asdict(value)
+    assert isinstance(value, dict)
+    return value
+
+
+def _capture_contract_result(fn: Any) -> tuple[Any, str | None]:
     try:
-        fn()
+        return fn(), None
     except ImmutableModelMutationError:
-        return "ErrImmutableModelMutation"
+        return None, "ErrImmutableModelMutation"
     except ProtectedFieldMutationError:
-        return "ErrProtectedFieldMutation"
+        return None, "ErrProtectedFieldMutation"
     except ConditionFailedError:
-        return "ErrConditionFailed"
-    return None
+        return None, "ErrConditionFailed"
+    except RejectedDeployAuthorityEvidenceError:
+        return None, "ErrRejectedDeployAuthorityEvidence"
+
+
+def _assert_contract_expectation(
+    scenario_name: str,
+    step: dict[str, Any],
+    result: Any,
+    error: str | None,
+) -> None:
+    expected = step.get("expect", {})
+    if expected.get("ok") is True:
+        assert error is None, f"{scenario_name} step {step['op']} expected ok, got {error}"
+    elif "error" in expected:
+        assert error == expected["error"], (
+            f"{scenario_name} step {step['op']} expected {expected['error']}, got {error}"
+        )
+        return
+    else:
+        assert error is None
+
+    if "item_contains" in expected:
+        assert isinstance(result, dict), f"{scenario_name} step {step['op']} did not return an item"
+        for key, value in expected["item_contains"].items():
+            assert result.get(key) == value, (
+                f"{scenario_name} step {step['op']} expected {key}={value!r}, got {result.get(key)!r}"
+            )
