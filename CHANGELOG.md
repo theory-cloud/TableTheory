@@ -12,6 +12,32 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 
+## [1.6.0-rc.2](https://github.com/theory-cloud/TableTheory/compare/v1.6.0-rc.1...v1.6.0-rc.2) (2026-04-25)
+
+
+### Features
+
+* **dms:** add release-state contract foundation ([ce7d3d3](https://github.com/theory-cloud/TableTheory/commit/ce7d3d3961a36ca4a514faf08e89e1f1b9be4957))
+* **dms:** add release-state write policy metadata ([c7862d0](https://github.com/theory-cloud/TableTheory/commit/c7862d0f9462aa49c2a4b2911470f5aaeae9fc28))
+* **errors:** add release-state mutation errors ([1ce0a38](https://github.com/theory-cloud/TableTheory/commit/1ce0a38e6aae5e13de21ad7850809ed53a04ca32))
+* **go:** enforce release-state write policies ([15eaf11](https://github.com/theory-cloud/TableTheory/commit/15eaf1188c60612101ea0363a81e452f61d76735))
+* **go:** enforce release-state write policies ([5d2c433](https://github.com/theory-cloud/TableTheory/commit/5d2c4332c68222948009c5a17469e62ae68e1d37))
+* **go:** parse release-state write policy metadata ([c1f912b](https://github.com/theory-cloud/TableTheory/commit/c1f912b237dcfe25a8aa4700899d15ae8bc2277e))
+* **py:** enforce release-state write policies ([0cb8fd4](https://github.com/theory-cloud/TableTheory/commit/0cb8fd47ce53f813db2ba7f7d608c78c94c44371))
+* **py:** enforce release-state write policies ([bde01a5](https://github.com/theory-cloud/TableTheory/commit/bde01a56ce8ffa1affda1a3c1bdab3c9df062aff))
+* **releasestate:** add release-state helpers ([49bdc14](https://github.com/theory-cloud/TableTheory/commit/49bdc144cb6627d74d28a0e6535df67385e8c676))
+* **releasestate:** add transactional transition helpers ([87a0fa6](https://github.com/theory-cloud/TableTheory/commit/87a0fa635ce8c2c7a4be5386ab5af38fcb9fd8f0))
+* **releasestate:** validate provenance confidence metadata ([8228344](https://github.com/theory-cloud/TableTheory/commit/82283447200a6c3b96524cd7dd42511642bbf14e))
+* **ts:** enforce release-state write policies ([85c0ebe](https://github.com/theory-cloud/TableTheory/commit/85c0ebef53bb454d97fffa9d8da77ac975024110))
+* **ts:** enforce release-state write policies ([45dba94](https://github.com/theory-cloud/TableTheory/commit/45dba949eb408d815315cc1f0c45f6be76207111))
+
+
+### Bug Fixes
+
+* **deps:** address dependabot alerts 56 and 57 ([aa73fe8](https://github.com/theory-cloud/TableTheory/commit/aa73fe829a37be4e8c70b3855fdf45bb2def161b))
+* **deps:** address dependabot alerts 56 and 57 ([df77c48](https://github.com/theory-cloud/TableTheory/commit/df77c48f831e8cd537c4aa8f26d2055251d86ec0))
+* **dms:** complete release-state contract plumbing ([4560a6a](https://github.com/theory-cloud/TableTheory/commit/4560a6a03c8ceedbba47c21b4ffe2d18e37c3bbb))
+
 ## [1.6.0-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.6.0-rc...v1.6.0-rc.1) (2026-04-23)
 
 
