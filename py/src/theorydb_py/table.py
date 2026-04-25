@@ -39,6 +39,11 @@ from .transaction import (
     UpdateAdd,
     UpdateSetIfNotExists,
 )
+from .write_policy import (
+    apply_write_once_create_condition,
+    assert_mutable_write_policy,
+    assert_protected_fields_can_mutate,
+)
 
 if TYPE_CHECKING:
     from .optimizer import QueryShape, ScanShape
@@ -648,6 +653,11 @@ class Table[T]:
         if max_retries < 0:
             raise ValidationError("max_retries must be >= 0")
 
+        if puts:
+            assert_mutable_write_policy(self._model, "batch put")
+        if deletes:
+            assert_mutable_write_policy(self._model, "batch delete")
+
         requests: list[dict[str, Any]] = []
         for item in puts:
             requests.append({"PutRequest": {"Item": self._to_item(item)}})
@@ -706,10 +716,12 @@ class Table[T]:
                     req["ExpressionAttributeValues"] = self._serialize_values(
                         action.expression_attribute_values
                     )
+                apply_write_once_create_condition(self._model, req)
                 transact_items.append({"Put": req})
                 continue
 
             if isinstance(action, TransactDelete):
+                assert_mutable_write_policy(self._model, "transaction delete")
                 req = {"TableName": self._table_name, "Key": self._to_key(action.pk, action.sk)}
                 if action.condition_expression:
                     req["ConditionExpression"] = action.condition_expression
@@ -732,6 +744,7 @@ class Table[T]:
                             condition_expression=action.condition_expression,
                             expression_attribute_names=action.expression_attribute_names,
                             expression_attribute_values=action.expression_attribute_values,
+                            protected_attributes=action.protected_attributes,
                         )
                     }
                 )
@@ -776,9 +789,26 @@ class Table[T]:
                 req["ExpressionAttributeNames"] = dict(expression_attribute_names)
             if expression_attribute_values:
                 req["ExpressionAttributeValues"] = self._serialize_values(expression_attribute_values)
+            apply_write_once_create_condition(self._model, req)
             self._client.put_item(**req)
         except ClientError as err:  # pragma: no cover (depends on AWS error shapes)
             raise _map_client_error(err) from err
+
+    def save(
+        self,
+        item: T,
+        *,
+        condition_expression: str | None = None,
+        expression_attribute_names: Mapping[str, str] | None = None,
+        expression_attribute_values: Mapping[str, Any] | None = None,
+    ) -> None:
+        assert_mutable_write_policy(self._model, "save")
+        self.put(
+            item,
+            condition_expression=condition_expression,
+            expression_attribute_names=expression_attribute_names,
+            expression_attribute_values=expression_attribute_values,
+        )
 
     def get(self, pk: Any, sk: Any | None = None, *, consistent_read: bool = False) -> T:
         key = self._to_key(pk, sk)
@@ -801,6 +831,7 @@ class Table[T]:
         expression_attribute_names: Mapping[str, str] | None = None,
         expression_attribute_values: Mapping[str, Any] | None = None,
     ) -> None:
+        assert_mutable_write_policy(self._model, "delete")
         key = self._to_key(pk, sk)
         req: dict[str, Any] = {"TableName": self._table_name, "Key": key}
         if condition_expression:
@@ -824,6 +855,7 @@ class Table[T]:
         condition_expression: str | None = None,
         expression_attribute_names: Mapping[str, str] | None = None,
         expression_attribute_values: Mapping[str, Any] | None = None,
+        protected_attributes: Sequence[str] = (),
     ) -> T:
         req = self._build_update_request(
             pk,
@@ -832,6 +864,7 @@ class Table[T]:
             condition_expression=condition_expression,
             expression_attribute_names=expression_attribute_names,
             expression_attribute_values=expression_attribute_values,
+            protected_attributes=protected_attributes,
             return_values="ALL_NEW",
         )
 
@@ -859,9 +892,16 @@ class Table[T]:
         condition_expression: str | None = None,
         expression_attribute_names: Mapping[str, str] | None = None,
         expression_attribute_values: Mapping[str, Any] | None = None,
+        protected_attributes: Sequence[str] = (),
         return_values: str | None = None,
     ) -> dict[str, Any]:
         key = self._to_key(pk, sk)
+        assert_mutable_write_policy(self._model, "update")
+        assert_protected_fields_can_mutate(
+            self._model,
+            tuple(str(field) for field in updates.keys()),
+            protected_attributes,
+        )
 
         update_names: dict[str, str] = {}
         update_values: dict[str, Any] = {}

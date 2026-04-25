@@ -76,17 +76,35 @@ class WritePolicy:
     protected_attributes: Sequence[str] = ()
 
     def __post_init__(self) -> None:
-        if self.mode not in {"mutable", "write_once"}:
+        mode = self.mode or "mutable"
+        if mode not in {"mutable", "write_once"}:
             raise ModelDefinitionError(f"unsupported write_policy.mode: {self.mode}")
+        object.__setattr__(self, "mode", mode)
         if isinstance(self.protected_attributes, str):
             raise ModelDefinitionError("write_policy protected attributes must be a sequence of names")
-        protected = tuple(self.protected_attributes)
-        object.__setattr__(self, "protected_attributes", protected)
-        for attr in protected:
+        protected: set[str] = set()
+        for attr in self.protected_attributes:
             if not isinstance(attr, str):
                 raise ModelDefinitionError("write_policy protected attributes must contain strings")
+            attr = attr.strip()
             if not attr:
                 raise ModelDefinitionError("write_policy protected attributes must be non-empty")
+            protected.add(attr)
+        object.__setattr__(self, "protected_attributes", tuple(sorted(protected)))
+
+
+def _resolve_write_policy(
+    policy: WritePolicy | None, attributes: Mapping[str, AttributeDefinition]
+) -> WritePolicy:
+    resolved = policy or WritePolicy()
+    protected: set[str] = set()
+    by_attribute_name = {attr.attribute_name: attr for attr in attributes.values()}
+    for attr in resolved.protected_attributes:
+        attr_def = attributes.get(attr) or by_attribute_name.get(attr)
+        if attr_def is None:
+            raise ModelDefinitionError(f"write_policy protected attribute not found: {attr}")
+        protected.add(attr_def.attribute_name)
+    return WritePolicy(mode=resolved.mode, protected_attributes=tuple(sorted(protected)))
 
 
 @overload
@@ -337,11 +355,7 @@ class ModelDefinition[T]:
                 )
             )
 
-        resolved_write_policy = write_policy or WritePolicy()
-        attribute_names = {attr.attribute_name for attr in attributes.values()}
-        for attr in resolved_write_policy.protected_attributes:
-            if attr not in attribute_names:
-                raise ModelDefinitionError(f"write_policy protected attribute not found: {attr}")
+        resolved_write_policy = _resolve_write_policy(write_policy, attributes)
 
         return cls(
             model_type=model_type,

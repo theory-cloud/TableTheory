@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,6 +40,7 @@ class TransactUpdate:
     condition_expression: str | None = None
     expression_attribute_names: Mapping[str, str] | None = None
     expression_attribute_values: Mapping[str, Any] | None = None
+    protected_attributes: Sequence[str] = ()
 
 
 @dataclass(frozen=True)

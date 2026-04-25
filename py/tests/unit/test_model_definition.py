@@ -4,7 +4,15 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py.model import ModelDefinition, ModelDefinitionError, Projection, gsi, lsi, theorydb_field
+from theorydb_py.model import (
+    ModelDefinition,
+    ModelDefinitionError,
+    Projection,
+    WritePolicy,
+    gsi,
+    lsi,
+    theorydb_field,
+)
 
 
 @dataclass(frozen=True)
@@ -98,3 +106,34 @@ def test_model_definition_rejects_json_set_and_json_binary() -> None:
 
     with pytest.raises(ModelDefinitionError, match="json and binary"):
         ModelDefinition.from_dataclass(JsonBinary)
+
+
+def test_model_definition_normalizes_write_policy() -> None:
+    model = ModelDefinition.from_dataclass(
+        User,
+        table_name="users",
+        write_policy=WritePolicy(
+            mode="",
+            protected_attributes=[" emailHash ", "email_hash", "emailHash"],
+        ),
+    )
+
+    assert model.write_policy.mode == "mutable"
+    assert model.write_policy.protected_attributes == ("emailHash",)
+
+
+def test_model_definition_rejects_invalid_write_policy() -> None:
+    with pytest.raises(ModelDefinitionError, match="unsupported write_policy.mode"):
+        WritePolicy(mode="frozen")
+
+    with pytest.raises(ModelDefinitionError, match="protected attributes must be a sequence"):
+        WritePolicy(protected_attributes="emailHash")  # type: ignore[arg-type]
+
+    with pytest.raises(ModelDefinitionError, match="must contain strings"):
+        WritePolicy(protected_attributes=[123])  # type: ignore[list-item]
+
+    with pytest.raises(ModelDefinitionError, match="must be non-empty"):
+        WritePolicy(protected_attributes=[" "])
+
+    with pytest.raises(ModelDefinitionError, match="protected attribute not found"):
+        ModelDefinition.from_dataclass(User, write_policy=WritePolicy(protected_attributes=["missing"]))
