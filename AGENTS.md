@@ -34,6 +34,7 @@ Single test example: `go test -v -run TestName ./pkg/query`
 - Tests use `testing` + `stretchr/testify`; prefer table-driven tests.
 - Unit tests should avoid Docker; use interfaces in `pkg/core/` and mocks in `pkg/mocks/`.
 - Integration tests rely on DynamoDB Local and `DYNAMODB_ENDPOINT` (see `tests/README.md` and `./tests/setup_test_env.sh`).
+- `make rubric` is the core CI parity/quality check and must pass before opening or updating a pull request.
 
 ## Commit & Pull Request Guidelines
 - Branch naming commonly uses `feature/...`, `fix/...`, `chore/...`.

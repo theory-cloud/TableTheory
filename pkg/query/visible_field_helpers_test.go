@@ -28,6 +28,7 @@ func (visibleFieldHelperConverter) ConvertToSet(any, bool) (types.AttributeValue
 func TestFindVisibleFieldByNames_UsesPromotedMetadataAndTags(t *testing.T) {
 	type BaseObject struct {
 		Status string `dynamodb:"status_db" theorydb:"attr:status_attr"`
+		Secret string `theorydb:"encrypted,attr:secret"`
 	}
 
 	//nolint:govet // Field order mirrors the anonymous-embed contract fixture under test.
@@ -43,7 +44,7 @@ func TestFindVisibleFieldByNames_UsesPromotedMetadataAndTags(t *testing.T) {
 	}, &cov4Executor{})
 
 	modelValue := reflect.ValueOf(activity{
-		BaseObject: BaseObject{Status: "ready"},
+		BaseObject: BaseObject{Status: "ready", Secret: "plaintext"},
 		Actor:      "acct:actor",
 	})
 
@@ -66,7 +67,19 @@ func TestFindVisibleFieldByNames_UsesPromotedMetadataAndTags(t *testing.T) {
 		})
 	}
 
-	_, _, ok := q.findVisibleFieldByNames(reflect.ValueOf("not-a-struct"), "Status")
+	for _, lookup := range []string{"attr:secret", "secret"} {
+		t.Run(lookup, func(t *testing.T) {
+			fieldValue, fieldStruct, ok := q.findVisibleFieldByNames(modelValue, lookup)
+			require.True(t, ok)
+			require.Equal(t, "Secret", fieldStruct.Name)
+			require.Equal(t, "plaintext", fieldValue.String())
+		})
+	}
+
+	_, _, ok := q.findVisibleFieldByNames(modelValue, "encrypted")
+	require.False(t, ok)
+
+	_, _, ok = q.findVisibleFieldByNames(reflect.ValueOf("not-a-struct"), "Status")
 	require.False(t, ok)
 }
 

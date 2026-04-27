@@ -659,6 +659,9 @@ func (q *Query) BatchWriteWithOptions(putItems []any, deleteKeys []any, opts *Ba
 		if err := q.rejectWriteOnceMutation("batch put"); err != nil {
 			return err
 		}
+		if err := q.rejectProtectedOverwrite("batch put"); err != nil {
+			return err
+		}
 	}
 	if len(deleteKeys) > 0 {
 		if err := q.rejectWriteOnceMutation("batch delete"); err != nil {

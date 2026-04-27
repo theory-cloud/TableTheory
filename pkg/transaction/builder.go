@@ -227,7 +227,10 @@ func validateWritePolicyForOperation(opType operationType, metadata *model.Metad
 	case opCreate, opConditionCheck:
 		return nil
 	case opPut:
-		return rejectWriteOnceMutation(metadata, "transaction put")
+		if err := rejectWriteOnceMutation(metadata, "transaction put"); err != nil {
+			return err
+		}
+		return rejectProtectedOverwrite(metadata, "transaction put")
 	case opUpdate:
 		if err := rejectWriteOnceMutation(metadata, "transaction update"); err != nil {
 			return err

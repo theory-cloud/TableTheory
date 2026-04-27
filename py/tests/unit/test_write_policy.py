@@ -107,6 +107,35 @@ def test_write_once_put_combines_existing_condition_without_loosened_names() -> 
     client.assert_no_pending()
 
 
+def test_protected_put_adds_default_condition_and_overwrites_reject() -> None:
+    client = FakeDynamoDBClient()
+
+    def validate_put(req: dict[str, Any]) -> None:
+        assert req["ConditionExpression"] == "attribute_not_exists(#pk)"
+        assert req["ExpressionAttributeNames"]["#pk"] == "PK"
+
+    client.expect("put_item", validate_put, response={})
+    table: Table[ReleaseStateActual] = Table(_actual_model(), client=client)
+
+    actual = ReleaseStateActual(
+        pk="RELEASE#service-a",
+        sk="ACTUAL",
+        status="active",
+        pinned_release_id="rel_001",
+    )
+    table.put(actual)
+    client.assert_no_pending()
+
+    for operation in (
+        lambda: table.save(actual),
+        lambda: table.batch_write(puts=[actual]),
+    ):
+        with pytest.raises(ProtectedFieldMutationError):
+            operation()
+
+    assert len(client.calls) == 1
+
+
 def test_protected_attributes_block_table_updates_with_additive_tightening() -> None:
     client = FakeDynamoDBClient()
     model = _actual_model()
@@ -192,6 +221,29 @@ def test_transactions_enforce_write_policy() -> None:
                 )
             ]
         )
+
+    actual_client = FakeDynamoDBClient()
+
+    def validate_protected_put(req: dict[str, Any]) -> None:
+        put = req["TransactItems"][0]["Put"]
+        assert put["ConditionExpression"] == "attribute_not_exists(#pk)"
+        assert put["ExpressionAttributeNames"]["#pk"] == "PK"
+
+    actual_client.expect("transact_write_items", validate_protected_put, response={})
+    actual_table = Table(_actual_model(), client=actual_client)
+    actual_table.transact_write(
+        [
+            TransactPut(
+                item=ReleaseStateActual(
+                    pk="RELEASE#service-a",
+                    sk="ACTUAL",
+                    status="active",
+                    pinned_release_id="rel_001",
+                )
+            )
+        ]
+    )
+    actual_client.assert_no_pending()
 
 
 def _updates_field(req: dict[str, Any], attribute_name: str) -> bool:
