@@ -68,6 +68,10 @@ Multi-language versioning:
 - **TypeScript**: `ts/package.json`, `ts/package-lock.json`
 - **Python**: `py/src/theorydb_py/version.json`
 
+Every PR to `staging` must check both release and release-candidate version alignment before it is opened or updated.
+The stable release baseline and prerelease/RC baseline must agree with the current `main` line so release-please never
+generates an older RC (for example `v1.6.0-rc.N`) after a newer stable release (for example `v1.7.0`) has shipped.
+
 Release automation must keep these files coherent so the stable line never lags the prerelease line on promotion.
 The rubric enforces this via:
 
