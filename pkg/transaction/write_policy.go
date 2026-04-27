@@ -19,6 +19,16 @@ func rejectWriteOnceMutation(metadata *model.Metadata, operation string) error {
 	return fmt.Errorf("%w: %s", theorydbErrors.ErrImmutableModelMutation, operation)
 }
 
+func rejectProtectedOverwrite(metadata *model.Metadata, operation string) error {
+	if metadata == nil || len(metadata.WritePolicy.ProtectedAttributes) == 0 {
+		return nil
+	}
+	if operation == "" {
+		operation = "overwrite"
+	}
+	return fmt.Errorf("%w: %s", theorydbErrors.ErrProtectedFieldMutation, operation)
+}
+
 func rejectProtectedFieldMutation(metadata *model.Metadata, fields []string) error {
 	protected := protectedAttributeSet(metadata)
 	if len(protected) == 0 {

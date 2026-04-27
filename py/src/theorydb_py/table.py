@@ -42,6 +42,7 @@ from .transaction import (
 from .write_policy import (
     apply_write_once_create_condition,
     assert_mutable_write_policy,
+    assert_no_protected_overwrite,
     assert_protected_fields_can_mutate,
 )
 
@@ -655,6 +656,7 @@ class Table[T]:
 
         if puts:
             assert_mutable_write_policy(self._model, "batch put")
+            assert_no_protected_overwrite(self._model, "batch put")
         if deletes:
             assert_mutable_write_policy(self._model, "batch delete")
 
@@ -803,6 +805,7 @@ class Table[T]:
         expression_attribute_values: Mapping[str, Any] | None = None,
     ) -> None:
         assert_mutable_write_policy(self._model, "save")
+        assert_no_protected_overwrite(self._model, "save")
         self.put(
             item,
             condition_expression=condition_expression,
