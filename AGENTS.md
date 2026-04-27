@@ -1,5 +1,10 @@
 # Repository Guidelines
 
+## Stewardship Loop
+- TableTheory maintenance runs through a two-party stewardship loop: the sole human maintainer and the dedicated TableTheory steward.
+- Assume there is no additional human maintainer or reviewer who will catch process, contract, release, or CI mistakes.
+- All repository changes, pull requests, release-flow decisions, and stewardship corrections go through this maintainer/steward loop.
+
 ## Project Structure & Module Organization
 - `theorydb.go` and other root `*.go`: main `theorydb` package.
 - `pkg/`: public packages (`core/`, `model/`, `query/`, `session/`, `types/`, `marshal/`, `transaction/`, `errors/`, `mocks/`).
