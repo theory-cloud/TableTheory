@@ -1,5 +1,10 @@
 # Repository Guidelines
 
+## Stewardship Loop
+- TableTheory maintenance runs through a two-party stewardship loop: the sole human maintainer and the dedicated TableTheory steward.
+- Assume there is no additional human maintainer or reviewer who will catch process, contract, release, or CI mistakes.
+- All repository changes, pull requests, release-flow decisions, and stewardship corrections go through this maintainer/steward loop.
+
 ## Project Structure & Module Organization
 - `theorydb.go` and other root `*.go`: main `theorydb` package.
 - `pkg/`: public packages (`core/`, `model/`, `query/`, `session/`, `types/`, `marshal/`, `transaction/`, `errors/`, `mocks/`).
@@ -34,6 +39,7 @@ Single test example: `go test -v -run TestName ./pkg/query`
 - Tests use `testing` + `stretchr/testify`; prefer table-driven tests.
 - Unit tests should avoid Docker; use interfaces in `pkg/core/` and mocks in `pkg/mocks/`.
 - Integration tests rely on DynamoDB Local and `DYNAMODB_ENDPOINT` (see `tests/README.md` and `./tests/setup_test_env.sh`).
+- `make rubric` is the core CI parity/quality check and must pass before opening or updating a pull request.
 
 ## Commit & Pull Request Guidelines
 - Branch naming commonly uses `feature/...`, `fix/...`, `chore/...`.
@@ -61,6 +67,10 @@ Multi-language versioning:
 - **Prerelease manifest**: `.release-please-manifest.premain.json`
 - **TypeScript**: `ts/package.json`, `ts/package-lock.json`
 - **Python**: `py/src/theorydb_py/version.json`
+
+Every PR to `staging` must check both release and release-candidate version alignment before it is opened or updated.
+The stable release baseline and prerelease/RC baseline must agree with the current `main` line so release-please never
+generates an older RC (for example `v1.6.0-rc.N`) after a newer stable release (for example `v1.7.0`) has shipped.
 
 Release automation must keep these files coherent so the stable line never lags the prerelease line on promotion.
 The rubric enforces this via:

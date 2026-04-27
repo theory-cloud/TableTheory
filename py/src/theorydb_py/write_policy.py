@@ -12,10 +12,24 @@ def is_write_once_model(model: ModelDefinition[Any]) -> bool:
     return model.write_policy.mode == "write_once"
 
 
+def has_protected_attributes(model: ModelDefinition[Any]) -> bool:
+    return bool(model.write_policy.protected_attributes)
+
+
+def requires_create_not_exists_condition(model: ModelDefinition[Any]) -> bool:
+    return is_write_once_model(model) or has_protected_attributes(model)
+
+
 def assert_mutable_write_policy(model: ModelDefinition[Any], operation: str) -> None:
     if not is_write_once_model(model):
         return
     raise ImmutableModelMutationError(operation or "mutation")
+
+
+def assert_no_protected_overwrite(model: ModelDefinition[Any], operation: str) -> None:
+    if not has_protected_attributes(model):
+        return
+    raise ProtectedFieldMutationError(operation or "overwrite")
 
 
 def assert_protected_fields_can_mutate(
@@ -34,7 +48,7 @@ def assert_protected_fields_can_mutate(
 
 
 def apply_write_once_create_condition(model: ModelDefinition[Any], request: dict[str, Any]) -> None:
-    if not is_write_once_model(model):
+    if not requires_create_not_exists_condition(model):
         return
 
     names = dict(request.get("ExpressionAttributeNames") or {})

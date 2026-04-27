@@ -214,7 +214,7 @@ func TestQuery_Update_PromotedAnonymousEmbeddedKeyAndFieldFallback(t *testing.T)
 	require.True(t, foundStatus, "expected status placeholder to be emitted for promoted embedded field")
 }
 
-func TestQuery_Update_UsesCanonicalAttributeNameForTheoryDBModifierLookup(t *testing.T) {
+func TestQuery_Update_RejectsTheoryDBModifierLookupForEncryptedField(t *testing.T) {
 	type updateItem struct {
 		PK     string `theorydb:"pk"`
 		Secret string `theorydb:"encrypted,attr:secret"`
@@ -233,7 +233,30 @@ func TestQuery_Update_UsesCanonicalAttributeNameForTheoryDBModifierLookup(t *tes
 
 	q := New(item, metadata, executor)
 
-	require.NoError(t, q.Update("encrypted"))
+	require.ErrorContains(t, q.Update("encrypted"), "field encrypted not found")
+	require.Nil(t, executor.lastUpdate)
+}
+
+func TestQuery_Update_UsesCanonicalAttributeNameForTheoryDBAttrLookup(t *testing.T) {
+	type updateItem struct {
+		PK     string `theorydb:"pk"`
+		Secret string `theorydb:"encrypted,attr:secret"`
+	}
+
+	metadata := &cov4Metadata{
+		table: "tbl",
+		pk:    core.KeySchema{PartitionKey: "pk"},
+	}
+
+	executor := &cov4Executor{}
+	item := &updateItem{
+		PK:     "id-1",
+		Secret: "top-secret",
+	}
+
+	q := New(item, metadata, executor)
+
+	require.NoError(t, q.Update("secret"))
 	require.NotNil(t, executor.lastUpdate)
 	require.NotEmpty(t, executor.lastUpdate.UpdateExpression)
 

@@ -141,7 +141,8 @@ export class TheorydbClient {
         )
       : marshalPutItem(model, item, { now });
 
-    const requireIfNotExists = opts.ifNotExists || isWriteOnceModel(model);
+    const requireIfNotExists =
+      opts.ifNotExists || requiresCreateNotExistsCondition(model);
     const cmd = new PutItemCommand({
       TableName: model.tableName,
       Item: putItem,
@@ -163,6 +164,7 @@ export class TheorydbClient {
   async save(modelName: string, item: Record<string, unknown>): Promise<void> {
     const model = this.requireModel(modelName);
     assertMutableWritePolicy(model, 'save');
+    assertNoProtectedOverwrite(model, 'save');
 
     const now = this.now();
     const putItem = modelHasEncryptedAttributes(model)
@@ -435,6 +437,7 @@ export class TheorydbClient {
     const model = this.requireModel(modelName);
     if ((req.puts?.length ?? 0) > 0) {
       assertMutableWritePolicy(model, 'batch put');
+      assertNoProtectedOverwrite(model, 'batch put');
     }
     if ((req.deletes?.length ?? 0) > 0) {
       assertMutableWritePolicy(model, 'batch delete');
@@ -519,7 +522,7 @@ export class TheorydbClient {
             TableName: model.tableName,
             Item: item,
           };
-          if (a.ifNotExists || isWriteOnceModel(model)) {
+          if (a.ifNotExists || requiresCreateNotExistsCondition(model)) {
             put.ConditionExpression = 'attribute_not_exists(#pk)';
             put.ExpressionAttributeNames = { '#pk': model.roles.pk };
           }
@@ -651,4 +654,17 @@ function policyFieldsForUpdate(
   if (model.roles.updatedAt) out.push(model.roles.updatedAt);
   if (model.roles.version) out.push(model.roles.version);
   return out;
+}
+
+function hasProtectedAttributes(model: Model): boolean {
+  return model.writePolicy.protectedAttributes.length > 0;
+}
+
+function requiresCreateNotExistsCondition(model: Model): boolean {
+  return isWriteOnceModel(model) || hasProtectedAttributes(model);
+}
+
+function assertNoProtectedOverwrite(model: Model, operation: string): void {
+  if (!hasProtectedAttributes(model)) return;
+  throw new TheorydbError('ErrProtectedFieldMutation', operation);
 }

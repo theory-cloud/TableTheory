@@ -63,7 +63,9 @@ func writePolicyAttributeMetadata(field *model.FieldMetadata) *core.AttributeMet
 }
 
 type writePolicyRecordingExecutor struct {
-	compiled *core.CompiledQuery
+	compiled           *core.CompiledQuery
+	batchTableName     string
+	batchWriteRequests []types.WriteRequest
 }
 
 func (e *writePolicyRecordingExecutor) ExecuteQuery(*core.CompiledQuery, any) error { return nil }
@@ -82,6 +84,12 @@ func (e *writePolicyRecordingExecutor) ExecuteUpdateItem(input *core.CompiledQue
 func (e *writePolicyRecordingExecutor) ExecuteDeleteItem(input *core.CompiledQuery, _ map[string]types.AttributeValue) error {
 	e.compiled = input
 	return nil
+}
+
+func (e *writePolicyRecordingExecutor) ExecuteBatchWriteItem(tableName string, writeRequests []types.WriteRequest) (*core.BatchWriteResult, error) {
+	e.batchTableName = tableName
+	e.batchWriteRequests = writeRequests
+	return &core.BatchWriteResult{}, nil
 }
 
 type writePolicyActualItem struct {
@@ -135,6 +143,15 @@ func TestWritePolicy_CreateOnWriteOnceAddsNotExistsCondition(t *testing.T) {
 	require.Contains(t, executor.compiled.ConditionExpression, "attribute_not_exists")
 }
 
+func TestWritePolicy_CreateOnProtectedModelAddsNotExistsCondition(t *testing.T) {
+	item := &writePolicyActualItem{PK: "release#svc", SK: "actual", Status: "warming", PinnedReleaseID: "rel-1"}
+	q, executor := newWritePolicyQuery(t, item)
+
+	require.NoError(t, q.Create())
+	require.NotNil(t, executor.compiled)
+	require.Contains(t, executor.compiled.ConditionExpression, "attribute_not_exists")
+}
+
 func TestWritePolicy_WriteOnceRejectsGenericMutations(t *testing.T) {
 	tests := []struct {
 		run  func(*Query) error
@@ -161,6 +178,38 @@ func TestWritePolicy_WriteOnceRejectsGenericMutations(t *testing.T) {
 			err := tt.run(q)
 			require.Error(t, err)
 			require.True(t, errors.Is(err, theorydbErrors.ErrImmutableModelMutation))
+		})
+	}
+}
+
+func TestWritePolicy_ProtectedAttributesRejectPutStyleOverwrites(t *testing.T) {
+	item := &writePolicyActualItem{
+		PK:              "release#svc",
+		SK:              "actual",
+		Status:          "warming",
+		PinnedReleaseID: "rel-2",
+		Version:         1,
+	}
+
+	tests := []struct {
+		run  func(*Query) error
+		name string
+	}{
+		{run: func(q *Query) error { return q.CreateOrUpdate() }, name: "upsert"},
+		{run: func(q *Query) error {
+			return q.BatchCreate([]writePolicyActualItem{*item})
+		}, name: "batch_create"},
+		{run: func(q *Query) error {
+			return q.BatchWrite([]any{*item}, nil)
+		}, name: "batch_put"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q, _ := newWritePolicyQuery(t, item)
+			err := tt.run(q)
+			require.Error(t, err)
+			require.True(t, errors.Is(err, theorydbErrors.ErrProtectedFieldMutation))
 		})
 	}
 }

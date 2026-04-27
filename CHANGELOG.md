@@ -12,6 +12,14 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 
+## [1.7.1-rc](https://github.com/theory-cloud/TableTheory/compare/v1.7.0...v1.7.1-rc) (2026-04-27)
+
+
+### Bug Fixes
+
+* **security:** harden protected write policies ([b5e2156](https://github.com/theory-cloud/TableTheory/commit/b5e2156749da4ef6e6de125173c865672811f756))
+* **security:** harden protected write policies ([f021d85](https://github.com/theory-cloud/TableTheory/commit/f021d852e9d519e3c9c9f5b83ac14658d285e3bb))
+
 ## [1.7.0](https://github.com/theory-cloud/TableTheory/compare/v1.6.1...v1.7.0) (2026-04-25)
 
 
