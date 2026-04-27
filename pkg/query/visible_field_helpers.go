@@ -170,16 +170,37 @@ func appendQueryTheorydbLookupNames(names []string, tag string) []string {
 		return names
 	}
 
-	name := strings.TrimSpace(strings.Split(tag, ",")[0])
-	if name == "" || name == "-" {
-		return names
-	}
+	for _, token := range strings.Split(tag, ",") {
+		token = strings.TrimSpace(token)
+		if token == "" || token == "-" {
+			continue
+		}
 
-	names = appendQueryLookupName(names, name)
-	if strings.HasPrefix(name, "attr:") {
-		names = appendQueryLookupName(names, strings.TrimPrefix(name, "attr:"))
+		if isQueryTheorydbRoleLookupName(token) {
+			names = appendQueryLookupName(names, token)
+			continue
+		}
+
+		if strings.HasPrefix(token, "attr:") {
+			name := strings.TrimSpace(strings.TrimPrefix(token, "attr:"))
+			if name == "" || name == "-" {
+				continue
+			}
+
+			names = appendQueryLookupName(names, token)
+			names = appendQueryLookupName(names, name)
+		}
 	}
 	return names
+}
+
+func isQueryTheorydbRoleLookupName(token string) bool {
+	switch token {
+	case "pk", "sk":
+		return true
+	default:
+		return false
+	}
 }
 
 func appendQueryLookupName(names []string, name string) []string {

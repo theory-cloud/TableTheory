@@ -92,6 +92,24 @@ func TestWritePolicyTransactionBuilder_ProtectedFieldRules(t *testing.T) {
 		PinnedReleaseID: "rel-1",
 	}
 
+	t.Run("create allowed", func(t *testing.T) {
+		builder, _ := newWritePolicyTransactionBuilder(t)
+		builder.Create(actual)
+		items, err := builder.materializeOperations()
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		require.NotNil(t, items[0].Put)
+		require.NotNil(t, items[0].Put.ConditionExpression)
+	})
+
+	t.Run("put rejects protected overwrite", func(t *testing.T) {
+		builder, _ := newWritePolicyTransactionBuilder(t)
+		builder.Put(actual)
+		err := builder.Execute()
+		require.Error(t, err)
+		require.True(t, errors.Is(err, theorydbErrors.ErrProtectedFieldMutation))
+	})
+
 	t.Run("field update rejects protected attr", func(t *testing.T) {
 		builder, _ := newWritePolicyTransactionBuilder(t)
 		builder.Update(actual, []string{"pinnedReleaseId"})

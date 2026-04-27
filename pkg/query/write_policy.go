@@ -33,6 +33,21 @@ func (q *Query) rejectWriteOnceMutation(operation string) error {
 	return fmt.Errorf("%w: %s", theorydbErrors.ErrImmutableModelMutation, operation)
 }
 
+func (q *Query) rejectProtectedOverwrite(operation string) error {
+	if len(q.writePolicy().ProtectedAttributes) == 0 {
+		return nil
+	}
+	if operation == "" {
+		operation = "overwrite"
+	}
+	return fmt.Errorf("%w: %s", theorydbErrors.ErrProtectedFieldMutation, operation)
+}
+
+func (q *Query) requiresCreateNotExistsCondition() bool {
+	policy := q.writePolicy()
+	return policy.Mode == model.WritePolicyModeWriteOnce || len(policy.ProtectedAttributes) > 0
+}
+
 func (q *Query) rejectProtectedFieldMutation(fields []string, extraProtected []string) error {
 	protected := q.protectedAttributeSet(extraProtected)
 	if len(protected) == 0 {

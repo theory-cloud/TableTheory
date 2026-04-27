@@ -46,6 +46,15 @@ steps:
     expect:
       error: "ErrProtectedFieldMutation"
 
+  - op: save
+    item:
+      PK: "RELEASE#service-a"
+      SK: "ACTUAL"
+      status: "active"
+      pinnedReleaseId: "rel_002"
+    expect:
+      error: "ErrProtectedFieldMutation"
+
   - op: delete
     key:
       PK: "RELEASE#service-a"

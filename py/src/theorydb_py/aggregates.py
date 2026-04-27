@@ -357,7 +357,11 @@ def _to_float(value: Any) -> float | None:
     if isinstance(value, (int, float, Decimal)):
         try:
             converted = float(value)
-        except OverflowError, TypeError, ValueError:
+        except (
+            OverflowError,
+            TypeError,
+            ValueError,
+        ):
             return None
         if not math.isfinite(converted):
             return None

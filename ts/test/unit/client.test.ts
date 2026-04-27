@@ -137,6 +137,24 @@ class StubDdb {
 }
 
 {
+  const ddb = new StubDdb(() => ({}));
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+  );
+
+  await client.create('ReleaseStateActual', {
+    PK: 'RELEASE#service-a',
+    SK: 'ACTUAL',
+    status: 'active',
+    pinnedReleaseId: 'rel_001',
+  });
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof PutItemCommand);
+  assert.equal(cmd.input.ConditionExpression, 'attribute_not_exists(#pk)');
+  assert.deepEqual(cmd.input.ExpressionAttributeNames, { '#pk': 'PK' });
+}
+
+{
   const err = new ConditionalCheckFailedException({
     $metadata: {},
     message: 'no',
@@ -302,6 +320,41 @@ class StubDdb {
     (e) => e instanceof TheorydbError && e.code === 'ErrProtectedFieldMutation',
   );
   assert.equal(ddb.sent.length, 1);
+}
+
+{
+  const ddb = new StubDdb(() => {
+    throw new Error('protected overwrite should not send');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+  );
+
+  await assert.rejects(
+    () =>
+      client.save('ReleaseStateActual', {
+        PK: 'RELEASE#service-a',
+        SK: 'ACTUAL',
+        status: 'active',
+        pinnedReleaseId: 'rel_002',
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrProtectedFieldMutation',
+  );
+  await assert.rejects(
+    () =>
+      client.batchWrite('ReleaseStateActual', {
+        puts: [
+          {
+            PK: 'RELEASE#service-a',
+            SK: 'ACTUAL',
+            status: 'active',
+            pinnedReleaseId: 'rel_002',
+          },
+        ],
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrProtectedFieldMutation',
+  );
+  assert.equal(ddb.sent.length, 0);
 }
 
 {
@@ -501,6 +554,35 @@ class StubDdb {
       kind: 'put',
       model: 'ReleaseStateEvent',
       item: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+    },
+  ]);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  const put = cmd.input.TransactItems?.[0]?.Put;
+  assert.equal(put?.ConditionExpression, 'attribute_not_exists(#pk)');
+  assert.deepEqual(put?.ExpressionAttributeNames, { '#pk': 'PK' });
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof TransactWriteItemsCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+  );
+
+  await client.transactWrite([
+    {
+      kind: 'put',
+      model: 'ReleaseStateActual',
+      item: {
+        PK: 'RELEASE#service-a',
+        SK: 'ACTUAL',
+        status: 'active',
+        pinnedReleaseId: 'rel_001',
+      },
     },
   ]);
 
