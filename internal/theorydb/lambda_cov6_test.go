@@ -170,6 +170,81 @@ func TestLambdaDB_WithLambdaTimeout_SetsAdjustedDeadline_COV6(t *testing.T) {
 	require.NotNil(t, newDB.db)
 	require.Equal(t, ctx, newDB.db.ctx)
 	require.WithinDuration(t, deadline.Add(-1*time.Second), newDB.db.lambdaDeadline, 25*time.Millisecond)
+	require.Zero(t, newDB.db.lambdaTimeoutBuffer)
+}
+
+func TestLambdaDB_WithLambdaTimeoutConfig_PreservesConfiguredBuffer_COV6(t *testing.T) {
+	httpClient := newCapturingHTTPClient(nil)
+
+	stubSessionConfigLoad(t, func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
+		return minimalAWSConfig(httpClient), nil
+	})
+
+	dbAny, err := New(session.Config{Region: "us-east-1"})
+	require.NoError(t, err)
+	db := mustDB(t, dbAny)
+	db.metadataCache.Store("cached", "value")
+
+	ldb := &LambdaDB{
+		ExtendedDB:     db,
+		db:             db,
+		modelCache:     &sync.Map{},
+		lambdaMemoryMB: 1024,
+		isLambda:       true,
+		xrayEnabled:    true,
+	}
+	require.NoError(t, ldb.PreRegisterModels(&cov4LambdaModel{}))
+
+	configured := ldb.WithLambdaTimeoutConfig(LambdaTimeoutConfig{Buffer: 500 * time.Millisecond})
+	require.NotNil(t, configured)
+	require.NotSame(t, ldb, configured)
+	require.NotSame(t, db, configured.db)
+	require.Equal(t, 500*time.Millisecond, configured.db.lambdaTimeoutBuffer)
+	require.Same(t, ldb.modelCache, configured.modelCache)
+	require.True(t, configured.IsModelRegistered(cov4LambdaModel{}))
+	require.Same(t, db.session, configured.db.session)
+	require.Same(t, db.registry, configured.db.registry)
+	require.Same(t, db.converter, configured.db.converter)
+	require.Same(t, db.marshaler, configured.db.marshaler)
+	require.Equal(t, ldb.lambdaMemoryMB, configured.lambdaMemoryMB)
+	require.Equal(t, ldb.isLambda, configured.isLambda)
+	require.Equal(t, ldb.xrayEnabled, configured.xrayEnabled)
+	cached, ok := configured.db.metadataCache.Load("cached")
+	require.True(t, ok)
+	require.Equal(t, "value", cached)
+
+	deadline := time.Now().Add(5 * time.Second)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	t.Cleanup(cancel)
+
+	timed := configured.WithLambdaTimeout(ctx)
+	require.NotNil(t, timed)
+	require.Equal(t, ctx, timed.db.ctx)
+	require.Equal(t, 500*time.Millisecond, timed.db.lambdaTimeoutBuffer)
+	require.WithinDuration(t, deadline.Add(-500*time.Millisecond), timed.db.lambdaDeadline, 25*time.Millisecond)
+	require.Same(t, configured.modelCache, timed.modelCache)
+	require.True(t, timed.IsModelRegistered(cov4LambdaModel{}))
+	cached, ok = timed.db.metadataCache.Load("cached")
+	require.True(t, ok)
+	require.Equal(t, "value", cached)
+}
+
+func TestLambdaDB_WithLambdaTimeoutConfig_NonPositiveBufferUsesDefault_COV6(t *testing.T) {
+	db := &DB{}
+	ldb := &LambdaDB{ExtendedDB: db, db: db, modelCache: &sync.Map{}}
+
+	configured := ldb.WithLambdaTimeoutConfig(LambdaTimeoutConfig{Buffer: -1})
+	require.NotNil(t, configured)
+	require.Zero(t, configured.db.lambdaTimeoutBuffer)
+
+	deadline := time.Now().Add(5 * time.Second)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	t.Cleanup(cancel)
+
+	timed := configured.WithLambdaTimeout(ctx)
+	require.NotNil(t, timed)
+	require.Zero(t, timed.db.lambdaTimeoutBuffer)
+	require.WithinDuration(t, deadline.Add(-defaultLambdaDBTimeoutBuffer), timed.db.lambdaDeadline, 25*time.Millisecond)
 }
 
 func TestGetLambdaMemoryMB_HandlesEmptyAndInvalidValues_COV6(t *testing.T) {
