@@ -12,6 +12,20 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 
+## [1.8.0](https://github.com/theory-cloud/TableTheory/compare/v1.7.1...v1.8.0) (2026-04-30)
+
+
+### Features
+
+* **go:** add LambdaDB timeout configuration ([5b070f1](https://github.com/theory-cloud/TableTheory/commit/5b070f111b95651efab5315a39ca0ead13c87ee1))
+* **py:** add lambda timeout helper ([d43d776](https://github.com/theory-cloud/TableTheory/commit/d43d776d4e156ce4473a4fe838ad125dec007397))
+* **runtime:** add lambda timeout buffer parity ([ce82176](https://github.com/theory-cloud/TableTheory/commit/ce821765944b255bbe9437883c74386d5a5f6eeb))
+
+
+### Bug Fixes
+
+* **runtime:** apply lambda timeout buffers once ([633cb39](https://github.com/theory-cloud/TableTheory/commit/633cb3923a04449fce837bec97317bb7b02d388e))
+
 ## [1.8.0-rc](https://github.com/theory-cloud/TableTheory/compare/v1.7.1-rc...v1.8.0-rc) (2026-04-30)
 
 
