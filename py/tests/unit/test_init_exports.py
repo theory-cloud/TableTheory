@@ -10,6 +10,10 @@ def test_init_exposes_lazy_exports_via_getattr() -> None:
     assert callable(theorydb.aggregate_field)
     assert callable(theorydb.QueryOptimizer)
     assert callable(theorydb.is_lambda_environment)
+    assert theorydb.DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS == 1.0
+    assert callable(theorydb.LambdaTimeoutConfig)
+    assert callable(theorydb.check_lambda_timeout)
+    assert callable(theorydb.with_lambda_timeout)
     assert callable(theorydb.MultiAccountSessions)
     assert callable(theorydb.SimpleLimiter)
     assert callable(theorydb.validate_expression)
