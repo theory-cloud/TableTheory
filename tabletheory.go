@@ -20,10 +20,11 @@ import (
 )
 
 type (
-	DB                = internaltheorydb.DB
-	LambdaDB          = internaltheorydb.LambdaDB
-	LambdaMemoryStats = internaltheorydb.LambdaMemoryStats
-	ColdStartMetrics  = internaltheorydb.ColdStartMetrics
+	DB                  = internaltheorydb.DB
+	LambdaDB            = internaltheorydb.LambdaDB
+	LambdaTimeoutConfig = internaltheorydb.LambdaTimeoutConfig
+	LambdaMemoryStats   = internaltheorydb.LambdaMemoryStats
+	ColdStartMetrics    = internaltheorydb.ColdStartMetrics
 
 	MultiAccountDB = internaltheorydb.MultiAccountDB
 	AccountConfig  = internaltheorydb.AccountConfig

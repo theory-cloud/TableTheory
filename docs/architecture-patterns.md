@@ -47,7 +47,7 @@ TableTheory is designed with AWS Lambda in mind to leverage its cold start optim
 
 ### AWS Lambda
 -   **Initialization:** Always use `tabletheory.NewLambdaOptimized()` or `tabletheory.LambdaInit()` in the global scope (`init()` function) to ensure connection reuse and minimal cold start latency.
--   **Context Handling:** Use `db.WithLambdaTimeout(ctx)` to wrap your TableTheory instance with Lambda's execution context, enabling automatic cancellation of operations before a timeout occurs.
+-   **Context Handling:** Use `db.WithLambdaTimeout(ctx)` to wrap your TableTheory instance with Lambda's execution context, enabling automatic cancellation of operations before a timeout occurs. Configure custom cleanup windows with `db.WithLambdaTimeoutConfig(tabletheory.LambdaTimeoutConfig{Buffer: ...})` during cold start; the default buffer is 1 second.
 -   **Memory Sizing:** Tune Lambda memory based on `LambdaDB.GetMemoryStats()` to balance performance and cost.
 
 ### API Gateway

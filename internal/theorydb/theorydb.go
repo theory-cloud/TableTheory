@@ -448,12 +448,13 @@ func (db *DB) WithLambdaTimeout(ctx context.Context) core.DB {
 		return db
 	}
 
-	// Leave a buffer for Lambda cleanup
+	// Leave a buffer for Lambda cleanup. Store the hard Lambda deadline and
+	// the effective buffer separately so query execution applies the stop
+	// window exactly once.
 	buffer := db.lambdaTimeoutBuffer
 	if buffer == 0 {
 		buffer = 500 * time.Millisecond // Default buffer
 	}
-	adjustedDeadline := deadline.Add(-buffer)
 
 	db.mu.RLock()
 	defer db.mu.RUnlock()
@@ -464,8 +465,8 @@ func (db *DB) WithLambdaTimeout(ctx context.Context) core.DB {
 		converter:           db.converter,
 		marshaler:           db.marshaler,
 		ctx:                 ctx,
-		lambdaDeadline:      adjustedDeadline,
-		lambdaTimeoutBuffer: db.lambdaTimeoutBuffer,
+		lambdaDeadline:      deadline,
+		lambdaTimeoutBuffer: buffer,
 	}
 
 	// Copy metadata cache

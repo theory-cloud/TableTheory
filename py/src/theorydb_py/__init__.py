@@ -63,13 +63,17 @@ if TYPE_CHECKING:
     from .protection import ConcurrencyLimiter, SimpleLimiter
     from .release_state import transition_release_state, validate_deploy_authority_metadata
     from .runtime import (
+        DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS,
         AwsCallMetric,
+        LambdaTimeoutConfig,
+        check_lambda_timeout,
         create_lambda_boto3_config,
         get_lambda_boto3_client,
         get_lambda_dynamodb_client,
         get_lambda_kms_client,
         instrument_boto3_client,
         is_lambda_environment,
+        with_lambda_timeout,
     )
     from .schema import (
         build_create_table_request,
@@ -169,12 +173,16 @@ def __getattr__(name: str) -> Any:
         return unmarshal_stream_record
     if name in {
         "AwsCallMetric",
+        "DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS",
+        "LambdaTimeoutConfig",
+        "check_lambda_timeout",
         "create_lambda_boto3_config",
         "get_lambda_boto3_client",
         "get_lambda_dynamodb_client",
         "get_lambda_kms_client",
         "instrument_boto3_client",
         "is_lambda_environment",
+        "with_lambda_timeout",
     }:
         from . import runtime
 
@@ -221,6 +229,8 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "AwsError",
     "AwsCallMetric",
+    "DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS",
+    "LambdaTimeoutConfig",
     "assert_model_definition_equivalent_to_dms",
     "AggregateResult",
     "aggregate_field",
@@ -233,6 +243,7 @@ __all__ = [
     "LeaseHeldError",
     "LeaseNotOwnedError",
     "count_distinct",
+    "check_lambda_timeout",
     "create_lambda_boto3_config",
     "create_table",
     "delete_table",
@@ -269,6 +280,7 @@ __all__ = [
     "MaxValueStringLength",
     "instrument_boto3_client",
     "is_lambda_environment",
+    "with_lambda_timeout",
     "AccountConfig",
     "MultiAccountSessions",
     "Page",

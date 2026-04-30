@@ -21,6 +21,12 @@ export type LambdaMetric = {
   ok: boolean;
 };
 
+export type LambdaTimeoutOptions = {
+  bufferMs?: number;
+};
+
+export const DEFAULT_LAMBDA_TIMEOUT_BUFFER_MS = 1_000;
+
 export function isLambdaEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -32,12 +38,20 @@ export function isLambdaEnvironment(
 
 export function createLambdaTimeoutSignal(
   ctx: LambdaContextLike,
-  opts: { bufferMs?: number } = {},
+  opts: LambdaTimeoutOptions = {},
 ): { signal: AbortSignal; cleanup: () => void } {
-  const bufferMs = opts.bufferMs ?? 1_000;
+  const bufferMs = opts.bufferMs ?? DEFAULT_LAMBDA_TIMEOUT_BUFFER_MS;
   const remainingMs = Math.max(0, ctx.getRemainingTimeInMillis() - bufferMs);
 
   const controller = new AbortController();
+  if (remainingMs <= 0) {
+    controller.abort();
+    return {
+      signal: controller.signal,
+      cleanup: () => undefined,
+    };
+  }
+
   const timer = setTimeout(() => controller.abort(), remainingMs);
   timer.unref?.();
 
@@ -50,7 +64,7 @@ export function createLambdaTimeoutSignal(
 export function withLambdaTimeout(
   client: TheorydbClient,
   ctx: LambdaContextLike,
-  opts: { bufferMs?: number } = {},
+  opts: LambdaTimeoutOptions = {},
 ): { client: TheorydbClient; cleanup: () => void } {
   const { signal, cleanup } = createLambdaTimeoutSignal(ctx, opts);
   return { client: client.withSendOptions({ abortSignal: signal }), cleanup };
