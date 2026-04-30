@@ -99,6 +99,7 @@ Legend:
 | Aggregates | Sum/Avg/Min/Max + GroupBy helpers | Yes | Yes | Yes | No | In-memory helpers; TS: `ts/src/aggregates.ts`; Py: `py/src/theorydb_py/aggregates.py` |
 | Optimization | Query optimizer/plan cache | Yes | Yes | Yes | No | Advisory-only hints; TS: `ts/src/optimizer.ts`; Py: `py/src/theorydb_py/optimizer.py` |
 | Runtime | Lambda-optimized DB wrapper + cold-start helpers | Yes | Yes | Yes | No | TS: `ts/src/lambda.ts`; Py: `py/src/theorydb_py/runtime.py` |
+| Runtime | Lambda timeout buffer helpers | Yes | Yes | Yes | No | Go: `LambdaDB.WithLambdaTimeoutConfig`; TS: `withLambdaTimeout(..., { bufferMs })`; Py: `Table.with_lambda_timeout(..., buffer_seconds=...)`. Per-runtime unit coverage; no P0 data-contract scenario. |
 | Runtime | Multi-account assume-role wrapper | Yes | Yes | Yes | No | TS: `ts/src/multiaccount.ts`; Py: `py/src/theorydb_py/multiaccount.py` |
 | Security | Field/operator/expression validation & injection hardening | Yes | Yes | Yes | No | TS: `ts/src/validation.ts`; Py: `py/src/theorydb_py/validation.py` |
 | Security | Resource protection (rate limiting, concurrency, memory monitor) | Yes | Yes | Yes | No | TS: `ts/src/protection.ts`; Py: `py/src/theorydb_py/protection.py` |

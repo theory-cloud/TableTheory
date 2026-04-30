@@ -106,6 +106,42 @@ func main() {
 - **Lambda Optimization**: Built-in features for cold-start reduction and connection reuse in serverless environments.
 - **Fluent API**: Chainable methods make queries and transactions more readable and maintainable.
 
+## From split LambdaDB/core.DB timeout workarounds
+
+Some Lambda consumers, including lesser, previously needed to keep both a raw `*tabletheory.LambdaDB` and a lower-level
+`core.DB`/`ExtendedDB` reference so they could combine Lambda model-cache behavior with a custom timeout buffer.
+
+After upgrading to a TableTheory release that includes `LambdaTimeoutConfig`, keep a single `*tabletheory.LambdaDB`:
+
+```go
+var db *tabletheory.LambdaDB
+
+func init() {
+    base, err := tabletheory.LambdaInit(&User{}, &Session{})
+    if err != nil {
+        panic(err)
+    }
+
+    db = base.WithLambdaTimeoutConfig(tabletheory.LambdaTimeoutConfig{
+        Buffer: 500 * time.Millisecond,
+    })
+}
+
+func handler(ctx context.Context) error {
+    invocationDB := db.WithLambdaTimeout(ctx)
+    var user User
+    return invocationDB.Model(&User{}).Where("PK", "=", "USER#1").First(&user)
+}
+```
+
+Migration checklist:
+
+1. Replace the split raw-`LambdaDB`/`core.DB` holder with one `*tabletheory.LambdaDB`.
+2. Move the custom buffer into cold-start initialization with `WithLambdaTimeoutConfig`.
+3. Keep `WithLambdaTimeout(ctx)` in the handler so every invocation gets its own deadline-derived DB.
+4. Validate against the release candidate before stable promotion; this is an additive migration and should not require a
+   data migration.
+
 ## From Legacy DynamORM
 
 **Problem:** Legacy DynamORM models often used a mixed naming contract: the primary keys were always stored as uppercase `PK` and `SK`, while every other attribute used camelCase. TableTheory historically treated `theorydb:"pk"` and `theorydb:"sk"` as roles only, so a model like `UserID string 'theorydb:"pk"'` would default to the attribute name `userID` instead of `PK`.
