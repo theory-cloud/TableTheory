@@ -29,6 +29,30 @@ func handler(ctx context.Context) error {
 }
 ```
 
+When a function needs a shorter cleanup window than the default 1 second buffer, configure that buffer at cold start and
+derive an invocation-scoped DB from the Lambda context inside the handler:
+
+```go
+// ✅ CORRECT: configure once, derive per invocation
+var db *tabletheory.LambdaDB
+
+func init() {
+    base, err := tabletheory.LambdaInit(&User{})
+    if err != nil {
+        panic(err)
+    }
+
+    db = base.WithLambdaTimeoutConfig(tabletheory.LambdaTimeoutConfig{
+        Buffer: 500 * time.Millisecond,
+    })
+}
+
+func handler(ctx context.Context) error {
+    invocationDB := db.WithLambdaTimeout(ctx)
+    return invocationDB.Model(&User{}).Create()
+}
+```
+
 ```go
 // ❌ INCORRECT: Handler initialization
 func handler(ctx context.Context) error {
@@ -270,6 +294,7 @@ func handler(ctx context.Context) error {
 
 - **Recommendation:** Always use `tabletheory.NewLambdaOptimized()` or `tabletheory.LambdaInit()` in your `init()` function or global scope.
 - **Details:** TableTheory's `LambdaDB` manages an optimized `http.Client` with appropriate `MaxIdleConns` and `IdleConnTimeout` settings for Lambda's execution model.
+- **Timeout buffer:** Use `LambdaDB.WithLambdaTimeoutConfig(tabletheory.LambdaTimeoutConfig{Buffer: ...})` during cold start to customize the buffer left before the Lambda hard deadline. Continue to call `db.WithLambdaTimeout(ctx)` per invocation.
 
 **Example:**
 

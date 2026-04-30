@@ -30,6 +30,8 @@ from .query import (
     decode_cursor,
     encode_cursor,
 )
+from .runtime import DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS
+from .runtime import with_lambda_timeout as with_lambda_timeout_client
 from .transaction import (
     TransactConditionCheck,
     TransactDelete,
@@ -126,6 +128,24 @@ class Table[T]:
                     "model has encrypted fields but kms_key_arn is not configured"
                 )
             self._kms_client = self._kms_client or boto3.client("kms")
+
+    def with_lambda_timeout(
+        self,
+        context: Any,
+        *,
+        buffer_seconds: float = DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS,
+    ) -> Table[T]:
+        client = with_lambda_timeout_client(self._client, context, buffer_seconds=buffer_seconds)
+        if client is self._client:
+            return self
+        return Table(
+            self._model,
+            client=client,
+            table_name=self._table_name,
+            kms_key_arn=self._kms_key_arn,
+            kms_client=self._kms_client,
+            rand_bytes=self._rand_bytes,
+        )
 
     def _attribute_storage_type(self, attr_def: AttributeDefinition) -> str:
         if attr_def.storage_type is not None:

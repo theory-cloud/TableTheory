@@ -75,7 +75,8 @@ func TestDB_ContextHelpers_CopyMetadataCache_And_DefaultLambdaBuffer_COV6(t *tes
 	lambdaAny := db.WithLambdaTimeout(deadlineCtx)
 	lambdaDB, ok := lambdaAny.(*DB)
 	require.True(t, ok)
-	require.Equal(t, deadline.Add(-500*time.Millisecond), lambdaDB.lambdaDeadline)
+	require.Equal(t, deadline, lambdaDB.lambdaDeadline)
+	require.Equal(t, 500*time.Millisecond, lambdaDB.lambdaTimeoutBuffer)
 	_, ok = lambdaDB.metadataCache.Load(typ)
 	require.True(t, ok)
 }

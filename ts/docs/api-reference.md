@@ -7,7 +7,15 @@
 ## Imports
 
 ```ts
-import { defineModel, TheorydbClient } from '@theory-cloud/tabletheory-ts';
+import {
+  DEFAULT_LAMBDA_TIMEOUT_BUFFER_MS,
+  type LambdaContextLike,
+  TheorydbClient,
+  createLambdaDynamoDBClient,
+  createLambdaTimeoutSignal,
+  defineModel,
+  withLambdaTimeout,
+} from '@theory-cloud/tabletheory-ts';
 import { createMockDynamoDBClient } from '@theory-cloud/tabletheory-ts/testkit';
 ```
 
@@ -52,6 +60,46 @@ Common write options (conceptual):
 
 - `ifNotExists` / `ifExists`
 - `conditionExpression`, `expressionAttributeNames`, `expressionAttributeValues`
+
+## Lambda runtime helpers
+
+### `createLambdaDynamoDBClient(options?)`
+
+Creates an AWS SDK v3 `DynamoDBClient` configured for Lambda-friendly connection reuse and timeout defaults.
+
+### `DEFAULT_LAMBDA_TIMEOUT_BUFFER_MS`
+
+The default buffer, `1000`, left before the Lambda hard timeout when deriving an invocation-scoped client.
+
+### `createLambdaTimeoutSignal(ctx, options?)`
+
+Creates an `AbortSignal` that aborts before the Lambda deadline.
+
+```ts
+const { signal, cleanup } = createLambdaTimeoutSignal(ctx, {
+  bufferMs: 500,
+});
+```
+
+### `withLambdaTimeout(client, ctx, options?)`
+
+Returns `{ client, cleanup }`, where the derived `TheorydbClient` preserves the registered models and send options while
+adding an invocation-scoped `abortSignal`. Always call `cleanup()` before the handler returns.
+
+```ts
+const baseDb = new TheorydbClient(createLambdaDynamoDBClient()).register(User);
+
+export async function handler(event: unknown, ctx: LambdaContextLike) {
+  const { client: db, cleanup } = withLambdaTimeout(baseDb, ctx, {
+    bufferMs: 500,
+  });
+  try {
+    return await db.get('User', { PK: 'USER#1', SK: 'PROFILE' });
+  } finally {
+    cleanup();
+  }
+}
+```
 
 ## Query
 

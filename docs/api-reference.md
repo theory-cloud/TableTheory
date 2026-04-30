@@ -73,6 +73,41 @@ func LambdaInit(models ...any) (*LambdaDB, error)
   }
   ```
 
+### `LambdaTimeoutConfig`
+
+Configures the buffer TableTheory leaves before the Lambda invocation deadline when `LambdaDB.WithLambdaTimeout`
+derives an invocation-scoped DB.
+
+```go
+type LambdaTimeoutConfig struct {
+    Buffer time.Duration
+}
+```
+
+- **Default**: `WithLambdaTimeout` uses a 1 second buffer when no positive custom buffer is configured.
+- **Custom buffer**: call `WithLambdaTimeoutConfig` once at cold start, then call `WithLambdaTimeout(ctx)` per invocation.
+- **Non-positive buffers**: preserve the default behavior.
+
+```go
+var db *tabletheory.LambdaDB
+
+func init() {
+    base, err := tabletheory.LambdaInit(&User{}, &Order{})
+    if err != nil {
+        panic(err)
+    }
+
+    db = base.WithLambdaTimeoutConfig(tabletheory.LambdaTimeoutConfig{
+        Buffer: 500 * time.Millisecond,
+    })
+}
+
+func handler(ctx context.Context) error {
+    invocationDB := db.WithLambdaTimeout(ctx)
+    return invocationDB.Model(&User{}).Create()
+}
+```
+
 ---
 
 ## Configuration
@@ -134,6 +169,23 @@ Registers models during initialization to avoid runtime reflection costs.
 #### `WithLambdaTimeout(ctx context.Context) *LambdaDB`
 
 Returns a DB instance that respects Lambda execution time, cancelling requests before a hard timeout occurs.
+By default, TableTheory leaves 1 second before the Lambda deadline for cleanup and response handling. Configure a
+different buffer with `WithLambdaTimeoutConfig` during cold start:
+
+```go
+db = db.WithLambdaTimeoutConfig(tabletheory.LambdaTimeoutConfig{
+    Buffer: 750 * time.Millisecond,
+})
+```
+
+Use `WithLambdaTimeoutConfig` on `LambdaDB` rather than the lower-level `core.DB.WithLambdaTimeoutBuffer`; this keeps the
+Lambda-specific model cache and cold-start metadata attached to the derived `LambdaDB`.
+
+#### `WithLambdaTimeoutConfig(config LambdaTimeoutConfig) *LambdaDB`
+
+Returns a `LambdaDB` configured with the invocation timeout buffer that subsequent `WithLambdaTimeout(ctx)` calls apply.
+The method is additive and preserves registered model caches, session state, converters, marshaling metadata, and Lambda
+memory/X-Ray configuration.
 
 #### `GetMemoryStats() LambdaMemoryStats`
 

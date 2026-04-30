@@ -74,6 +74,17 @@ type LambdaDB struct {
 	xrayEnabled    bool
 }
 
+const defaultLambdaDBTimeoutBuffer = time.Second
+
+// LambdaTimeoutConfig configures Lambda invocation timeout handling for LambdaDB.
+//
+// A positive Buffer leaves that much time before the Lambda deadline for caller
+// cleanup and error reporting. A zero or negative Buffer preserves the LambdaDB
+// default timeout buffer.
+type LambdaTimeoutConfig struct {
+	Buffer time.Duration
+}
+
 // NewLambdaOptimized creates a Lambda-optimized DB instance
 func NewLambdaOptimized() (*LambdaDB, error) {
 	// Use global instance if available (warm start)
@@ -200,23 +211,77 @@ func (ldb *LambdaDB) WithLambdaTimeout(ctx context.Context) *LambdaDB {
 	if !ok {
 		return ldb
 	}
-
-	// Leave 1 second buffer for Lambda cleanup
-	adjustedDeadline := deadline.Add(-1 * time.Second)
-
-	newDB := &DB{
-		session:        ldb.db.session,
-		registry:       ldb.db.registry,
-		converter:      ldb.db.converter,
-		marshaler:      ldb.db.marshaler,
-		ctx:            ctx,
-		lambdaDeadline: adjustedDeadline,
+	if ldb == nil || ldb.db == nil {
+		return ldb
 	}
 
+	ldb.db.mu.RLock()
+	defer ldb.db.mu.RUnlock()
+
+	// Leave the configured buffer for Lambda cleanup. Store the hard Lambda
+	// deadline and the effective buffer separately so query execution applies
+	// the stop window exactly once.
+	buffer := ldb.db.lambdaTimeoutBuffer
+	if buffer <= 0 {
+		buffer = defaultLambdaDBTimeoutBuffer
+	}
+
+	newDB := &DB{
+		session:             ldb.db.session,
+		registry:            ldb.db.registry,
+		converter:           ldb.db.converter,
+		marshaler:           ldb.db.marshaler,
+		ctx:                 ctx,
+		lambdaDeadline:      deadline,
+		lambdaTimeoutBuffer: buffer,
+	}
+
+	ldb.db.metadataCache.Range(func(key, value any) bool {
+		newDB.metadataCache.Store(key, value)
+		return true
+	})
+
+	return ldb.withDB(newDB)
+}
+
+// WithLambdaTimeoutConfig returns a LambdaDB configured with Lambda invocation
+// timeout settings while preserving Lambda-specific caches and metadata.
+func (ldb *LambdaDB) WithLambdaTimeoutConfig(config LambdaTimeoutConfig) *LambdaDB {
+	if ldb == nil || ldb.db == nil {
+		return ldb
+	}
+
+	buffer := config.Buffer
+	if buffer < 0 {
+		buffer = 0
+	}
+
+	ldb.db.mu.RLock()
+	defer ldb.db.mu.RUnlock()
+
+	newDB := &DB{
+		session:             ldb.db.session,
+		registry:            ldb.db.registry,
+		converter:           ldb.db.converter,
+		marshaler:           ldb.db.marshaler,
+		ctx:                 ldb.db.ctx,
+		lambdaDeadline:      ldb.db.lambdaDeadline,
+		lambdaTimeoutBuffer: buffer,
+	}
+
+	ldb.db.metadataCache.Range(func(key, value any) bool {
+		newDB.metadataCache.Store(key, value)
+		return true
+	})
+
+	return ldb.withDB(newDB)
+}
+
+func (ldb *LambdaDB) withDB(db *DB) *LambdaDB {
 	return &LambdaDB{
-		ExtendedDB:     newDB,
-		db:             newDB,
-		modelCache:     ldb.modelCache, // Share the same model cache pointer
+		ExtendedDB:     db,
+		db:             db,
+		modelCache:     ldb.modelCache, // Share the same model cache pointer.
 		isLambda:       ldb.isLambda,
 		lambdaMemoryMB: ldb.lambdaMemoryMB,
 		xrayEnabled:    ldb.xrayEnabled,

@@ -1,6 +1,7 @@
 package theorydb
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -90,6 +91,28 @@ func TestQueryExecutor_checkLambdaTimeout_CoversDeadlineBranches_COV5(t *testing
 
 	executor = &queryExecutor{db: &DB{lambdaDeadline: time.Now().Add(500 * time.Millisecond), lambdaTimeoutBuffer: 10 * time.Millisecond}}
 	require.NoError(t, executor.checkLambdaTimeout())
+}
+
+func TestDB_WithLambdaTimeoutBuffer_AppliesConfiguredBufferOnce_COV5(t *testing.T) {
+	buffered, ok := (&DB{}).WithLambdaTimeoutBuffer(500 * time.Millisecond).(*DB)
+	require.True(t, ok)
+
+	deadline := time.Now().Add(900 * time.Millisecond)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	t.Cleanup(cancel)
+
+	timed, ok := buffered.WithLambdaTimeout(ctx).(*DB)
+	require.True(t, ok)
+	require.Equal(t, 500*time.Millisecond, timed.lambdaTimeoutBuffer)
+	require.NoError(t, (&queryExecutor{db: timed}).checkLambdaTimeout())
+
+	soonDeadline := time.Now().Add(450 * time.Millisecond)
+	soonCtx, soonCancel := context.WithDeadline(context.Background(), soonDeadline)
+	t.Cleanup(soonCancel)
+
+	soonTimed, ok := buffered.WithLambdaTimeout(soonCtx).(*DB)
+	require.True(t, ok)
+	require.Error(t, (&queryExecutor{db: soonTimed}).checkLambdaTimeout())
 }
 
 func TestErrorBatchGetBuilder_FluentMethodsReturnSelf_COV5(t *testing.T) {
