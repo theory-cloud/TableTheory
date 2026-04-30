@@ -44,6 +44,14 @@ export function createLambdaTimeoutSignal(
   const remainingMs = Math.max(0, ctx.getRemainingTimeInMillis() - bufferMs);
 
   const controller = new AbortController();
+  if (remainingMs <= 0) {
+    controller.abort();
+    return {
+      signal: controller.signal,
+      cleanup: () => undefined,
+    };
+  }
+
   const timer = setTimeout(() => controller.abort(), remainingMs);
   timer.unref?.();
 

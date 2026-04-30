@@ -218,13 +218,13 @@ func (ldb *LambdaDB) WithLambdaTimeout(ctx context.Context) *LambdaDB {
 	ldb.db.mu.RLock()
 	defer ldb.db.mu.RUnlock()
 
-	// Leave the configured buffer for Lambda cleanup. Preserve the existing
-	// LambdaDB default when callers have not configured a custom buffer.
+	// Leave the configured buffer for Lambda cleanup. Store the hard Lambda
+	// deadline and the effective buffer separately so query execution applies
+	// the stop window exactly once.
 	buffer := ldb.db.lambdaTimeoutBuffer
 	if buffer <= 0 {
 		buffer = defaultLambdaDBTimeoutBuffer
 	}
-	adjustedDeadline := deadline.Add(-buffer)
 
 	newDB := &DB{
 		session:             ldb.db.session,
@@ -232,8 +232,8 @@ func (ldb *LambdaDB) WithLambdaTimeout(ctx context.Context) *LambdaDB {
 		converter:           ldb.db.converter,
 		marshaler:           ldb.db.marshaler,
 		ctx:                 ctx,
-		lambdaDeadline:      adjustedDeadline,
-		lambdaTimeoutBuffer: ldb.db.lambdaTimeoutBuffer,
+		lambdaDeadline:      deadline,
+		lambdaTimeoutBuffer: buffer,
 	}
 
 	ldb.db.metadataCache.Range(func(key, value any) bool {

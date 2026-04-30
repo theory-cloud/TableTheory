@@ -29,7 +29,6 @@ test('createLambdaTimeoutSignal aborts and supports cleanup', async () => {
       { getRemainingTimeInMillis: () => 0 },
       { bufferMs: 0 },
     );
-    await new Promise((r) => setTimeout(r, 0));
     assert.equal(signal.aborted, true);
   }
 
@@ -49,7 +48,6 @@ test('createLambdaTimeoutSignal applies default and custom buffers', async () =>
     const { signal } = createLambdaTimeoutSignal({
       getRemainingTimeInMillis: () => DEFAULT_LAMBDA_TIMEOUT_BUFFER_MS,
     });
-    await new Promise((r) => setTimeout(r, 0));
     assert.equal(signal.aborted, true);
   }
 
@@ -102,5 +100,6 @@ test('withLambdaTimeout returns a derived TheorydbClient', async () => {
   await client.create('T', { PK: 'A' });
   assert.equal(sendOptions.length, 1);
   assert.equal(sendOptions[0]?.abortSignal instanceof AbortSignal, true);
+  assert.equal(sendOptions[0]?.abortSignal?.aborted, true);
   cleanup();
 });
