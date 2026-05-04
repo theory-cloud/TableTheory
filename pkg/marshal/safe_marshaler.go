@@ -189,12 +189,12 @@ func (m *SafeMarshaler) buildSafeStructMarshaler(typ reflect.Type, metadata *mod
 // marshalValue safely marshals a reflect.Value to AttributeValue
 func (m *SafeMarshaler) marshalValue(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	original := v
-	v, isNil := derefOptionalPointer(v)
-	if isNil {
+	if fieldMeta != nil && fieldMeta.omitEmpty && (!v.IsValid() || v.IsZero()) {
 		return &types.AttributeValueMemberNULL{Value: true}, nil
 	}
 
-	if fieldMeta.omitEmpty && v.IsZero() {
+	v, isNil := derefOptionalPointer(v)
+	if isNil {
 		return &types.AttributeValueMemberNULL{Value: true}, nil
 	}
 
@@ -329,7 +329,8 @@ func (m *SafeMarshaler) marshalInterfaceValue(v reflect.Value, fieldMeta *safeFi
 	if v.IsNil() {
 		return &types.AttributeValueMemberNULL{Value: true}, nil
 	}
-	return m.marshalValue(v.Elem(), fieldMeta)
+	childMeta := nestedFieldContext(fieldMeta)
+	return m.marshalValue(v.Elem(), &childMeta)
 }
 
 // marshalSlice safely marshals a slice
