@@ -293,7 +293,9 @@ func (m *Marshaler) buildMarshalFunc(typ reflect.Type, fieldMeta *model.FieldMet
 }
 
 func (m *Marshaler) buildPointerMarshalFunc(typ reflect.Type, fieldMeta *model.FieldMetadata) func(unsafe.Pointer) (types.AttributeValue, error) {
-	elemFunc := m.buildMarshalFunc(typ.Elem(), fieldMeta)
+	elemFieldMeta := *fieldMeta
+	elemFieldMeta.OmitEmpty = false
+	elemFunc := m.buildMarshalFunc(typ.Elem(), &elemFieldMeta)
 	return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
 		p := *(*unsafe.Pointer)(ptr)
 		if p == nil {
@@ -357,12 +359,19 @@ func buildScalarMarshalFunc(typ reflect.Type, fieldMeta *model.FieldMetadata) fu
 			return &types.AttributeValueMemberN{Value: strconv.FormatFloat(f, 'f', -1, 64)}, nil
 		}
 	case reflect.Bool:
-		return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
-			b := *(*bool)(ptr)
-			return &types.AttributeValueMemberBOOL{Value: b}, nil
-		}
+		return buildBoolMarshalFunc(fieldMeta)
 	default:
 		return nil
+	}
+}
+
+func buildBoolMarshalFunc(fieldMeta *model.FieldMetadata) func(unsafe.Pointer) (types.AttributeValue, error) {
+	return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
+		b := *(*bool)(ptr)
+		if !b && fieldMeta.OmitEmpty {
+			return &types.AttributeValueMemberNULL{Value: true}, nil
+		}
+		return &types.AttributeValueMemberBOOL{Value: b}, nil
 	}
 }
 
