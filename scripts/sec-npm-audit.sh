@@ -11,15 +11,38 @@ command -v npm >/dev/null 2>&1 || {
   exit 1
 }
 
-# Audit lockfiles directly so results don't depend on stale local node_modules.
-npm --prefix ts audit --package-lock-only --audit-level=low
+allowlist_file="hgm-infra/planning/theorydb-supply-chain-allowlist.txt"
+
+run_npm_audit() {
+  local prefix="$1"
+  local report
+  report="$(mktemp)"
+
+  # Audit lockfiles directly so results don't depend on stale local node_modules.
+  if npm --prefix "${prefix}" audit --package-lock-only --audit-level=low --json >"${report}"; then
+    echo "npm-audit: PASS (${prefix})"
+    rm -f "${report}"
+    return 0
+  fi
+
+  if [[ -f "${allowlist_file}" ]] && node scripts/check-npm-audit-allowlist.mjs "${report}" "${allowlist_file}" "${prefix}"; then
+    echo "npm-audit: PASS (${prefix}; all findings allowlisted)"
+    rm -f "${report}"
+    return 0
+  fi
+
+  rm -f "${report}"
+  npm --prefix "${prefix}" audit --package-lock-only --audit-level=low
+}
+
+run_npm_audit ts
 
 if [[ -f "contract-tests/runners/ts/package.json" ]]; then
-  npm --prefix contract-tests/runners/ts audit --package-lock-only --audit-level=low
+  run_npm_audit contract-tests/runners/ts
 fi
 
 if [[ -f "examples/cdk-multilang/package.json" ]]; then
-  npm --prefix examples/cdk-multilang audit --package-lock-only --audit-level=low
+  run_npm_audit examples/cdk-multilang
 fi
 
 echo "npm-audit: PASS"
