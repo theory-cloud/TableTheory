@@ -12,6 +12,16 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 
+## [1.8.0-rc.2](https://github.com/theory-cloud/TableTheory/compare/v1.8.0-rc.1...v1.8.0-rc.2) (2026-05-10)
+
+
+### Bug Fixes
+
+* **deps:** patch fast xml builder advisories ([c212509](https://github.com/theory-cloud/TableTheory/commit/c2125093f8f0f30e36cfdfb88865afc0c91e5899))
+* **query:** make encrypted batch retries safe ([f6ec65c](https://github.com/theory-cloud/TableTheory/commit/f6ec65c158401b752c530a4b888ec020390edc41))
+* **query:** make encrypted batch retries safe ([e343a29](https://github.com/theory-cloud/TableTheory/commit/e343a2917a7f0121818ebca9aaccbe57109ce0d5))
+* **security:** clear rubric dependency scans ([bbf4481](https://github.com/theory-cloud/TableTheory/commit/bbf44812ff313b534a4d30c6d06cb51573da9b82))
+
 ## [1.8.1](https://github.com/theory-cloud/TableTheory/compare/v1.8.0...v1.8.1) (2026-05-04)
 
 
