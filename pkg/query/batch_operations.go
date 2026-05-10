@@ -587,7 +587,11 @@ func (q *Query) executeBatchWriteWithRetries(tableName string, writeRequests []t
 		return fmt.Errorf("executor does not support batch write operations")
 	}
 
-	remainingRequests := writeRequests
+	remainingRequests, executeBatchWriteItem, err := q.prepareBatchWriteRetry(batchExecutor, writeRequests)
+	if err != nil {
+		return err
+	}
+
 	attempts := 0
 	maxAttempts := 5 // Maximum number of attempts for unprocessed items
 
@@ -595,7 +599,7 @@ func (q *Query) executeBatchWriteWithRetries(tableName string, writeRequests []t
 		attempts++
 
 		// Execute batch write
-		result, err := batchExecutor.ExecuteBatchWriteItem(tableName, remainingRequests)
+		result, err := executeBatchWriteItem(tableName, remainingRequests)
 		if err != nil {
 			return fmt.Errorf("batch write failed: %w", err)
 		}
@@ -603,18 +607,7 @@ func (q *Query) executeBatchWriteWithRetries(tableName string, writeRequests []t
 			return fmt.Errorf("batch write executor returned nil result")
 		}
 
-		// Check for unprocessed items
-		if len(result.UnprocessedItems) == 0 {
-			// All items processed successfully
-			return nil
-		}
-
-		// Collect unprocessed items for retry
-		var unprocessed []types.WriteRequest
-		for _, items := range result.UnprocessedItems {
-			unprocessed = append(unprocessed, items...)
-		}
-
+		unprocessed := collectUnprocessedWriteRequests(result.UnprocessedItems)
 		if len(unprocessed) == 0 {
 			return nil
 		}
@@ -642,6 +635,31 @@ func (q *Query) executeBatchWriteWithRetries(tableName string, writeRequests []t
 	}
 
 	return nil
+}
+
+func collectUnprocessedWriteRequests(unprocessedItems map[string][]types.WriteRequest) []types.WriteRequest {
+	var unprocessed []types.WriteRequest
+	for _, items := range unprocessedItems {
+		unprocessed = append(unprocessed, items...)
+	}
+	return unprocessed
+}
+
+type batchWriteItemFunc func(string, []types.WriteRequest) (*core.BatchWriteResult, error)
+
+func (q *Query) prepareBatchWriteRetry(
+	batchExecutor BatchWriteItemExecutor,
+	writeRequests []types.WriteRequest,
+) ([]types.WriteRequest, batchWriteItemFunc, error) {
+	if preparedExecutor, ok := q.executor.(preparedBatchWriteItemExecutor); ok {
+		preparedRequests, err := preparedExecutor.PrepareBatchWriteItems(writeRequests)
+		if err != nil {
+			return nil, nil, fmt.Errorf("batch write failed: %w", err)
+		}
+		return preparedRequests, preparedExecutor.ExecuteBatchWriteItemRaw, nil
+	}
+
+	return writeRequests, batchExecutor.ExecuteBatchWriteItem, nil
 }
 
 // BatchWrite performs mixed batch write operations (puts and deletes)

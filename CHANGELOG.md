@@ -12,6 +12,22 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 
+## [1.8.1](https://github.com/theory-cloud/TableTheory/compare/v1.8.0...v1.8.1) (2026-05-04)
+
+
+### Bug Fixes
+
+* **marshal:** preserve omitempty pointer zero values ([6d1077c](https://github.com/theory-cloud/TableTheory/commit/6d1077cd1d3928ca07a92a5dfcc6ace723da1d8f))
+* **marshal:** preserve omitempty pointer zero values ([bf83062](https://github.com/theory-cloud/TableTheory/commit/bf83062d1f84d301b78597c102ceb408209aaf70))
+
+## [1.8.0-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.8.0-rc...v1.8.0-rc.1) (2026-05-04)
+
+
+### Bug Fixes
+
+* **marshal:** preserve omitempty pointer zero values ([6d1077c](https://github.com/theory-cloud/TableTheory/commit/6d1077cd1d3928ca07a92a5dfcc6ace723da1d8f))
+* **marshal:** preserve omitempty pointer zero values ([bf83062](https://github.com/theory-cloud/TableTheory/commit/bf83062d1f84d301b78597c102ceb408209aaf70))
+
 ## [1.8.0](https://github.com/theory-cloud/TableTheory/compare/v1.7.1...v1.8.0) (2026-04-30)
 
 
