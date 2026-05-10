@@ -2,7 +2,7 @@ module github.com/theory-cloud/tabletheory
 
 go 1.26
 
-toolchain go1.26.2
+toolchain go1.26.3
 
 require (
 	github.com/aws/aws-lambda-go v1.53.0

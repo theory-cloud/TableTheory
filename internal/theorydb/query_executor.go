@@ -1095,8 +1095,13 @@ func (qe *queryExecutor) ExecuteBatchWrite(input *query.CompiledBatchWrite) erro
 			})
 		}
 
+		preparedRequests, err := qe.PrepareBatchWriteItems(writeRequests)
+		if err != nil {
+			return err
+		}
+
 		for {
-			result, err := qe.ExecuteBatchWriteItem(input.TableName, writeRequests)
+			result, err := qe.ExecuteBatchWriteItemRaw(input.TableName, preparedRequests)
 			if err != nil {
 				return err
 			}
@@ -1111,7 +1116,7 @@ func (qe *queryExecutor) ExecuteBatchWrite(input *query.CompiledBatchWrite) erro
 			if len(unprocessed) == 0 {
 				break
 			}
-			writeRequests = unprocessed
+			preparedRequests = unprocessed
 		}
 	}
 
@@ -1119,11 +1124,20 @@ func (qe *queryExecutor) ExecuteBatchWrite(input *query.CompiledBatchWrite) erro
 }
 
 func (qe *queryExecutor) ExecuteBatchWriteItem(tableName string, writeRequests []types.WriteRequest) (*core.BatchWriteResult, error) {
+	preparedRequests, err := qe.PrepareBatchWriteItems(writeRequests)
+	if err != nil {
+		return nil, err
+	}
+
+	return qe.ExecuteBatchWriteItemRaw(tableName, preparedRequests)
+}
+
+func (qe *queryExecutor) PrepareBatchWriteItems(writeRequests []types.WriteRequest) ([]types.WriteRequest, error) {
 	if err := qe.checkLambdaTimeout(); err != nil {
 		return nil, err
 	}
 	if len(writeRequests) == 0 {
-		return &core.BatchWriteResult{}, nil
+		return writeRequests, nil
 	}
 	if len(writeRequests) > 25 {
 		return nil, fmt.Errorf("batch write supports maximum 25 items per request, got %d", len(writeRequests))
@@ -1132,16 +1146,33 @@ func (qe *queryExecutor) ExecuteBatchWriteItem(tableName string, writeRequests [
 		return nil, err
 	}
 
-	if qe.metadata != nil && encryption.MetadataHasEncryptedFields(qe.metadata) {
-		for i := range writeRequests {
-			put := writeRequests[i].PutRequest
-			if put == nil || len(put.Item) == 0 {
-				continue
-			}
-			if err := qe.encryptItem(put.Item); err != nil {
-				return nil, err
-			}
+	if qe.metadata == nil || !encryption.MetadataHasEncryptedFields(qe.metadata) {
+		return writeRequests, nil
+	}
+
+	preparedRequests := cloneBatchWriteRequests(writeRequests)
+	for i := range preparedRequests {
+		put := preparedRequests[i].PutRequest
+		if put == nil || len(put.Item) == 0 {
+			continue
 		}
+		if err := qe.encryptItem(put.Item); err != nil {
+			return nil, err
+		}
+	}
+
+	return preparedRequests, nil
+}
+
+func (qe *queryExecutor) ExecuteBatchWriteItemRaw(tableName string, writeRequests []types.WriteRequest) (*core.BatchWriteResult, error) {
+	if err := qe.checkLambdaTimeout(); err != nil {
+		return nil, err
+	}
+	if len(writeRequests) == 0 {
+		return &core.BatchWriteResult{}, nil
+	}
+	if len(writeRequests) > 25 {
+		return nil, fmt.Errorf("batch write supports maximum 25 items per request, got %d", len(writeRequests))
 	}
 
 	client, err := qe.session().Client()
@@ -1162,6 +1193,39 @@ func (qe *queryExecutor) ExecuteBatchWriteItem(tableName string, writeRequests [
 		UnprocessedItems: output.UnprocessedItems,
 		ConsumedCapacity: output.ConsumedCapacity,
 	}, nil
+}
+
+func cloneBatchWriteRequests(writeRequests []types.WriteRequest) []types.WriteRequest {
+	if len(writeRequests) == 0 {
+		return writeRequests
+	}
+
+	cloned := make([]types.WriteRequest, len(writeRequests))
+	for i := range writeRequests {
+		if put := writeRequests[i].PutRequest; put != nil {
+			cloned[i].PutRequest = &types.PutRequest{
+				Item: cloneAttributeValueMap(put.Item),
+			}
+		}
+		if del := writeRequests[i].DeleteRequest; del != nil {
+			cloned[i].DeleteRequest = &types.DeleteRequest{
+				Key: cloneAttributeValueMap(del.Key),
+			}
+		}
+	}
+	return cloned
+}
+
+func cloneAttributeValueMap(item map[string]types.AttributeValue) map[string]types.AttributeValue {
+	if item == nil {
+		return nil
+	}
+
+	cloned := make(map[string]types.AttributeValue, len(item))
+	for key, value := range item {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func buildDynamoQueryInput(input *core.CompiledQuery) *dynamodb.QueryInput {
