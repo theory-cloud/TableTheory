@@ -462,6 +462,11 @@ type BatchWriteItemExecutor interface {
 	ExecuteBatchWriteItem(tableName string, writeRequests []types.WriteRequest) (*core.BatchWriteResult, error)
 }
 
+type preparedBatchWriteItemExecutor interface {
+	PrepareBatchWriteItems(writeRequests []types.WriteRequest) ([]types.WriteRequest, error)
+	ExecuteBatchWriteItemRaw(tableName string, writeRequests []types.WriteRequest) (*core.BatchWriteResult, error)
+}
+
 // New creates a new Query instance
 func New(model any, metadata core.ModelMetadata, executor QueryExecutor) *Query {
 	q := &Query{
