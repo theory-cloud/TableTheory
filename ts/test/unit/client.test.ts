@@ -594,6 +594,39 @@ class StubDdb {
 }
 
 {
+  const tce = new TransactionCanceledException({ $metadata: {}, message: 'x' });
+  const ddb = new StubDdb(() => {
+    throw tce;
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+  );
+
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'put',
+          model: 'ReleaseStateActual',
+          item: {
+            PK: 'RELEASE#service-a',
+            SK: 'ACTUAL',
+            status: 'active',
+            pinnedReleaseId: 'rel_002',
+          },
+        },
+      ]),
+    (e) => e instanceof TheorydbError && e.code === 'ErrConditionFailed',
+  );
+  assert.equal(ddb.sent.length, 1);
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  const put = cmd.input.TransactItems?.[0]?.Put;
+  assert.equal(put?.ConditionExpression, 'attribute_not_exists(#pk)');
+  assert.deepEqual(put?.ExpressionAttributeNames, { '#pk': 'PK' });
+}
+
+{
   const ddb = new StubDdb(() => {
     throw new Error('write_once transaction mutation should not send');
   });
