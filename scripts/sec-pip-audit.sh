@@ -25,11 +25,7 @@ uv --directory py export \
   --output-file "${requirements_file}" >/dev/null
 
 # Fail on any known vulnerability (no green-by-severity).
-# Temporary exception: pip-audit reports CVE-2026-4539 for Pygments 2.19.2,
-# and 2.19.2 is still the latest published release as of 2026-03-28.
-# Remove this ignore once an upstream patched release is available.
 uv tool run --from pip-audit==2.10.0 pip-audit \
-  --requirement "${requirements_file}" \
-  --ignore-vuln CVE-2026-4539
+  --requirement "${requirements_file}"
 
 echo "pip-audit: PASS"
