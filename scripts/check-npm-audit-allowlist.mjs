@@ -11,7 +11,15 @@ if (!reportPath || !allowlistPath || !projectPathArg) {
 }
 
 const projectPath = projectPathArg.replace(/^\.\//, '').replace(/\/$/, '');
-const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+let report;
+try {
+  report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+} catch (err) {
+  console.error(
+    `npm-audit: invalid JSON report for ${projectPath}: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  process.exit(2);
+}
 const allowlist = new Set(
   fs
     .readFileSync(allowlistPath, 'utf8')
@@ -38,7 +46,37 @@ function advisoryId(via) {
   return typeof via.title === 'string' ? via.title : 'unknown';
 }
 
-const vulnerabilities = report.vulnerabilities ?? {};
+function describeAuditFailure(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return 'report root is not an object';
+  }
+
+  const fields = [];
+  for (const key of ['error', 'statusCode', 'message']) {
+    const field = value[key];
+    if (field !== undefined && field !== null && String(field).trim() !== '') {
+      fields.push(`${key}=${String(field)}`);
+    }
+  }
+  return fields.length > 0 ? fields.join(' ') : 'missing vulnerabilities object';
+}
+
+if (
+  !report ||
+  typeof report !== 'object' ||
+  Array.isArray(report) ||
+  !Object.hasOwn(report, 'vulnerabilities') ||
+  !report.vulnerabilities ||
+  typeof report.vulnerabilities !== 'object' ||
+  Array.isArray(report.vulnerabilities)
+) {
+  console.error(
+    `npm-audit: invalid audit report for ${projectPath}; ${describeAuditFailure(report)}`,
+  );
+  process.exit(2);
+}
+
+const vulnerabilities = report.vulnerabilities;
 const findings = [];
 
 for (const vulnerability of Object.values(vulnerabilities)) {
@@ -71,8 +109,10 @@ for (const vulnerability of Object.values(vulnerabilities)) {
 }
 
 if (findings.length === 0) {
-  console.log(`npm-audit: no vulnerability findings in ${projectPath}`);
-  process.exit(0);
+  console.error(
+    `npm-audit: audit command failed for ${projectPath} but reported no vulnerability findings`,
+  );
+  process.exit(2);
 }
 
 const missing = findings.filter((finding) => !allowlist.has(finding));

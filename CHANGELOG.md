@@ -11,6 +11,9 @@
 
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
+* harden npm audit allowlist handling so audit service errors fail closed
+* update Python lockfile security baseline and remove stale pip-audit exception
+* prevent Python Lambda timeout guards from being retried by query and scan helpers
 
 ## [1.8.2](https://github.com/theory-cloud/TableTheory/compare/v1.8.1...v1.8.2) (2026-05-10)
 

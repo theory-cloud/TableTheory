@@ -108,7 +108,7 @@ func main() {
 
 ## From split LambdaDB/core.DB timeout workarounds
 
-Some Lambda consumers, including lesser, previously needed to keep both a raw `*tabletheory.LambdaDB` and a lower-level
+Some Lambda consumers previously needed to keep both a raw `*tabletheory.LambdaDB` and a lower-level
 `core.DB`/`ExtendedDB` reference so they could combine Lambda model-cache behavior with a custom timeout buffer.
 
 After upgrading to a TableTheory release that includes `LambdaTimeoutConfig`, keep a single `*tabletheory.LambdaDB`:

@@ -30,7 +30,7 @@ from .query import (
     decode_cursor,
     encode_cursor,
 )
-from .runtime import DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS
+from .runtime import DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS, _is_lambda_timeout_error
 from .runtime import with_lambda_timeout as with_lambda_timeout_client
 from .transaction import (
     TransactConditionCheck,
@@ -284,7 +284,9 @@ class Table[T]:
                         return page
                 elif not retry_on_empty or page.items:
                     return page
-            except Exception:
+            except Exception as err:
+                if _is_lambda_timeout_error(err):
+                    raise
                 if not retry_on_error or attempt == max_retries:
                     raise
 
@@ -523,7 +525,9 @@ class Table[T]:
                         return page
                 elif not retry_on_empty or page.items:
                     return page
-            except Exception:
+            except Exception as err:
+                if _is_lambda_timeout_error(err):
+                    raise
                 if not retry_on_error or attempt == max_retries:
                     raise
 
