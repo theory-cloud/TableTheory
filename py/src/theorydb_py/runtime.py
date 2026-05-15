@@ -19,6 +19,7 @@ class AwsCallMetric:
 
 
 DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS = 1.0
+_LAMBDA_TIMEOUT_MARKER = "_theorydb_lambda_timeout_imminent"
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,16 @@ def _remaining_time_millis(context: Any) -> int | None:
     return int(remaining)
 
 
+def _lambda_timeout_error(message: str) -> TimeoutError:
+    err = TimeoutError(message)
+    setattr(err, _LAMBDA_TIMEOUT_MARKER, True)
+    return err
+
+
+def _is_lambda_timeout_error(err: BaseException) -> bool:
+    return isinstance(err, TimeoutError) and getattr(err, _LAMBDA_TIMEOUT_MARKER, False) is True
+
+
 def check_lambda_timeout(
     context: Any, *, buffer_seconds: float = DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS
 ) -> None:
@@ -118,7 +129,7 @@ def check_lambda_timeout(
 
     buffer_ms = max(0, int(buffer_seconds * 1000))
     if remaining_ms <= buffer_ms:
-        raise TimeoutError(f"lambda timeout imminent: only {remaining_ms}ms remaining")
+        raise _lambda_timeout_error(f"lambda timeout imminent: only {remaining_ms}ms remaining")
 
 
 class _LambdaTimeoutClient:
