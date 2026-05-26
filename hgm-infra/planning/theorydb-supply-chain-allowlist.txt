@@ -11,8 +11,7 @@
 #
 # Examples (copy exact IDs from the failing scanner output):
 # HGM-SUPPLY:GO:REPLACE:rule=REMOTE_REPLACE:from=github.com/example/upstream@v1.2.3:to=github.com/example/fork@v1.2.3
-# Dependabot #64/#65 dismissed 2026-05-10 as not_used: this vulnerable fast-uri copy is bundled by
-# aws-cdk-lib for the examples/cdk-multilang CDK app and is limited to example test/synth/deploy paths.
-# Remove these entries once AWS CDK bundles fast-uri >= 3.1.2 or the CDK example dependency is reworked.
-NPM-AUDIT:examples/cdk-multilang:fast-uri:GHSA-q3j6-qgpj-74h6:node_modules/aws-cdk-lib/node_modules/fast-uri
-NPM-AUDIT:examples/cdk-multilang:fast-uri:GHSA-v39h-62p7-jpjc:node_modules/aws-cdk-lib/node_modules/fast-uri
+# Reviewed 2026-05-25: aws-cdk-lib@2.257.0 still bundles brace-expansion@5.0.5 through
+# minimatch@10.2.5. This is confined to the examples/cdk-multilang CDK app's test/synth/deploy
+# tooling path, not TableTheory runtime code. Remove once AWS CDK bundles brace-expansion >= 5.0.6.
+NPM-AUDIT:examples/cdk-multilang:brace-expansion:GHSA-jxxr-4gwj-5jf2:node_modules/aws-cdk-lib/node_modules/brace-expansion

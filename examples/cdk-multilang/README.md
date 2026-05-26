@@ -35,6 +35,10 @@ Additional endpoints:
 - `POST /batch` (batch write + batch get): `{"pk":"...","skPrefix":"...","count":3,"value":"...","secret":"..."}`
 - `POST /tx` (transaction write): `{"pk":"...","skPrefix":"...","value":"...","secret":"..."}`
 
+## Dependency audit note
+
+As of the May 2026 dependency refresh, `aws-cdk-lib@2.257.0` removes the previous bundled `fast-uri` high-severity audit finding. `npm audit` may still report a moderate `brace-expansion@5.0.5` finding bundled inside `aws-cdk-lib`; keep that visible rather than suppressing it, and refresh CDK again once AWS publishes a bundle with `brace-expansion >=5.0.6`.
+
 ## Smoke test
 
 Runs an end-to-end cross-language check (encryption + batch + tx) and verifies the encrypted attribute is stored as an
