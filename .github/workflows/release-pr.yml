@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Compute release-as (align to premain RC)
         id: version
@@ -67,7 +67,7 @@ jobs:
       - name: Release Please (PR only) (aligned)
         if: steps.version.outputs.release_as != ''
         id: release_aligned
-        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           target-branch: main
@@ -79,7 +79,7 @@ jobs:
       - name: Release Please (PR only)
         if: steps.version.outputs.release_as == ''
         id: release_default
-        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           target-branch: main
