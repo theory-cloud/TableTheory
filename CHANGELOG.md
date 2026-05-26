@@ -15,6 +15,14 @@
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 
+## [1.8.4](https://github.com/theory-cloud/TableTheory/compare/v1.8.3...v1.8.4) (2026-05-26)
+
+
+### Bug Fixes
+
+* **deps:** release dependency security refresh ([bfba142](https://github.com/theory-cloud/TableTheory/commit/bfba14202b5470459ebe907faefc4c38a65db499))
+* **deps:** release dependency security refresh ([d459e61](https://github.com/theory-cloud/TableTheory/commit/d459e61c557ebea5fb3f221eafec2c711234d4fc))
+
 ## [1.8.3-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.8.3-rc...v1.8.3-rc.1) (2026-05-26)
 
 
