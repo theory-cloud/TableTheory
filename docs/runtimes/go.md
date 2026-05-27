@@ -77,7 +77,7 @@ A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag 
 | `theorydb:"omitempty"`     | Omit attribute when the field is the zero value              |
 | `theorydb:"naming:…"`      | Apply naming strategy via the leading `_ struct{}` field     |
 
-Every `theorydb` tag must be accompanied by a matching `json` tag (see [Development guidelines](../development-guidelines.md)).
+Every `theorydb` tag must be accompanied by a matching `json` tag (see [Development guidelines](https://theory-cloud.github.io/tabletheory/development-guidelines/)).
 
 ## Where to go next
 
