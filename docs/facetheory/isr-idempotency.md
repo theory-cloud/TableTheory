@@ -1,3 +1,7 @@
+---
+title: FaceTheory ISR Idempotency Patterns (Request-ID Driven Regeneration)
+---
+
 # FaceTheory ISR Idempotency Patterns (Request-ID Driven Regeneration)
 
 This document describes “exactly-once-ish” regeneration patterns for ISR by combining:

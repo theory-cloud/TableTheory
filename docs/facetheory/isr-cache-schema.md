@@ -1,3 +1,7 @@
+---
+title: FaceTheory ISR Cache Schema (TableTheory-Compatible)
+---
+
 # FaceTheory ISR Cache Schema (TableTheory-Compatible)
 
 This document defines a **recommended DynamoDB item shape** for FaceTheory’s ISR cache metadata and regeneration locks.

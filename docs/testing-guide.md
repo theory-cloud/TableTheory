@@ -1,3 +1,7 @@
+---
+title: Testing Guide
+---
+
 # Testing Guide
 
 This guide explains how to write unit and integration tests for applications using TableTheory.
