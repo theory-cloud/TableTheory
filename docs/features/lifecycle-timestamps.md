@@ -74,6 +74,6 @@ class Note:
 
 ## Related
 
-- [Optimistic Locking](../optimistic-locking/) — the `version` field that composes with these timestamps
-- [TTL](../ttl/) — separate timestamp axis governed by its own tag
-- [Contract Scenarios](../../reference/contract-scenarios/) — the full lifecycle-timestamps specification
+- [Optimistic Locking](optimistic-locking.md) — the `version` field that composes with these timestamps
+- [TTL](ttl.md) — separate timestamp axis governed by its own tag
+- [Contract Scenarios](../reference/contract-scenarios.md) — the full lifecycle-timestamps specification

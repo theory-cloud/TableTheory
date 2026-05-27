@@ -83,7 +83,7 @@ db = TableTheory.lambda_init(
 
 ## Local development
 
-For local testing where KMS isn't available, the **caller** must explicitly opt every encrypted field out at the test fixture level — never via a global "disable encryption" flag. The default fail-closed behavior never softens. See [Testing](../../testing-guide/) for the supported per-fixture pattern.
+For local testing where KMS isn't available, the **caller** must explicitly opt every encrypted field out at the test fixture level — never via a global "disable encryption" flag. The default fail-closed behavior never softens. See [Testing](../testing-guide.md) for the supported per-fixture pattern.
 
 ## Anti-patterns
 
@@ -93,7 +93,7 @@ For local testing where KMS isn't available, the **caller** must explicitly opt 
 
 ## Related
 
-- [Development Guidelines](../../development-guidelines/) — when to tag a field encrypted
-- [Testing](../../testing-guide/) — how to write tests that exercise encrypted fields without KMS
-- [Integrations · Autheory](../../integrations/autheory/) — the largest consumer of encrypted fields in the stack
-- [Contract Scenarios](../../reference/contract-scenarios/) — fail-closed behavior is exercised on every commit
+- [Development Guidelines](../development-guidelines.md) — when to tag a field encrypted
+- [Testing](../testing-guide.md) — how to write tests that exercise encrypted fields without KMS
+- [Integrations · Autheory](../integrations/autheory.md) — the largest consumer of encrypted fields in the stack
+- [Contract Scenarios](../reference/contract-scenarios.md) — fail-closed behavior is exercised on every commit

@@ -77,9 +77,9 @@ Naming strategy is declared on `@model`, not per-field — same as Go's sentinel
 
 ## Where to go next
 
-- [Getting Started](../getting-started/) — full walkthrough
-- [Struct Definition Guide](../struct-definition-guide/) — model authoring
-- [Features → CRUD & Marshaling](../features/crud/), [Optimistic Locking](../features/optimistic-locking/), [Encryption](../features/encryption/)
+- [Getting Started](../getting-started.md) — full walkthrough
+- [Struct Definition Guide](../struct-definition-guide.md) — model authoring
+- [Features → CRUD & Marshaling](../features/crud.md), [Optimistic Locking](../features/optimistic-locking.md), [Encryption](../features/encryption.md)
 - [`ts/docs/`](https://github.com/theory-cloud/tabletheory/tree/main/ts/docs) on GitHub — TypeScript-specific runtime documentation
 
 ## Stability and support

@@ -52,10 +52,10 @@ models:
 
 DMS is authored separately from any runtime to enforce that runtimes implement *a specification* rather than mirror *each other*. When the Go runtime changes, that change is valid only if it still passes DMS validation — not because TypeScript also implements the same change.
 
-This is the same discipline that keeps the [contract scenarios](../contract-scenarios/) the arbiter when runtimes disagree.
+This is the same discipline that keeps the [contract scenarios](contract-scenarios.md) the arbiter when runtimes disagree.
 
 ## Related
 
-- [Contract Scenarios](../contract-scenarios/) — the executable spec layered on top of DMS
-- [Struct Definition Guide](../../struct-definition-guide/) — how DMS tags become Go/TS/Python model declarations
-- [Architecture Patterns](../../architecture-patterns/) — DMS's place in the cross-runtime contract
+- [Contract Scenarios](contract-scenarios.md) — the executable spec layered on top of DMS
+- [Struct Definition Guide](../struct-definition-guide.md) — how DMS tags become Go/TS/Python model declarations
+- [Architecture Patterns](../architecture-patterns.md) — DMS's place in the cross-runtime contract

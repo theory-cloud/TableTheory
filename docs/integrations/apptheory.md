@@ -30,7 +30,7 @@ The AppTheory team owns the shape of these tables; TableTheory owns how the shap
 
 ## Why this matters for TableTheory stewardship
 
-A breaking change to TableTheory's marshaling, locking, or encryption semantics breaks AppTheory's idempotency guarantees. The blast radius is not "AppTheory needs a code update" — it's "every AppTheory workload silently misbehaves." That's why the [contract scenarios](../../reference/contract-scenarios/) gate every commit and why breaking changes are coordinated explicitly with the AppTheory steward.
+A breaking change to TableTheory's marshaling, locking, or encryption semantics breaks AppTheory's idempotency guarantees. The blast radius is not "AppTheory needs a code update" — it's "every AppTheory workload silently misbehaves." That's why the [contract scenarios](../reference/contract-scenarios.md) gate every commit and why breaking changes are coordinated explicitly with the AppTheory steward.
 
 ## Stack diagram
 
@@ -45,6 +45,6 @@ No reverse arrow. TableTheory does not consume AppTheory.
 
 ## Related
 
-- [Architecture Patterns](../../architecture-patterns/) — the Theory Cloud stack and TableTheory's place in it
-- [Features · Optimistic Locking](../../features/optimistic-locking/) — the primitive AppTheory's event workloads compose on
+- [Architecture Patterns](../architecture-patterns.md) — the Theory Cloud stack and TableTheory's place in it
+- [Features · Optimistic Locking](../features/optimistic-locking.md) — the primitive AppTheory's event workloads compose on
 - [AppTheory repository](https://github.com/theory-cloud/apptheory) — AppTheory's own documentation site

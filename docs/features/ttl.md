@@ -81,6 +81,6 @@ This conservative posture is part of the design — TableTheory does not hide Dy
 
 ## Related
 
-- [Lifecycle Timestamps](../lifecycle-timestamps/) — separate axis, milliseconds, set on every write
-- [FaceTheory · TTL Cache Patterns](../../facetheory/ttl-cache-patterns/) — how FaceTheory uses TTL for ISR cache eviction
-- [Contract Scenarios](../../reference/contract-scenarios/) — the full TTL specification
+- [Lifecycle Timestamps](lifecycle-timestamps.md) — separate axis, milliseconds, set on every write
+- [FaceTheory · TTL Cache Patterns](../facetheory/ttl-cache-patterns.md) — how FaceTheory uses TTL for ISR cache eviction
+- [Contract Scenarios](../reference/contract-scenarios.md) — the full TTL specification

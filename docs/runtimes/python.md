@@ -73,9 +73,9 @@ Python uses `field(...)` descriptors that map one-to-one onto the canonical `the
 
 ## Where to go next
 
-- [Getting Started](../getting-started/) — full walkthrough
-- [Struct Definition Guide](../struct-definition-guide/) — model authoring
-- [Features → CRUD & Marshaling](../features/crud/), [Optimistic Locking](../features/optimistic-locking/), [Encryption](../features/encryption/)
+- [Getting Started](../getting-started.md) — full walkthrough
+- [Struct Definition Guide](../struct-definition-guide.md) — model authoring
+- [Features → CRUD & Marshaling](../features/crud.md), [Optimistic Locking](../features/optimistic-locking.md), [Encryption](../features/encryption.md)
 - [`py/docs/`](https://github.com/theory-cloud/tabletheory/tree/main/py/docs) on GitHub — Python-specific runtime documentation
 
 ## Stability and support

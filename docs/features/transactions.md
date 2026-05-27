@@ -73,6 +73,6 @@ with db.transaction() as tx:
 
 ## Related
 
-- [Optimistic Locking](../optimistic-locking/) — versioned writes inside and outside transactions
-- [Core Patterns](../../core-patterns/) — end-to-end transaction recipes
-- [FaceTheory · ISR Transaction Recipes](../../facetheory/isr-transaction-recipes/) — production transactions used by the ISR cache layer
+- [Optimistic Locking](optimistic-locking.md) — versioned writes inside and outside transactions
+- [Core Patterns](../core-patterns.md) — end-to-end transaction recipes
+- [FaceTheory · ISR Transaction Recipes](../facetheory/isr-transaction-recipes.md) — production transactions used by the ISR cache layer

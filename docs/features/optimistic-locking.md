@@ -74,7 +74,7 @@ The first `Put` of an item that does not yet exist starts at `version = 1`. Subs
 
 ## Versioning under transactions
 
-Optimistic locking composes with DynamoDB transactions. A transactional write group that includes a versioned item asserts the version on the item's condition; if any condition fails, the whole transaction fails atomically. See [Transactions](../transactions/).
+Optimistic locking composes with DynamoDB transactions. A transactional write group that includes a versioned item asserts the version on the item's condition; if any condition fails, the whole transaction fails atomically. See [Transactions](transactions.md).
 
 ## Anti-patterns
 
@@ -84,6 +84,6 @@ Optimistic locking composes with DynamoDB transactions. A transactional write gr
 
 ## Related
 
-- [Lifecycle Timestamps](../lifecycle-timestamps/) — automatic `updated_at` populated on every versioned write
-- [Transactions](../transactions/) — composing versioned writes into atomic groups
-- [Contract Scenarios](../../reference/contract-scenarios/) — the full optimistic-locking specification
+- [Lifecycle Timestamps](lifecycle-timestamps.md) — automatic `updated_at` populated on every versioned write
+- [Transactions](transactions.md) — composing versioned writes into atomic groups
+- [Contract Scenarios](../reference/contract-scenarios.md) — the full optimistic-locking specification

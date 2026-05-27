@@ -38,11 +38,11 @@ Autheory's correctness depends on three TableTheory invariants holding simultane
 2. **Optimistic locking determinism.** Session refresh races must produce one winner.
 3. **TTL honor on read.** Expired sessions must never return data on `Get`.
 
-Any of these regressing breaks Autheory. The [contract scenarios](../../reference/contract-scenarios/) cover all three on every commit.
+Any of these regressing breaks Autheory. The [contract scenarios](../reference/contract-scenarios.md) cover all three on every commit.
 
 ## Related
 
-- [Features · Encryption](../../features/encryption/) — fail-closed, no fallbacks
-- [Features · Optimistic Locking](../../features/optimistic-locking/) — session refresh semantics
-- [Features · TTL](../../features/ttl/) — session expiration semantics
+- [Features · Encryption](../features/encryption.md) — fail-closed, no fallbacks
+- [Features · Optimistic Locking](../features/optimistic-locking.md) — session refresh semantics
+- [Features · TTL](../features/ttl.md) — session expiration semantics
 - [Autheory repository](https://github.com/theory-cloud/autheory)

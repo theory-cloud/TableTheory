@@ -77,6 +77,6 @@ The dedicated [omit-empty scenario](https://github.com/theory-cloud/tabletheory/
 
 ## Related
 
-- [Struct Definition Guide](../../struct-definition-guide/) — every tag and field shape
-- [Core Patterns](../../core-patterns/) — query and transaction recipes built on top of CRUD
-- [Contract Scenarios](../../reference/contract-scenarios/) — full P0 specification
+- [Struct Definition Guide](../struct-definition-guide.md) — every tag and field shape
+- [Core Patterns](../core-patterns.md) — query and transaction recipes built on top of CRUD
+- [Contract Scenarios](../reference/contract-scenarios.md) — full P0 specification

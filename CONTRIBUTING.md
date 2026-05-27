@@ -241,7 +241,7 @@ func TestCreateUser(t *testing.T) {
 - Explain the "why" not just the "how"
 - Keep it up to date
 
-### Authoring documentation (Jekyll / GitHub Pages site)
+### Authoring documentation
 
 The public documentation site at `https://theory-cloud.github.io/tabletheory/` is a Jekyll site rooted at `docs/`. It uses the Theory Cloud design system and is deployed by `.github/workflows/pages.yml` on every push to `main`.
 

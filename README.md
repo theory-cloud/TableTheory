@@ -173,7 +173,7 @@ cd ts && npm run check        # TS lint + typecheck + tests
 cd py && python -m unittest   # Py unit tests
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full contributor docs, including the [Authoring documentation](CONTRIBUTING.md#authoring-documentation-jekyll--github-pages-site) section if you're updating the docs site.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full contributor docs, including the [Authoring documentation](CONTRIBUTING.md#authoring-documentation) section if you're updating the docs site.
 
 ## Theory Cloud
 

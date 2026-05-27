@@ -25,10 +25,10 @@ A regression in how TableTheory marshals nested struct fields shows up first as 
 
 ## Why this matters for TableTheory stewardship
 
-KnowledgeTheory writes everything platform-internal. A silent data-corruption regression in TableTheory shows up everywhere — schema evolution, access-policy enforcement, telemetry pipelines, manifest serving. The [contract scenarios](../../reference/contract-scenarios/) plus KnowledgeTheory's own integration suite are the line of defense.
+KnowledgeTheory writes everything platform-internal. A silent data-corruption regression in TableTheory shows up everywhere — schema evolution, access-policy enforcement, telemetry pipelines, manifest serving. The [contract scenarios](../reference/contract-scenarios.md) plus KnowledgeTheory's own integration suite are the line of defense.
 
 ## Related
 
-- [Architecture Patterns](../../architecture-patterns/) — Theory Cloud stack and data-flow
-- [Features · CRUD & Marshaling](../../features/crud/) — the marshaling contract KnowledgeTheory depends on
+- [Architecture Patterns](../architecture-patterns.md) — Theory Cloud stack and data-flow
+- [Features · CRUD & Marshaling](../features/crud.md) — the marshaling contract KnowledgeTheory depends on
 - [KnowledgeTheory repository](https://github.com/theory-cloud/knowledgetheory)

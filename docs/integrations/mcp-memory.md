@@ -51,6 +51,6 @@ Treat persistent MCP memory failures as a signal to check the runtime's marshali
 
 ## Related
 
-- [Features · Encryption](../../features/encryption/) — fail-closed model used for sensitive memory entries
-- [Architecture Patterns](../../architecture-patterns/) — single-table design across the Theory Cloud stack
-- [Reference · DMS Specification](../../reference/dms-spec/) — the underlying contract spec
+- [Features · Encryption](../features/encryption.md) — fail-closed model used for sensitive memory entries
+- [Architecture Patterns](../architecture-patterns.md) — single-table design across the Theory Cloud stack
+- [Reference · DMS Specification](../reference/dms-spec.md) — the underlying contract spec

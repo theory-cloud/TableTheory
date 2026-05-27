@@ -17,7 +17,7 @@ The current P0 set — five scenarios that pin the foundation of every Theory Cl
 
 The bedrock. Create / read / update / delete against a single-table model with composite keys. Verifies that all three runtimes produce identical DynamoDB items for identical inputs and read them back identically.
 
-See: [Features · CRUD & Marshaling](../../features/crud/)
+See: [Features · CRUD & Marshaling](../features/crud.md)
 
 ### 2. Omit-empty
 
@@ -27,19 +27,19 @@ How zero values (`""`, `0`, `False`, empty collections) are handled when `theory
 
 Automatic population of `created_at` and `updated_at` on write operations, with clock ordering semantics consistent across runtimes. Verifies the unit (epoch ms), the "set once on create / set every write on update" semantics, and the monotonicity guarantee.
 
-See: [Features · Lifecycle Timestamps](../../features/lifecycle-timestamps/)
+See: [Features · Lifecycle Timestamps](../features/lifecycle-timestamps.md)
 
 ### 4. Optimistic locking
 
 The `version` field populated on read, incremented on write, conditional-expression-guarded against concurrent writers, with consistent typed error types when a version mismatch occurs.
 
-See: [Features · Optimistic Locking](../../features/optimistic-locking/)
+See: [Features · Optimistic Locking](../features/optimistic-locking.md)
 
 ### 5. TTL
 
 The `ttl` tag producing a DynamoDB TimeToLive attribute, with consistent units (epoch seconds), consistent expiration behavior, and consistent post-expiration read semantics (expired item ⇒ typed "not found" error).
 
-See: [Features · TTL](../../features/ttl/)
+See: [Features · TTL](../features/ttl.md)
 
 ## How P0 grows
 
@@ -66,6 +66,6 @@ A change that makes one runtime convenient at the cost of breaking a scenario in
 
 ## Related
 
-- [Reference · DMS Specification](../dms-spec/) — the shape spec the scenarios are layered on
-- [Testing](../../testing-guide/) — how to write consumer-level tests on top of these guarantees
-- [Architecture Patterns](../../architecture-patterns/) — cross-runtime contract architecture
+- [Reference · DMS Specification](dms-spec.md) — the shape spec the scenarios are layered on
+- [Testing](../testing-guide.md) — how to write consumer-level tests on top of these guarantees
+- [Architecture Patterns](../architecture-patterns.md) — cross-runtime contract architecture

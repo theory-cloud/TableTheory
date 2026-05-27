@@ -77,16 +77,16 @@ A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag 
 | `theorydb:"omitempty"`     | Omit attribute when the field is the zero value              |
 | `theorydb:"naming:…"`      | Apply naming strategy via the leading `_ struct{}` field     |
 
-Every `theorydb` tag must be accompanied by a matching `json` tag (see [Development guidelines](../development-guidelines/)).
+Every `theorydb` tag must be accompanied by a matching `json` tag (see [Development guidelines](../development-guidelines.md)).
 
 ## Where to go next
 
-- [Getting Started](../getting-started/) — full step-by-step walkthrough
-- [Struct Definition Guide](../struct-definition-guide/) — every tag, every shape
-- [API Reference](../api-reference/) — exported types and methods
-- [Core Patterns](../core-patterns/) — single-table query, GSI, and transaction recipes
-- [Features → CRUD & Marshaling](../features/crud/) — the canonical P0 contract behavior
+- [Getting Started](../getting-started.md) — full step-by-step walkthrough
+- [Struct Definition Guide](../struct-definition-guide.md) — every tag, every shape
+- [API Reference](../api-reference.md) — exported types and methods
+- [Core Patterns](../core-patterns.md) — single-table query, GSI, and transaction recipes
+- [Features → CRUD & Marshaling](../features/crud.md) — the canonical P0 contract behavior
 
 ## Stability and support
 
-The Go runtime is **GA** (post-1.0) and the reference for cross-runtime contract parity. Breaking changes follow [semver](https://semver.org/) and are coordinated with downstream Theory Cloud products. See [Contract Scenarios](../reference/contract-scenarios/) for the P0 specification all three runtimes are verified against.
+The Go runtime is **GA** (post-1.0) and the reference for cross-runtime contract parity. Breaking changes follow [semver](https://semver.org/) and are coordinated with downstream Theory Cloud products. See [Contract Scenarios](../reference/contract-scenarios.md) for the P0 specification all three runtimes are verified against.
