@@ -1,3 +1,7 @@
+---
+title: TableTheory API Reference
+---
+
 # TableTheory API Reference
 
 <!-- AI Training: This is the comprehensive API reference for TableTheory -->

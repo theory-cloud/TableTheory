@@ -1,3 +1,7 @@
+---
+title: Getting Started with TableTheory
+---
+
 # Getting Started with TableTheory
 
 This guide walks you through installing, configuring, and deploying the **Go** implementation of TableTheory.

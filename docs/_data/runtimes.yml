@@ -1,0 +1,103 @@
+# =============================================================
+# Landing-page runtime tabs — Go / TypeScript / Python snippets.
+# Each block is rendered inside the .runtime-block UI on the home
+# page. `lang` matches the Rouge highlighter id.
+# =============================================================
+
+- id: go
+  label: Go
+  icon: go-mark
+  install: "go get github.com/theory-cloud/tabletheory"
+  lang: go
+  snippet: |
+    package main
+
+    import (
+        "context"
+        "github.com/theory-cloud/tabletheory"
+    )
+
+    type Note struct {
+        _  struct{} `theorydb:"naming:snake_case"`
+        PK string   `theorydb:"pk"       json:"pk"`
+        SK string   `theorydb:"sk"       json:"sk"`
+
+        Body      string `theorydb:"omitempty"   json:"body,omitempty"`
+        Version   int64  `theorydb:"version"     json:"version"`
+        CreatedAt int64  `theorydb:"created_at"  json:"created_at"`
+        UpdatedAt int64  `theorydb:"updated_at"  json:"updated_at"`
+    }
+
+    func main() {
+        db := tabletheory.LambdaInit(context.Background(),
+            tabletheory.WithTable("notes"),
+            tabletheory.WithModels(&Note{}),
+        )
+
+        _ = db.Put(context.Background(), &Note{
+            PK:   "user#42",
+            SK:   "note#welcome",
+            Body: "Hello, Theory Cloud.",
+        })
+    }
+
+- id: ts
+  label: TypeScript
+  icon: ts-mark
+  install: "npm install --save-dev @theory-cloud/tabletheory-ts"
+  lang: typescript
+  snippet: |
+    import { TableTheory, model, field } from "@theory-cloud/tabletheory-ts";
+
+    @model({ naming: "snake_case", table: "notes" })
+    class Note {
+      @field({ role: "pk" }) pk!: string;
+      @field({ role: "sk" }) sk!: string;
+
+      @field({ omitempty: true }) body?: string;
+
+      @field({ role: "version" })    version!: number;
+      @field({ role: "created_at" }) created_at!: number;
+      @field({ role: "updated_at" }) updated_at!: number;
+    }
+
+    const db = await TableTheory.lambdaInit({
+      table:  "notes",
+      models: [Note],
+    });
+
+    await db.put(new Note({
+      pk:   "user#42",
+      sk:   "note#welcome",
+      body: "Hello, Theory Cloud.",
+    }));
+
+- id: python
+  label: Python
+  icon: py-mark
+  install: "pip install tabletheory-py"
+  lang: python
+  snippet: |
+    from tabletheory_py import TableTheory, model, field
+
+    @model(naming="snake_case", table="notes")
+    class Note:
+        pk: str = field(role="pk")
+        sk: str = field(role="sk")
+
+        body: str | None = field(omitempty=True, default=None)
+
+        version:    int = field(role="version")
+        created_at: int = field(role="created_at")
+        updated_at: int = field(role="updated_at")
+
+    db = TableTheory.lambda_init(
+        table="notes",
+        models=[Note],
+    )
+
+    db.put(Note(
+        pk="user#42",
+        sk="note#welcome",
+        body="Hello, Theory Cloud.",
+    ))

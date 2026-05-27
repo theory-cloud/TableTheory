@@ -1,3 +1,7 @@
+---
+title: Development Guidelines
+---
+
 # Development Guidelines
 
 This guide outlines the coding standards and best practices for developing TableTheory in this multi-language monorepo:

@@ -1,3 +1,7 @@
+---
+title: TableTheory Migration Guide
+---
+
 # TableTheory Migration Guide
 
 This guide assists in migrating existing Go applications to use TableTheory, focusing on transitions from raw AWS SDK calls or other ORMs.

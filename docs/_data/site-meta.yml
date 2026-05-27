@@ -1,0 +1,27 @@
+# =============================================================
+# Site-wide metadata consumed by layouts/includes.
+# =============================================================
+
+header_nav:
+  - { label: Docs,         url: /,                              active_paths: ["/"] }
+  - { label: API,          url: /api-reference/,                active_paths: ["/api-reference/"] }
+  - { label: Runtimes,     url: /runtimes/go/,                  active_paths: ["/runtimes/"] }
+  - { label: Features,     url: /features/crud/,                active_paths: ["/features/"] }
+  - { label: Integrations, url: /integrations/mcp-memory/,      active_paths: ["/integrations/"] }
+  - { label: Reference,    url: /reference/dms-spec/,           active_paths: ["/reference/"] }
+
+footer_links:
+  - { label: GitHub,         url: "https://github.com/theory-cloud/tabletheory" }
+  - { label: Releases,       url: "https://github.com/theory-cloud/tabletheory/releases" }
+  - { label: Changelog,      url: "https://github.com/theory-cloud/tabletheory/blob/main/CHANGELOG.md" }
+  - { label: License,        url: "https://github.com/theory-cloud/tabletheory/blob/main/LICENSE" }
+  - { label: Contributing,   url: "https://github.com/theory-cloud/tabletheory/blob/main/CONTRIBUTING.md" }
+
+# Quick-start cards on the landing page
+quick_start:
+  - { title: "Install & init",         desc: "Set up Lambda init for Go, TS, or Python.",          url: /getting-started/,           icon: play }
+  - { title: "Define a model",         desc: "Tag a struct with theorydb tags and you're done.",   url: /struct-definition-guide/,   icon: layout }
+  - { title: "Query patterns",         desc: "Single-table queries, GSIs, conditional reads.",     url: /core-patterns/,             icon: compass }
+  - { title: "Optimistic locking",     desc: "Version-conditional writes across all runtimes.",    url: /features/optimistic-locking/, icon: shield-check }
+  - { title: "Encryption (fail-closed)", desc: "KMS-backed field encryption that fails closed.",   url: /features/encryption/,       icon: lock }
+  - { title: "Contract scenarios",     desc: "The P0 specification every runtime is tested against.", url: /reference/contract-scenarios/, icon: list-checks }

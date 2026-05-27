@@ -1,3 +1,7 @@
+---
+title: Struct Definition Guide
+---
+
 # Struct Definition Guide
 
 This guide documents the **canonical** way to define TableTheory models using Go struct tags.
