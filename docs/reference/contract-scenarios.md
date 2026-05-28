@@ -48,10 +48,9 @@ exercised across supported runtimes.
 ### Lifecycle timestamps
 
 The lifecycle fixture pins the persisted `createdAt` / `updatedAt` fields and
-the ordering expectation after an update. Public runtime automation is not
-currently uniform across all generic CRUD APIs: Go and TypeScript write paths
-generate lifecycle values, while Python `Table.put` and `Table.update` serialize
-caller-provided values. See the feature page for runtime-specific guidance.
+the ordering expectation after an update. Go, TypeScript, and Python all execute
+this shared P0 fixture and generate lifecycle values on the high-level write
+paths used by the scenario.
 
 See: [Features · Lifecycle Timestamps](../features/lifecycle-timestamps.md)
 

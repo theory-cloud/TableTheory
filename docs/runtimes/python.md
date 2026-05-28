@@ -79,6 +79,7 @@ For a complete working program, see [`py/docs/getting-started.md`](https://githu
 table.put(note)
 note = table.get(pk, sk)                            # raises NotFoundError on miss
 table.update(pk, sk, {"body": "updated"})           # third arg is a Mapping[str, Any]
+table.update(pk, sk, {"body": "guarded"}, expected_version=note.version)  # versioned write
 table.delete(pk, sk)
 
 # Composite updates use update_builder for set/remove/add chains.
@@ -90,7 +91,7 @@ table.update_builder(pk, sk).set("body", "updated").execute()
 - `uv --directory py run ruff format --check .` — format verification
 - `uv --directory py run ruff check .` — lint using the `py/pyproject.toml` line length of 110
 - `uv --directory py run mypy src` — typecheck
-- `uv --directory py run pytest -q` — pytest suite
+- `uv --directory py run pytest -q tests/unit` — unit pytest suite
 - `uv --directory py run pytest -q tests/integration` — integration tests with DynamoDB Local
 - Exercised against shared contract scenarios via [`contract-tests/runners/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/runners) on every commit
 

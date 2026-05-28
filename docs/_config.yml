@@ -133,8 +133,8 @@ tabletheory:
       cta: See the Autheory integration
   stats:
     - label: P0 contract scenarios
-      value: "5"
-      sub: CRUD · omit-empty · timestamps · locking · TTL
+      value: "9"
+      sub: CRUD · lifecycle · TTL · release-state
     - label: Runtimes
       value: "3"
       sub: Go · TypeScript · Python

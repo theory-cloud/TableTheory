@@ -103,8 +103,9 @@ The full documentation site lives at **[theory-cloud.github.io/tabletheory](http
 - **TypeScript** — [theory-cloud.github.io/tabletheory/runtimes/typescript/](https://theory-cloud.github.io/tabletheory/runtimes/typescript/)
 - **Python** — [theory-cloud.github.io/tabletheory/runtimes/python/](https://theory-cloud.github.io/tabletheory/runtimes/python/)
 
-**P0 contract surface — one page per scenario:**
+**P0 contract reference and related feature pages:**
 
+- [Contract Scenarios](https://theory-cloud.github.io/tabletheory/reference/contract-scenarios/) — the current 9-fixture P0 surface
 - [CRUD & Marshaling](https://theory-cloud.github.io/tabletheory/features/crud/)
 - [Optimistic Locking](https://theory-cloud.github.io/tabletheory/features/optimistic-locking/)
 - [Lifecycle Timestamps](https://theory-cloud.github.io/tabletheory/features/lifecycle-timestamps/)
@@ -170,7 +171,7 @@ For multi-language work:
 
 ```bash
 cd ts && npm run lint && npm run typecheck && npm run test:unit
-uv --directory py run pytest -q
+uv --directory py run pytest -q tests/unit
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full contributor docs, including the [Authoring documentation](CONTRIBUTING.md#authoring-documentation) section if you're updating the docs site.

@@ -10,13 +10,10 @@ pins the portable behavior: a write with the current version succeeds and moves
 the persisted item to the next version; a stale-version write fails with a typed
 condition error.
 
-Public runtime ergonomics differ slightly:
-
-1. Go and TypeScript high-level update paths add the version condition and bump.
-2. Python callers currently use
-   `update_builder(...).add("version", 1).condition_version(current)` for the
-   same guarded update shape.
-3. On a version mismatch (another writer raced ahead), the write fails — never a silent overwrite.
+Public runtime ergonomics differ slightly, but the shared contract is the same:
+the high-level versioned update path adds the version condition and increments
+the version on success. On a version mismatch (another writer raced ahead), the
+write fails — never a silent overwrite.
 
 ## Why this matters
 
@@ -93,11 +90,12 @@ model = ModelDefinition.from_dataclass(Counter, table_name="counters_contract")
 table = Table(model, client=client)
 
 c = table.get("TENANT#42", "COUNTER#impressions")
-table.update_builder("TENANT#42", "COUNTER#impressions") \
-    .set("value", c.value + 1) \
-    .add("version", 1) \
-    .condition_version(c.version) \
-    .execute()
+table.update(
+    "TENANT#42",
+    "COUNTER#impressions",
+    {"value": c.value + 1},
+    expected_version=c.version,
+)
 ```
 
 ## Versioning a newly-created item
