@@ -1,0 +1,152 @@
+# =============================================================
+# TableTheory sidebar navigation
+# =============================================================
+# Each group has a label and a list of items.
+# Each item:
+#   id     — stable identifier (used for prev/next + page lookups)
+#   title  — sidebar label
+#   url    — Jekyll-relative URL (will be prefixed with site.baseurl)
+#   icon   — lucide-style icon id rendered by _includes/icon.html
+#   tag    — optional: new | beta | ga
+#   surface — optional: overrides the page surface (e.g. mcp for the
+#             MCP Memory integration page)
+#
+# Adding a new page: create the markdown file under docs/ and add an
+# entry here. Update `order` below if it should appear in prev/next.
+# =============================================================
+
+groups:
+  - label: Overview
+    items:
+      - { id: home,                  title: Welcome,                 url: /,                                  icon: home }
+      - { id: getting-started,       title: Getting Started,         url: /getting-started/,                  icon: play }
+      - { id: api-reference,         title: API Reference,           url: /api-reference/,                    icon: book,        tag: ga }
+      - { id: architecture-patterns, title: Architecture Patterns,   url: /architecture-patterns/,            icon: compass }
+
+  - label: Modeling
+    items:
+      - { id: struct-definition,     title: Struct Definition,       url: /struct-definition-guide/,          icon: layout }
+      - { id: development-guidelines, title: Development Guidelines, url: /development-guidelines/,           icon: check-square }
+      - { id: core-patterns,         title: Core Patterns,           url: /core-patterns/,                    icon: compass }
+      - { id: release-state,         title: Release State Patterns,  url: /release-state-patterns/,           icon: tag }
+
+  - label: Runtimes
+    items:
+      - { id: runtime-go,            title: Go,                      url: /runtimes/go/,                      icon: go-mark,     tag: ga }
+      - { id: runtime-ts,            title: TypeScript,              url: /runtimes/typescript/,              icon: ts-mark,     tag: ga }
+      - { id: runtime-py,            title: Python,                  url: /runtimes/python/,                  icon: py-mark,     tag: ga }
+
+  - label: Features
+    items:
+      - { id: feature-crud,          title: CRUD & Marshaling,       url: /features/crud/,                    icon: layers }
+      - { id: feature-lock,          title: Optimistic Locking,      url: /features/optimistic-locking/,      icon: shield-check }
+      - { id: feature-timestamps,    title: Lifecycle Timestamps,    url: /features/lifecycle-timestamps/,    icon: clock }
+      - { id: feature-ttl,           title: TTL,                     url: /features/ttl/,                     icon: hourglass }
+      - { id: feature-encryption,    title: Encryption,              url: /features/encryption/,              icon: lock,        tag: ga }
+      - { id: feature-transactions,  title: Transactions,            url: /features/transactions/,            icon: git-branch }
+
+  - label: FaceTheory
+    items:
+      - { id: face-isr-schema,       title: ISR Cache Schema,        url: /facetheory/isr-cache-schema/,      icon: database }
+      - { id: face-isr-tx,           title: ISR Transaction Recipes, url: /facetheory/isr-transaction-recipes/, icon: shuffle }
+      - { id: face-isr-idempotency,  title: ISR Idempotency,         url: /facetheory/isr-idempotency/,       icon: repeat }
+      - { id: face-ttl,              title: TTL Cache Patterns,      url: /facetheory/ttl-cache-patterns/,    icon: hourglass }
+
+  - label: Integrations
+    items:
+      - { id: int-mcp-memory,        title: MCP Memory,              url: /integrations/mcp-memory/,          icon: share,       tag: new, surface: mcp }
+      - { id: int-apptheory,         title: AppTheory,               url: /integrations/apptheory/,           icon: zap }
+      - { id: int-knowledgetheory,   title: KnowledgeTheory,         url: /integrations/knowledgetheory/,     icon: book-open }
+      - { id: int-autheory,          title: Autheory,                url: /integrations/autheory/,            icon: key }
+
+  - label: CDK
+    items:
+      - { id: cdk-overview,          title: CDK Overview,            url: /cdk/,                              icon: package }
+
+  - label: Guides
+    items:
+      - { id: testing-guide,         title: Testing,                 url: /testing-guide/,                    icon: check }
+      - { id: troubleshooting,       title: Troubleshooting,         url: /troubleshooting/,                  icon: life-buoy }
+      - { id: migration-guide,       title: Migration,               url: /migration-guide/,                  icon: arrow-right }
+      - { id: llm-faq,               title: LLM FAQ,                 url: /llm-faq/module-faq/,               icon: help-circle }
+
+  - label: Reference
+    items:
+      - { id: ref-dms,               title: DMS Specification v0.1,  url: /reference/dms-spec/,               icon: file-text,   tag: ga }
+      - { id: ref-scenarios,         title: Contract Scenarios,      url: /reference/contract-scenarios/,     icon: list-checks }
+
+# =============================================================
+# Linear ordering for prev / next pager
+# =============================================================
+order:
+  - home
+  - getting-started
+  - api-reference
+  - architecture-patterns
+  - struct-definition
+  - development-guidelines
+  - core-patterns
+  - release-state
+  - runtime-go
+  - runtime-ts
+  - runtime-py
+  - feature-crud
+  - feature-lock
+  - feature-timestamps
+  - feature-ttl
+  - feature-encryption
+  - feature-transactions
+  - face-isr-schema
+  - face-isr-tx
+  - face-isr-idempotency
+  - face-ttl
+  - int-mcp-memory
+  - int-apptheory
+  - int-knowledgetheory
+  - int-autheory
+  - cdk-overview
+  - testing-guide
+  - troubleshooting
+  - migration-guide
+  - llm-faq
+  - ref-dms
+  - ref-scenarios
+
+# =============================================================
+# URL → page-id map for fast lookups in layouts
+# Used by _includes/sidebar.html to mark active links and by
+# _includes/pager.html for prev/next derivation.
+# =============================================================
+url_to_id:
+  /:                                       home
+  /getting-started/:                       getting-started
+  /api-reference/:                         api-reference
+  /architecture-patterns/:                 architecture-patterns
+  /struct-definition-guide/:               struct-definition
+  /development-guidelines/:                development-guidelines
+  /core-patterns/:                         core-patterns
+  /release-state-patterns/:                release-state
+  /runtimes/go/:                           runtime-go
+  /runtimes/typescript/:                   runtime-ts
+  /runtimes/python/:                       runtime-py
+  /features/crud/:                         feature-crud
+  /features/optimistic-locking/:           feature-lock
+  /features/lifecycle-timestamps/:         feature-timestamps
+  /features/ttl/:                          feature-ttl
+  /features/encryption/:                   feature-encryption
+  /features/transactions/:                 feature-transactions
+  /facetheory/isr-cache-schema/:           face-isr-schema
+  /facetheory/isr-transaction-recipes/:    face-isr-tx
+  /facetheory/isr-idempotency/:            face-isr-idempotency
+  /facetheory/ttl-cache-patterns/:         face-ttl
+  /integrations/mcp-memory/:               int-mcp-memory
+  /integrations/apptheory/:                int-apptheory
+  /integrations/knowledgetheory/:          int-knowledgetheory
+  /integrations/autheory/:                 int-autheory
+  /cdk/:                                   cdk-overview
+  /testing-guide/:                         testing-guide
+  /troubleshooting/:                       troubleshooting
+  /migration-guide/:                       migration-guide
+  /llm-faq/module-faq/:                    llm-faq
+  /reference/dms-spec/:                    ref-dms
+  /reference/contract-scenarios/:          ref-scenarios

@@ -1,3 +1,7 @@
+---
+title: TableTheory Architecture Patterns
+---
+
 # TableTheory Architecture Patterns
 
 <!-- AI Training: This document describes the architectural patterns and integrations for TableTheory-based applications -->

@@ -241,6 +241,55 @@ func TestCreateUser(t *testing.T) {
 - Explain the "why" not just the "how"
 - Keep it up to date
 
+### Authoring documentation
+
+The public documentation site at `https://theory-cloud.github.io/tabletheory/` is a Jekyll site rooted at `docs/`. It uses the Theory Cloud design system and is deployed by `.github/workflows/pages.yml` on every push to `main`.
+
+**Adding a page**
+
+1. Create the markdown file under `docs/` (e.g. `docs/features/my-new-feature.md`).
+2. Add minimal front matter:
+   ```yaml
+   ---
+   title: My new feature
+   description: One-sentence summary used by the page meta tag.
+   ---
+   ```
+3. Add a corresponding entry to `docs/_data/nav.yml`:
+   - Append an item to the appropriate group's `items:` list with `id`, `title`, `url`, `icon` (and optional `tag`).
+   - Append the page's `id` to the linear `order:` list at the position you want for prev/next navigation.
+   - Add the `url → id` mapping to `url_to_id:`.
+
+**Callouts**
+
+The site supports info / warn / danger callouts via a Liquid include. Wrap markdown body content in a `capture` block:
+
+```liquid
+{% raw %}{% capture body %}
+You can put **markdown** here, including [links](../).
+{% endcapture %}
+{% include callout.html type="info" title="Heads up" content=body %}{% endraw %}
+```
+
+`type` accepts `info`, `warn`, or `danger`. Callouts auto-tint per surface (`core`, `mcp`, `auth`, `journal`).
+
+**Local preview**
+
+```bash
+cd docs
+bundle install            # one-time
+bundle exec jekyll serve  # http://localhost:4000/tabletheory/
+```
+
+**Surface tint per page**
+
+A page can opt into the MCP / Auth surface tint by adding `surface: mcp` (or `auth`) to its front matter. The default surface for TableTheory is `core`.
+
+**What never to do**
+
+- Don't add internal planning, decisions, or clarification docs to the public nav — those live under `docs/development/` and are excluded from the site by `_config.yml`.
+- Don't author content that would only work with a specific runtime registry (npm / PyPI). Distribution is GitHub Releases only — see the [Release discipline](./AGENTS.md) doc.
+
 ## Community
 
 - **Discussions**: [GitHub Discussions](https://github.com/theorydb/theorydb/discussions)

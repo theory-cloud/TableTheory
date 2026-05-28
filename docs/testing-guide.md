@@ -1,3 +1,7 @@
+---
+title: Testing Guide
+---
+
 # Testing Guide
 
 This guide explains how to write unit and integration tests for applications using TableTheory.
@@ -148,7 +152,7 @@ npm --prefix ts run test:integration
 
 ```bash
 make docker-up
-uv --directory py run pytest -q
+uv --directory py run pytest -q tests/integration
 ```
 
 ### Go integration tests

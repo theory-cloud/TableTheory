@@ -1,3 +1,7 @@
+---
+title: TableTheory Troubleshooting
+---
+
 # TableTheory Troubleshooting
 
 This guide provides solutions to common issues with verified fixes, categorized by the type of error you might encounter.

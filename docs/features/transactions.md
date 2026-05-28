@@ -1,0 +1,139 @@
+---
+title: Transactions
+description: Real DynamoDB TransactWriteItems — composed with the rest of the contract.
+---
+
+# Transactions
+
+This page documents TableTheory's public write-transaction surfaces, which use the actual DynamoDB `TransactWriteItems` API. There is no app-level lock, no optimistic-concurrency-over-HTTP simulation, and no hidden retry sleep loop.
+
+## What a transaction guarantees
+
+- **Atomicity** across all items in the group: either every write applies or none.
+- **Condition evaluation** is server-side: each write item carries its own conditional expression, and a single failed condition aborts the whole transaction.
+- **Optimistic-lock composition**: a versioned item in the group asserts its expected version; a version mismatch aborts the transaction atomically.
+- **Encryption composition**: encrypted fields are encrypted before the transaction is submitted; a KMS failure aborts before any write hits DynamoDB.
+- **Cross-runtime parity**: a write transaction submitted from Python sees the same atomicity guarantees as one submitted from Go.
+
+## Write transaction limits to know
+
+| Limit                                             | Value / behavior                            |
+|---------------------------------------------------|---------------------------------------------|
+| DynamoDB `TransactWriteItems` item limit           | 100 items per service call                  |
+| Go `core.TransactionBuilder` operation cap         | 25 operations in the current public builder |
+| TypeScript `TheorydbClient.transactWrite` cap      | DynamoDB enforces service-call limits       |
+| Python `Table.transact_write` action cap           | 100 actions                                 |
+| Maximum DynamoDB transaction payload size          | 4 MB                                        |
+| Items addressed across multiple tables             | allowed by DynamoDB                         |
+| Same item appearing twice in one call              | not allowed by DynamoDB                     |
+
+TableTheory **does not auto-chunk** write transactions across multiple
+`TransactWriteItems` calls — that would silently break atomicity. If you exceed
+the runtime guard or DynamoDB service limit, redesign the access pattern instead
+of splitting one logical transaction into multiple calls.
+
+## Go
+
+```go
+// Conditional writes composed with a peer create inside one TransactWriteItems call.
+err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
+    tx.UpdateWithBuilder(&fromAcct, func(u core.UpdateBuilder) error {
+        u.Set("Balance", fromBal)
+        u.Add("Version", int64(1))
+        u.ConditionVersion(fromVersion)
+        return nil
+    })
+
+    tx.UpdateWithBuilder(&toAcct, func(u core.UpdateBuilder) error {
+        u.Set("Balance", toBal)
+        u.Add("Version", int64(1))
+        u.ConditionVersion(toVersion)
+        return nil
+    })
+
+    tx.Create(&audit)
+    return nil
+})
+```
+
+> Use `db.TransactWrite(ctx, func(core.TransactionBuilder) error)` or the
+> fluent `db.Transact()` builder followed by `Execute()` for DynamoDB
+> transactions. The older `db.Transaction(func(*core.Tx) error)` helper is only
+> a compatibility wrapper and is not the canonical full-transaction API.
+
+## TypeScript
+
+`TheorydbClient.transactWrite(actions: TransactAction[])` accepts a list of
+`{ kind: 'put' | 'update' | 'delete' | 'condition', model, ... }` actions.
+Update actions provide `key` plus either a raw `updateExpression` or an `updateFn`
+that uses the `UpdateBuilder` DSL.
+
+```typescript
+await db.transactWrite([
+  {
+    kind: 'update',
+    model: 'Account',
+    key: fromKey,
+    updateFn: (u) => {
+      u.set('balance', fromBal).add('version', 1).conditionVersion(fromVersion);
+    },
+  },
+  {
+    kind: 'update',
+    model: 'Account',
+    key: toKey,
+    updateFn: (u) => {
+      u.set('balance', toBal).add('version', 1).conditionVersion(toVersion);
+    },
+  },
+  {
+    kind: 'put',
+    model: 'Audit',
+    item: auditItem,
+    ifNotExists: true,
+  },
+]);
+```
+
+See [`ts/src/transaction.ts`](https://github.com/theory-cloud/tabletheory/blob/main/ts/src/transaction.ts) for the full `TransactAction` shape.
+
+## Python
+
+`Table.transact_write(actions)` accepts a list of dataclass actions —
+`TransactPut`, `TransactUpdate`, `TransactDelete`, `TransactConditionCheck` — all importable from `theorydb_py`.
+
+```python
+from theorydb_py import TransactPut, TransactUpdate
+
+table.transact_write([
+    TransactUpdate(
+        pk="ACCOUNT#A", sk="v1",
+        updates={"balance": from_bal},
+    ),
+    TransactUpdate(
+        pk="ACCOUNT#B", sk="v1",
+        updates={"balance": to_bal},
+    ),
+    TransactPut(item=audit_item),
+])
+```
+
+See [`py/src/theorydb_py/transaction.py`](https://github.com/theory-cloud/tabletheory/blob/main/py/src/theorydb_py/transaction.py) for the full action-dataclass shapes.
+
+## Common patterns
+
+- **Transferring state between two items**: update both with conditional expressions.
+- **Atomic create-if-absent of multiple items**: create each with `attribute_not_exists(pk)`.
+- **Composite invariants across a parent and its children**: condition-check the parent's version while writing children atomically.
+
+## Anti-patterns
+
+- **Don't simulate transactions with successive single writes.** DynamoDB transactions exist for exactly this reason; rolling your own loses atomicity.
+- **Don't catch the abort error and retry without recomputing.** A condition failure means your snapshot is stale; reload state before the next attempt.
+- **Don't put the same item twice in one transaction.** DynamoDB rejects it. Combine the changes locally first.
+
+## Related
+
+- [Optimistic Locking](optimistic-locking.md) — versioned writes inside and outside transactions
+- [Core Patterns](../core-patterns.md) — end-to-end transaction recipes
+- [FaceTheory · ISR Transaction Recipes](../facetheory/isr-transaction-recipes.md) — production transactions used by the ISR cache layer

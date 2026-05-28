@@ -1,0 +1,107 @@
+# =============================================================
+# Landing-page runtime tabs — Go / TypeScript / Python snippets.
+# Each snippet uses the actual exported API surface. Distribution
+# is GitHub Releases only — no npm, no PyPI.
+# =============================================================
+
+- id: go
+  label: Go
+  icon: go-mark
+  install: "go get github.com/theory-cloud/tabletheory@vX.Y.Z"
+  lang: go
+  snippet: |
+    package main
+
+    import (
+        "log"
+
+        "github.com/aws/aws-lambda-go/lambda"
+        "github.com/theory-cloud/tabletheory"
+    )
+
+    // Models are plain Go structs with theorydb: + json: struct tags.
+    type Note struct {
+        PK    string `theorydb:"pk" json:"pk"`
+        SK    string `theorydb:"sk" json:"sk"`
+        Body  string `json:"body"`
+    }
+
+    var db *tabletheory.LambdaDB
+
+    func init() {
+        // Cold-start initialization — reused across invocations.
+        var err error
+        db, err = tabletheory.NewLambdaOptimized()
+        if err != nil {
+            log.Fatal(err)
+        }
+    }
+
+    func handler() error {
+        return db.Model(&Note{
+            PK:   "USER#42",
+            SK:   "NOTE#welcome",
+            Body: "Hello, Theory Cloud.",
+        }).Create()
+    }
+
+    func main() { lambda.Start(handler) }
+
+- id: ts
+  label: TypeScript
+  icon: ts-mark
+  install: "npm install --save-exact https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/theory-cloud-tabletheory-ts-X.Y.Z.tgz"
+  lang: typescript
+  snippet: |
+    import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+    import { TheorydbClient, defineModel } from '@theory-cloud/tabletheory-ts';
+
+    // Models are declared explicitly via defineModel.
+    const Note = defineModel({
+      name: 'Note',
+      table: { name: 'notes' },
+      keys: {
+        partition: { attribute: 'PK', type: 'S' },
+        sort:      { attribute: 'SK', type: 'S' },
+      },
+      attributes: [
+        { attribute: 'PK',   type: 'S', roles: ['pk'] },
+        { attribute: 'SK',   type: 'S', roles: ['sk'] },
+        { attribute: 'body', type: 'S', optional: true },
+      ],
+    });
+
+    const ddb = new DynamoDBClient({ region: 'us-east-1' });
+    const db  = new TheorydbClient(ddb).register(Note);
+
+    await db.create('Note', {
+      PK:   'USER#42',
+      SK:   'NOTE#welcome',
+      body: 'Hello, Theory Cloud.',
+    });
+
+- id: python
+  label: Python
+  icon: py-mark
+  install: "pip install https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/tabletheory_py-X.Y.Z-py3-none-any.whl"
+  lang: python
+  snippet: |
+    from dataclasses import dataclass
+
+    import boto3
+    from theorydb_py import ModelDefinition, Table, theorydb_field
+
+
+    # Models are plain dataclasses with theorydb_field roles.
+    @dataclass(frozen=True)
+    class Note:
+        pk:   str = theorydb_field(roles=["pk"])
+        sk:   str = theorydb_field(roles=["sk"])
+        body: str = theorydb_field()
+
+
+    client = boto3.client("dynamodb", region_name="us-east-1")
+    model  = ModelDefinition.from_dataclass(Note, table_name="notes")
+    table  = Table(model, client=client)
+
+    table.put(Note(pk="USER#42", sk="NOTE#welcome", body="Hello, Theory Cloud."))

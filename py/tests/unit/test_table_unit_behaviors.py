@@ -26,6 +26,16 @@ class Item:
     note: str = theorydb_field(name="note", omitempty=True, default="")
 
 
+@dataclass(frozen=True)
+class LifecycleItem:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    value: int = theorydb_field(name="value")
+    created_at: str = theorydb_field(name="createdAt", roles=["created_at"], default="")
+    updated_at: str = theorydb_field(name="updatedAt", roles=["updated_at"], default="")
+    version: int | None = theorydb_field(name="version", roles=["version"], default=None)
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.put_reqs: list[dict] = []
@@ -134,6 +144,43 @@ def test_table_put_get_delete_update_happy_path_and_validation() -> None:
     stub.set_update_attrs(None)
     with pytest.raises(ValidationError, match="did not return Attributes"):
         table.update("A", "1", {"value": 3})
+
+
+def test_table_populates_lifecycle_fields_and_initial_version() -> None:
+    model = ModelDefinition.from_dataclass(LifecycleItem, table_name="tbl")
+    table: Table[LifecycleItem] = Table(
+        model, client=_StubClient(), now=lambda: "2026-05-28T00:00:00.000000000Z"
+    )
+
+    item = table._to_item(LifecycleItem(pk="A", sk="1", value=1))
+
+    assert item["createdAt"] == {"S": "2026-05-28T00:00:00.000000000Z"}
+    assert item["updatedAt"] == {"S": "2026-05-28T00:00:00.000000000Z"}
+    assert item["version"] == {"N": "0"}
+
+
+def test_table_update_expected_version_sets_lifecycle_and_lock() -> None:
+    model = ModelDefinition.from_dataclass(LifecycleItem, table_name="tbl")
+    table: Table[LifecycleItem] = Table(
+        model, client=_StubClient(), now=lambda: "2026-05-28T00:00:01.000000000Z"
+    )
+
+    req = table._build_update_request(
+        "A",
+        "1",
+        {"value": 2},
+        expected_version=0,
+        return_values="ALL_NEW",
+    )
+
+    assert req["ConditionExpression"] == "#d_version = :d_expected_version"
+    assert "SET #d_updated_at = :d_updated_at, #d_value = :d_value" in req["UpdateExpression"]
+    assert "ADD #d_version :d_version_increment" in req["UpdateExpression"]
+    assert req["ExpressionAttributeNames"]["#d_updated_at"] == "updatedAt"
+    assert req["ExpressionAttributeNames"]["#d_version"] == "version"
+    assert req["ExpressionAttributeValues"][":d_updated_at"] == {"S": "2026-05-28T00:00:01.000000000Z"}
+    assert req["ExpressionAttributeValues"][":d_expected_version"] == {"N": "0"}
+    assert req["ExpressionAttributeValues"][":d_version_increment"] == {"N": "1"}
 
 
 def test_table_key_and_update_request_validation_errors() -> None:
