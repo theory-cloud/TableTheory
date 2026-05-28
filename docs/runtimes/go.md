@@ -7,7 +7,9 @@ description: TableTheory for Go — installation, Lambda init, and the canonical
 
 TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
 
-The Go runtime is the reference for cross-runtime contract parity, but it is **not** a "reference implementation that TypeScript and Python port" — all three runtimes pass the same P0 contract scenarios independently.
+The Go runtime is a peer implementation of the shared contract — not a
+reference implementation that TypeScript and Python port. Contract parity is
+established by the shared scenarios, not by treating one runtime as canonical.
 
 ## Install
 

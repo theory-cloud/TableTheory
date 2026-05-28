@@ -1,20 +1,30 @@
 ---
 title: Optimistic Locking
-description: Version-conditional writes — populated on read, incremented on write, guarded across all three runtimes.
+description: Version-conditional writes and update-builder patterns for optimistic concurrency.
 ---
 
 # Optimistic Locking
 
-The version role is TableTheory's optimistic concurrency control. The semantics are simple and pinned by the [optimistic-locking P0 scenario](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/scenarios):
+The version role is TableTheory's optimistic concurrency field. The [optimistic-locking P0 scenario](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/04-version-optimistic-lock.yml)
+pins the portable behavior: a write with the current version succeeds and moves
+the persisted item to the next version; a stale-version write fails with a typed
+condition error.
 
-1. A field tagged with the `version` role is **populated on read**.
-2. On write, the runtime emits a conditional expression: `version = :expected_version` where `:expected_version` is the value loaded on the most recent read.
-3. On a successful write, the runtime **increments the field** in the persisted item.
-4. On a version mismatch (another writer raced ahead), the runtime returns a **typed conflict error** — never a silent overwrite.
+Public runtime ergonomics differ slightly:
+
+1. Go and TypeScript high-level update paths add the version condition and bump.
+2. Python callers currently use
+   `update_builder(...).add("version", 1).condition_version(current)` for the
+   same guarded update shape.
+3. On a version mismatch (another writer raced ahead), the write fails — never a silent overwrite.
 
 ## Why this matters
 
-Every Theory Cloud consumer that ships versioned writes — AppTheory's idempotency state, Autheory's session refreshes, theory-mcp-server's agent memory cursor — depends on this behavior being identical across runtimes. A Go writer racing a Python writer must see one of them lose deterministically.
+Every Theory Cloud consumer that ships versioned writes — AppTheory's
+idempotency state, Autheory's session refreshes, theory-mcp-server's agent
+memory cursor — depends on guarded updates being expressed consistently. A Go
+writer racing a Python writer must use the same expected-version value and see
+one of the writes fail deterministically.
 
 ## Go
 
@@ -108,6 +118,6 @@ Optimistic locking composes with DynamoDB transactions. A transactional write gr
 
 ## Related
 
-- [Lifecycle Timestamps](lifecycle-timestamps.md) — automatic `updated_at` populated on every versioned write
+- [Lifecycle Timestamps](lifecycle-timestamps.md) — lifecycle roles and runtime-specific timestamp automation notes
 - [Transactions](transactions.md) — composing versioned writes into atomic groups
 - [Contract Scenarios](../reference/contract-scenarios.md) — the full optimistic-locking specification

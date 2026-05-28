@@ -7,7 +7,7 @@ description: How TableTheory marshals models to DynamoDB attributes — the foun
 
 The CRUD scenario is the foundation of the P0 contract: every TableTheory runtime must produce **identical DynamoDB items** for identical inputs and read them back identically. If Go writes a `Note` and Python reads it, the two runtimes see the same field values, the same attribute names, and the same DynamoDB types.
 
-The canonical scenario lives at [`contract-tests/scenarios/crud/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/scenarios) and is exercised by every runtime on every commit.
+The canonical scenario lives at [`contract-tests/scenarios/p0/01-crud-basic.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/01-crud-basic.yml) and is exercised by every runtime on every commit.
 
 ## The contract
 
@@ -104,7 +104,7 @@ Without `omit_empty`, **zero values are written**: `""`, `0`, `False`/`false`, e
 
 This matters because DynamoDB distinguishes "attribute present with empty string" from "attribute absent" in queries and conditional expressions. The contract pins which behavior each combination produces, and every runtime must agree.
 
-The dedicated [omit-empty scenario](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/scenarios) exercises every type variant in the matrix.
+The dedicated [omit-empty scenario](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/02-omitempty.yml) exercises every type variant in the matrix.
 
 ## Related
 
