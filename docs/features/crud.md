@@ -7,73 +7,104 @@ description: How TableTheory marshals models to DynamoDB attributes — the foun
 
 The CRUD scenario is the foundation of the P0 contract: every TableTheory runtime must produce **identical DynamoDB items** for identical inputs and read them back identically. If Go writes a `Note` and Python reads it, the two runtimes see the same field values, the same attribute names, and the same DynamoDB types.
 
-The canonical scenario lives at [`contract-tests/scenarios/crud/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/scenarios) and is exercised by every runtime on every commit.
+The canonical scenario lives at [`contract-tests/scenarios/p0/01-crud-basic.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/01-crud-basic.yml) and is exercised by every runtime on every commit.
 
 ## The contract
 
-Given a model with `pk`, `sk`, one user attribute, and a naming strategy:
+Given a model with `pk`, `sk`, one user attribute, and the same DMS shape across runtimes:
 
 | Behavior                                  | Required across Go / TS / Python |
 |-------------------------------------------|----------------------------------|
-| `Put` writes all populated attributes      | yes                              |
-| Zero values without `omitempty` are written | yes                              |
-| Attribute names follow the naming strategy | yes                              |
-| `Get` returns identical field values       | yes                              |
-| `Update` mutates only changed attributes   | yes                              |
-| `Delete` removes the item                  | yes                              |
-| Missing item on `Get` returns a typed "not found" error, never `nil`/`None` silently | yes |
+| Create writes all populated attributes     | yes                              |
+| Zero values without `omit_empty` are written | yes                            |
+| Attribute names match the DMS shape        | yes                              |
+| Read returns identical field values        | yes                              |
+| Update mutates only the named fields       | yes                              |
+| Delete removes the item                    | yes                              |
+| Missing item on Get raises a typed not-found error, never returns silent nil/None | yes |
 
 ## Go
 
 ```go
 type Note struct {
-    _  struct{} `theorydb:"naming:snake_case"`
-    PK string   `theorydb:"pk"  json:"pk"`
-    SK string   `theorydb:"sk"  json:"sk"`
-
-    Body string `theorydb:"omitempty" json:"body,omitempty"`
+    PK   string `theorydb:"pk" json:"pk"`
+    SK   string `theorydb:"sk" json:"sk"`
+    Body string `json:"body"`
 }
 
-_ = db.Put(ctx, &Note{PK: "user#1", SK: "note#welcome", Body: "Hi."})
+// Create
+db.Model(&Note{PK: "USER#1", SK: "NOTE#welcome", Body: "Hi."}).Create()
 
-var n Note
-_ = db.Get(ctx, &n, "user#1", "note#welcome")
+// Read
+var got Note
+db.Model(&Note{PK: "USER#1", SK: "NOTE#welcome"}).First(&got)
+
+// Update specific fields
+db.Model(&Note{PK: "USER#1", SK: "NOTE#welcome", Body: "Edited."}).Update("body")
+
+// Delete
+db.Model(&Note{PK: "USER#1", SK: "NOTE#welcome"}).Delete()
 ```
 
 ## TypeScript
 
 ```typescript
-@model({ naming: "snake_case", table: "notes" })
-class Note {
-  @field({ role: "pk" }) pk!: string;
-  @field({ role: "sk" }) sk!: string;
-  @field({ omitempty: true }) body?: string;
-}
+// TheorydbClient.update requires a version role on the model and the
+// current version in the item payload. Most "real" TableTheory models
+// declare version anyway; show it here so the CRUD flow is complete.
+const Note = defineModel({
+  name: 'Note',
+  table: { name: 'notes_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort:      { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK',      type: 'S', roles: ['pk'] },
+    { attribute: 'SK',      type: 'S', roles: ['sk'] },
+    { attribute: 'body',    type: 'S', optional: true, omit_empty: true },
+    { attribute: 'version', type: 'N', roles: ['version'] },
+  ],
+});
 
-await db.put(new Note({ pk: "user#1", sk: "note#welcome", body: "Hi." }));
-const n = await db.get(Note, "user#1", "note#welcome");
+const db = new TheorydbClient(ddb).register(Note);
+
+await db.create('Note', { PK: 'USER#1', SK: 'NOTE#welcome', body: 'Hi.' });
+const item = await db.get('Note', { PK: 'USER#1', SK: 'NOTE#welcome' });
+// Pass the current version through; the runtime asserts it matches.
+await db.update(
+  'Note',
+  { PK: 'USER#1', SK: 'NOTE#welcome', body: 'Edited.', version: item.version },
+  ['body'],
+);
+await db.delete('Note', { PK: 'USER#1', SK: 'NOTE#welcome' });
 ```
 
 ## Python
 
 ```python
-@model(naming="snake_case", table="notes")
+@dataclass(frozen=True)
 class Note:
-    pk: str
-    sk: str
-    body: str | None = field(omitempty=True, default=None)
+    pk:   str = theorydb_field(roles=["pk"])
+    sk:   str = theorydb_field(roles=["sk"])
+    body: str = theorydb_field(omitempty=True)
 
-db.put(Note(pk="user#1", sk="note#welcome", body="Hi."))
-n = db.get(Note, "user#1", "note#welcome")
+model = ModelDefinition.from_dataclass(Note, table_name="notes_contract")
+table = Table(model, client=client)
+
+table.put(Note(pk="USER#1", sk="NOTE#welcome", body="Hi."))
+note = table.get("USER#1", "NOTE#welcome")
+table.update("USER#1", "NOTE#welcome", {"body": "Edited."})  # third arg is a Mapping
+table.delete("USER#1", "NOTE#welcome")
 ```
 
 ## Omit-empty subtlety
 
-Without `omitempty`, **zero values are written**: `""`, `0`, `False`/`false`, empty slices, empty maps. With `omitempty`, the attribute is *omitted entirely* from the DynamoDB item.
+Without `omit_empty`, **zero values are written**: `""`, `0`, `False`/`false`, empty slices, empty maps. With `omit_empty`, the attribute is *omitted entirely* from the DynamoDB item.
 
-This matters because DynamoDB distinguishes "attribute present with empty string" from "attribute absent" in queries and conditional expressions. The contract pins which behavior each tag combination produces, and every runtime must agree.
+This matters because DynamoDB distinguishes "attribute present with empty string" from "attribute absent" in queries and conditional expressions. The contract pins which behavior each combination produces, and every runtime must agree.
 
-The dedicated [omit-empty scenario](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/scenarios) exercises every type variant in the matrix.
+The dedicated [omit-empty scenario](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/02-omitempty.yml) exercises every type variant in the matrix.
 
 ## Related
 

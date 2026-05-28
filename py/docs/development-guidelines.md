@@ -17,7 +17,7 @@ From the repo root:
 - Typecheck: `uv --directory py run mypy src`
 - Lint: `uv --directory py run ruff check`
 - Format check: `uv --directory py run ruff format --check`
-- Unit tests + coverage: `uv --directory py run pytest -q`
+- Unit tests: `uv --directory py run pytest -q tests/unit`
 - Build wheel/sdist: `uv --directory py run python -m build`
 
 ## Coding Standards

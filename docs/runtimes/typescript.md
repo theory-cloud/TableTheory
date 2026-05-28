@@ -1,87 +1,115 @@
 ---
 title: TypeScript
-description: TableTheory for TypeScript — installation, Lambda init, and the canonical model shape.
+description: TableTheory for TypeScript — installation, defineModel + TheorydbClient.
 ---
 
 # TypeScript runtime
 
-The TypeScript runtime lives under [`ts/`](https://github.com/theory-cloud/tabletheory/tree/main/ts) and is published as `@theory-cloud/tabletheory-ts`. It targets **Node.js 24** and the AWS SDK for JavaScript v3.
+The TypeScript runtime lives under [`ts/`](https://github.com/theory-cloud/tabletheory/tree/main/ts) and is distributed as `@theory-cloud/tabletheory-ts`. It targets **Node.js 24** and the AWS SDK for JavaScript v3.
 
 The TypeScript runtime is a **peer**, not a port: it implements the same P0 contract scenarios as Go and Python, and a behavior that passes the Go contract test but fails in TypeScript is a parity regression — never a "TypeScript-specific quirk."
 
 ## Install
 
-TableTheory is distributed exclusively through immutable [GitHub Releases](https://github.com/theory-cloud/tabletheory/releases). For TypeScript that means installing the `npm pack` release asset, not from npm:
+This repo does **not** publish to npm. GitHub Releases are the source of truth. Install the release tarball directly:
 
 ```bash
-# Download the release asset from GitHub Releases, then:
-npm install --save-dev ./theory-cloud-tabletheory-ts-1.x.y.tgz
+# Stable release (replace X.Y.Z)
+npm install --save-exact \
+  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/theory-cloud-tabletheory-ts-X.Y.Z.tgz
+
+# Prerelease (replace X.Y.Z-rc.N)
+npm install --save-exact \
+  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/theory-cloud-tabletheory-ts-X.Y.Z-rc.N.tgz
 ```
 
-There is **no** npm registry publish. The single distribution path is deliberate — it keeps version drift between language registries impossible and aligns with TableTheory's immutable-release discipline.
+The single distribution path is deliberate — it makes version drift between language registries impossible.
 
-## Lambda init
+## defineModel + TheorydbClient
+
+The TypeScript public surface is **explicit**: models are declared via `defineModel({ … })` (no decorators), and operations run through a `TheorydbClient` instance.
 
 ```typescript
-import { TableTheory, model, field } from "@theory-cloud/tabletheory-ts";
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { TheorydbClient, defineModel } from '@theory-cloud/tabletheory-ts';
 
-@model({ naming: "snake_case", table: "notes" })
-class Note {
-  @field({ role: "pk" }) pk!: string;
-  @field({ role: "sk" }) sk!: string;
-
-  @field({ omitempty: true }) body?: string;
-
-  @field({ role: "version" })    version!: number;
-  @field({ role: "created_at" }) created_at!: number;
-  @field({ role: "updated_at" }) updated_at!: number;
-}
-
-// At module scope — reused across Lambda invocations.
-const db = await TableTheory.lambdaInit({
-  table:  "notes",
-  models: [Note],
+const Note = defineModel({
+  name: 'Note',
+  table: { name: 'notes_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort:      { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK',        type: 'S', roles: ['pk'] },
+    { attribute: 'SK',        type: 'S', roles: ['sk'] },
+    { attribute: 'body',      type: 'S', optional: true, omit_empty: true },
+    { attribute: 'createdAt', type: 'S', roles: ['created_at'] },
+    { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
+    { attribute: 'version',   type: 'N', roles: ['version'] },
+  ],
 });
 
-export const handler = async (evt: Note) => {
-  await db.put(new Note(evt));
-};
+const ddb = new DynamoDBClient({ region: 'us-east-1' });
+const db  = new TheorydbClient(ddb).register(Note);
+
+await db.create('Note', {
+  PK:   'USER#42',
+  SK:   'NOTE#welcome',
+  body: 'Hello, Theory Cloud.',
+});
+
+const item = await db.get('Note', { PK: 'USER#42', SK: 'NOTE#welcome' });
 ```
 
-> Construct the client at module scope, not inside the handler. Lambda reuses the module-scope state across warm invocations; rebuilding the client per-request costs ~50 ms each cold start.
+For a complete working program (model + GSI + create + query + update + delete + cursor pagination), see [`ts/examples/local.ts`](https://github.com/theory-cloud/tabletheory/blob/main/ts/examples/local.ts).
 
-## Tag vocabulary mapping
+## Role vocabulary
 
-TypeScript uses decorators that map one-to-one onto the canonical `theorydb:` tag vocabulary used in Go and Python.
+Every `role` accepted by `defineModel` attributes maps one-to-one onto the canonical TableTheory contract:
 
-| Go tag                       | TypeScript decorator              |
-|------------------------------|-----------------------------------|
-| `theorydb:"pk"`              | `@field({ role: "pk" })`          |
-| `theorydb:"sk"`              | `@field({ role: "sk" })`          |
-| `theorydb:"gsi1pk"`          | `@field({ role: "gsi1pk" })`      |
-| `theorydb:"encrypted"`       | `@field({ encrypted: true })`     |
-| `theorydb:"version"`         | `@field({ role: "version" })`     |
-| `theorydb:"created_at"`      | `@field({ role: "created_at" })`  |
-| `theorydb:"updated_at"`      | `@field({ role: "updated_at" })`  |
-| `theorydb:"ttl"`             | `@field({ role: "ttl" })`         |
-| `theorydb:"omitempty"`       | `@field({ omitempty: true })`     |
-| `theorydb:"naming:snake_case"` | `@model({ naming: "snake_case" })` |
+| Go tag                       | TypeScript role / option                    |
+|------------------------------|---------------------------------------------|
+| `theorydb:"pk"`              | `roles: ['pk']`                             |
+| `theorydb:"sk"`              | `roles: ['sk']`                             |
+| `theorydb:"gsi1pk"`          | `roles: ['gsi1pk']` + `indexes:`            |
+| `theorydb:"encrypted"`       | `encryption: { v: 1 }`                      |
+| `theorydb:"version"`         | `roles: ['version']`                        |
+| `theorydb:"created_at"`      | `roles: ['created_at']`                     |
+| `theorydb:"updated_at"`      | `roles: ['updated_at']`                     |
+| `theorydb:"ttl"`             | `roles: ['ttl']`                            |
+| `theorydb:"omitempty"`       | `omit_empty: true`                          |
 
-Naming strategy is declared on `@model`, not per-field — same as Go's sentinel `_ struct{}` convention.
+Naming strategy is implied by how you declare each attribute's name — the explicit shape of `defineModel` means no separate "naming strategy" decoration is needed.
+
+## CRUD methods
+
+`TheorydbClient` exposes the canonical CRUD surface:
+
+```typescript
+await db.create('Note', { … });
+const item = await db.get('Note', key);
+await db.update('Note', { … }, ['body']);
+await db.delete('Note', key);
+
+const page = await db.query('Note').partitionKey('USER#42').limit(20).page();
+```
 
 ## Workflows
 
-- `cd ts && npm run check` — lint, typecheck, and full TypeScript test suite
-- `cd ts && npm test` — Jest unit tests
-- The TypeScript runtime is exercised against shared contract scenarios via [`contract-tests/runners/ts/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/runners) on every commit
+- `cd ts && npm run format:check` — Prettier verification
+- `cd ts && npm run lint && npm run typecheck && npm run build` — CI static checks
+- `cd ts && npm run test:unit` — unit tests
+- `cd ts && npm run test:integration` — integration tests with DynamoDB Local
+- Exercised against shared contract scenarios via [`contract-tests/runners/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/runners) on every commit
 
 ## Where to go next
 
-- [Getting Started](../getting-started.md) — full walkthrough
-- [Struct Definition Guide](../struct-definition-guide.md) — model authoring
+- [Getting Started](https://theory-cloud.github.io/tabletheory/getting-started/) — full walkthrough
+- [`ts/docs/getting-started.md`](https://github.com/theory-cloud/tabletheory/blob/main/ts/docs/getting-started.md) — TypeScript-specific runtime documentation
+- [`ts/docs/api-reference.md`](https://github.com/theory-cloud/tabletheory/blob/main/ts/docs/api-reference.md) — full TypeScript API reference
 - [Features → CRUD & Marshaling](../features/crud.md), [Optimistic Locking](../features/optimistic-locking.md), [Encryption](../features/encryption.md)
-- [`ts/docs/`](https://github.com/theory-cloud/tabletheory/tree/main/ts/docs) on GitHub — TypeScript-specific runtime documentation
 
 ## Stability and support
 
-The TypeScript runtime is **GA**. Breaking changes follow [semver](https://semver.org/) and ship coordinated with the Go and Python runtimes — never in isolation.
+The TypeScript runtime is **GA**. Versions are aligned with Go and Python per the multi-language version-sync invariant. Breaking changes ship coordinated with the other two runtimes — never in isolation.

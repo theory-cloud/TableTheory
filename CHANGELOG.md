@@ -14,6 +14,7 @@
 * harden npm audit allowlist handling so audit service errors fail closed
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
+* align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
 ## [1.8.4](https://github.com/theory-cloud/TableTheory/compare/v1.8.3...v1.8.4) (2026-05-26)
 

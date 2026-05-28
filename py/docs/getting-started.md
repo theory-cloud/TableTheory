@@ -19,17 +19,17 @@ This repo does **not** publish to PyPI. GitHub Releases are the source of truth.
 
 ```bash
 pip install \
-  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/theorydb_py-X.Y.Z-py3-none-any.whl
+  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/tabletheory_py-X.Y.Z-py3-none-any.whl
 ```
 
 **Prerelease (replace `X.Y.Z-rc.N`):**
 
 Python packages use PEP 440 prerelease formatting. Example: Git tag `v1.2.1-rc.1` becomes Python version `1.2.1rc1`,
-so the wheel name is `theorydb_py-1.2.1rc1-...whl`.
+so the wheel name is `tabletheory_py-1.2.1rc1-...whl`.
 
 ```bash
 pip install \
-  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/theorydb_py-X.Y.ZrcN-py3-none-any.whl
+  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/tabletheory_py-X.Y.ZrcN-py3-none-any.whl
 ```
 
 ### Option B: Develop from source (this monorepo)

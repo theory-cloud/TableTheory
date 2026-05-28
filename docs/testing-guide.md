@@ -152,7 +152,7 @@ npm --prefix ts run test:integration
 
 ```bash
 make docker-up
-uv --directory py run pytest -q
+uv --directory py run pytest -q tests/integration
 ```
 
 ### Go integration tests

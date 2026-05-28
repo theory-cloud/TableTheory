@@ -1,26 +1,27 @@
 ---
 title: TTL
-description: DynamoDB TimeToLive — set per-item, honored on reads, identical across all three runtimes.
+description: DynamoDB TimeToLive attributes — persisted as epoch seconds; deletion remains DynamoDB-eventual.
 ---
 
 # TTL
 
-`theorydb:"ttl"` marks an attribute as the DynamoDB TimeToLive value. The [TTL P0 scenario](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/scenarios) pins these guarantees:
+The `ttl` role marks the attribute that DynamoDB Time To Live should use for
+item expiration. The [TTL P0 scenario](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/05-ttl-epoch-seconds.yml)
+pins the portable persistence contract:
 
-- The tagged field's value (epoch seconds) becomes the item's `TimeToLive` attribute.
-- Expired items return a typed "not found" error on `Get`, never an item with stale data.
-- The TTL attribute name matches the configured naming strategy.
-- Cross-runtime: an item written with TTL by Go is honored by Python and TypeScript reads identically.
+- The tagged field's value is stored as a numeric DynamoDB attribute.
+- The unit is **epoch seconds**, not milliseconds.
+- The TTL attribute name matches the DMS-declared shape.
+- A value written by one runtime is read back with the same value and DynamoDB
+  number type by the other runtimes.
 
-## Important note on units
+TableTheory does **not** currently mask physically present expired items at read
+time. If DynamoDB has not yet swept the item, `get` / `First` / `Table.get` can
+still return it.
 
-DynamoDB's TTL attribute is **epoch seconds**, not milliseconds. This is the one place TableTheory's clock unit differs from lifecycle timestamps (which are milliseconds).
+## Unit: epoch seconds
 
-| Tag                       | Unit            |
-|---------------------------|-----------------|
-| `theorydb:"created_at"`   | Epoch ms        |
-| `theorydb:"updated_at"`   | Epoch ms        |
-| `theorydb:"ttl"`          | Epoch **seconds** |
+DynamoDB's TTL attribute is **epoch seconds**, not milliseconds. This is the one place TableTheory's clock unit may differ from your application's wall clock — be careful at the boundary.
 
 ## Go
 
@@ -29,58 +30,70 @@ type Session struct {
     PK        string `theorydb:"pk"  json:"pk"`
     SK        string `theorydb:"sk"  json:"sk"`
     UserID    string `json:"user_id"`
-
     ExpiresAt int64  `theorydb:"ttl" json:"expires_at"` // epoch seconds
 }
 
 s := &Session{
-    PK:        "tenant#42",
-    SK:        "session#abc",
-    UserID:    "user#1",
+    PK:        "TENANT#42",
+    SK:        "SESSION#abc",
+    UserID:    "USER#1",
     ExpiresAt: time.Now().Add(15 * time.Minute).Unix(),
 }
-_ = db.Put(ctx, s)
+db.Model(s).Create()
 ```
 
 ## TypeScript
 
 ```typescript
-@model({ naming: "snake_case", table: "sessions" })
-class Session {
-  @field({ role: "pk" }) pk!: string;
-  @field({ role: "sk" }) sk!: string;
-  @field() user_id!: string;
-
-  @field({ role: "ttl" }) expires_at!: number; // epoch seconds
-}
+const Session = defineModel({
+  name: 'Session',
+  table: { name: 'sessions_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort:      { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK',        type: 'S', roles: ['pk'] },
+    { attribute: 'SK',        type: 'S', roles: ['sk'] },
+    { attribute: 'userId',    type: 'S' },
+    { attribute: 'expiresAt', type: 'N', roles: ['ttl'] }, // epoch seconds
+  ],
+});
 ```
 
 ## Python
 
 ```python
-@model(naming="snake_case", table="sessions")
+@dataclass(frozen=True)
 class Session:
-    pk: str
-    sk: str
-    user_id: str
-
-    expires_at: int = field(role="ttl")  # epoch seconds
+    pk:         str = theorydb_field(roles=["pk"])
+    sk:         str = theorydb_field(roles=["sk"])
+    user_id:    str = theorydb_field()
+    expires_at: int = theorydb_field(roles=["ttl"])  # epoch seconds
 ```
 
 ## DynamoDB's TTL behavior
 
-DynamoDB does not delete TTL-expired items immediately — its sweep is **eventually consistent**, often within 48 hours. TableTheory **does not paper over this** at the runtime level; it instead enforces the more important guarantee: that an expired item, even if still physically present in the table, **does not return data on a `Get`**. Queries and scans may still observe physical expired items briefly; consumers that need strict expiration semantics should layer that in application code.
+DynamoDB does not delete TTL-expired items immediately — its sweep is
+**eventually consistent**, often within 48 hours. TableTheory configures and
+persists the TTL attribute, but the current read paths do not add an expiration
+filter and do not convert still-present expired items into typed not-found
+errors.
 
-This conservative posture is part of the design — TableTheory does not hide DynamoDB's actual behavior, it just ensures consumers don't accidentally use stale data.
+Consumers that need strict read-time expiration must include that check in their
+access pattern, for example by comparing the TTL field to the current epoch
+seconds after reading or by adding an explicit condition/filter where the access
+pattern allows it.
 
 ## Anti-patterns
 
 - **Don't use milliseconds in the TTL field.** DynamoDB will treat them as far-future values and never expire.
 - **Don't rely on instant deletion.** TTL is eventually consistent at the DynamoDB layer.
-- **Don't combine `theorydb:"ttl"` with `theorydb:"omitempty"`** for a field that may legitimately be unset. An expired-or-missing TTL value disables the expiration semantics — that's a separate access-pattern problem.
+- **Don't assume TableTheory hides physically present expired items.** Current reads return the item DynamoDB returns.
+- **Don't combine `ttl` with `omit_empty` for a field that may legitimately be unset.** An expired-or-missing TTL value disables the expiration semantics — that's a separate access-pattern problem.
 
 ## Related
 
-- [Lifecycle Timestamps](lifecycle-timestamps.md) — separate axis, milliseconds, set on every write
+- [Lifecycle Timestamps](lifecycle-timestamps.md) — separate axis governed by its own roles
 - [FaceTheory · TTL Cache Patterns](../facetheory/ttl-cache-patterns.md) — how FaceTheory uses TTL for ISR cache eviction
 - [Contract Scenarios](../reference/contract-scenarios.md) — the full TTL specification

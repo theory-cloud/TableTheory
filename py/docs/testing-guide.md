@@ -31,7 +31,7 @@ From repo root:
 
 ```bash
 make docker-up
-uv --directory py run pytest -q
+uv --directory py run pytest -q tests/integration
 ```
 
 Environment variables (typical for local):

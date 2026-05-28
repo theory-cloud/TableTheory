@@ -102,15 +102,15 @@ tabletheory:
   runtimes:
     - id: go
       label: Go
-      install: "go get github.com/theory-cloud/tabletheory"
-      docs_path: getting-started
+      install: "go get github.com/theory-cloud/tabletheory@vX.Y.Z"
+      docs_path: runtimes/go
     - id: ts
       label: TypeScript
-      install: "npm install --save-dev @theory-cloud/tabletheory-ts"
+      install: "npm install --save-exact https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/theory-cloud-tabletheory-ts-X.Y.Z.tgz"
       docs_path: runtimes/typescript
     - id: python
       label: Python
-      install: "pip install tabletheory-py"
+      install: "pip install https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/tabletheory_py-X.Y.Z-py3-none-any.whl"
       docs_path: runtimes/python
   surfaces:
     - id: core
@@ -133,8 +133,8 @@ tabletheory:
       cta: See the Autheory integration
   stats:
     - label: P0 contract scenarios
-      value: "5"
-      sub: CRUD · omit-empty · timestamps · locking · TTL
+      value: "9"
+      sub: CRUD · lifecycle · TTL · release-state
     - label: Runtimes
       value: "3"
       sub: Go · TypeScript · Python

@@ -1,79 +1,110 @@
 ---
 title: Lifecycle Timestamps
-description: Automatic created_at and updated_at on every write — clock-ordered across all three runtimes.
+description: created_at and updated_at roles for lifecycle attributes across Go, TypeScript, and Python.
 ---
 
 # Lifecycle Timestamps
 
-`theorydb:"created_at"` and `theorydb:"updated_at"` are the canonical lifecycle timestamp tags. The runtime owns them — your code never sets them by hand.
+`created_at` and `updated_at` are the canonical lifecycle timestamp roles. They
+identify the creation and last-update attributes in the model contract. Go,
+TypeScript, and Python populate these fields in their shared P0 write paths:
 
-The [lifecycle-timestamps P0 scenario](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/scenarios) verifies that all three runtimes:
+- create/save writes populate `created_at` and `updated_at` with the same write
+  timestamp;
+- update writes preserve `created_at` and advance `updated_at`;
+- a failed conditional update does not advance `updated_at`.
 
-- Set `created_at` on the **first write only**; subsequent writes leave it intact.
-- Update `updated_at` on **every write** (including the first).
-- Use the same clock source and same unit (epoch milliseconds, UTC).
-- Preserve clock ordering: a write that follows another write produces an `updated_at` value strictly greater than the predecessor's.
+The [lifecycle P0 fixture](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/03-lifecycle-created-updated.yml)
+tracks the shared contract shape and expected timestamp ordering across all
+three runtimes.
 
 ## Go
 
 ```go
 type Note struct {
-    PK        string `theorydb:"pk"          json:"pk"`
-    SK        string `theorydb:"sk"          json:"sk"`
-    Body      string `json:"body"`
-
-    CreatedAt int64  `theorydb:"created_at"  json:"created_at"`
-    UpdatedAt int64  `theorydb:"updated_at"  json:"updated_at"`
+    PK        string    `theorydb:"pk"          json:"pk"`
+    SK        string    `theorydb:"sk"          json:"sk"`
+    Body      string    `json:"body"`
+    CreatedAt time.Time `theorydb:"created_at"  json:"created_at"`
+    UpdatedAt time.Time `theorydb:"updated_at"  json:"updated_at"`
 }
 
-n := &Note{PK: "user#1", SK: "note#welcome", Body: "Hi."}
-_ = db.Put(ctx, n)
-// n.CreatedAt and n.UpdatedAt are now populated by the runtime.
+n := &Note{PK: "USER#1", SK: "NOTE#welcome", Body: "Hi."}
+db.Model(n).Create()
+// n.CreatedAt and n.UpdatedAt are populated by the Go runtime.
 ```
 
 ## TypeScript
 
 ```typescript
-@model({ naming: "snake_case", table: "notes" })
-class Note {
-  @field({ role: "pk" }) pk!: string;
-  @field({ role: "sk" }) sk!: string;
-  @field() body!: string;
+const Note = defineModel({
+  name: 'Note',
+  table: { name: 'notes_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort:      { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK',        type: 'S', roles: ['pk'] },
+    { attribute: 'SK',        type: 'S', roles: ['sk'] },
+    { attribute: 'body',      type: 'S' },
+    { attribute: 'createdAt', type: 'S', roles: ['created_at'] },
+    { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
+  ],
+});
 
-  @field({ role: "created_at" }) created_at!: number;
-  @field({ role: "updated_at" }) updated_at!: number;
-}
+await db.create('Note', { PK: 'USER#1', SK: 'NOTE#welcome', body: 'Hi.' });
+// createdAt and updatedAt are written by the TypeScript runtime.
 ```
 
 ## Python
 
 ```python
-@model(naming="snake_case", table="notes")
+@dataclass(frozen=True)
 class Note:
-    pk: str
-    sk: str
-    body: str
+    pk:         str = theorydb_field(name="PK", roles=["pk"])
+    sk:         str = theorydb_field(name="SK", roles=["sk"])
+    body:       str = theorydb_field()
+    created_at: str = theorydb_field(name="createdAt", roles=["created_at"], default="")
+    updated_at: str = theorydb_field(name="updatedAt", roles=["updated_at"], default="")
+    version:    int = theorydb_field(roles=["version"], default=0)
 
-    created_at: int = field(role="created_at")
-    updated_at: int = field(role="updated_at")
+model = ModelDefinition.from_dataclass(Note, table_name="notes_contract")
+table = Table(model, client=client)
+
+table.put(Note(
+    pk="USER#1",
+    sk="NOTE#welcome",
+    body="Hi.",
+))
+
+note = table.get("USER#1", "NOTE#welcome")
+table.update(
+    "USER#1",
+    "NOTE#welcome",
+    {"body": "Edited."},
+    expected_version=note.version,
+)
 ```
 
 ## Composes with optimistic locking
 
-`updated_at` is populated alongside `version` on every successful write. A version conflict aborts the write — neither `version` nor `updated_at` advances. This guarantees `updated_at` is monotonic for any item that ever loaded successfully.
+On successful versioned writes, `updated_at` advances alongside the `version`
+role. A version conflict aborts the write — neither version nor `updated_at`
+advances. In Python, pass `expected_version=` to `Table.update` for this
+high-level guarded update shape.
 
 ## Composes with TTL
 
-`updated_at` does **not** influence the TTL attribute. TTL is computed from the field tagged `theorydb:"ttl"`, independent of when the item was last touched. If you want "extend TTL on every write," update the TTL field explicitly in your write path.
+`updated_at` does **not** influence the TTL attribute. TTL is computed from the field with the `ttl` role, independent of when the item was last touched. If you want "extend TTL on every write," update the TTL field explicitly in your write path.
 
 ## Anti-patterns
 
-- **Don't set `created_at` or `updated_at` in your application code.** The runtime overwrites them; manual values are silently lost.
-- **Don't store these as strings.** The tag implies epoch-millisecond integers across all runtimes.
-- **Don't rely on `created_at` for tie-breaking equal-version writes.** Use the version field; that's what it's for.
+- **Don't set `created_at` or `updated_at` manually in high-level create/update paths.** The runtime owns lifecycle fields on those paths.
+- **Don't rely on `created_at` for tie-breaking equal-version writes.** Use the version role; that's what it's for.
 
 ## Related
 
 - [Optimistic Locking](optimistic-locking.md) — the `version` field that composes with these timestamps
-- [TTL](ttl.md) — separate timestamp axis governed by its own tag
+- [TTL](ttl.md) — separate timestamp axis governed by its own role
 - [Contract Scenarios](../reference/contract-scenarios.md) — the full lifecycle-timestamps specification

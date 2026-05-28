@@ -64,7 +64,7 @@ TableTheory is distributed exclusively through immutable **[GitHub Releases](htt
 
 | | |
 |---|---|
-| **P0 contract scenarios** | 5 — CRUD, omit-empty, lifecycle timestamps, optimistic locking, TTL |
+| **P0 contract scenarios** | 9 — CRUD, omit-empty, lifecycle, locking, TTL, and release-state fixtures |
 | **Runtimes** | Go · TypeScript · Python (peers, not ports) |
 | **Distribution** | Immutable GitHub Releases — version-aligned across all runtimes |
 | **License** | Apache-2.0 — open source, production use |
@@ -78,7 +78,7 @@ Use TableTheory when you want DynamoDB-backed systems that are:
 - **Cross-language consistent** — one table, multiple services, multiple runtimes — without schema or behavior drift. Verified on every commit by the [P0 contract scenarios](https://theory-cloud.github.io/tabletheory/reference/contract-scenarios/).
 - **Generative-coding friendly** — explicit schema, canonical patterns, and strict verification so AI-generated code stays correct and maintainable.
 
-✅ Treat schema + semantics as a contract  
+✅ Treat schema + semantics as a contract
 ❌ Don't redefine "the same" table shape independently per service/language
 
 ## Documentation
@@ -103,8 +103,9 @@ The full documentation site lives at **[theory-cloud.github.io/tabletheory](http
 - **TypeScript** — [theory-cloud.github.io/tabletheory/runtimes/typescript/](https://theory-cloud.github.io/tabletheory/runtimes/typescript/)
 - **Python** — [theory-cloud.github.io/tabletheory/runtimes/python/](https://theory-cloud.github.io/tabletheory/runtimes/python/)
 
-**P0 contract surface — one page per scenario:**
+**P0 contract reference and related feature pages:**
 
+- [Contract Scenarios](https://theory-cloud.github.io/tabletheory/reference/contract-scenarios/) — the current 9-fixture P0 surface
 - [CRUD & Marshaling](https://theory-cloud.github.io/tabletheory/features/crud/)
 - [Optimistic Locking](https://theory-cloud.github.io/tabletheory/features/optimistic-locking/)
 - [Lifecycle Timestamps](https://theory-cloud.github.io/tabletheory/features/lifecycle-timestamps/)
@@ -169,8 +170,8 @@ make test          # full suite incl. integration
 For multi-language work:
 
 ```bash
-cd ts && npm run check        # TS lint + typecheck + tests
-cd py && python -m unittest   # Py unit tests
+cd ts && npm run lint && npm run typecheck && npm run test:unit
+uv --directory py run pytest -q tests/unit
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full contributor docs, including the [Authoring documentation](CONTRIBUTING.md#authoring-documentation) section if you're updating the docs site.
