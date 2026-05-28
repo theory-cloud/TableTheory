@@ -105,7 +105,7 @@ const page = await db.query('Note').partitionKey('USER#42').limit(20).page();
 
 ## Where to go next
 
-- [Getting Started](https://theory-cloud.github.io/tabletheory/getting-started/) — full walkthrough
+- [Getting Started](https://tabletheory.theorycloud.ai/getting-started/) — full walkthrough
 - [`ts/docs/getting-started.md`](https://github.com/theory-cloud/tabletheory/blob/main/ts/docs/getting-started.md) — TypeScript-specific runtime documentation
 - [`ts/docs/api-reference.md`](https://github.com/theory-cloud/tabletheory/blob/main/ts/docs/api-reference.md) — full TypeScript API reference
 - [Features → CRUD & Marshaling](../features/crud.md), [Optimistic Locking](../features/optimistic-locking.md), [Encryption](../features/encryption.md)

@@ -97,7 +97,7 @@ table.update_builder(pk, sk).set("body", "updated").execute()
 
 ## Where to go next
 
-- [Getting Started](https://theory-cloud.github.io/tabletheory/getting-started/) — full walkthrough
+- [Getting Started](https://tabletheory.theorycloud.ai/getting-started/) — full walkthrough
 - [`py/docs/getting-started.md`](https://github.com/theory-cloud/tabletheory/blob/main/py/docs/getting-started.md) — Python-specific runtime documentation
 - [`py/docs/api-reference.md`](https://github.com/theory-cloud/tabletheory/blob/main/py/docs/api-reference.md) — full Python API reference
 - [Features → CRUD & Marshaling](../features/crud.md), [Optimistic Locking](../features/optimistic-locking.md), [Encryption](../features/encryption.md)

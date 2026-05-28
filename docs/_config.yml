@@ -9,10 +9,11 @@ description: >-
   The DynamoDB-first multi-language ORM and schema contract for the
   Theory Cloud stack. Go, TypeScript, and Python — one specification.
 
-# When deployed via the canonical org repo, the site lives at
-# https://theory-cloud.github.io/tabletheory/
-url: "https://theory-cloud.github.io"
-baseurl: "/tabletheory"
+# Canonical public docs domain. GitHub still serves the Pages artifact for the
+# project repository, but the custom domain is mounted at the domain root, so
+# generated asset URLs must not carry the repository path as a baseurl.
+url: "https://tabletheory.theorycloud.ai"
+baseurl: ""
 
 # Jekyll engine
 markdown: kramdown

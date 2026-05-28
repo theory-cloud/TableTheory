@@ -37,7 +37,7 @@ permissions:
   pages: write
   id-token: write
 
-# Coalesce in-flight deploys: if a second `main` push lands before the
+# Coalesce in-flight deploys: if a second `staging` push lands before the
 # previous deploy finishes, queue it (don't cancel) so we never skip a
 # commit's publish.
 concurrency:
@@ -74,7 +74,15 @@ jobs:
           bundle exec jekyll build \
             --source . \
             --destination ./_site \
-            --baseurl "${{ steps.pages.outputs.base_path }}"
+            --baseurl ""
+
+      - name: Verify custom-domain root paths
+        working-directory: docs
+        run: |
+          if grep -R -nE --include='*.html' '(href|src)="/(TableTheory|tabletheory)/' ./_site; then
+            echo "Found root-relative links with the repository path; custom-domain assets must resolve from /." >&2
+            exit 1
+          fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
@@ -88,7 +96,7 @@ jobs:
     if: github.ref == 'refs/heads/staging'
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: https://tabletheory.theorycloud.ai/
     steps:
       - name: Deploy
         id: deployment
