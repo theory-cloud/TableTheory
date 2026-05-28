@@ -30,39 +30,50 @@ TableTheory **does not auto-chunk** transactions across multiple `TransactWriteI
 ## Go
 
 ```go
-err := db.Transaction(ctx, func(tx *tabletheory.Tx) error {
-    if err := tx.Put(&from); err != nil { return err }
-    if err := tx.Put(&to);   err != nil { return err }
-    return tx.ConditionCheck(&audit, "version = :v", map[string]any{":v": expectedVersion})
+// Conditional write composed with peer writes inside a transaction.
+err := db.Transaction(func(tx *core.Tx) error {
+    if err := tx.Model(&fromAcct).Update("balance"); err != nil {
+        return err
+    }
+    if err := tx.Model(&toAcct).Update("balance"); err != nil {
+        return err
+    }
+    return tx.Model(&audit).Create()
 })
-if tabletheory.IsTransactionAborted(err) {
-    // One of the items had a condition failure; reload and retry.
-}
 ```
+
+> The transaction helper signature is `db.Transaction(func(tx *core.Tx) error) error`. See [`pkg/transaction/`](https://github.com/theory-cloud/tabletheory/tree/main/pkg/transaction) for the canonical Tx API.
 
 ## TypeScript
 
 ```typescript
-await db.transaction(async (tx) => {
-  await tx.put(from);
-  await tx.put(to);
-  await tx.conditionCheck(audit, "version = :v", { ":v": expectedVersion });
-});
+// TypeScript exposes batch + transaction APIs on TheorydbClient. See
+// ts/docs/api-reference.md for the exact surface in the version you
+// installed — the design here matches DynamoDB's TransactWriteItems
+// semantics directly.
+await db.transaction([
+  { op: 'update', model: 'Account', item: { ...fromKey, balance: fromBal }, fields: ['balance'] },
+  { op: 'update', model: 'Account', item: { ...toKey,   balance: toBal   }, fields: ['balance'] },
+  { op: 'create', model: 'Audit',   item: auditItem },
+]);
 ```
 
 ## Python
 
 ```python
-with db.transaction() as tx:
-    tx.put(from_acct)
-    tx.put(to_acct)
-    tx.condition_check(audit, "version = :v", {":v": expected_version})
+# Python exposes transaction helpers on Table / theorydb_py. See
+# py/docs/api-reference.md for the exact form; the underlying
+# DynamoDB call is the same TransactWriteItems.
+with table.transaction() as tx:
+    tx.update("ACCOUNT#A", "v1", balance=from_bal)
+    tx.update("ACCOUNT#B", "v1", balance=to_bal)
+    tx.put(audit_item)
 ```
 
 ## Common patterns
 
-- **Transferring state between two items**: put both with conditional expressions.
-- **Atomic create-if-absent of multiple items**: put each with `attribute_not_exists(pk)`.
+- **Transferring state between two items**: update both with conditional expressions.
+- **Atomic create-if-absent of multiple items**: create each with `attribute_not_exists(pk)`.
 - **Composite invariants across a parent and its children**: condition-check the parent's version while writing children atomically.
 
 ## Anti-patterns

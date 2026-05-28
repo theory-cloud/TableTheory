@@ -5,9 +5,9 @@ description: Version-conditional writes — populated on read, incremented on wr
 
 # Optimistic Locking
 
-The `version` field is TableTheory's optimistic concurrency control. The semantics are simple and pinned by the [optimistic-locking P0 scenario](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/scenarios):
+The version role is TableTheory's optimistic concurrency control. The semantics are simple and pinned by the [optimistic-locking P0 scenario](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/scenarios):
 
-1. A field tagged `theorydb:"version"` is **populated on read**.
+1. A field tagged with the `version` role is **populated on read**.
 2. On write, the runtime emits a conditional expression: `version = :expected_version` where `:expected_version` is the value loaded on the most recent read.
 3. On a successful write, the runtime **increments the field** in the persisted item.
 4. On a version mismatch (another writer raced ahead), the runtime returns a **typed conflict error** — never a silent overwrite.
@@ -27,15 +27,14 @@ type Counter struct {
 }
 
 var c Counter
-if err := db.Get(ctx, &c, "tenant#42", "counter#impressions"); err != nil {
+if err := db.Model(&Counter{PK: "TENANT#42", SK: "COUNTER#impressions"}).First(&c); err != nil {
     return err
 }
+
 c.Value++
-if err := db.Put(ctx, &c); err != nil {
-    if tabletheory.IsVersionConflict(err) {
-        // Reload, recompute, retry.
-        return retry()
-    }
+if err := db.Model(&c).Update("value"); err != nil {
+    // Version-mismatch is surfaced as a typed error; check via the
+    // pkg/errors helpers (see api-reference.md).
     return err
 }
 ```
@@ -43,34 +42,47 @@ if err := db.Put(ctx, &c); err != nil {
 ## TypeScript
 
 ```typescript
-const c = await db.get(Counter, "tenant#42", "counter#impressions");
-c.value += 1;
+const Counter = defineModel({
+  name: 'Counter',
+  table: { name: 'counters_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort:      { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK',      type: 'S', roles: ['pk'] },
+    { attribute: 'SK',      type: 'S', roles: ['sk'] },
+    { attribute: 'value',   type: 'N' },
+    { attribute: 'version', type: 'N', roles: ['version'] },
+  ],
+});
 
-try {
-  await db.put(c);
-} catch (err) {
-  if (TableTheory.isVersionConflict(err)) {
-    return retry();
-  }
-  throw err;
-}
+const key = { PK: 'TENANT#42', SK: 'COUNTER#impressions' };
+const c   = await db.get('Counter', key);
+
+await db.update('Counter', { ...key, value: (c.value as number) + 1 }, ['value']);
 ```
 
 ## Python
 
 ```python
-c = db.get(Counter, "tenant#42", "counter#impressions")
-c.value += 1
+@dataclass(frozen=True)
+class Counter:
+    pk:      str = theorydb_field(roles=["pk"])
+    sk:      str = theorydb_field(roles=["sk"])
+    value:   int = theorydb_field()
+    version: int = theorydb_field(roles=["version"])
 
-try:
-    db.put(c)
-except TableTheory.VersionConflict:
-    return retry()
+model = ModelDefinition.from_dataclass(Counter, table_name="counters_contract")
+table = Table(model, client=client)
+
+c = table.get("TENANT#42", "COUNTER#impressions")
+table.update("TENANT#42", "COUNTER#impressions", value=c.value + 1)
 ```
 
 ## Versioning a newly-created item
 
-The first `Put` of an item that does not yet exist starts at `version = 1`. Subsequent writes increment. A `Put` that asserts `version = 0` against a non-existent item is the contract-defined "create if absent" form.
+The first write of an item that does not yet exist starts at `version = 1`. Subsequent writes increment. A create that asserts `version = 0` against a non-existent item is the contract-defined "create if absent" form.
 
 ## Versioning under transactions
 
@@ -78,9 +90,9 @@ Optimistic locking composes with DynamoDB transactions. A transactional write gr
 
 ## Anti-patterns
 
-- **Don't read with one runtime, write with another, and modify the version field manually in between.** TableTheory is the only thing that should mutate `version`.
+- **Don't read with one runtime, write with another, and mutate the version field manually in between.** TableTheory is the only thing that should mutate the version role.
 - **Don't catch the conflict error and retry indefinitely.** Bound the retry loop. The contract guarantees deterministic loss, not deterministic eventual success.
-- **Don't omit the `version` field from your model and expect "best effort" concurrency.** No `version` tag means no locking — the field is required to opt in.
+- **Don't omit the version role from your model and expect "best effort" concurrency.** No version role means no locking — you opt in by declaring the role on a field.
 
 ## Related
 

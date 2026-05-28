@@ -78,7 +78,7 @@ Use TableTheory when you want DynamoDB-backed systems that are:
 - **Cross-language consistent** — one table, multiple services, multiple runtimes — without schema or behavior drift. Verified on every commit by the [P0 contract scenarios](https://theory-cloud.github.io/tabletheory/reference/contract-scenarios/).
 - **Generative-coding friendly** — explicit schema, canonical patterns, and strict verification so AI-generated code stays correct and maintainable.
 
-✅ Treat schema + semantics as a contract  
+✅ Treat schema + semantics as a contract
 ❌ Don't redefine "the same" table shape independently per service/language
 
 ## Documentation

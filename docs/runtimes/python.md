@@ -1,82 +1,102 @@
 ---
 title: Python
-description: TableTheory for Python — installation, Lambda init, and the canonical model shape.
+description: TableTheory for Python — installation, ModelDefinition + Table + theorydb_field.
 ---
 
 # Python runtime
 
-The Python runtime lives under [`py/`](https://github.com/theory-cloud/tabletheory/tree/main/py) and is distributed as `tabletheory-py` / `theorydb_py`. It targets **Python 3.14** and the AWS SDK for Python (boto3).
+The Python runtime lives under [`py/`](https://github.com/theory-cloud/tabletheory/tree/main/py) and is distributed as the wheel `theorydb_py`. It targets **Python 3.14** and the AWS SDK for Python (`boto3`).
 
-Like the TypeScript runtime, Python is a **peer implementation** of the TableTheory contract — not a port. It passes the same P0 contract scenarios as Go and TypeScript or it is broken.
+The Python runtime is a **peer** implementation of the TableTheory contract — not a port. It passes the same P0 contract scenarios as Go and TypeScript independently.
 
 ## Install
 
-Distributed via immutable [GitHub Releases](https://github.com/theory-cloud/tabletheory/releases) — install the release wheel/sdist:
+This repo does **not** publish to PyPI. GitHub Releases are the source of truth. Install the release wheel directly:
 
 ```bash
-# Download the wheel from a GitHub Release, then:
-pip install ./tabletheory_py-1.x.y-py3-none-any.whl
+# Stable release (replace X.Y.Z)
+pip install \
+  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/theorydb_py-X.Y.Z-py3-none-any.whl
+
+# Prerelease (replace X.Y.Z-rc.N — PEP 440 form: vX.Y.Z-rc.N tag → X.Y.ZrcN wheel)
+pip install \
+  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/theorydb_py-X.Y.ZrcN-py3-none-any.whl
 ```
 
-There is **no** PyPI publish. Distribution is GitHub Releases only across all three runtimes.
+The **importable module name is `theorydb_py`**, not `tabletheory_py`. The release wheel filename follows the same module name.
 
-## Lambda init
+## ModelDefinition + Table
+
+The Python public surface declares models as plain dataclasses with `theorydb_field()` defaults, then registers them via `ModelDefinition.from_dataclass()`. CRUD runs through a `Table` instance.
 
 ```python
-from tabletheory_py import TableTheory, model, field
+from dataclasses import dataclass
 
-@model(naming="snake_case", table="notes")
+import boto3
+from theorydb_py import ModelDefinition, Table, theorydb_field
+
+
+@dataclass(frozen=True)
 class Note:
-    pk: str = field(role="pk")
-    sk: str = field(role="sk")
+    pk:   str = theorydb_field(roles=["pk"])
+    sk:   str = theorydb_field(roles=["sk"])
+    body: str = theorydb_field()
 
-    body: str | None = field(omitempty=True, default=None)
 
-    version:    int = field(role="version")
-    created_at: int = field(role="created_at")
-    updated_at: int = field(role="updated_at")
+client = boto3.client("dynamodb", region_name="us-east-1")
+model  = ModelDefinition.from_dataclass(Note, table_name="notes_contract")
+table  = Table(model, client=client)
 
-# Module scope — reused across Lambda invocations.
-db = TableTheory.lambda_init(
-    table="notes",
-    models=[Note],
-)
+table.put(Note(pk="USER#42", sk="NOTE#welcome", body="Hello, Theory Cloud."))
 
-def handler(event, _context):
-    db.put(Note(**event))
+note = table.get("USER#42", "NOTE#welcome")
+table.delete("USER#42", "NOTE#welcome")
 ```
 
-> Always construct the client at module scope. The `lambda_init` entry point exists so the connection, the model registry, and the KMS configuration are built once and reused — moving any of those into the handler defeats the whole purpose.
+For a complete working program, see [`py/docs/getting-started.md`](https://github.com/theory-cloud/tabletheory/blob/main/py/docs/getting-started.md).
 
-## Tag vocabulary mapping
+## Role vocabulary
 
-Python uses `field(...)` descriptors that map one-to-one onto the canonical `theorydb:` tag vocabulary.
+`theorydb_field(roles=[…], encrypted=…, omit_empty=…)` maps one-to-one onto the canonical TableTheory contract:
 
-| Go tag                       | Python field arg                    |
-|------------------------------|-------------------------------------|
-| `theorydb:"pk"`              | `field(role="pk")`                  |
-| `theorydb:"sk"`              | `field(role="sk")`                  |
-| `theorydb:"gsi1pk"`          | `field(role="gsi1pk")`              |
-| `theorydb:"encrypted"`       | `field(encrypted=True)`             |
-| `theorydb:"version"`         | `field(role="version")`             |
-| `theorydb:"created_at"`      | `field(role="created_at")`          |
-| `theorydb:"updated_at"`      | `field(role="updated_at")`          |
-| `theorydb:"ttl"`             | `field(role="ttl")`                 |
-| `theorydb:"omitempty"`       | `field(omitempty=True)`             |
-| `theorydb:"naming:snake_case"` | `@model(naming="snake_case")`     |
+| Go tag                       | Python field arg                          |
+|------------------------------|-------------------------------------------|
+| `theorydb:"pk"`              | `theorydb_field(roles=["pk"])`            |
+| `theorydb:"sk"`              | `theorydb_field(roles=["sk"])`            |
+| `theorydb:"gsi1pk"`          | `theorydb_field(roles=["gsi1pk"])`        |
+| `theorydb:"encrypted"`       | `theorydb_field(encrypted=True)`          |
+| `theorydb:"version"`         | `theorydb_field(roles=["version"])`       |
+| `theorydb:"created_at"`      | `theorydb_field(roles=["created_at"])`    |
+| `theorydb:"updated_at"`      | `theorydb_field(roles=["updated_at"])`    |
+| `theorydb:"ttl"`             | `theorydb_field(roles=["ttl"])`           |
+| `theorydb:"omitempty"`       | `theorydb_field(omit_empty=True)`         |
+
+## CRUD methods
+
+`Table` exposes the canonical CRUD surface:
+
+```python
+table.put(note)
+note = table.get(pk, sk)                       # raises NotFound on miss
+table.update(pk, sk, body="updated")
+table.delete(pk, sk)
+
+# Composite updates use the update_builder helper for set/remove/add/delete.
+table.update_builder(pk, sk).set("body", "updated").commit()
+```
 
 ## Workflows
 
 - `cd py && python -m unittest` — full unit suite (stdlib `unittest`)
 - `cd py && ruff check --line-length 120 .` — lint
-- The Python runtime is exercised against shared contract scenarios via [`contract-tests/runners/py/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/runners) on every commit
+- Exercised against shared contract scenarios via [`contract-tests/runners/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/runners) on every commit
 
 ## Where to go next
 
-- [Getting Started](../getting-started.md) — full walkthrough
-- [Struct Definition Guide](../struct-definition-guide.md) — model authoring
+- [Getting Started](https://theory-cloud.github.io/tabletheory/getting-started/) — full walkthrough
+- [`py/docs/getting-started.md`](https://github.com/theory-cloud/tabletheory/blob/main/py/docs/getting-started.md) — Python-specific runtime documentation
+- [`py/docs/api-reference.md`](https://github.com/theory-cloud/tabletheory/blob/main/py/docs/api-reference.md) — full Python API reference
 - [Features → CRUD & Marshaling](../features/crud.md), [Optimistic Locking](../features/optimistic-locking.md), [Encryption](../features/encryption.md)
-- [`py/docs/`](https://github.com/theory-cloud/tabletheory/tree/main/py/docs) on GitHub — Python-specific runtime documentation
 
 ## Stability and support
 
