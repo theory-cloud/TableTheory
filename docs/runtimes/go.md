@@ -5,64 +5,68 @@ description: TableTheory for Go — installation, Lambda init, and the canonical
 
 # Go runtime
 
-TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory`. It targets the AWS SDK for Go v2, is pinned to the toolchain declared in `go.mod`, and is the runtime the rest of the Theory Cloud stack consumes by default.
+TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
+
+The Go runtime is the reference for cross-runtime contract parity, but it is **not** a "reference implementation that TypeScript and Python port" — all three runtimes pass the same P0 contract scenarios independently.
 
 ## Install
 
-```bash
-go get github.com/theory-cloud/tabletheory
-```
-
-Pin to a specific release tag for reproducibility:
+TableTheory is distributed exclusively through immutable [GitHub Releases](https://github.com/theory-cloud/tabletheory/releases). Pin to a specific release tag:
 
 ```bash
-go get github.com/theory-cloud/tabletheory@v1.x.y
+go get github.com/theory-cloud/tabletheory@vX.Y.Z
 ```
 
-Releases are published as immutable [GitHub Releases](https://github.com/theory-cloud/tabletheory/releases). Never depend on a moving `latest`.
+Never depend on a moving `latest`.
 
 ## Lambda init
 
-`tabletheory.LambdaInit` is the blessed entry point. Construct once at cold start, reuse across invocations:
+`tabletheory.NewLambdaOptimized()` is the blessed cold-start entry point. Construct once at module init, reuse across invocations:
 
 ```go
 package main
 
 import (
-    "context"
+    "log"
 
     "github.com/aws/aws-lambda-go/lambda"
     "github.com/theory-cloud/tabletheory"
 )
 
 type Note struct {
-    _  struct{} `theorydb:"naming:snake_case"`
-    PK string   `theorydb:"pk"       json:"pk"`
-    SK string   `theorydb:"sk"       json:"sk"`
-
-    Body      string `theorydb:"omitempty"   json:"body,omitempty"`
-    Version   int64  `theorydb:"version"     json:"version"`
-    CreatedAt int64  `theorydb:"created_at"  json:"created_at"`
-    UpdatedAt int64  `theorydb:"updated_at"  json:"updated_at"`
+    PK   string `theorydb:"pk" json:"pk"`
+    SK   string `theorydb:"sk" json:"sk"`
+    Body string `json:"body"`
 }
 
-var db = tabletheory.LambdaInit(context.Background(),
-    tabletheory.WithTable("notes"),
-    tabletheory.WithModels(&Note{}),
-)
+var db *tabletheory.LambdaDB
 
-func handler(ctx context.Context, evt Note) error {
-    return db.Put(ctx, &evt)
+func init() {
+    var err error
+    db, err = tabletheory.NewLambdaOptimized()
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+func handler() error {
+    return db.Model(&Note{
+        PK:   "USER#42",
+        SK:   "NOTE#welcome",
+        Body: "Hello, Theory Cloud.",
+    }).Create()
 }
 
 func main() { lambda.Start(handler) }
 ```
 
-> Constructing the client inside the handler — rather than at module scope — defeats Lambda's connection reuse and burns ~50 ms per cold invocation. `LambdaInit` exists specifically to make the right pattern the easiest one.
+> Construct the client at module init, not inside the handler. Lambda reuses module-scope state across warm invocations; rebuilding the client per request burns ~50 ms each cold start.
+
+`tabletheory.LambdaInit(models ...any) (*LambdaDB, error)` exists as the lower-level variant if you want to register specific model types explicitly at cold start. Most consumers should prefer `NewLambdaOptimized()` and use `db.Model(&Foo{})` per request.
 
 ## Model shape
 
-A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag vocabulary:
+A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag vocabulary alongside matching `json:` tags:
 
 | Tag                        | Purpose                                                      |
 |----------------------------|--------------------------------------------------------------|
@@ -75,9 +79,32 @@ A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag 
 | `theorydb:"updated_at"`    | Lifecycle timestamp populated on every write                 |
 | `theorydb:"ttl"`           | DynamoDB TimeToLive attribute                                |
 | `theorydb:"omitempty"`     | Omit attribute when the field is the zero value              |
-| `theorydb:"naming:…"`      | Apply naming strategy via the leading `_ struct{}` field     |
 
-Every `theorydb` tag must be accompanied by a matching `json` tag (see [Development guidelines](https://theory-cloud.github.io/tabletheory/development-guidelines/)).
+Every `theorydb` tag is accompanied by a matching `json` tag per the [Development guidelines](https://theory-cloud.github.io/tabletheory/development-guidelines/).
+
+## CRUD via the Query builder
+
+The query builder is reached through `db.Model(&model)`:
+
+```go
+// Create
+db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome", Body: "Hi."}).Create()
+
+// Read (use First with a destination)
+var got Note
+db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome"}).First(&got)
+
+// Update selected fields
+db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome", Body: "Updated."}).Update("body")
+
+// Delete
+db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome"}).Delete()
+
+// Conditional create — fails if the key already exists
+db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome"}).IfNotExists().Create()
+```
+
+For a full working program covering conditional helpers, batches, transactions, and streams, see [`examples/feature_spotlight.go`](https://github.com/theory-cloud/tabletheory/blob/main/examples/feature_spotlight.go).
 
 ## Where to go next
 
@@ -89,4 +116,4 @@ Every `theorydb` tag must be accompanied by a matching `json` tag (see [Developm
 
 ## Stability and support
 
-The Go runtime is **GA** (post-1.0) and the reference for cross-runtime contract parity. Breaking changes follow [semver](https://semver.org/) and are coordinated with downstream Theory Cloud products. See [Contract Scenarios](../reference/contract-scenarios.md) for the P0 specification all three runtimes are verified against.
+The Go runtime is **GA** (post-1.0). Breaking changes follow [semver](https://semver.org/) and are coordinated with downstream Theory Cloud products and the TypeScript and Python runtimes — never in isolation.

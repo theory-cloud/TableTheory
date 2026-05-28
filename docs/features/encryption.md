@@ -5,7 +5,7 @@ description: KMS-backed field encryption — fail-closed, no fallbacks, identica
 
 # Encryption
 
-`theorydb:"encrypted"` marks a field for KMS-backed encryption. The behavior is **fail-closed** and that property is load-bearing across the entire Theory Cloud stack.
+`encrypted` marks a field for KMS-backed encryption. The behavior is **fail-closed** and that property is load-bearing across the entire Theory Cloud stack.
 
 If the KMS key is not configured, encrypted reads return an error. The runtime does **not**:
 
@@ -18,8 +18,8 @@ Every Theory Cloud consumer that stores sensitive data — Autheory's credential
 
 ## How it works
 
-1. At `lambda_init` time, a KMS key id (or alias) is bound to the client.
-2. On write, fields tagged `encrypted` are run through KMS `Encrypt` and stored as ciphertext blobs.
+1. The KMS key id (or alias) is bound to the client at construction.
+2. On write, fields with the `encrypted` role/flag are run through KMS `Encrypt` and stored as ciphertext blobs.
 3. On read, the ciphertext is run through KMS `Decrypt`. Failure to decrypt = the read fails.
 4. Encrypted values are **never logged** — the redaction layer suppresses them at logging sites.
 
@@ -29,55 +29,46 @@ Every Theory Cloud consumer that stores sensitive data — Autheory's credential
 type Credential struct {
     PK     string `theorydb:"pk"        json:"pk"`
     SK     string `theorydb:"sk"        json:"sk"`
-
     Secret string `theorydb:"encrypted" json:"secret"`
 }
 
-db := tabletheory.LambdaInit(ctx,
-    tabletheory.WithTable("credentials"),
-    tabletheory.WithModels(&Credential{}),
-    tabletheory.WithKMSKey("alias/tabletheory/encryption"),
-)
+// Provide KMS configuration via the standard Config / environment
+// surface (see api-reference.md for the full set). The runtime fails
+// closed when an encrypted field is touched without configured KMS.
 ```
 
 ## TypeScript
 
 ```typescript
-@model({ naming: "snake_case", table: "credentials" })
-class Credential {
-  @field({ role: "pk" }) pk!: string;
-  @field({ role: "sk" }) sk!: string;
-
-  @field({ encrypted: true }) secret!: string;
-}
-
-const db = await TableTheory.lambdaInit({
-  table:    "credentials",
-  models:   [Credential],
-  kmsKeyId: "alias/tabletheory/encryption",
+const Credential = defineModel({
+  name: 'Credential',
+  table: { name: 'credentials_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort:      { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK',     type: 'S', roles: ['pk'] },
+    { attribute: 'SK',     type: 'S', roles: ['sk'] },
+    { attribute: 'secret', type: 'S', encrypted: true },
+  ],
 });
 ```
 
 ## Python
 
 ```python
-@model(naming="snake_case", table="credentials")
+@dataclass(frozen=True)
 class Credential:
-    pk: str
-    sk: str
-    secret: str = field(encrypted=True)
-
-db = TableTheory.lambda_init(
-    table="credentials",
-    models=[Credential],
-    kms_key_id="alias/tabletheory/encryption",
-)
+    pk:     str = theorydb_field(roles=["pk"])
+    sk:     str = theorydb_field(roles=["sk"])
+    secret: str = theorydb_field(encrypted=True)
 ```
 
 ## What "fail-closed" actually means
 
 - **No KMS key configured + encrypted field write**: write fails before touching DynamoDB.
-- **KMS key revoked / inaccessible + encrypted field read**: read fails, returning a typed `EncryptionError`.
+- **KMS key revoked / inaccessible + encrypted field read**: read fails, returning a typed encryption error.
 - **Decryption fails (wrong key, corrupted ciphertext)**: read fails. The plaintext is never inferred or guessed.
 - **Cross-region replication**: the consumer must configure the encryption key in the target region; otherwise reads from that region fail closed.
 
