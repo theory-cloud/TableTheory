@@ -82,7 +82,7 @@ A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag 
 | `theorydb:"ttl"`           | DynamoDB TimeToLive attribute                                |
 | `theorydb:"omitempty"`     | Omit attribute when the field is the zero value              |
 
-Every `theorydb` tag is accompanied by a matching `json` tag per the [Development guidelines](https://theory-cloud.github.io/tabletheory/development-guidelines/).
+Every `theorydb` tag is accompanied by a matching `json` tag per the [Development guidelines](https://tabletheory.theorycloud.ai/development-guidelines/).
 
 ## CRUD via the Query builder
 
