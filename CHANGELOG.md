@@ -16,6 +16,28 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [1.9.0-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.8.3-rc.1...v1.9.0-rc.1) (2026-05-28)
+
+
+### Features
+
+* **docs:** add Theory Cloud GitHub Pages site ([8f1b7ec](https://github.com/theory-cloud/TableTheory/commit/8f1b7ec0bc30df2024b2129ce78649e80221591f))
+* **docs:** add Theory Cloud GitHub Pages site ([7a3fac9](https://github.com/theory-cloud/TableTheory/commit/7a3fac9138eba9901bc81efaedcd700148d3c118))
+
+
+### Bug Fixes
+
+* **docs:** align workflow and transaction docs ([e39b02e](https://github.com/theory-cloud/TableTheory/commit/e39b02e48eb0d13e06971ada2718dcb877deb268))
+* **docs:** correct transaction and locking examples ([4af61ab](https://github.com/theory-cloud/TableTheory/commit/4af61abcc849c88c7d6821d70aab7f0f212508f6))
+* **docs:** correct wheel-asset name, encryption descriptor, transactions, and update signatures ([1691abc](https://github.com/theory-cloud/TableTheory/commit/1691abcf294783abf9e2ec98450ea70df97ff07a))
+* **docs:** narrow ttl and lifecycle claims ([3a4f464](https://github.com/theory-cloud/TableTheory/commit/3a4f4641d280aa1be515cc5d41d3696db76f65f4))
+* **docs:** replace internal-doc links in subtree-published pages ([5af9535](https://github.com/theory-cloud/TableTheory/commit/5af9535eafe6b6c52e3af1daffc73b166e5c26fc))
+* **docs:** replace invented APIs with the real public surface ([cc45c6e](https://github.com/theory-cloud/TableTheory/commit/cc45c6e7928fc99f933dbfe7e01b60257df4caef))
+* **docs:** replace invented APIs with the real public surface ([dbf261a](https://github.com/theory-cloud/TableTheory/commit/dbf261a91279e3ee4e7a9f2e5989737e2b5d2d9a))
+* **docs:** use markdown-file relative links across new content ([0b7c6e9](https://github.com/theory-cloud/TableTheory/commit/0b7c6e9d7a817ebebc8cf5541745dc3f17c5df03))
+* **pages:** pin third-party action refs to commit SHAs ([4b2e477](https://github.com/theory-cloud/TableTheory/commit/4b2e4772cc12a47fb2f76eee75c5b8f90845caa1))
+* **py:** execute shared P0 contract fixtures ([b2e72f7](https://github.com/theory-cloud/TableTheory/commit/b2e72f706f4b07eaf99498f70b4451d747ec8acb))
+
 ## [1.8.4](https://github.com/theory-cloud/TableTheory/compare/v1.8.3...v1.8.4) (2026-05-26)
 
 
