@@ -30,38 +30,56 @@ TableTheory **does not auto-chunk** transactions across multiple `TransactWriteI
 ## Go
 
 ```go
-// Conditional write composed with peer writes inside a transaction.
-err := db.Transaction(func(tx *core.Tx) error {
-    if err := tx.Model(&fromAcct).Update("balance"); err != nil {
-        return err
-    }
-    if err := tx.Model(&toAcct).Update("balance"); err != nil {
-        return err
-    }
-    return tx.Model(&audit).Create()
+// Conditional writes composed with a peer create inside one TransactWriteItems call.
+err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
+    tx.UpdateWithBuilder(&fromAcct, func(u core.UpdateBuilder) error {
+        u.Set("Balance", fromBal)
+        u.Add("Version", int64(1))
+        u.ConditionVersion(fromVersion)
+        return nil
+    })
+
+    tx.UpdateWithBuilder(&toAcct, func(u core.UpdateBuilder) error {
+        u.Set("Balance", toBal)
+        u.Add("Version", int64(1))
+        u.ConditionVersion(toVersion)
+        return nil
+    })
+
+    tx.Create(&audit)
+    return nil
 })
 ```
 
-> The transaction helper signature is `db.Transaction(func(tx *core.Tx) error) error`. See [`pkg/transaction/`](https://github.com/theory-cloud/tabletheory/tree/main/pkg/transaction) for the canonical Tx API.
+> Use `db.TransactWrite(ctx, func(core.TransactionBuilder) error)` or the
+> fluent `db.Transact()` builder followed by `Execute()` for DynamoDB
+> transactions. The older `db.Transaction(func(*core.Tx) error)` helper is only
+> a compatibility wrapper and is not the canonical full-transaction API.
 
 ## TypeScript
 
 `TheorydbClient.transactWrite(actions: TransactAction[])` accepts a list of
-`{ kind: 'put' | 'update' | 'delete' | 'conditionCheck', model, ... }` actions.
+`{ kind: 'put' | 'update' | 'delete' | 'condition', model, ... }` actions.
+Update actions provide `key` plus either a raw `updateExpression` or an `updateFn`
+that uses the `UpdateBuilder` DSL.
 
 ```typescript
 await db.transactWrite([
   {
     kind: 'update',
     model: 'Account',
-    item: { ...fromKey, balance: fromBal, version: fromVersion },
-    fields: ['balance'],
+    key: fromKey,
+    updateFn: (u) => {
+      u.set('balance', fromBal).add('version', 1).conditionVersion(fromVersion);
+    },
   },
   {
     kind: 'update',
     model: 'Account',
-    item: { ...toKey, balance: toBal, version: toVersion },
-    fields: ['balance'],
+    key: toKey,
+    updateFn: (u) => {
+      u.set('balance', toBal).add('version', 1).conditionVersion(toVersion);
+    },
   },
   {
     kind: 'put',

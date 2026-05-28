@@ -77,7 +77,7 @@ For a complete working program, see [`py/docs/getting-started.md`](https://githu
 
 ```python
 table.put(note)
-note = table.get(pk, sk)                            # raises ItemNotFound on miss
+note = table.get(pk, sk)                            # raises NotFoundError on miss
 table.update(pk, sk, {"body": "updated"})           # third arg is a Mapping[str, Any]
 table.delete(pk, sk)
 

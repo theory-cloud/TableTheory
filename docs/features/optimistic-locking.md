@@ -83,12 +83,18 @@ model = ModelDefinition.from_dataclass(Counter, table_name="counters_contract")
 table = Table(model, client=client)
 
 c = table.get("TENANT#42", "COUNTER#impressions")
-table.update("TENANT#42", "COUNTER#impressions", {"value": c.value + 1})
+table.update_builder("TENANT#42", "COUNTER#impressions") \
+    .set("value", c.value + 1) \
+    .add("version", 1) \
+    .condition_version(c.version) \
+    .execute()
 ```
 
 ## Versioning a newly-created item
 
-The first write of an item that does not yet exist starts at `version = 1`. Subsequent writes increment. A create that asserts `version = 0` against a non-existent item is the contract-defined "create if absent" form.
+The first write of an item that does not yet exist starts at `version = 0`.
+Subsequent versioned writes increment the value, so the first successful update
+moves it to `version = 1`.
 
 ## Versioning under transactions
 
