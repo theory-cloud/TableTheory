@@ -169,8 +169,8 @@ make test          # full suite incl. integration
 For multi-language work:
 
 ```bash
-cd ts && npm run check        # TS lint + typecheck + tests
-cd py && python -m unittest   # Py unit tests
+cd ts && npm run lint && npm run typecheck && npm run test:unit
+uv --directory py run pytest -q
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full contributor docs, including the [Authoring documentation](CONTRIBUTING.md#authoring-documentation) section if you're updating the docs site.

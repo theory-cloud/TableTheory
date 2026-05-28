@@ -28,5 +28,5 @@ client = boto3.client(
 
 **Cause:** Python follows PEP 440 prerelease normalization.
 
-**Solution:** use the wheel filename from the GitHub Release asset list (e.g., `theorydb_py-1.2.1rc1-...whl`).
+**Solution:** use the wheel filename from the GitHub Release asset list (e.g., `tabletheory_py-1.2.1rc1-...whl`).
 

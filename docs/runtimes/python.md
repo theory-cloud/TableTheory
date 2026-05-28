@@ -87,8 +87,11 @@ table.update_builder(pk, sk).set("body", "updated").execute()
 
 ## Workflows
 
-- `cd py && python -m unittest` — full unit suite (stdlib `unittest`)
-- `cd py && ruff check --line-length 120 .` — lint
+- `uv --directory py run ruff format --check .` — format verification
+- `uv --directory py run ruff check .` — lint using the `py/pyproject.toml` line length of 110
+- `uv --directory py run mypy src` — typecheck
+- `uv --directory py run pytest -q` — pytest suite
+- `uv --directory py run pytest -q tests/integration` — integration tests with DynamoDB Local
 - Exercised against shared contract scenarios via [`contract-tests/runners/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/runners) on every commit
 
 ## Where to go next

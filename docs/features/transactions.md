@@ -1,11 +1,11 @@
 ---
 title: Transactions
-description: Real DynamoDB TransactWriteItems / TransactGetItems — composed with the rest of the contract.
+description: Real DynamoDB TransactWriteItems — composed with the rest of the contract.
 ---
 
 # Transactions
 
-TableTheory transactions use the actual DynamoDB transaction APIs — `TransactWriteItems` and `TransactGetItems`. There is no app-level lock, no optimistic-concurrency-over-HTTP simulation, and no hidden retry sleep loop.
+This page documents TableTheory's public write-transaction surfaces, which use the actual DynamoDB `TransactWriteItems` API. There is no app-level lock, no optimistic-concurrency-over-HTTP simulation, and no hidden retry sleep loop.
 
 ## What a transaction guarantees
 
@@ -13,19 +13,24 @@ TableTheory transactions use the actual DynamoDB transaction APIs — `TransactW
 - **Condition evaluation** is server-side: each write item carries its own conditional expression, and a single failed condition aborts the whole transaction.
 - **Optimistic-lock composition**: a versioned item in the group asserts its expected version; a version mismatch aborts the transaction atomically.
 - **Encryption composition**: encrypted fields are encrypted before the transaction is submitted; a KMS failure aborts before any write hits DynamoDB.
-- **Cross-runtime parity**: a transaction submitted from Python sees the same atomicity guarantees as one submitted from Go.
+- **Cross-runtime parity**: a write transaction submitted from Python sees the same atomicity guarantees as one submitted from Go.
 
-## DynamoDB transaction limits to know
+## Write transaction limits to know
 
-| Limit                                     | Value         |
-|-------------------------------------------|---------------|
-| Items per `TransactWriteItems`            | 100           |
-| Items per `TransactGetItems`              | 100           |
-| Maximum total payload size                | 4 MB          |
-| Items addressed across multiple tables    | allowed       |
-| Same item appearing twice in one call     | not allowed   |
+| Limit                                             | Value / behavior                            |
+|---------------------------------------------------|---------------------------------------------|
+| DynamoDB `TransactWriteItems` item limit           | 100 items per service call                  |
+| Go `core.TransactionBuilder` operation cap         | 25 operations in the current public builder |
+| TypeScript `TheorydbClient.transactWrite` cap      | DynamoDB enforces service-call limits       |
+| Python `Table.transact_write` action cap           | 100 actions                                 |
+| Maximum DynamoDB transaction payload size          | 4 MB                                        |
+| Items addressed across multiple tables             | allowed by DynamoDB                         |
+| Same item appearing twice in one call              | not allowed by DynamoDB                     |
 
-TableTheory **does not auto-chunk** transactions across multiple `TransactWriteItems` calls — that would silently break atomicity. If you exceed the 100-item or 4 MB limit, the runtime returns a typed error and you redesign the access pattern.
+TableTheory **does not auto-chunk** write transactions across multiple
+`TransactWriteItems` calls — that would silently break atomicity. If you exceed
+the runtime guard or DynamoDB service limit, redesign the access pattern instead
+of splitting one logical transaction into multiple calls.
 
 ## Go
 

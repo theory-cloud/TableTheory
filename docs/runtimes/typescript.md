@@ -97,8 +97,10 @@ const page = await db.query('Note').partitionKey('USER#42').limit(20).page();
 
 ## Workflows
 
-- `cd ts && npm run check` — lint, typecheck, and full TypeScript test suite
-- `cd ts && npm test` — Jest unit tests
+- `cd ts && npm run format:check` — Prettier verification
+- `cd ts && npm run lint && npm run typecheck && npm run build` — CI static checks
+- `cd ts && npm run test:unit` — unit tests
+- `cd ts && npm run test:integration` — integration tests with DynamoDB Local
 - Exercised against shared contract scenarios via [`contract-tests/runners/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/runners) on every commit
 
 ## Where to go next
