@@ -60,7 +60,13 @@ const Counter = defineModel({
 const key = { PK: 'TENANT#42', SK: 'COUNTER#impressions' };
 const c   = await db.get('Counter', key);
 
-await db.update('Counter', { ...key, value: (c.value as number) + 1 }, ['value']);
+// Pass the just-read version through; TheorydbClient.update asserts it
+// matches the persisted item before mutating, and bumps it on success.
+await db.update(
+  'Counter',
+  { ...key, value: (c.value as number) + 1, version: c.version },
+  ['value'],
+);
 ```
 
 ## Python
@@ -77,7 +83,7 @@ model = ModelDefinition.from_dataclass(Counter, table_name="counters_contract")
 table = Table(model, client=client)
 
 c = table.get("TENANT#42", "COUNTER#impressions")
-table.update("TENANT#42", "COUNTER#impressions", value=c.value + 1)
+table.update("TENANT#42", "COUNTER#impressions", {"value": c.value + 1})
 ```
 
 ## Versioning a newly-created item

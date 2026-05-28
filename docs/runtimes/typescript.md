@@ -73,7 +73,7 @@ Every `role` accepted by `defineModel` attributes maps one-to-one onto the canon
 | `theorydb:"pk"`              | `roles: ['pk']`                             |
 | `theorydb:"sk"`              | `roles: ['sk']`                             |
 | `theorydb:"gsi1pk"`          | `roles: ['gsi1pk']` + `indexes:`            |
-| `theorydb:"encrypted"`       | `encrypted: true`                           |
+| `theorydb:"encrypted"`       | `encryption: { v: 1 }`                      |
 | `theorydb:"version"`         | `roles: ['version']`                        |
 | `theorydb:"created_at"`      | `roles: ['created_at']`                     |
 | `theorydb:"updated_at"`      | `roles: ['updated_at']`                     |

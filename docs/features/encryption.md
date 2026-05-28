@@ -50,7 +50,7 @@ const Credential = defineModel({
   attributes: [
     { attribute: 'PK',     type: 'S', roles: ['pk'] },
     { attribute: 'SK',     type: 'S', roles: ['sk'] },
-    { attribute: 'secret', type: 'S', encrypted: true },
+    { attribute: 'secret', type: 'S', encryption: { v: 1 } },
   ],
 });
 ```

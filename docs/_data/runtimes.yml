@@ -83,7 +83,7 @@
 - id: python
   label: Python
   icon: py-mark
-  install: "pip install https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/theorydb_py-X.Y.Z-py3-none-any.whl"
+  install: "pip install https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/tabletheory_py-X.Y.Z-py3-none-any.whl"
   lang: python
   snippet: |
     from dataclasses import dataclass

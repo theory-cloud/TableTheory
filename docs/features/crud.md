@@ -49,6 +49,9 @@ db.Model(&Note{PK: "USER#1", SK: "NOTE#welcome"}).Delete()
 ## TypeScript
 
 ```typescript
+// TheorydbClient.update requires a version role on the model and the
+// current version in the item payload. Most "real" TableTheory models
+// declare version anyway; show it here so the CRUD flow is complete.
 const Note = defineModel({
   name: 'Note',
   table: { name: 'notes_contract' },
@@ -57,9 +60,10 @@ const Note = defineModel({
     sort:      { attribute: 'SK', type: 'S' },
   },
   attributes: [
-    { attribute: 'PK',   type: 'S', roles: ['pk'] },
-    { attribute: 'SK',   type: 'S', roles: ['sk'] },
-    { attribute: 'body', type: 'S', optional: true, omit_empty: true },
+    { attribute: 'PK',      type: 'S', roles: ['pk'] },
+    { attribute: 'SK',      type: 'S', roles: ['sk'] },
+    { attribute: 'body',    type: 'S', optional: true, omit_empty: true },
+    { attribute: 'version', type: 'N', roles: ['version'] },
   ],
 });
 
@@ -67,7 +71,12 @@ const db = new TheorydbClient(ddb).register(Note);
 
 await db.create('Note', { PK: 'USER#1', SK: 'NOTE#welcome', body: 'Hi.' });
 const item = await db.get('Note', { PK: 'USER#1', SK: 'NOTE#welcome' });
-await db.update('Note', { PK: 'USER#1', SK: 'NOTE#welcome', body: 'Edited.' }, ['body']);
+// Pass the current version through; the runtime asserts it matches.
+await db.update(
+  'Note',
+  { PK: 'USER#1', SK: 'NOTE#welcome', body: 'Edited.', version: item.version },
+  ['body'],
+);
 await db.delete('Note', { PK: 'USER#1', SK: 'NOTE#welcome' });
 ```
 
@@ -78,14 +87,14 @@ await db.delete('Note', { PK: 'USER#1', SK: 'NOTE#welcome' });
 class Note:
     pk:   str = theorydb_field(roles=["pk"])
     sk:   str = theorydb_field(roles=["sk"])
-    body: str = theorydb_field(omit_empty=True)
+    body: str = theorydb_field(omitempty=True)
 
 model = ModelDefinition.from_dataclass(Note, table_name="notes_contract")
 table = Table(model, client=client)
 
 table.put(Note(pk="USER#1", sk="NOTE#welcome", body="Hi."))
 note = table.get("USER#1", "NOTE#welcome")
-table.update("USER#1", "NOTE#welcome", body="Edited.")
+table.update("USER#1", "NOTE#welcome", {"body": "Edited."})  # third arg is a Mapping
 table.delete("USER#1", "NOTE#welcome")
 ```
 

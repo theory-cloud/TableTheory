@@ -5,7 +5,7 @@ description: TableTheory for Python — installation, ModelDefinition + Table + 
 
 # Python runtime
 
-The Python runtime lives under [`py/`](https://github.com/theory-cloud/tabletheory/tree/main/py) and is distributed as the wheel `theorydb_py`. It targets **Python 3.14** and the AWS SDK for Python (`boto3`).
+The Python runtime lives under [`py/`](https://github.com/theory-cloud/tabletheory/tree/main/py) and is published as the wheel `tabletheory_py-X.Y.Z-py3-none-any.whl`. The importable module inside that wheel is **`theorydb_py`** — the wheel asset name and the importable package name differ. It targets **Python 3.14** and the AWS SDK for Python (`boto3`).
 
 The Python runtime is a **peer** implementation of the TableTheory contract — not a port. It passes the same P0 contract scenarios as Go and TypeScript independently.
 
@@ -16,14 +16,14 @@ This repo does **not** publish to PyPI. GitHub Releases are the source of truth.
 ```bash
 # Stable release (replace X.Y.Z)
 pip install \
-  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/theorydb_py-X.Y.Z-py3-none-any.whl
+  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/tabletheory_py-X.Y.Z-py3-none-any.whl
 
 # Prerelease (replace X.Y.Z-rc.N — PEP 440 form: vX.Y.Z-rc.N tag → X.Y.ZrcN wheel)
 pip install \
-  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/theorydb_py-X.Y.ZrcN-py3-none-any.whl
+  https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/tabletheory_py-X.Y.ZrcN-py3-none-any.whl
 ```
 
-The **importable module name is `theorydb_py`**, not `tabletheory_py`. The release wheel filename follows the same module name.
+The **release wheel asset** is `tabletheory_py-X.Y.Z-py3-none-any.whl`; the **importable module** inside that wheel is `theorydb_py`. Use `from theorydb_py import …` in your application code.
 
 ## ModelDefinition + Table
 
@@ -57,7 +57,7 @@ For a complete working program, see [`py/docs/getting-started.md`](https://githu
 
 ## Role vocabulary
 
-`theorydb_field(roles=[…], encrypted=…, omit_empty=…)` maps one-to-one onto the canonical TableTheory contract:
+`theorydb_field(roles=[…], encrypted=…, omitempty=…)` maps one-to-one onto the canonical TableTheory contract:
 
 | Go tag                       | Python field arg                          |
 |------------------------------|-------------------------------------------|
@@ -69,7 +69,7 @@ For a complete working program, see [`py/docs/getting-started.md`](https://githu
 | `theorydb:"created_at"`      | `theorydb_field(roles=["created_at"])`    |
 | `theorydb:"updated_at"`      | `theorydb_field(roles=["updated_at"])`    |
 | `theorydb:"ttl"`             | `theorydb_field(roles=["ttl"])`           |
-| `theorydb:"omitempty"`       | `theorydb_field(omit_empty=True)`         |
+| `theorydb:"omitempty"`       | `theorydb_field(omitempty=True)`         |
 
 ## CRUD methods
 
@@ -77,12 +77,12 @@ For a complete working program, see [`py/docs/getting-started.md`](https://githu
 
 ```python
 table.put(note)
-note = table.get(pk, sk)                       # raises NotFound on miss
-table.update(pk, sk, body="updated")
+note = table.get(pk, sk)                            # raises ItemNotFound on miss
+table.update(pk, sk, {"body": "updated"})           # third arg is a Mapping[str, Any]
 table.delete(pk, sk)
 
-# Composite updates use the update_builder helper for set/remove/add/delete.
-table.update_builder(pk, sk).set("body", "updated").commit()
+# Composite updates use update_builder for set/remove/add chains.
+table.update_builder(pk, sk).set("body", "updated").execute()
 ```
 
 ## Workflows

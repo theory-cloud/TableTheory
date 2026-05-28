@@ -46,29 +46,56 @@ err := db.Transaction(func(tx *core.Tx) error {
 
 ## TypeScript
 
+`TheorydbClient.transactWrite(actions: TransactAction[])` accepts a list of
+`{ kind: 'put' | 'update' | 'delete' | 'conditionCheck', model, ... }` actions.
+
 ```typescript
-// TypeScript exposes batch + transaction APIs on TheorydbClient. See
-// ts/docs/api-reference.md for the exact surface in the version you
-// installed — the design here matches DynamoDB's TransactWriteItems
-// semantics directly.
-await db.transaction([
-  { op: 'update', model: 'Account', item: { ...fromKey, balance: fromBal }, fields: ['balance'] },
-  { op: 'update', model: 'Account', item: { ...toKey,   balance: toBal   }, fields: ['balance'] },
-  { op: 'create', model: 'Audit',   item: auditItem },
+await db.transactWrite([
+  {
+    kind: 'update',
+    model: 'Account',
+    item: { ...fromKey, balance: fromBal, version: fromVersion },
+    fields: ['balance'],
+  },
+  {
+    kind: 'update',
+    model: 'Account',
+    item: { ...toKey, balance: toBal, version: toVersion },
+    fields: ['balance'],
+  },
+  {
+    kind: 'put',
+    model: 'Audit',
+    item: auditItem,
+    ifNotExists: true,
+  },
 ]);
 ```
 
+See [`ts/src/transaction.ts`](https://github.com/theory-cloud/tabletheory/blob/main/ts/src/transaction.ts) for the full `TransactAction` shape.
+
 ## Python
 
+`Table.transact_write(actions)` accepts a list of dataclass actions —
+`TransactPut`, `TransactUpdate`, `TransactDelete`, `TransactConditionCheck` — all importable from `theorydb_py`.
+
 ```python
-# Python exposes transaction helpers on Table / theorydb_py. See
-# py/docs/api-reference.md for the exact form; the underlying
-# DynamoDB call is the same TransactWriteItems.
-with table.transaction() as tx:
-    tx.update("ACCOUNT#A", "v1", balance=from_bal)
-    tx.update("ACCOUNT#B", "v1", balance=to_bal)
-    tx.put(audit_item)
+from theorydb_py import TransactPut, TransactUpdate
+
+table.transact_write([
+    TransactUpdate(
+        pk="ACCOUNT#A", sk="v1",
+        updates={"balance": from_bal},
+    ),
+    TransactUpdate(
+        pk="ACCOUNT#B", sk="v1",
+        updates={"balance": to_bal},
+    ),
+    TransactPut(item=audit_item),
+])
 ```
+
+See [`py/src/theorydb_py/transaction.py`](https://github.com/theory-cloud/tabletheory/blob/main/py/src/theorydb_py/transaction.py) for the full action-dataclass shapes.
 
 ## Common patterns
 
