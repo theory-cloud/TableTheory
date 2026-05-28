@@ -4,6 +4,7 @@ import os
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import MISSING, fields, is_dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, cast, get_args, get_origin
 
@@ -91,6 +92,11 @@ def _backoff_seconds(attempt: int) -> float:
     return seconds
 
 
+def _now_rfc3339_nano() -> str:
+    now = datetime.now(UTC)
+    return now.strftime("%Y-%m-%dT%H:%M:%S") + f".{now.microsecond:06d}000Z"
+
+
 def _chunked[T](items: Sequence[T], size: int) -> Sequence[Sequence[T]]:
     if size <= 0:
         raise ValueError("size must be > 0")
@@ -107,6 +113,7 @@ class Table[T]:
         kms_key_arn: str | None = None,
         kms_client: Any | None = None,
         rand_bytes: Callable[[int], bytes] | None = None,
+        now: Callable[[], str] | None = None,
     ) -> None:
         if table_name is None:
             table_name = model.table_name
@@ -119,6 +126,7 @@ class Table[T]:
         self._kms_key_arn = (kms_key_arn or "").strip() or None
         self._kms_client: Any | None = kms_client
         self._rand_bytes = rand_bytes or os.urandom
+        self._now = now or _now_rfc3339_nano
         self._serializer = TypeSerializer()
         self._deserializer = TypeDeserializer()
 
@@ -145,6 +153,7 @@ class Table[T]:
             kms_key_arn=self._kms_key_arn,
             kms_client=self._kms_client,
             rand_bytes=self._rand_bytes,
+            now=self._now,
         )
 
     def _attribute_storage_type(self, attr_def: AttributeDefinition) -> str:
@@ -883,6 +892,7 @@ class Table[T]:
         expression_attribute_names: Mapping[str, str] | None = None,
         expression_attribute_values: Mapping[str, Any] | None = None,
         protected_attributes: Sequence[str] = (),
+        expected_version: int | None = None,
     ) -> T:
         req = self._build_update_request(
             pk,
@@ -892,6 +902,7 @@ class Table[T]:
             expression_attribute_names=expression_attribute_names,
             expression_attribute_values=expression_attribute_values,
             protected_attributes=protected_attributes,
+            expected_version=expected_version,
             return_values="ALL_NEW",
         )
 
@@ -920,6 +931,7 @@ class Table[T]:
         expression_attribute_names: Mapping[str, str] | None = None,
         expression_attribute_values: Mapping[str, Any] | None = None,
         protected_attributes: Sequence[str] = (),
+        expected_version: int | None = None,
         return_values: str | None = None,
     ) -> dict[str, Any]:
         key = self._to_key(pk, sk)
@@ -943,6 +955,12 @@ class Table[T]:
                 return set(value)
             return {value}
 
+        version_attr = self._attribute_by_role("version")
+        updated_at_attr = self._attribute_by_role("updated_at")
+
+        if expected_version is not None and version_attr is None:
+            raise ValidationError("model does not define a version field")
+
         for field_name, value in updates.items():
             if field_name not in self._model.attributes:
                 raise ValidationError(f"unknown field: {field_name}")
@@ -950,6 +968,12 @@ class Table[T]:
                 self._model.sk is not None and field_name == self._model.sk.python_name
             ):
                 raise ValidationError(f"cannot update key field: {field_name}")
+            if (
+                expected_version is not None
+                and version_attr is not None
+                and field_name == version_attr.python_name
+            ):
+                raise ValidationError(f"do not include version in update fields: {field_name}")
 
             attr_def = self._model.attributes[field_name]
             name_ref = f"#d_{field_name}"
@@ -987,6 +1011,22 @@ class Table[T]:
             update_values[value_ref] = self._serialize_attr_value(attr_def, value)
             set_parts.append(f"{name_ref} = {value_ref}")
 
+        if updated_at_attr is not None and updated_at_attr.python_name not in updates:
+            update_names["#d_updated_at"] = updated_at_attr.attribute_name
+            update_values[":d_updated_at"] = self._serialize_attr_value(updated_at_attr, self._now())
+            set_parts.insert(0, "#d_updated_at = :d_updated_at")
+
+        version_condition: str | None = None
+        if expected_version is not None and version_attr is not None:
+            update_names["#d_version"] = version_attr.attribute_name
+            update_values[":d_expected_version"] = self._serialize_attr_value(
+                version_attr,
+                expected_version,
+            )
+            update_values[":d_version_increment"] = self._serializer.serialize(1)
+            add_parts.append("#d_version :d_version_increment")
+            version_condition = "#d_version = :d_expected_version"
+
         expr_parts: list[str] = []
         if set_parts:
             expr_parts.append("SET " + ", ".join(set_parts))
@@ -1007,8 +1047,12 @@ class Table[T]:
             req["ExpressionAttributeValues"] = update_values
         if return_values is not None:
             req["ReturnValues"] = return_values
-        if condition_expression:
+        if condition_expression and version_condition:
+            req["ConditionExpression"] = f"({condition_expression}) AND {version_condition}"
+        elif condition_expression:
             req["ConditionExpression"] = condition_expression
+        elif version_condition:
+            req["ConditionExpression"] = version_condition
 
         if expression_attribute_names:
             for k, v in expression_attribute_names.items():
@@ -1071,8 +1115,15 @@ class Table[T]:
             raise ValidationError("item must be a dataclass instance")
 
         out: dict[str, Any] = {}
+        now: str | None = None
         for field_name, attr_def in self._model.attributes.items():
             value = getattr(item, field_name)
+            if "created_at" in attr_def.roles or "updated_at" in attr_def.roles:
+                if now is None:
+                    now = self._now()
+                value = now
+            elif "version" in attr_def.roles and _is_empty(value):
+                value = 0
             if attr_def.omitempty and _is_empty(value):
                 continue
             out[attr_def.attribute_name] = self._serialize_attr_value(attr_def, value)
@@ -1083,6 +1134,12 @@ class Table[T]:
             raise ValidationError("missing sk")
 
         return out
+
+    def _attribute_by_role(self, role: str) -> AttributeDefinition | None:
+        for attr_def in self._model.attributes.values():
+            if role in attr_def.roles:
+                return attr_def
+        return None
 
     def _to_key(self, pk: Any, sk: Any | None) -> dict[str, Any]:
         if pk is None:

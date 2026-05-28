@@ -1,3 +1,8 @@
+---
+title: TableTheory Integration Guide for Lift CDK Constructs
+permalink: /cdk/
+---
+
 # TableTheory Integration Guide for Lift CDK Constructs
 
 This guide provides comprehensive information for integrating TableTheory with Lift CDK constructs, specifically for RateLimitedFunction and IdempotentFunction.

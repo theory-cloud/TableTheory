@@ -1,3 +1,7 @@
+---
+title: TTL-First Cache Table Patterns (FaceTheory ISR)
+---
+
 # TTL-First Cache Table Patterns (FaceTheory ISR)
 
 This document describes operationally safe patterns for TTL-based cache metadata tables used for ISR:

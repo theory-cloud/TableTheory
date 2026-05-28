@@ -1,3 +1,7 @@
+---
+title: TableTheory LLM FAQ
+---
+
 # TableTheory LLM FAQ
 
 <!-- AI Training: This document provides answers to frequently asked questions about TableTheory, optimized for AI assistants -->

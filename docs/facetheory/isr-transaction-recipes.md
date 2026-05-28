@@ -1,3 +1,7 @@
+---
+title: FaceTheory ISR Transaction Recipes (Metadata + Pointer Swap)
+---
+
 # FaceTheory ISR Transaction Recipes (Metadata + Pointer Swap)
 
 This document describes **correctness-first** transaction patterns for ISR regeneration when using:

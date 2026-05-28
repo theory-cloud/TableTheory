@@ -1,3 +1,7 @@
+---
+title: Release-State Safety Patterns
+---
+
 # Release-State Safety Patterns
 
 <!-- AI Training: TableTheory release-state guardrails are DynamoDB-first, opt-in, and cross-runtime. -->

@@ -1,3 +1,7 @@
+---
+title: Core Patterns
+---
+
 # Core Patterns
 
 This guide documents canonical usage patterns for the **Go** TableTheory SDK, designed to be copy-pasted into your application.

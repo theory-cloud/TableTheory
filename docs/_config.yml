@@ -1,0 +1,150 @@
+# =============================================================
+# TableTheory · Theory Cloud Documentation site
+# Jekyll configuration for GitHub Pages.
+# =============================================================
+
+title: TableTheory
+tagline: DynamoDB-first multi-language data contract.
+description: >-
+  The DynamoDB-first multi-language ORM and schema contract for the
+  Theory Cloud stack. Go, TypeScript, and Python — one specification.
+
+# When deployed via the canonical org repo, the site lives at
+# https://theory-cloud.github.io/tabletheory/
+url: "https://theory-cloud.github.io"
+baseurl: "/tabletheory"
+
+# Jekyll engine
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: highlight
+    block:
+      line_numbers: false
+  auto_ids: true
+  toc_levels: 2..4
+  hard_wrap: false
+  smart_quotes: lsquo,rsquo,ldquo,rdquo
+
+plugins:
+  - jekyll-relative-links
+  - jekyll-include-cache
+  - jekyll-sitemap
+  - jekyll-seo-tag
+
+relative_links:
+  enabled: true
+  collections: true
+
+include:
+  - assets
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - .bundle
+  - .jekyll-cache
+  - .jekyll-metadata
+  - _site
+  - node_modules
+  - "README.md"            # repo-internal index; site landing is index.html
+  - "_concepts.yaml"
+  - "_decisions.yaml"
+  - "_patterns.yaml"
+  - "PAY_THEORY_DOCUMENTATION_GUIDE.md"
+  - "development/planning"
+  - "development/decisions"
+  - "development/clarifications"
+  - "development/"
+
+# Apply the default docs layout to every markdown page automatically,
+# so existing docs/*.md files don't need front matter.
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: default
+      surface: core
+      sidebar: true
+      toc: true
+      edit_on_github: true
+  - scope:
+      path: "integrations/mcp-memory.md"
+    values:
+      surface: mcp
+  - scope:
+      path: "index.html"
+    values:
+      layout: home
+      sidebar: true
+      toc: false
+      edit_on_github: false
+
+# =============================================================
+# TableTheory namespace — parameters consumed by layouts/includes.
+# When this site is forked into AppTheory / FaceTheory / etc., only
+# this block needs to change.
+# =============================================================
+tabletheory:
+  surface: core                 # core | mcp | auth | journal
+  framework_name: TableTheory
+  framework_short: tabletheory
+  repo: theory-cloud/tabletheory
+  repo_branch: main
+  docs_root: docs
+  version_pill: "v1.x"
+  version_status: stable        # stable | prerelease | dev
+  runtimes:
+    - id: go
+      label: Go
+      install: "go get github.com/theory-cloud/tabletheory@vX.Y.Z"
+      docs_path: runtimes/go
+    - id: ts
+      label: TypeScript
+      install: "npm install --save-exact https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/theory-cloud-tabletheory-ts-X.Y.Z.tgz"
+      docs_path: runtimes/typescript
+    - id: python
+      label: Python
+      install: "pip install https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z/tabletheory_py-X.Y.Z-py3-none-any.whl"
+      docs_path: runtimes/python
+  surfaces:
+    - id: core
+      name: Application data
+      domain: data-contract
+      desc: Single-table modeling, marshaling, queries, and transactions across Go, TS, and Python.
+      url: /features/crud/
+      cta: See the CRUD contract
+    - id: mcp
+      name: Agent memory
+      domain: append-only-ledger
+      desc: How theory-mcp-server uses TableTheory to persist per-agent memory entries.
+      url: /integrations/mcp-memory/
+      cta: See the MCP integration
+    - id: auth
+      name: Identity state
+      domain: encrypted-records
+      desc: Tenants, sessions, MFA enrollments, and credentials persisted by Autheory — fail-closed encryption.
+      url: /integrations/autheory/
+      cta: See the Autheory integration
+  stats:
+    - label: P0 contract scenarios
+      value: "9"
+      sub: CRUD · lifecycle · TTL · release-state
+    - label: Runtimes
+      value: "3"
+      sub: Go · TypeScript · Python
+    - label: Distribution
+      value: GitHub Releases
+      sub: immutable, pinned
+    - label: License
+      value: Apache-2.0
+      sub: open source
+
+# Sitemap defaults
+permalink: pretty
+timezone: UTC
