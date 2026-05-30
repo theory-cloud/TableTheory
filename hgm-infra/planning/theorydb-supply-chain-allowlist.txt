@@ -11,7 +11,3 @@
 #
 # Examples (copy exact IDs from the failing scanner output):
 # HGM-SUPPLY:GO:REPLACE:rule=REMOTE_REPLACE:from=github.com/example/upstream@v1.2.3:to=github.com/example/fork@v1.2.3
-# Reviewed 2026-05-25: aws-cdk-lib@2.257.0 still bundles brace-expansion@5.0.5 through
-# minimatch@10.2.5. This is confined to the examples/cdk-multilang CDK app's test/synth/deploy
-# tooling path, not TableTheory runtime code. Remove once AWS CDK bundles brace-expansion >= 5.0.6.
-NPM-AUDIT:examples/cdk-multilang:brace-expansion:GHSA-jxxr-4gwj-5jf2:node_modules/aws-cdk-lib/node_modules/brace-expansion
