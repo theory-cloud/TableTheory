@@ -26,6 +26,7 @@
       "hgm-infra/planning/theorydb-workstream-logging-ops-roadmap.md",
       "hgm-infra/planning/theorydb-workstream-maintainability-plan-roadmap.md",
       "hgm-infra/planning/theorydb-supply-chain-allowlist.txt",
+      "hgm-infra/planning/theorydb-visible-npm-audit-findings.json",
       "hgm-infra/planning/theorydb-ai-drift-recovery.md"
     ],
     "verifiers": [

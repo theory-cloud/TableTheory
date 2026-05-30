@@ -100,7 +100,9 @@ high-level guarded update shape.
 
 ## Anti-patterns
 
-- **Don't set `created_at` or `updated_at` manually in high-level create/update paths.** The runtime owns lifecycle fields on those paths.
+- **Don't set `created_at` or `updated_at` manually in high-level create/update paths.** The runtime owns
+  lifecycle fields on those paths; caller-supplied lifecycle timestamp fields are rejected on update rather
+  than written through.
 - **Don't rely on `created_at` for tie-breaking equal-version writes.** Use the version role; that's what it's for.
 
 ## Related

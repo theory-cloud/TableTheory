@@ -84,7 +84,7 @@ For local testing where KMS isn't available, the **caller** must explicitly opt 
 
 ## Related
 
-- [Development Guidelines](https://theory-cloud.github.io/tabletheory/development-guidelines/) — when to tag a field encrypted
+- [Development Guidelines](https://tabletheory.theorycloud.ai/development-guidelines/) — when to tag a field encrypted
 - [Testing](../testing-guide.md) — how to write tests that exercise encrypted fields without KMS
 - [Integrations · Autheory](../integrations/autheory.md) — the largest consumer of encrypted fields in the stack
 - [Contract Scenarios](../reference/contract-scenarios.md) — fail-closed behavior is exercised on every commit

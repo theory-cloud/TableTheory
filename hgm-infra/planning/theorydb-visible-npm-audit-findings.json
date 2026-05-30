@@ -1,0 +1,20 @@
+{
+  "$schema": "https://theory.cloud/tabletheory/schemas/visible-npm-audit-findings.schema.json",
+  "purpose": "Findings listed here are intentionally visible in SEC-2 evidence and are not supply-chain allowlist suppressions.",
+  "findings": [
+    {
+      "project": "examples/cdk-multilang",
+      "package": "brace-expansion",
+      "advisory": "GHSA-jxxr-4gwj-5jf2",
+      "node": "node_modules/aws-cdk-lib/node_modules/brace-expansion",
+      "visibility": "visible",
+      "status": "upstream-bundled-pending-fix",
+      "reviewed_on": "2026-05-30",
+      "current_upstream_package": "aws-cdk-lib",
+      "current_upstream_version": "2.257.0",
+      "current_bundled_version": "5.0.5",
+      "remove_when": "Remove this visible finding policy once aws-cdk-lib publishes a bundle with brace-expansion >= 5.0.6.",
+      "justification": "aws-cdk-lib@2.257.0 is still the latest npm package and bundles brace-expansion@5.0.5 through minimatch@10.2.5. npm audit fix reports that the bundled dependency cannot be fixed automatically and must be fixed by an aws-cdk-lib update."
+    }
+  ]
+}

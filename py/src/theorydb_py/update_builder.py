@@ -142,9 +142,12 @@ class UpdateBuilder[T]:
             ):
                 raise ValidationError(f"cannot update key field: {field_name}")
 
+            attr_def = self._table._model.attributes[field_name]
+            if "created_at" in attr_def.roles or "updated_at" in attr_def.roles:
+                raise ValidationError(f"cannot update lifecycle timestamp field: {field_name}")
+
             assert_protected_fields_can_mutate(self._table._model, [field_name])
 
-            attr_def = self._table._model.attributes[field_name]
             ref = f"#u_{field_name}"
             names.setdefault(ref, attr_def.attribute_name)
             return ref, attr_def
@@ -275,6 +278,17 @@ class UpdateBuilder[T]:
                 continue
 
             raise ValidationError(f"unsupported update operation: {kind}")
+
+        updated_at_attr = self._table._attribute_by_role("updated_at")
+        if updated_at_attr is not None:
+            updated_at_name_ref = f"#u_{updated_at_attr.python_name}"
+            updated_at_value_ref = f":u_{updated_at_attr.python_name}"
+            names[updated_at_name_ref] = updated_at_attr.attribute_name
+            update_values[updated_at_value_ref] = self._table._serialize_attr_value(
+                updated_at_attr,
+                self._table._now(),
+            )
+            set_parts.insert(0, f"{updated_at_name_ref} = {updated_at_value_ref}")
 
         expr_parts: list[str] = []
         if set_parts:

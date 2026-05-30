@@ -15,6 +15,7 @@ Defines where evidence for rubric items is produced and how to regenerate it. Ev
 - Roadmap: `hgm-infra/planning/theorydb-10of10-roadmap.md`
 - Evidence plan: `hgm-infra/planning/theorydb-evidence-plan.md`
 - Supply-chain allowlist: `hgm-infra/planning/theorydb-supply-chain-allowlist.txt`
+- Visible npm-audit findings: `hgm-infra/planning/theorydb-visible-npm-audit-findings.json`
 - Threat model: `hgm-infra/planning/theorydb-threat-model.md`
 - Logging/ops standards: `hgm-infra/planning/theorydb-logging-ops-standards.md`
 - Maintainability roadmap: `hgm-infra/planning/theorydb-maintainability-roadmap.md`

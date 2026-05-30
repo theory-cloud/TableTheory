@@ -976,6 +976,9 @@ class Table[T]:
                 raise ValidationError(f"do not include version in update fields: {field_name}")
 
             attr_def = self._model.attributes[field_name]
+            if "created_at" in attr_def.roles or "updated_at" in attr_def.roles:
+                raise ValidationError(f"cannot update lifecycle timestamp field: {field_name}")
+
             name_ref = f"#d_{field_name}"
             update_names[name_ref] = attr_def.attribute_name
 
@@ -1011,10 +1014,12 @@ class Table[T]:
             update_values[value_ref] = self._serialize_attr_value(attr_def, value)
             set_parts.append(f"{name_ref} = {value_ref}")
 
-        if updated_at_attr is not None and updated_at_attr.python_name not in updates:
-            update_names["#d_updated_at"] = updated_at_attr.attribute_name
-            update_values[":d_updated_at"] = self._serialize_attr_value(updated_at_attr, self._now())
-            set_parts.insert(0, "#d_updated_at = :d_updated_at")
+        if updated_at_attr is not None:
+            updated_at_name_ref = f"#d_{updated_at_attr.python_name}"
+            updated_at_value_ref = f":d_{updated_at_attr.python_name}"
+            update_names[updated_at_name_ref] = updated_at_attr.attribute_name
+            update_values[updated_at_value_ref] = self._serialize_attr_value(updated_at_attr, self._now())
+            set_parts.insert(0, f"{updated_at_name_ref} = {updated_at_value_ref}")
 
         version_condition: str | None = None
         if expected_version is not None and version_attr is not None:
