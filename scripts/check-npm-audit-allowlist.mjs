@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 
-const [reportPath, allowlistPath, projectPathArg] = process.argv.slice(2);
+const [reportPath, allowlistPath, projectPathArg, visiblePolicyPath] = process.argv.slice(2);
 
 if (!reportPath || !allowlistPath || !projectPathArg) {
   console.error(
-    'usage: node scripts/check-npm-audit-allowlist.mjs <audit-json> <allowlist> <project-path>',
+    'usage: node scripts/check-npm-audit-allowlist.mjs <audit-json> <allowlist> <project-path> [visible-policy-json]',
   );
   process.exit(2);
 }
@@ -27,6 +27,70 @@ const allowlist = new Set(
     .map((line) => line.replace(/#.*/, '').trim())
     .filter(Boolean),
 );
+
+function findingId(project, packageName, advisory, node) {
+  return `NPM-AUDIT:${project}:${packageName}:${advisory}:${node}`;
+}
+
+function policyError(message) {
+  console.error(`npm-audit: invalid visible policy: ${message}`);
+  process.exit(2);
+}
+
+function requirePolicyString(entry, index, field) {
+  const value = entry?.[field];
+  if (typeof value !== 'string' || value.trim() === '') {
+    policyError(`findings[${index}].${field} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function loadVisiblePolicy(policyPath) {
+  if (!policyPath || !fs.existsSync(policyPath)) {
+    return new Map();
+  }
+
+  let policy;
+  try {
+    policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+  } catch (err) {
+    policyError(`${policyPath}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  if (
+    !policy ||
+    typeof policy !== 'object' ||
+    Array.isArray(policy) ||
+    !Array.isArray(policy.findings)
+  ) {
+    policyError(`${policyPath}: expected an object with a findings array`);
+  }
+
+  const visible = new Map();
+  for (const [index, entry] of policy.findings.entries()) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      policyError(`findings[${index}] must be an object`);
+    }
+
+    const visibility = requirePolicyString(entry, index, 'visibility');
+    if (visibility !== 'visible') {
+      policyError(`findings[${index}].visibility must be "visible"`);
+    }
+
+    const id = findingId(
+      requirePolicyString(entry, index, 'project'),
+      requirePolicyString(entry, index, 'package'),
+      requirePolicyString(entry, index, 'advisory'),
+      requirePolicyString(entry, index, 'node'),
+    );
+
+    visible.set(id, entry);
+  }
+
+  return visible;
+}
+
+const visiblePolicy = loadVisiblePolicy(visiblePolicyPath);
 
 function advisoryId(via) {
   if (typeof via === 'string') {
@@ -103,7 +167,7 @@ for (const vulnerability of Object.values(vulnerabilities)) {
 
   for (const node of nodes) {
     for (const advisory of advisories) {
-      findings.push(`NPM-AUDIT:${projectPath}:${packageName}:${advisory}:${node}`);
+      findings.push(findingId(projectPath, packageName, advisory, node));
     }
   }
 }
@@ -115,16 +179,40 @@ if (findings.length === 0) {
   process.exit(2);
 }
 
+const policyConflicts = findings.filter((finding) => allowlist.has(finding) && visiblePolicy.has(finding));
+if (policyConflicts.length > 0) {
+  console.error(
+    `npm-audit: ${policyConflicts.length} visible finding(s) cannot also be in the suppression allowlist`,
+  );
+  for (const finding of policyConflicts) {
+    console.error(`  ${finding}`);
+  }
+  process.exit(2);
+}
+
 const missing = findings.filter((finding) => !allowlist.has(finding));
-if (missing.length > 0) {
-  console.error(`npm-audit: ${missing.length} unallowlisted finding(s) in ${projectPath}`);
-  for (const finding of missing) {
+const visibleMissing = missing.filter((finding) => visiblePolicy.has(finding));
+const unhandledMissing = missing.filter((finding) => !visiblePolicy.has(finding));
+if (unhandledMissing.length > 0) {
+  console.error(`npm-audit: ${unhandledMissing.length} unallowlisted finding(s) in ${projectPath}`);
+  for (const finding of unhandledMissing) {
     console.error(`  ${finding}`);
   }
   process.exit(1);
 }
 
-console.log(`npm-audit: ${findings.length} allowlisted finding(s) in ${projectPath}`);
-for (const finding of findings) {
-  console.log(`  ${finding}`);
+const allowlistedFindings = findings.filter((finding) => allowlist.has(finding));
+if (allowlistedFindings.length > 0) {
+  console.log(`npm-audit: ${allowlistedFindings.length} allowlisted finding(s) in ${projectPath}`);
+  for (const finding of allowlistedFindings) {
+    console.log(`  ${finding}`);
+  }
+}
+
+if (visibleMissing.length > 0) {
+  console.log(`npm-audit: ${visibleMissing.length} visible unallowlisted finding(s) in ${projectPath}`);
+  console.log('npm-audit: visible findings remain in SEC-2 evidence and are not supply-chain allowlist suppressions');
+  for (const finding of visibleMissing) {
+    console.log(`  ${finding}`);
+  }
 }

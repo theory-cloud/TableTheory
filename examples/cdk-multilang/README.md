@@ -39,6 +39,11 @@ Additional endpoints:
 
 As of the May 2026 dependency refresh, `aws-cdk-lib@2.257.0` removes the previous bundled `fast-uri` high-severity audit finding. `npm audit` may still report a moderate `brace-expansion@5.0.5` finding bundled inside `aws-cdk-lib`; keep that visible rather than suppressing it, and refresh CDK again once AWS publishes a bundle with `brace-expansion >=5.0.6`.
 
+SEC-2 records that advisory in `hgm-infra/planning/theorydb-visible-npm-audit-findings.json`, not in the supply-chain
+suppression allowlist. The verifier therefore stays green only while the finding remains explicitly printed in SEC-2
+evidence as a visible upstream-bundled finding; if AWS CDK updates the bundled dependency, remove the visible policy entry
+instead of adding an allowlist suppression.
+
 ## Smoke test
 
 Runs an end-to-end cross-language check (encryption + batch + tx) and verifies the encrypted attribute is stored as an

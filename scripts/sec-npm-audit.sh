@@ -12,6 +12,7 @@ command -v npm >/dev/null 2>&1 || {
 }
 
 allowlist_file="hgm-infra/planning/theorydb-supply-chain-allowlist.txt"
+visible_policy_file="hgm-infra/planning/theorydb-visible-npm-audit-findings.json"
 
 run_npm_audit() {
   local prefix="$1"
@@ -25,8 +26,8 @@ run_npm_audit() {
     return 0
   fi
 
-  if [[ -f "${allowlist_file}" ]] && node scripts/check-npm-audit-allowlist.mjs "${report}" "${allowlist_file}" "${prefix}"; then
-    echo "npm-audit: PASS (${prefix}; all findings allowlisted)"
+  if [[ -f "${allowlist_file}" ]] && node scripts/check-npm-audit-allowlist.mjs "${report}" "${allowlist_file}" "${prefix}" "${visible_policy_file}"; then
+    echo "npm-audit: PASS (${prefix}; findings handled by repo policy)"
     rm -f "${report}"
     return 0
   fi

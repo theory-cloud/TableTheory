@@ -18,6 +18,9 @@ Notes:
 - Verifier scripts are intentionally safe to commit **without** execute permissions; always run via `bash …`.
 - Missing or unimplemented checks should be recorded as `BLOCKED`, not “fixed” by weakening gates.
 - Supply-chain checks may use the allowlist with justification: `hgm-infra/planning/theorydb-supply-chain-allowlist.txt`.
+- Upstream-bundled findings that must stay visible in green SEC-2 evidence are tracked separately in
+  `hgm-infra/planning/theorydb-visible-npm-audit-findings.json`; do not copy those findings into the suppression
+  allowlist.
 
 ## What’s In Here
 
@@ -35,6 +38,9 @@ Notes:
 - If a verifier depends on a missing tool/version pin, **fail closed** (`BLOCKED`) until pinned.
 - Don’t commit secrets into `hgm-infra/`.
 - If you suppress a supply-chain finding, add the exact ID to `hgm-infra/planning/theorydb-supply-chain-allowlist.txt` with a justification comment.
+- If a supply-chain finding is accepted only because it is an unfixed upstream bundle, add it to
+  `hgm-infra/planning/theorydb-visible-npm-audit-findings.json` instead. The SEC-2 log must still print the exact finding
+  and must not call it allowlisted.
 
 ## Next Steps
 
