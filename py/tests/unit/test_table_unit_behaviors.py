@@ -183,6 +183,34 @@ def test_table_update_expected_version_sets_lifecycle_and_lock() -> None:
     assert req["ExpressionAttributeValues"][":d_version_increment"] == {"N": "1"}
 
 
+@pytest.mark.parametrize("field_name", ["created_at", "updated_at"])
+def test_table_update_rejects_lifecycle_timestamp_tampering(field_name: str) -> None:
+    model = ModelDefinition.from_dataclass(LifecycleItem, table_name="tbl")
+    stub = _StubClient()
+    table: Table[LifecycleItem] = Table(model, client=stub, now=lambda: "2026-05-28T00:00:01.000000000Z")
+
+    with pytest.raises(ValidationError, match="lifecycle timestamp field"):
+        table.update("A", "1", {field_name: "1970-01-01T00:00:00.000000000Z"})
+
+    assert stub.update_reqs == []
+
+
+def test_table_update_stamps_updated_at_for_valid_update_without_lock() -> None:
+    model = ModelDefinition.from_dataclass(LifecycleItem, table_name="tbl")
+    table: Table[LifecycleItem] = Table(
+        model, client=_StubClient(), now=lambda: "2026-05-28T00:00:02.000000000Z"
+    )
+
+    req = table._build_update_request("A", "1", {"value": 3}, return_values="ALL_NEW")
+
+    assert req["UpdateExpression"] == "SET #d_updated_at = :d_updated_at, #d_value = :d_value"
+    assert req["ExpressionAttributeNames"]["#d_updated_at"] == "updatedAt"
+    assert req["ExpressionAttributeNames"]["#d_value"] == "value"
+    assert req["ExpressionAttributeValues"][":d_updated_at"] == {"S": "2026-05-28T00:00:02.000000000Z"}
+    assert req["ExpressionAttributeValues"][":d_value"] == {"N": "3"}
+    assert ":d_created_at" not in req["ExpressionAttributeValues"]
+
+
 def test_table_key_and_update_request_validation_errors() -> None:
     model = ModelDefinition.from_dataclass(Item, table_name="tbl")
     table: Table[Item] = Table(model, client=_StubClient())

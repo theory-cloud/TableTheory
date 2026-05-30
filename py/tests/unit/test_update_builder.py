@@ -19,6 +19,15 @@ class Item:
     items: list[object] = theorydb_field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class LifecycleItem:
+    pk: str = theorydb_field(roles=["pk"])
+    sk: str = theorydb_field(roles=["sk"])
+    name: str = theorydb_field()
+    created_at: str = theorydb_field(name="createdAt", roles=["created_at"], default="")
+    updated_at: str = theorydb_field(name="updatedAt", roles=["updated_at"], default="")
+
+
 def test_update_builder_builds_update_and_condition_expressions() -> None:
     client = FakeDynamoDBClient()
 
@@ -179,6 +188,38 @@ def test_update_builder_rejects_invalid_updates_and_conditions() -> None:
 
     with pytest.raises(ValidationError, match="= requires one value"):
         table.update_builder("A", "B").set("name", "x").condition("name", "=").execute()
+
+
+@pytest.mark.parametrize("field_name", ["created_at", "updated_at"])
+def test_update_builder_rejects_lifecycle_timestamp_tampering(field_name: str) -> None:
+    model = ModelDefinition.from_dataclass(LifecycleItem, table_name="tbl")
+    table: Table[LifecycleItem] = Table(model, client=FakeDynamoDBClient())
+
+    with pytest.raises(ValidationError, match="lifecycle timestamp field"):
+        table.update_builder("A", "B").set(field_name, "1970-01-01T00:00:00.000000000Z").execute()
+
+
+def test_update_builder_stamps_updated_at_for_valid_update() -> None:
+    client = FakeDynamoDBClient()
+
+    def validate(req: dict) -> None:
+        assert req["UpdateExpression"] == "SET #u_updated_at = :u_updated_at, #u_name = :u1"
+        assert req["ExpressionAttributeNames"]["#u_updated_at"] == "updatedAt"
+        assert req["ExpressionAttributeNames"]["#u_name"] == "name"
+        assert req["ExpressionAttributeValues"][":u_updated_at"] == {"S": "2026-05-28T00:00:03.000000000Z"}
+        assert req["ExpressionAttributeValues"][":u1"] == {"S": "safe"}
+
+    client.expect("update_item", validate, response={})
+
+    model = ModelDefinition.from_dataclass(LifecycleItem, table_name="tbl")
+    table: Table[LifecycleItem] = Table(
+        model,
+        client=client,
+        now=lambda: "2026-05-28T00:00:03.000000000Z",
+    )
+
+    table.update_builder("A", "B").set("name", "safe").execute()
+    client.assert_no_pending()
 
 
 def test_update_builder_execute_returns_none_when_no_attributes() -> None:

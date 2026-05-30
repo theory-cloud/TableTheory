@@ -1,7 +1,7 @@
 <!-- AI Training: Root README for the TableTheory multi-language monorepo -->
 
 <p align="center">
-  <a href="https://theory-cloud.github.io/tabletheory/">
+  <a href="https://tabletheory.theorycloud.ai/">
     <img src="docs/assets/svg/icon.svg" width="84" alt="TableTheory">
   </a>
 </p>
@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/theory-cloud/tabletheory/releases"><img alt="Release" src="https://img.shields.io/github/v/release/theory-cloud/tabletheory?style=flat-square&label=release&color=2EA7FF"></a>
   <a href="https://github.com/theory-cloud/tabletheory/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7A5CFF?style=flat-square"></a>
-  <a href="https://theory-cloud.github.io/tabletheory/"><img alt="Docs" src="https://img.shields.io/badge/docs-theory--cloud.github.io%2Ftabletheory-2EA7FF?style=flat-square"></a>
+  <a href="https://tabletheory.theorycloud.ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-tabletheory.theorycloud.ai-2EA7FF?style=flat-square"></a>
   <a href="https://github.com/theory-cloud/tabletheory/actions/workflows/quality-gates.yml"><img alt="Quality gates" src="https://img.shields.io/github/actions/workflow/status/theory-cloud/tabletheory/quality-gates.yml?branch=main&style=flat-square&label=rubric&color=46D397"></a>
   <a href="https://github.com/theory-cloud/tabletheory/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://img.shields.io/github/actions/workflow/status/theory-cloud/tabletheory/codeql.yml?branch=main&style=flat-square&label=CodeQL&color=46D397"></a>
 </p>
@@ -28,10 +28,10 @@
 </p>
 
 <p align="center">
-  <a href="https://theory-cloud.github.io/tabletheory/getting-started/"><strong>Get started →</strong></a> ·
-  <a href="https://theory-cloud.github.io/tabletheory/api-reference/">API reference</a> ·
-  <a href="https://theory-cloud.github.io/tabletheory/reference/contract-scenarios/">Contract scenarios</a> ·
-  <a href="https://theory-cloud.github.io/tabletheory/reference/dms-spec/">DMS spec</a>
+  <a href="https://tabletheory.theorycloud.ai/getting-started/"><strong>Get started →</strong></a> ·
+  <a href="https://tabletheory.theorycloud.ai/api-reference/">API reference</a> ·
+  <a href="https://tabletheory.theorycloud.ai/reference/contract-scenarios/">Contract scenarios</a> ·
+  <a href="https://tabletheory.theorycloud.ai/reference/dms-spec/">DMS spec</a>
 </p>
 
 ---
@@ -57,8 +57,8 @@ TableTheory is distributed exclusively through immutable **[GitHub Releases](htt
 | Runtime | Install |
 |---|---|
 | **Go** | `go get github.com/theory-cloud/tabletheory@vX.Y.Z` |
-| **TypeScript** | install the `npm pack` release asset — see [TypeScript getting started](https://theory-cloud.github.io/tabletheory/runtimes/typescript/) |
-| **Python** | install the wheel/sdist release asset — see [Python getting started](https://theory-cloud.github.io/tabletheory/runtimes/python/) |
+| **TypeScript** | install the `npm pack` release asset — see [TypeScript getting started](https://tabletheory.theorycloud.ai/runtimes/typescript/) |
+| **Python** | install the wheel/sdist release asset — see [Python getting started](https://tabletheory.theorycloud.ai/runtimes/python/) |
 
 ## At a glance
 
@@ -74,8 +74,8 @@ TableTheory is distributed exclusively through immutable **[GitHub Releases](htt
 
 Use TableTheory when you want DynamoDB-backed systems that are:
 
-- **Serverless-first** — patterns that work well in AWS Lambda: cold-start aware `LambdaInit`, batching with Lambda timeout awareness, transactions, streams, optional KMS-backed field encryption that's [fail-closed](https://theory-cloud.github.io/tabletheory/features/encryption/) by design.
-- **Cross-language consistent** — one table, multiple services, multiple runtimes — without schema or behavior drift. Verified on every commit by the [P0 contract scenarios](https://theory-cloud.github.io/tabletheory/reference/contract-scenarios/).
+- **Serverless-first** — patterns that work well in AWS Lambda: cold-start aware `LambdaInit`, batching with Lambda timeout awareness, transactions, streams, optional KMS-backed field encryption that's [fail-closed](https://tabletheory.theorycloud.ai/features/encryption/) by design.
+- **Cross-language consistent** — one table, multiple services, multiple runtimes — without schema or behavior drift. Verified on every commit by the [P0 contract scenarios](https://tabletheory.theorycloud.ai/reference/contract-scenarios/).
 - **Generative-coding friendly** — explicit schema, canonical patterns, and strict verification so AI-generated code stays correct and maintainable.
 
 ✅ Treat schema + semantics as a contract
@@ -83,42 +83,42 @@ Use TableTheory when you want DynamoDB-backed systems that are:
 
 ## Documentation
 
-The full documentation site lives at **[theory-cloud.github.io/tabletheory](https://theory-cloud.github.io/tabletheory/)** — branded with the Theory Cloud design system, with a ⌘K search palette, runtime tabs, and surface-tinted pages.
+The full documentation site lives at **[tabletheory.theorycloud.ai](https://tabletheory.theorycloud.ai/)** — branded with the Theory Cloud design system, with a ⌘K search palette, runtime tabs, and surface-tinted pages.
 
 **Most-used entry points:**
 
 | Section | Link |
 |---|---|
-| Getting started | [theory-cloud.github.io/tabletheory/getting-started/](https://theory-cloud.github.io/tabletheory/getting-started/) |
-| API reference | [theory-cloud.github.io/tabletheory/api-reference/](https://theory-cloud.github.io/tabletheory/api-reference/) |
-| Struct definition guide | [theory-cloud.github.io/tabletheory/struct-definition-guide/](https://theory-cloud.github.io/tabletheory/struct-definition-guide/) |
-| Core patterns | [theory-cloud.github.io/tabletheory/core-patterns/](https://theory-cloud.github.io/tabletheory/core-patterns/) |
-| Architecture patterns | [theory-cloud.github.io/tabletheory/architecture-patterns/](https://theory-cloud.github.io/tabletheory/architecture-patterns/) |
-| Testing | [theory-cloud.github.io/tabletheory/testing-guide/](https://theory-cloud.github.io/tabletheory/testing-guide/) |
-| Troubleshooting | [theory-cloud.github.io/tabletheory/troubleshooting/](https://theory-cloud.github.io/tabletheory/troubleshooting/) |
+| Getting started | [tabletheory.theorycloud.ai/getting-started/](https://tabletheory.theorycloud.ai/getting-started/) |
+| API reference | [tabletheory.theorycloud.ai/api-reference/](https://tabletheory.theorycloud.ai/api-reference/) |
+| Struct definition guide | [tabletheory.theorycloud.ai/struct-definition-guide/](https://tabletheory.theorycloud.ai/struct-definition-guide/) |
+| Core patterns | [tabletheory.theorycloud.ai/core-patterns/](https://tabletheory.theorycloud.ai/core-patterns/) |
+| Architecture patterns | [tabletheory.theorycloud.ai/architecture-patterns/](https://tabletheory.theorycloud.ai/architecture-patterns/) |
+| Testing | [tabletheory.theorycloud.ai/testing-guide/](https://tabletheory.theorycloud.ai/testing-guide/) |
+| Troubleshooting | [tabletheory.theorycloud.ai/troubleshooting/](https://tabletheory.theorycloud.ai/troubleshooting/) |
 
 **Per-runtime entry points:**
 
-- **Go** — [theory-cloud.github.io/tabletheory/runtimes/go/](https://theory-cloud.github.io/tabletheory/runtimes/go/)
-- **TypeScript** — [theory-cloud.github.io/tabletheory/runtimes/typescript/](https://theory-cloud.github.io/tabletheory/runtimes/typescript/)
-- **Python** — [theory-cloud.github.io/tabletheory/runtimes/python/](https://theory-cloud.github.io/tabletheory/runtimes/python/)
+- **Go** — [tabletheory.theorycloud.ai/runtimes/go/](https://tabletheory.theorycloud.ai/runtimes/go/)
+- **TypeScript** — [tabletheory.theorycloud.ai/runtimes/typescript/](https://tabletheory.theorycloud.ai/runtimes/typescript/)
+- **Python** — [tabletheory.theorycloud.ai/runtimes/python/](https://tabletheory.theorycloud.ai/runtimes/python/)
 
 **P0 contract reference and related feature pages:**
 
-- [Contract Scenarios](https://theory-cloud.github.io/tabletheory/reference/contract-scenarios/) — the current 9-fixture P0 surface
-- [CRUD & Marshaling](https://theory-cloud.github.io/tabletheory/features/crud/)
-- [Optimistic Locking](https://theory-cloud.github.io/tabletheory/features/optimistic-locking/)
-- [Lifecycle Timestamps](https://theory-cloud.github.io/tabletheory/features/lifecycle-timestamps/)
-- [TTL](https://theory-cloud.github.io/tabletheory/features/ttl/)
-- [Encryption (fail-closed)](https://theory-cloud.github.io/tabletheory/features/encryption/)
-- [Transactions](https://theory-cloud.github.io/tabletheory/features/transactions/)
+- [Contract Scenarios](https://tabletheory.theorycloud.ai/reference/contract-scenarios/) — the current 9-fixture P0 surface
+- [CRUD & Marshaling](https://tabletheory.theorycloud.ai/features/crud/)
+- [Optimistic Locking](https://tabletheory.theorycloud.ai/features/optimistic-locking/)
+- [Lifecycle Timestamps](https://tabletheory.theorycloud.ai/features/lifecycle-timestamps/)
+- [TTL](https://tabletheory.theorycloud.ai/features/ttl/)
+- [Encryption (fail-closed)](https://tabletheory.theorycloud.ai/features/encryption/)
+- [Transactions](https://tabletheory.theorycloud.ai/features/transactions/)
 
 **Integrations** — how downstream Theory Cloud frameworks use TableTheory:
 
-- [MCP Memory](https://theory-cloud.github.io/tabletheory/integrations/mcp-memory/)
-- [AppTheory](https://theory-cloud.github.io/tabletheory/integrations/apptheory/)
-- [KnowledgeTheory](https://theory-cloud.github.io/tabletheory/integrations/knowledgetheory/)
-- [Autheory](https://theory-cloud.github.io/tabletheory/integrations/autheory/)
+- [MCP Memory](https://tabletheory.theorycloud.ai/integrations/mcp-memory/)
+- [AppTheory](https://tabletheory.theorycloud.ai/integrations/apptheory/)
+- [KnowledgeTheory](https://tabletheory.theorycloud.ai/integrations/knowledgetheory/)
+- [Autheory](https://tabletheory.theorycloud.ai/integrations/autheory/)
 
 ## Repository layout
 
@@ -137,7 +137,7 @@ The CDK demo deploys one DynamoDB table + three Lambda Function URLs (Go, Node.j
 
 → [`examples/cdk-multilang/README.md`](examples/cdk-multilang/README.md)
 
-For infrastructure patterns, see the [CDK integration guide](https://theory-cloud.github.io/tabletheory/cdk/).
+For infrastructure patterns, see the [CDK integration guide](https://tabletheory.theorycloud.ai/cdk/).
 
 ## DMS — the language-neutral schema
 
@@ -157,7 +157,7 @@ models:
       - { attribute: "value", type: "N" }
 ```
 
-DMS is **authored independently** of any runtime — Go, TypeScript, and Python all validate against the same spec. See the [DMS Specification v0.1](https://theory-cloud.github.io/tabletheory/reference/dms-spec/) for the public summary.
+DMS is **authored independently** of any runtime — Go, TypeScript, and Python all validate against the same spec. See the [DMS Specification v0.1](https://tabletheory.theorycloud.ai/reference/dms-spec/) for the public summary.
 
 ## Development & verification
 
@@ -195,4 +195,4 @@ The single-path philosophy starts here: one way to define a table, one way to ac
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [CHANGELOG.md](CHANGELOG.md)
 
-<p align="center"><sub>Made with <a href="https://github.com/theory-cloud">Theory Cloud</a> · <a href="https://theory-cloud.github.io/tabletheory/">docs</a></sub></p>
+<p align="center"><sub>Made with <a href="https://github.com/theory-cloud">Theory Cloud</a> · <a href="https://tabletheory.theorycloud.ai/">docs</a></sub></p>
