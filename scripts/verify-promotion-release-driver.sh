@@ -181,9 +181,9 @@ metadata_path = Path(sys.argv[1])
 base = os.environ["BASE_REF"]
 head = os.environ["HEAD_REF"]
 
-rc_version_re = re.compile(r"^v?\d+\.\d+\.\d+-rc\.\d+$")
+rc_version_re = re.compile(r"^v?\d+\.\d+\.\d+-rc(?:\.\d+)?$")
 stable_version_re = re.compile(r"^v?\d+\.\d+\.\d+$")
-rc_title_re = re.compile(r"^chore\(premain\): release \d+\.\d+\.\d+-rc\.\d+$")
+rc_title_re = re.compile(r"^chore\(premain\): release \d+\.\d+\.\d+-rc(?:\.\d+)?$")
 stable_title_re = re.compile(r"^chore\(main\): release \d+\.\d+\.\d+$")
 any_rc_re = re.compile(r"\d+\.\d+\.\d+-rc(?:[.\-\w]*)?")
 
@@ -227,7 +227,7 @@ def release_as_versions(text: str) -> list[str]:
     return [
         match.group(1)
         for match in re.finditer(
-            r"(?im)^[ \t]*Release-As:[ \t]*v?([0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?)[ \t]*$",
+            r"(?im)^[ \t]*Release-As:[ \t]*v?([0-9]+\.[0-9]+\.[0-9]+(?:-rc(?:\.[0-9]+)?)?)[ \t]*$",
             text,
         )
     ]
@@ -331,7 +331,7 @@ if base == "premain":
     if invalid:
         fail(
             "staging -> premain Release-As footers must be RC-shaped "
-            f"X.Y.Z-rc.N, got {', '.join(invalid)}"
+            f"X.Y.Z-rc or X.Y.Z-rc.N, got {', '.join(invalid)}"
         )
     if versions:
         print(

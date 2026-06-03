@@ -12,7 +12,7 @@ Options:
   --repo OWNER/REPO         GitHub repository. Defaults to $GITHUB_REPOSITORY or theory-cloud/TableTheory.
   --base BRANCH            Release PR base branch. Defaults to premain.
   --head BRANCH            Release-please PR head branch. Defaults to release-please--branches--premain.
-  --expected-version VER   Optional RC version the PR must advertise, e.g. 1.9.4-rc.1.
+  --expected-version VER   Optional RC version the PR must advertise, e.g. 1.9.4-rc or 1.9.4-rc.1.
   --dry-run                Read-only local validation mode; no GitHub state is changed.
   -h, --help               Show this help.
 
@@ -82,8 +82,8 @@ fail() {
   exit 1
 }
 
-if [[ -n "${expected_version}" && ! "${expected_version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
-  fail "expected version must be RC-shaped X.Y.Z-rc.N, got ${expected_version}"
+if [[ -n "${expected_version}" && ! "${expected_version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+-rc(\.[0-9]+)?$ ]]; then
+  fail "expected version must be RC-shaped X.Y.Z-rc or X.Y.Z-rc.N, got ${expected_version}"
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
@@ -120,7 +120,7 @@ from pathlib import Path
 
 path, expected_version, base, head = sys.argv[1:5]
 prs = json.loads(Path(path).read_text(encoding="utf-8"))
-rc_title_re = re.compile(rf"^chore\({re.escape(base)}\): release \d+\.\d+\.\d+-rc\.\d+$")
+rc_title_re = re.compile(rf"^chore\({re.escape(base)}\): release \d+\.\d+\.\d+-rc(?:\.\d+)?$")
 
 
 def fail(message: str) -> None:
@@ -181,7 +181,7 @@ from pathlib import Path
 
 path, base, head = sys.argv[1:4]
 pr = json.loads(Path(path).read_text(encoding="utf-8"))
-rc_title_re = re.compile(rf"^chore\({re.escape(base)}\): release \d+\.\d+\.\d+-rc\.\d+$")
+rc_title_re = re.compile(rf"^chore\({re.escape(base)}\): release \d+\.\d+\.\d+-rc(?:\.\d+)?$")
 required_paths = {
     ".release-please-manifest.premain.json",
     "py/src/theorydb_py/version.json",

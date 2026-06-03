@@ -121,7 +121,7 @@ if [[ "${kind}" == "prerelease" ]]; then
   if [[ "${commit_message}" == *"release-please--branches--premain"* ]]; then
     generated=1
   fi
-  if [[ "${commit_message}" =~ chore\(premain\):[[:space:]]release[[:space:]]([0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+) ]]; then
+  if [[ "${commit_message}" =~ chore\(premain\):[[:space:]]release[[:space:]]([0-9]+\.[0-9]+\.[0-9]+-rc(\.[0-9]+)?) ]]; then
     generated=1
     release_version="${BASH_REMATCH[1]}"
   fi
@@ -142,7 +142,7 @@ if [[ "${kind}" == "prerelease" ]]; then
     fail "generated RC release PR merge created a release without tag_name"
   fi
 
-  if [[ ! "${tag_name}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+  if [[ ! "${tag_name}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+-rc(\.[0-9]+)?$ ]]; then
     fail "generated RC release PR merge produced non-RC tag_name ${tag_name}"
   fi
 
