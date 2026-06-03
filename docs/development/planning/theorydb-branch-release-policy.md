@@ -28,68 +28,22 @@ This document defines the intended branch strategy and release automation for Ta
 - A **release** is cut by merging the normalized promotion PR to `main`, then merging the release-please stable release PR.
 - Hotfixes should still follow `staging` -> `premain` -> `main` so version lines stay aligned.
 
-## Stable promotion path
+## Post-release sync (automated)
 
-Do not raw-merge `premain` into `main` and then fix `main`. Use this path instead:
+After a stable release is published on `main`, the `Release (main)` workflow runs
+`scripts/sync-post-stable-release-baselines.sh`. The sync commits the stable release baseline back to
+`premain` and `staging`:
 
-1. Fetch without pruning and record `origin/staging`, `origin/premain`, and `origin/main` SHAs.
-2. Create a promotion branch from `origin/main`.
-3. Merge `origin/premain` into the promotion branch. Resolve conflicts only on the promotion branch.
-4. Run `bash scripts/prepare-stable-promotion.sh --check`. Review the target stable version and planned file changes.
-5. Run `bash scripts/prepare-stable-promotion.sh --write` when the plan is correct.
-6. Run `bash scripts/verify-release-cycle-state.sh` and `bash scripts/verify-branch-release-supply-chain.sh`.
-7. Open a PR from the normalized promotion branch to `main`.
-8. After the promotion PR merges, allow `.github/workflows/release-pr.yml` to open the stable release-please PR.
-9. Merge the stable release-please PR only after quality/security gates pass and the version is stable `X.Y.Z`, not
-   `X.Y.Z-rc.N`.
+- `.release-please-manifest.json`
+- `.release-please-manifest.premain.json` reset to the newly published stable version
+- `CHANGELOG.md`
+- `py/src/theorydb_py/version.json`
+- `ts/package.json`
+- `ts/package-lock.json`
 
-`scripts/prepare-stable-promotion.sh` normalizes `.release-please-manifest.premain.json`, `ts/package.json`,
-`ts/package-lock.json`, and `py/src/theorydb_py/version.json`. It validates but does not advance
-`.release-please-manifest.json`; release-please must advance the stable manifest in the stable release PR.
-
-### Pending stable promotion
-
-The normalized promotion commit on `main` is a deliberate temporary state:
-
-- `.release-please-manifest.json` remains at the previous stable version.
-- `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
-  `py/src/theorydb_py/version.json` are stable, non-prerelease, internally consistent, and may be one stable base ahead of
-  `.release-please-manifest.json`.
-- The state is valid only between the normalized promotion PR merge to `main` and the stable release-please PR merge.
-
-Automation must make this state explicit. `.github/workflows/release-pr.yml` may verify with
-`RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true` so it can open the stable release-please PR. `.github/workflows/release.yml`
-must classify the same state, verify it with the pending env var, and skip stable release creation until strict equality
-is restored.
-
-After the stable release-please PR merges, pending mode is no longer allowed operationally. Run
-`bash scripts/verify-release-cycle-state.sh` without `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION`; the stable manifest
-and SDK files must match again before the stable release workflow creates `vX.Y.Z`.
-
-If the pending state persists because release-please did not open the stable PR, pause and investigate workflow logs,
-permissions, release-please configuration, and COM-8 results. Do not patch `main`, hand-advance manifests, retag, or edit
-GitHub releases to force the cycle forward.
-
-Forbidden on `main`:
-
-- `.release-please-manifest.json` set to an RC version.
-- `ts/package.json`, `ts/package-lock.json`, or `py/src/theorydb_py/version.json` left at `X.Y.Z-rc.N`.
-- A stable release PR titled or shaped as an RC release.
-- A pending stable promotion that persists without an open stable release-please PR for the normalized stable version.
-- Direct pushes or branch-ref API mutations to `main`, `premain`, or `staging` where this policy requires PR sync.
-
-## Post-release sync (required)
-
-After a stable release is cut on `main`, immediately back-merge `main` into `staging` (via PR) so:
-
-- `staging` carries the latest `.release-please-manifest.json` stable version (and changelog/version files), and
-- the next `staging` -> `premain` promotion will carry forward the correct stable baseline.
-
-If `premain` is used directly after a stable release (without a `staging` promotion), back-merge `main` into `premain`
-as well so prereleases do not remain on an older major/minor track.
-
-If `.release-please-manifest.premain.json` is behind the latest stable version, reset it to the latest stable version
-to start the next prerelease cycle from the correct baseline.
+This replaces manual manifest resets and manual post-release `main` -> `premain` / `main` -> `staging` release-baseline
+back-merges. The next `staging` -> `premain` promotion starts from the latest stable version, and the subsequent
+prerelease PR advances from that baseline.
 
 Acceptable post-stable sync paths:
 
@@ -103,7 +57,8 @@ Acceptable post-stable sync paths:
 
 Protect both `premain` and `main`:
 
-- Require PRs (no direct pushes).
+- Require PRs for human-authored changes.
+- Allow only the stable release workflow token to fast-forward post-release baseline sync commits to `premain`.
 - Require CODEOWNERS/review approvals.
 - Require CI status checks to pass (at minimum: `Quality Gates (10/10 Rubric)`).
 - Restrict force-pushes and deletions.
