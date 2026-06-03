@@ -63,6 +63,15 @@ If a publish step fails with `tag_name was used by an immutable release`, recove
 flow: land a release-eligible change, promote it through the documented branch path, and let release-please advance to the
 next RC or stable version for that lane.
 
+If a version is abandoned or otherwise exhausted before a healthy release is available, skip it only through a normal
+release-eligible commit/PR with a release-please `Release-As` footer for the next allowed version. The footer must survive
+the `staging` merge and the later `staging` -> `premain` promotion. Do not use tags, resets, manual release edits,
+manifest edits, package-version edits, or reruns of failed exhausted-version workflows to recover.
+
+Current recovery decision: `1.9.2` is abandoned; the next RC must be `v1.9.3-rc.1`; the next stable release must be
+`v1.9.3`. The release-eligible recovery commit must carry `Release-As: 1.9.3-rc.1`. See
+`docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md`.
+
 ## Protections (required)
 
 Protect both `premain` and `main`:
@@ -163,4 +172,6 @@ Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--str
   URL, or whose git tag ref target differs from the release target commitish.
 - any recovery plan that reuses a deleted/exhausted immutable release version instead of advancing through a
   release-eligible PR and release-please.
+- any abandoned-version recovery that lacks a release-eligible commit with the required release-please `Release-As`
+  footer, or that edits release manifests/package versions by hand.
 - automation attempting direct branch mutation where PR sync is required.

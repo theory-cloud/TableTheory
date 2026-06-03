@@ -67,6 +67,12 @@ Document immutable release version reuse explicitly. Treat published release tag
 or tag is later deleted. If a publish step fails with `tag_name was used by an immutable release`, recovery must go through
 a normal release-eligible PR and the release tool must advance to the next RC/stable version for that lane.
 
+Document abandoned or exhausted lane recovery explicitly. A skipped immutable version must advance only through a normal
+release-eligible commit/PR with the release tool's explicit version override footer, for example
+`Release-As: [next-version-or-rc]` when using release-please. The footer must survive the integration -> prerelease merge
+path. Do not recover by creating tags, rerunning failed exhausted-version workflows, editing immutable releases, patching
+manifests, or hand-editing package-version files.
+
 If release-please or another release-PR tool leaves the stable manifest at the prior stable version until the stable
 release PR merges, document the state as explicit pending stable promotion. The pending verifier mode must be visible in
 the workflow, limited to the release branch, require normalized stable package files to be internally consistent and ahead
@@ -97,6 +103,8 @@ Pause before merge or release when:
 - integration branch lacks the latest stable baseline after a stable release.
 - security/governance checks still observe a vulnerable toolchain or dependency state.
 - branch/version sync checks fail.
+- an abandoned/exhausted version recovery lacks the required release-eligible commit footer or tries to skip the release
+  tool with manual version/tag/release edits.
 - release automation completes without creating the expected release.
 - pending stable promotion persists without an open stable release PR.
 - release asset steps have no tag name, or the GitHub release exists without required assets.

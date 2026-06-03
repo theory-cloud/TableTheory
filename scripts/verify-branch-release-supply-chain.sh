@@ -20,6 +20,7 @@ required_files=(
   ".release-please-manifest.premain.json"
   ".release-please-manifest.json"
   "scripts/sync-post-stable-release-baselines.sh"
+  "docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md"
 )
 
 for f in "${required_files[@]}"; do
@@ -69,6 +70,41 @@ grep -Fq "tag_name was used by an immutable release" \
   echo "branch-release: high-risk branch policy template must include immutable release reuse recovery"
   failures=$((failures + 1))
 }
+grep -Fq "Release-As:" "docs/development/planning/templates/high-risk-branch-release-policy.template.md" || {
+  echo "branch-release: high-risk branch policy template must document release-please Release-As lane recovery"
+  failures=$((failures + 1))
+}
+grep -Fq "Release-As: 1.9.3-rc.1" "AGENTS.md" || {
+  echo "branch-release: AGENTS.md must document the THE-1869 1.9.3 recovery footer"
+  failures=$((failures + 1))
+}
+if [[ -f "docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md" ]]; then
+  recovery_doc="docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md"
+  grep -Fq "1.9.2" "${recovery_doc}" || {
+    echo "branch-release: recovery doc must record the abandoned 1.9.2 lane"
+    failures=$((failures + 1))
+  }
+  grep -Fq "v1.9.3-rc.1" "${recovery_doc}" || {
+    echo "branch-release: recovery doc must record v1.9.3-rc.1 as the next RC"
+    failures=$((failures + 1))
+  }
+  grep -Fq "v1.9.3" "${recovery_doc}" || {
+    echo "branch-release: recovery doc must record v1.9.3 as the next stable release"
+    failures=$((failures + 1))
+  }
+  grep -Fq "Release-As: 1.9.3-rc.1" "${recovery_doc}" || {
+    echo "branch-release: recovery doc must record the release-please Release-As footer"
+    failures=$((failures + 1))
+  }
+  grep -Fq "Do not hand-edit" "${recovery_doc}" && grep -Fq ".release-please-manifest*.json" "${recovery_doc}" || {
+    echo "branch-release: recovery doc must forbid manual release manifest edits"
+    failures=$((failures + 1))
+  }
+  grep -Fq "staging" "${recovery_doc}" && grep -Fq "premain" "${recovery_doc}" && grep -Fq "main" "${recovery_doc}" || {
+    echo "branch-release: recovery doc must document the staging/premain/main path"
+    failures=$((failures + 1))
+  }
+fi
 
 if [[ -f ".github/workflows/prerelease.yml" ]]; then
   grep -Eq 'branches:.*premain' ".github/workflows/prerelease.yml" || {
