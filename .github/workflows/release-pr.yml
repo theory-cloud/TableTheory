@@ -23,6 +23,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      - name: Verify release cycle state
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-branch-version-sync.sh
+
+          strict_log="$(mktemp)"
+          pending_log="$(mktemp)"
+          cleanup() {
+            rm -f "${strict_log}" "${pending_log}"
+          }
+          trap cleanup EXIT
+
+          if bash scripts/verify-release-cycle-state.sh >"${strict_log}" 2>&1; then
+            cat "${strict_log}"
+            exit 0
+          fi
+
+          if RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true bash scripts/verify-release-cycle-state.sh >"${pending_log}" 2>&1; then
+            cat "${pending_log}"
+            echo "release-cycle-state: pending stable promotion accepted for stable Release PR generation"
+            exit 0
+          fi
+
+          cat "${strict_log}"
+          cat "${pending_log}"
+          exit 1
+
       - name: Compute release-as (align to premain RC)
         id: version
         run: |
