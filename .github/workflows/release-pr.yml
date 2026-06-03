@@ -19,6 +19,8 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_PLEASE_CLI_VERSION: "17.3.0"
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -92,25 +94,42 @@ jobs:
           echo "release_as=${release_as}" >> "${GITHUB_OUTPUT}"
           echo "release-as: ${release_as:-<none>}"
 
-      - name: Release Please (PR only) (aligned)
-        if: steps.version.outputs.release_as != ''
-        id: release_aligned
-        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
-        with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
-          target-branch: main
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          release-as: ${{ steps.version.outputs.release_as }}
-          skip-github-release: true
+      - name: Release Please CLI (PR only)
+        env:
+          RELEASE_AS: ${{ steps.version.outputs.release_as }}
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
 
-      - name: Release Please (PR only)
-        if: steps.version.outputs.release_as == ''
-        id: release_default
-        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
-        with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
-          target-branch: main
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          skip-github-release: true
+          if [[ -z "${RELEASE_PLEASE_TOKEN}" ]]; then
+            echo "release-pr: FAIL (missing release-please token)"
+            exit 1
+          fi
+
+          args=(
+            release-pr
+            --repo-url "${GITHUB_REPOSITORY}"
+            --target-branch main
+            --config-file release-please-config.json
+            --manifest-file .release-please-manifest.json
+            --token "${RELEASE_PLEASE_TOKEN}"
+          )
+
+          if [[ -n "${RELEASE_AS}" ]]; then
+            args+=(--release-as "${RELEASE_AS}")
+          fi
+
+          npx --yes "release-please@${RELEASE_PLEASE_CLI_VERSION}" "${args[@]}"
+
+      - name: Verify stable Release PR postcondition
+        if: steps.version.outputs.release_as != ''
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.release_as }}
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-main-release-pr-postcondition.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --expected-version "${EXPECTED_VERSION}"
