@@ -72,10 +72,10 @@ Release ownership:
 
 - `staging` owns integration-ready code, docs, security/toolchain updates, and the latest stable baseline returned from
   `main`. It must not pretend to cut a release. During active RC reconciliation, it may temporarily carry the current
-  `premain` RC lane in prerelease/SDK files only when the stable manifest stays aligned with `main` and the RC files are
+  `premain` RC phase in prerelease/SDK files only when the stable manifest stays aligned with `main` and the RC files are
   internally consistent and ahead of that stable baseline.
 - `premain` owns RC generation. It may carry `X.Y.Z-rc.N` in the prerelease manifest and SDK version files only while
-  the prerelease lane is active.
+  the RC phase is active.
 - `main` owns stable state only. Outside explicit pending stable promotion, the stable manifest, prerelease manifest, and
   SDK version files on `main` must not contain `-rc`.
 
@@ -85,13 +85,13 @@ Immutable version reuse:
   A deleted immutable release/tag has exhausted that version name for release-cycle purposes.
 - Do not manually recreate tags, hand-publish releases, edit immutable release assets, or hand-edit manifests as recovery.
 - If publishing fails with `tag_name was used by an immutable release`, recover through a normal release-eligible PR and
-  let release-please advance to the next RC/stable version for that lane.
+  let release-please advance to the next RC/stable version for the single release lane.
 - If a version is abandoned or exhausted, skip it only through a normal release-eligible commit/PR with a release-please
   `Release-As` footer for the next allowed version. Do not recover through tags, resets, manual release edits,
   manifest/package-version edits, or reruns of failed exhausted-version workflows.
-- Current THE-1869 lane decision: `1.9.2` is abandoned; the next RC must be `v1.9.3-rc.1`; the next stable release must be
-  `v1.9.3`; the release-eligible recovery commit must carry `Release-As: 1.9.3-rc.1` and that footer must survive the
-  `staging` -> `premain` merge path.
+- Current THE-1869 release-cycle decision: `1.9.2` is abandoned; the next RC must be `v1.9.3-rc.1`; the next stable
+  release must be `v1.9.3`; the release-eligible recovery commit must carry `Release-As: 1.9.3-rc.1` and that footer
+  must survive the `staging` -> `premain` merge path.
 
 Stable promotion path:
 
@@ -102,7 +102,7 @@ Stable promotion path:
   normal path.
 - After the `premain` -> `main` promotion merges, the release cycle may enter a short **pending stable promotion** state:
   `.release-please-manifest.json` remains at the prior stable version while prerelease/SDK files still reflect the
-  promoted RC lane. This state is allowed only until `.github/workflows/release-pr.yml` opens the stable release-please PR
+  promoted RC phase. This state is allowed only until `.github/workflows/release-pr.yml` opens the stable release-please PR
   and that PR merges.
 - Pending stable promotion is explicit automation state only:
   `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true` may be used by the release workflows to verify the promotion
@@ -127,7 +127,7 @@ Release watchpoints and stop conditions:
 - Stop if `main` stable files contain `-rc` outside explicit pending stable promotion, or if
   `.release-please-manifest.json` is an RC version.
 - Stop if `premain` stable manifest is behind `origin/main`, or if `staging` lacks the latest stable baseline after a
-  stable release, or if `staging` keeps RC reconciliation files after the active lane has normalized to stable.
+  stable release, or if `staging` keeps RC reconciliation files after the active RC phase has normalized to stable.
 - Stop if SEC-2/govulncheck still observes Go `1.26.3`, COM-8 branch/version sync fails, or release-please opens a
   stable PR for an RC version.
 - Stop if `main` remains in pending stable promotion and no stable release-please PR opens for the computed stable

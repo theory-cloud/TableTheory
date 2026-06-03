@@ -20,6 +20,7 @@ required_files=(
   ".release-please-manifest.premain.json"
   ".release-please-manifest.json"
   "scripts/sync-post-stable-release-baselines.sh"
+  "scripts/verify-main-release-pr-postcondition.sh"
   "docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md"
 )
 
@@ -71,7 +72,7 @@ grep -Fq "tag_name was used by an immutable release" \
   failures=$((failures + 1))
 }
 grep -Fq "Release-As:" "docs/development/planning/templates/high-risk-branch-release-policy.template.md" || {
-  echo "branch-release: high-risk branch policy template must document release-please Release-As lane recovery"
+  echo "branch-release: high-risk branch policy template must document release-please Release-As version recovery"
   failures=$((failures + 1))
 }
 grep -Fq "Release-As: 1.9.3-rc.1" "AGENTS.md" || {
@@ -81,7 +82,7 @@ grep -Fq "Release-As: 1.9.3-rc.1" "AGENTS.md" || {
 if [[ -f "docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md" ]]; then
   recovery_doc="docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md"
   grep -Fq "1.9.2" "${recovery_doc}" || {
-    echo "branch-release: recovery doc must record the abandoned 1.9.2 lane"
+    echo "branch-release: recovery doc must record the abandoned 1.9.2 release-cycle decision"
     failures=$((failures + 1))
   }
   grep -Fq "v1.9.3-rc.1" "${recovery_doc}" || {
@@ -287,15 +288,31 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
     echo "branch-release: release-pr workflow must target main"
     failures=$((failures + 1))
   }
-  grep -Eq 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must pin release-please v4 by commit SHA"
+  if grep -Fq "googleapis/release-please-action" ".github/workflows/release-pr.yml"; then
+    echo "branch-release: release-pr workflow must use pinned release-please CLI, not release-please-action, so release-as is honored in manifest mode"
+    failures=$((failures + 1))
+  fi
+  grep -Fq 'RELEASE_PLEASE_CLI_VERSION: "17.3.0"' ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must pin release-please CLI to v17.3.0"
     failures=$((failures + 1))
   }
-  grep -Eq 'config-file:\s*release-please-config\.json' ".github/workflows/release-pr.yml" || {
+  grep -Fq 'npx --yes "release-please@${RELEASE_PLEASE_CLI_VERSION}"' ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must invoke the pinned release-please CLI"
+    failures=$((failures + 1))
+  }
+  grep -Fq "release-pr" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must run the release-pr CLI command"
+    failures=$((failures + 1))
+  }
+  grep -Eq -- '--target-branch[[:space:]]+main' ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must target main through the CLI"
+    failures=$((failures + 1))
+  }
+  grep -Eq -- '--config-file[[:space:]]+release-please-config\.json' ".github/workflows/release-pr.yml" || {
     echo "branch-release: release-pr workflow must reference release-please-config.json"
     failures=$((failures + 1))
   }
-  grep -Eq 'manifest-file:\s*\.release-please-manifest\.json' ".github/workflows/release-pr.yml" || {
+  grep -Eq -- '--manifest-file[[:space:]]+\.release-please-manifest\.json' ".github/workflows/release-pr.yml" || {
     echo "branch-release: release-pr workflow must reference .release-please-manifest.json"
     failures=$((failures + 1))
   }
@@ -311,8 +328,8 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
     echo "branch-release: release-pr workflow must document pending promotion PR generation"
     failures=$((failures + 1))
   }
-  grep -Eq 'skip-github-release:\s*true' ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must set skip-github-release: true"
+  grep -Fq "scripts/verify-main-release-pr-postcondition.sh" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must verify the stable Release PR postcondition"
     failures=$((failures + 1))
   }
 
@@ -320,6 +337,10 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
   # so the stable line never lags behind the prerelease line.
   grep -Fq "release-as:" ".github/workflows/release-pr.yml" || {
     echo "branch-release: release-pr workflow must set release-as to promote the premain RC baseline"
+    failures=$((failures + 1))
+  }
+  grep -Fq -- "--release-as" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must pass release-as to the pinned CLI"
     failures=$((failures + 1))
   }
   grep -Fq "steps.version.outputs.release_as" ".github/workflows/release-pr.yml" || {
@@ -330,6 +351,46 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
     echo "branch-release: release-pr workflow must read .release-please-manifest.premain.json to align versions"
     failures=$((failures + 1))
   }
+fi
+
+if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
+  postcondition="scripts/verify-main-release-pr-postcondition.sh"
+  grep -Fq "expected version must be stable X.Y.Z" "${postcondition}" || {
+    echo "branch-release: main Release PR postcondition must reject RC-valued expected versions"
+    failures=$((failures + 1))
+  }
+  grep -Fq "advertises an RC version" "${postcondition}" || {
+    echo "branch-release: main Release PR postcondition must reject open RC-valued main release PRs"
+    failures=$((failures + 1))
+  }
+  for path in \
+    ".release-please-manifest.json" \
+    ".release-please-manifest.premain.json" \
+    "py/src/theorydb_py/version.json" \
+    "ts/package.json" \
+    "ts/package-lock.json" \
+    "CHANGELOG.md"; do
+    grep -Fq "${path}" "${postcondition}" || {
+      echo "branch-release: main Release PR postcondition must require ${path}"
+      failures=$((failures + 1))
+    }
+  done
+fi
+
+grep -Fq "one release lane" "docs/development/planning/theorydb-branch-release-policy.md" || {
+  echo "branch-release: TableTheory branch release policy must describe one release lane"
+  failures=$((failures + 1))
+}
+grep -Fq "one release lane" "docs/development/planning/templates/high-risk-branch-release-policy.template.md" || {
+  echo "branch-release: high-risk branch policy template must describe one release lane"
+  failures=$((failures + 1))
+}
+if grep -RInE 'two release lanes|separate release lanes' \
+  AGENTS.md docs/development/planning/theorydb-branch-release-policy.md \
+  docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md \
+  docs/development/planning/templates/high-risk-branch-release-policy.template.md; then
+  echo "branch-release: docs must not describe TableTheory as having two release lanes"
+  failures=$((failures + 1))
 fi
 
 for wf in ".github/workflows/quality-gates.yml" ".github/workflows/codeql.yml"; do

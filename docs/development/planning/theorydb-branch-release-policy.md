@@ -1,6 +1,8 @@
 # TableTheory: Branch + Release Policy (main release, premain prerelease)
 
 This document defines the intended branch strategy and release automation for TableTheory in high-risk usage contexts.
+TableTheory has one release lane: `staging` -> `premain` -> RC -> `main` -> stable release. `premain` owns the RC
+phase of that lane, and `main` owns the stable phase; neither branch starts a separate release path.
 
 ## Branches
 
@@ -11,9 +13,9 @@ This document defines the intended branch strategy and release automation for Ta
 ## Ownership
 
 - `staging` owns integration-ready code, docs, security/toolchain updates, and release-cycle guardrails before they enter
-  prerelease or stable lanes. After a stable release, `staging` must receive the latest stable baseline from `main` so the
+  the RC or stable phases. After a stable release, `staging` must receive the latest stable baseline from `main` so the
   next cycle starts from the released state. During active RC reconciliation, `staging` may temporarily carry the current
-  `premain` RC lane in `.release-please-manifest.premain.json` and SDK version files, but only while the stable manifest
+  `premain` RC phase in `.release-please-manifest.premain.json` and SDK version files, but only while the stable manifest
   remains aligned with `main` and the RC files are internally consistent and ahead of that stable baseline.
 - `premain` owns prerelease state. The prerelease manifest `.release-please-manifest.premain.json` and SDK version files
   (`ts/package.json`, `ts/package-lock.json`, `py/src/theorydb_py/version.json`) may carry `X.Y.Z-rc.N` while an RC is in
@@ -73,7 +75,7 @@ a replacement release by hand, edit immutable release assets, or patch manifests
 
 If a publish step fails with `tag_name was used by an immutable release`, recover through the normal PR-driven release
 flow: land a release-eligible change, promote it through the documented branch path, and let release-please advance to the
-next RC or stable version for that lane.
+next RC or stable version for the single release lane.
 
 If a version is abandoned or otherwise exhausted before a healthy release is available, skip it only through a normal
 release-eligible commit/PR with a release-please `Release-As` footer for the next allowed version. The footer must survive
@@ -178,7 +180,7 @@ Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--str
 - `.release-please-manifest.json` set to an RC version.
 - `origin/premain` stable manifest behind `origin/main`.
 - `origin/staging` missing the latest stable baseline after a stable release, or carrying RC reconciliation files after
-  the active RC lane has been normalized to stable.
+  the active RC phase has been normalized to stable.
 - SEC-2/govulncheck still observing Go `1.26.3`.
 - COM-8 branch/version sync failing.
 - release-please opening a stable PR for an RC version.
