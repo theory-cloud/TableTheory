@@ -57,6 +57,9 @@ required_files=(
   ".release-please-manifest.json"
   "scripts/sync-post-stable-release-baselines.sh"
   "scripts/verify-main-release-pr-postcondition.sh"
+  "scripts/verify-prerelease-pr-postcondition.sh"
+  "scripts/verify-promotion-release-driver.sh"
+  "scripts/verify-release-created-postcondition.sh"
   "scripts/watch-release-cycle.sh"
 )
 
@@ -116,6 +119,12 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must verify release supply-chain scaffolding"
   require_fixed "--forbid-rc-only" "${h}" \
     "release-hygiene must forbid RC-shaped main Release PRs"
+  require_fixed "scripts/verify-promotion-release-driver.sh" "${h}" \
+    "release-hygiene must verify human promotion release drivers"
+  require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
+    "release-hygiene must run the release driver guard on staging -> premain PRs"
+  require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \
+    "release-hygiene must run the release driver guard on premain -> main PRs"
   if grep -Eq 'make rubric|verify-rubric' "${h}"; then
     fail "release-hygiene must not run the full rubric"
   fi
@@ -173,6 +182,14 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
     "prerelease workflow must verify branch version sync before release-please"
   require_regex 'release_created' "${p}" \
     "prerelease workflow must use release-please outputs"
+  require_fixed "scripts/verify-release-created-postcondition.sh" "${p}" \
+    "prerelease workflow must require release_created/tag_name on generated RC release PR merges"
+  require_fixed "generated RC release PR merge" "scripts/verify-release-created-postcondition.sh" \
+    "release-created postcondition must classify generated RC release PR merges"
+  require_fixed "release_created=false" "scripts/verify-release-created-postcondition.sh" \
+    "release-created postcondition must fail release_created=false for generated release PR merges"
+  require_fixed "prerelease-pr.yml must require the generated RC release-please PR" "scripts/verify-release-created-postcondition.sh" \
+    "prerelease publish postcondition must classify plain staging -> premain merges as PR-generation setup"
   require_regex 'pushd ts' "${p}" \
     "prerelease workflow must package TypeScript from ts/"
   require_regex 'npm pack --pack-destination \.\./release-assets' "${p}" \
@@ -199,6 +216,10 @@ if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
     "prerelease-pr workflow must verify branch version sync before release-please"
   require_regex 'skip-github-release:\s*true' "${pp}" \
     "prerelease-pr workflow must set skip-github-release: true"
+  require_fixed "scripts/verify-prerelease-pr-postcondition.sh" "${pp}" \
+    "prerelease-pr workflow must require an open generated RC release-please PR"
+  require_fixed "No user facing commits" "scripts/verify-prerelease-pr-postcondition.sh" \
+    "prerelease PR postcondition must treat release-please no-op as a failed gate"
 fi
 
 if [[ -f ".github/workflows/release.yml" ]]; then
@@ -227,6 +248,14 @@ if [[ -f ".github/workflows/release.yml" ]]; then
     "release workflow must fail asset/publish steps when tag_name is missing"
   require_regex 'release_created' "${r}" \
     "release workflow must use release-please outputs"
+  require_fixed "scripts/verify-release-created-postcondition.sh" "${r}" \
+    "release workflow must require release_created/tag_name on generated stable release PR merges"
+  require_fixed "generated stable release PR merge" "scripts/verify-release-created-postcondition.sh" \
+    "release-created postcondition must classify generated stable release PR merges"
+  require_fixed "release-pr.yml must require the generated stable release-please PR" "scripts/verify-release-created-postcondition.sh" \
+    "stable publish postcondition must classify plain premain -> main promotions as PR-generation setup"
+  require_fixed "main stable publish workflow observed an RC-shaped release message" "scripts/verify-release-created-postcondition.sh" \
+    "stable publish postcondition must forbid RC-shaped main releases"
   require_regex 'pushd ts' "${r}" \
     "release workflow must package TypeScript from ts/"
   require_regex 'npm pack --pack-destination \.\./release-assets' "${r}" \
@@ -240,6 +269,12 @@ if [[ -f ".github/workflows/release.yml" ]]; then
   fi
   if grep -Fq "SYNC_RELEASE_BASELINE" "${r}"; then
     fail "release workflow must not configure post-stable direct-push sync"
+  fi
+  if grep -Fq "gh release create" "${r}"; then
+    fail "release workflow must not hand-create releases for existing tags"
+  fi
+  if grep -Fq "inputs.tag_name" "${r}"; then
+    fail "release workflow must not expose manual tag-name release mutation"
   fi
 fi
 
@@ -284,6 +319,8 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
     "release-pr workflow must forbid RC-shaped main Release PRs"
   require_fixed "scripts/verify-main-release-pr-postcondition.sh" "${rp}" \
     "release-pr workflow must verify the stable Release PR postcondition"
+  require_fixed "steps.cycle.outputs.pending_stable_promotion == 'true'" "${rp}" \
+    "release-pr workflow must require stable Release PR postcondition whenever pending promotion is detected"
 fi
 
 if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
@@ -304,6 +341,34 @@ if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
     require_fixed "${path}" "${postcondition}" \
       "main Release PR postcondition must require ${path}"
   done
+fi
+
+if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
+  driver="scripts/verify-promotion-release-driver.sh"
+  require_fixed "staging -> premain promotion lacks a release-eligible conventional" "${driver}" \
+    "promotion release driver guard must fail staging -> premain no-driver PRs"
+  require_fixed "premain -> main pending stable promotion" "${driver}" \
+    "promotion release driver guard must validate premain -> main pending stable promotion"
+  require_fixed "Release-As footers must be RC-shaped" "${driver}" \
+    "promotion release driver guard must require RC-shaped Release-As for premain promotions"
+  require_fixed "Release-As footers must be stable X.Y.Z" "${driver}" \
+    "promotion release driver guard must reject RC-shaped Release-As for main promotions"
+  require_fixed "No user facing commits" "${driver}" \
+    "promotion release driver guard must name release-please no-op as a failed precondition"
+  require_fixed "do not use tags, resets, manual manifests" "${driver}" \
+    "promotion release driver guard must instruct normal PR-flow remediation"
+fi
+
+if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
+  prerelease_postcondition="scripts/verify-prerelease-pr-postcondition.sh"
+  require_fixed "release-please--branches--premain" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must require the generated premain head branch"
+  require_fixed "rc_title_re = re.compile" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must require RC-shaped release titles"
+  require_fixed "-rc\\.\\d+" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must require RC version syntax"
+  require_fixed ".release-please-manifest.premain.json" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must require the prerelease manifest"
 fi
 
 if [[ -f "scripts/sync-post-stable-release-baselines.sh" ]]; then

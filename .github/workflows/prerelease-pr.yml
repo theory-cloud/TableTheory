@@ -37,3 +37,13 @@ jobs:
           config-file: release-please-config.premain.json
           manifest-file: .release-please-manifest.premain.json
           skip-github-release: true
+
+      - name: Verify prerelease Release PR postcondition
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-prerelease-pr-postcondition.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base premain

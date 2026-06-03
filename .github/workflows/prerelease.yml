@@ -24,6 +24,7 @@ jobs:
 
       - name: Release Please (Prerelease)
         id: release
+        if: github.event_name == 'push'
         uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
@@ -33,6 +34,19 @@ jobs:
           # Prevent release-please from opening the *next* prerelease PR on release commits.
           # PR generation runs in prerelease-pr.yml.
           skip-github-pull-request: true
+
+      - name: Verify prerelease publish postcondition
+        if: github.ref == 'refs/heads/premain'
+        env:
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          RELEASE_CREATED: ${{ steps.release.outputs.release_created || 'false' }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-release-created-postcondition.sh \
+            --kind prerelease \
+            --branch "${GITHUB_REF_NAME}"
 
       - name: Checkout (for release assets)
         if: steps.release.outputs.release_created == 'true'
