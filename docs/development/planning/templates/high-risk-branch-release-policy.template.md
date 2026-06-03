@@ -24,11 +24,12 @@ If the project uses separate integration, prerelease, and stable branches, prefe
 1. Work lands on `[integration-branch]`.
 2. `[integration-branch]` -> `[prerelease-branch]` PR starts the prerelease lane.
 3. Prerelease automation produces `vX.Y.Z-rc.N` on `[prerelease-branch]`.
-4. Create a promotion branch from `[release-branch]`, merge `[prerelease-branch]` into it, and normalize RC-owned files
-   to stable state before opening the PR to `[release-branch]`.
-5. After the normalized promotion PR merges, release-PR automation opens the stable release PR while release automation
-   skips publishing during the temporary pending stable promotion state.
-6. Merging the stable release PR restores strict equality and stable automation publishes immutable `vX.Y.Z`.
+4. Verify the intended RC is published and asset-complete, then open and merge the `[prerelease-branch]` ->
+   `[release-branch]` promotion PR.
+5. Release automation skips publishing during the temporary pending stable promotion state while release-PR automation
+   opens the stable release PR with the stable `release-as` derived from the RC baseline.
+6. Merging the stable release PR normalizes stable manifests, prerelease manifests, and SDK/package version files to the
+   stable version; stable automation then publishes immutable `vX.Y.Z`.
 7. Sync the stable baseline back to `[integration-branch]` and `[prerelease-branch]` through PRs or documented verified
    automation.
 
@@ -58,7 +59,7 @@ Document forbidden stable-branch states:
 - stable manifest set to `X.Y.Z-rc.N`.
 - language/package version files left at `X.Y.Z-rc.N`.
 - release automation opening a stable release PR for an RC version.
-- pending stable promotion persisting after the normalized promotion commit without an open stable release PR.
+- pending stable promotion persisting after the release-branch promotion without an open stable release PR.
 - direct branch pushes or ref mutations where policy requires PR sync.
 - manual recovery that recreates deleted tags, hand-publishes replacement releases, or reuses an exhausted immutable
   release version.
@@ -73,12 +74,12 @@ release-eligible commit/PR with the release tool's explicit version override foo
 path. Do not recover by creating tags, rerunning failed exhausted-version workflows, editing immutable releases, patching
 manifests, or hand-editing package-version files.
 
-If release-please or another release-PR tool leaves the stable manifest at the prior stable version until the stable
-release PR merges, document the state as explicit pending stable promotion. The pending verifier mode must be visible in
-the workflow, limited to the release branch, require normalized stable package files to be internally consistent and ahead
-of the current stable baseline, and must not publish a stable release. Once the stable release PR merges,
-strict stable equality is required again. If the pending state persists because no stable release PR opens, pause and
-investigate; do not patch the release branch by hand.
+If release-please or another release-PR tool leaves the release branch at a promoted RC state until the stable release PR
+merges, document the state as explicit pending stable promotion. The pending verifier mode must be visible in the
+workflow, limited to the release branch, require the generated stable release PR to normalize manifests and package files
+to the stable version, and must not publish a stable release. Once the stable release PR merges, strict stable equality is
+required again. If the pending state persists because no stable release PR opens, pause and investigate; do not patch the
+release branch by hand.
 
 ## Required workflow artifacts
 
@@ -113,6 +114,7 @@ Pause before merge or release when:
 - the intended RC is not yet published, non-draft, marked prerelease, tagged, and asset-complete.
 - automation attempts direct branch mutation where the documented path expects PR sync.
 
-Allowed recovery should be non-destructive: new PR branches from known bases, deterministic normalization scripts, and
-verified PR-based sync. Do not retag, overwrite release assets, force-push, delete protected branches, hand-publish
-replacement releases, reuse exhausted immutable release versions, or merge around quality/security checks.
+Allowed recovery should be non-destructive: new PR branches from known bases, diagnostic/fallback normalization helpers,
+and verified PR-based sync. The normal release path should leave version and changelog edits to release automation. Do not
+retag, overwrite release assets, force-push, delete protected branches, hand-publish replacement releases, reuse exhausted
+immutable release versions, or merge around quality/security checks.

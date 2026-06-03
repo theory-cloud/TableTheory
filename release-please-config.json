@@ -13,6 +13,11 @@
         },
         {
           "type": "json",
+          "path": ".release-please-manifest.premain.json",
+          "jsonpath": "$['.']"
+        },
+        {
+          "type": "json",
           "path": "ts/package.json",
           "jsonpath": "$.version"
         },

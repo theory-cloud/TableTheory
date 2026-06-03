@@ -371,6 +371,31 @@ if [[ -f "ts/package.json" ]]; then
   done
 fi
 
+if [[ -f "release-please-config.json" ]]; then
+  if ! python3 - <<'PY'
+import json
+from pathlib import Path
+
+config = json.loads(Path("release-please-config.json").read_text(encoding="utf-8"))
+extra_files = config.get("packages", {}).get(".", {}).get("extra-files", [])
+
+for entry in extra_files:
+    if (
+        isinstance(entry, dict)
+        and entry.get("type") == "json"
+        and entry.get("path") == ".release-please-manifest.premain.json"
+        and entry.get("jsonpath") == "$['.']"
+    ):
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+  then
+    echo "branch-release: release-please-config.json must normalize .release-please-manifest.premain.json through stable release-please"
+    failures=$((failures + 1))
+  fi
+fi
+
 if [[ -f "py/pyproject.toml" ]]; then
   for cfg in "release-please-config.premain.json" "release-please-config.json"; do
     if [[ ! -f "${cfg}" ]]; then
