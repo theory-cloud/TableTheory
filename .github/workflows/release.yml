@@ -18,6 +18,16 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout (for release state verification)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Verify release cycle state
+        if: github.ref == 'refs/heads/main'
+        run: |
+          bash scripts/verify-branch-version-sync.sh
+          bash scripts/verify-release-cycle-state.sh
+
       - name: Checkout (for tag-triggered assets)
         if: startsWith(github.ref, 'refs/tags/') || inputs.tag_name != ''
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

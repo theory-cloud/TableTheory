@@ -23,6 +23,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      - name: Verify release cycle state
+        run: |
+          bash scripts/verify-branch-version-sync.sh
+          bash scripts/verify-release-cycle-state.sh
+
       - name: Compute release-as (align to premain RC)
         id: version
         run: |
