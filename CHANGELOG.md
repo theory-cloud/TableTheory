@@ -16,6 +16,20 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [1.9.1](https://github.com/theory-cloud/TableTheory/compare/v1.9.0...v1.9.1) (2026-05-30)
+
+
+### Bug Fixes
+
+* **ci:** publish pages from staging ([6fad410](https://github.com/theory-cloud/TableTheory/commit/6fad410eabcf5305782f019667bddd50a1728f61))
+* keep brace-expansion audit finding visible ([1b9d1f6](https://github.com/theory-cloud/TableTheory/commit/1b9d1f6e563e6975f66db147b278cb18c2e5fe82))
+* keep brace-expansion audit finding visible (THE-1757) ([27e379c](https://github.com/theory-cloud/TableTheory/commit/27e379c138489b0f47d64239705b5c20b3d5ba7a))
+* keep brace-expansion visible without failing SEC-2 ([158e3c5](https://github.com/theory-cloud/TableTheory/commit/158e3c5b72b61668c936451dd56e2de26d329c0f))
+* **pages:** build docs at custom-domain root ([9c25333](https://github.com/theory-cloud/TableTheory/commit/9c253336aaaff867982c4c1c60edf09505183922))
+* **pages:** build docs at custom-domain root ([1cd1e89](https://github.com/theory-cloud/TableTheory/commit/1cd1e89e01df6758ff4ff1af48bbcb1fc8bf7c93))
+* **py:** reject lifecycle timestamp update tampering ([8448730](https://github.com/theory-cloud/TableTheory/commit/844873044c4f95efabebf1f02034873eefed2ff2))
+* **py:** reject lifecycle timestamp update tampering (THE-1750) ([3835d07](https://github.com/theory-cloud/TableTheory/commit/3835d078337484a26974068f3114553491a98439))
+
 ## [1.9.0-rc.2](https://github.com/theory-cloud/TableTheory/compare/v1.9.0-rc.1...v1.9.0-rc.2) (2026-05-30)
 
 

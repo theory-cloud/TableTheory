@@ -19,6 +19,7 @@ required_files=(
   "release-please-config.json"
   ".release-please-manifest.premain.json"
   ".release-please-manifest.json"
+  "scripts/sync-post-stable-release-baselines.sh"
 )
 
 for f in "${required_files[@]}"; do
@@ -47,6 +48,14 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
   }
   grep -Eq 'manifest-file:\s*\.release-please-manifest\.premain\.json' ".github/workflows/prerelease.yml" || {
     echo "branch-release: prerelease workflow must reference .release-please-manifest.premain.json"
+    failures=$((failures + 1))
+  }
+  grep -Fq "scripts/verify-release-cycle-state.sh" ".github/workflows/prerelease.yml" || {
+    echo "branch-release: prerelease workflow must verify release-cycle state before release-please"
+    failures=$((failures + 1))
+  }
+  grep -Fq "scripts/verify-branch-version-sync.sh" ".github/workflows/prerelease.yml" || {
+    echo "branch-release: prerelease workflow must verify branch version sync before release-please"
     failures=$((failures + 1))
   }
 
@@ -94,6 +103,30 @@ if [[ -f ".github/workflows/release.yml" ]]; then
     echo "branch-release: release workflow must reference .release-please-manifest.json"
     failures=$((failures + 1))
   }
+  grep -Fq "scripts/verify-release-cycle-state.sh" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must verify release-cycle state before release-please"
+    failures=$((failures + 1))
+  }
+  grep -Fq "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must explicitly verify pending stable promotion mode"
+    failures=$((failures + 1))
+  }
+  grep -Fq "pending_stable_promotion" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must classify pending stable promotion"
+    failures=$((failures + 1))
+  }
+  grep -Fq "stable release creation is skipped" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must skip stable release creation during pending promotion"
+    failures=$((failures + 1))
+  }
+  grep -Fq "steps.cycle.outputs.pending_stable_promotion != 'true'" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must gate stable release-please on strict release-cycle state"
+    failures=$((failures + 1))
+  }
+  grep -Eq 'missing tag_name output' ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must fail asset/publish steps when tag_name is missing"
+    failures=$((failures + 1))
+  }
 
   # Ensure stable releases attach multi-language release artifacts.
   grep -Eq 'release_created' ".github/workflows/release.yml" || {
@@ -116,6 +149,29 @@ if [[ -f ".github/workflows/release.yml" ]]; then
     echo "branch-release: release workflow must upload release assets to GitHub release"
     failures=$((failures + 1))
   }
+  grep -Fq "scripts/sync-post-stable-release-baselines.sh" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must sync post-stable baselines"
+    failures=$((failures + 1))
+  }
+  grep -Fq 'SYNC_RELEASE_BASELINE_PUSH: "true"' ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must enable post-stable baseline pushes"
+    failures=$((failures + 1))
+  }
+  grep -Fq 'SYNC_RELEASE_BASELINE_TARGETS: "premain staging"' ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must sync both premain and staging baselines"
+    failures=$((failures + 1))
+  }
+fi
+
+if [[ -f "scripts/sync-post-stable-release-baselines.sh" ]]; then
+  grep -Fq ".release-please-manifest.premain.json" "scripts/sync-post-stable-release-baselines.sh" || {
+    echo "branch-release: post-stable sync must reset the premain prerelease manifest"
+    failures=$((failures + 1))
+  }
+  grep -Fq ".release-please-manifest.json" "scripts/sync-post-stable-release-baselines.sh" || {
+    echo "branch-release: post-stable sync must copy the stable manifest baseline"
+    failures=$((failures + 1))
+  }
 fi
 
 if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
@@ -133,6 +189,14 @@ if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
   }
   grep -Eq 'manifest-file:\s*\.release-please-manifest\.premain\.json' ".github/workflows/prerelease-pr.yml" || {
     echo "branch-release: prerelease-pr workflow must reference .release-please-manifest.premain.json"
+    failures=$((failures + 1))
+  }
+  grep -Fq "scripts/verify-release-cycle-state.sh" ".github/workflows/prerelease-pr.yml" || {
+    echo "branch-release: prerelease-pr workflow must verify release-cycle state before release-please"
+    failures=$((failures + 1))
+  }
+  grep -Fq "scripts/verify-branch-version-sync.sh" ".github/workflows/prerelease-pr.yml" || {
+    echo "branch-release: prerelease-pr workflow must verify branch version sync before release-please"
     failures=$((failures + 1))
   }
   grep -Eq 'skip-github-release:\s*true' ".github/workflows/prerelease-pr.yml" || {
@@ -156,6 +220,18 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
   }
   grep -Eq 'manifest-file:\s*\.release-please-manifest\.json' ".github/workflows/release-pr.yml" || {
     echo "branch-release: release-pr workflow must reference .release-please-manifest.json"
+    failures=$((failures + 1))
+  }
+  grep -Fq "scripts/verify-release-cycle-state.sh" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must verify release-cycle state before release-please"
+    failures=$((failures + 1))
+  }
+  grep -Fq "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must explicitly allow pending stable promotion verification"
+    failures=$((failures + 1))
+  }
+  grep -Fq "pending stable promotion accepted for stable Release PR generation" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must document pending promotion PR generation"
     failures=$((failures + 1))
   }
   grep -Eq 'skip-github-release:\s*true' ".github/workflows/release-pr.yml" || {

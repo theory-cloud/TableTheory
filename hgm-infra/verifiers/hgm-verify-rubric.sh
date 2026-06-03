@@ -624,7 +624,7 @@ CMD_LINT_CONFIG="golangci-lint config verify -c .golangci-v2.yml"
 CMD_COV_THRESHOLD="bash scripts/verify-coverage-threshold.sh"
 CMD_CI_RUBRIC="bash scripts/verify-ci-rubric-enforced.sh"
 CMD_DYNAMODB_PIN="bash scripts/verify-dynamodb-local-pin.sh"
-CMD_BRANCH_RELEASE="bash scripts/verify-branch-release-supply-chain.sh && bash scripts/verify-branch-version-sync.sh"
+CMD_BRANCH_RELEASE="bash scripts/verify-branch-release-supply-chain.sh && bash scripts/verify-branch-version-sync.sh && bash scripts/verify-release-cycle-state.sh"
 
 CMD_SAST="check_security_config_not_diluted && bash scripts/sec-gosec.sh"
 CMD_VULN="bash scripts/sec-dependency-scans.sh"

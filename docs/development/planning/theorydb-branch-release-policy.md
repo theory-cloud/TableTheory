@@ -8,31 +8,57 @@ This document defines the intended branch strategy and release automation for Ta
 - `premain` — prerelease branch (source of prereleases).
 - `main` — release branch (source of stable releases).
 
+## Ownership
+
+- `staging` owns integration-ready code, docs, security/toolchain updates, and release-cycle guardrails before they enter
+  prerelease or stable lanes. After a stable release, `staging` must receive the latest stable baseline from `main` so the
+  next cycle starts from the released state.
+- `premain` owns prerelease state. The prerelease manifest `.release-please-manifest.premain.json` and SDK version files
+  (`ts/package.json`, `ts/package-lock.json`, `py/src/theorydb_py/version.json`) may carry `X.Y.Z-rc.N` while an RC is in
+  progress. Its stable manifest `.release-please-manifest.json` must stay aligned with the latest stable baseline.
+- `main` owns stable state only. `.release-please-manifest.json`, `ts/package.json`, `ts/package-lock.json`, and
+  `py/src/theorydb_py/version.json` must never contain `-rc` on `main`.
+
 ## Merge flow (expected)
 
 - Feature/fix work lands via PRs into `staging`.
 - An **RC** is cut by merging `staging` into `premain` (via PR), then merging the release-please prerelease PR.
-- A **release** is cut by merging `premain` into `main` (via PR), then merging the release-please stable release PR.
+- A **release** is prepared by creating a promotion branch from `origin/main`, merging `origin/premain` into that branch,
+  normalizing RC-owned files to stable state, and opening a PR to `main`.
+- A **release** is cut by merging the normalized promotion PR to `main`, then merging the release-please stable release PR.
 - Hotfixes should still follow `staging` -> `premain` -> `main` so version lines stay aligned.
 
-## Post-release sync (required)
+## Post-release sync (automated)
 
-After a stable release is cut on `main`, immediately back-merge `main` into `staging` (via PR) so:
+After a stable release is published on `main`, the `Release (main)` workflow runs
+`scripts/sync-post-stable-release-baselines.sh`. The sync commits the stable release baseline back to
+`premain` and `staging`:
 
-- `staging` carries the latest `.release-please-manifest.json` stable version (and changelog/version files), and
-- the next `staging` -> `premain` promotion will carry forward the correct stable baseline.
+- `.release-please-manifest.json`
+- `.release-please-manifest.premain.json` reset to the newly published stable version
+- `CHANGELOG.md`
+- `py/src/theorydb_py/version.json`
+- `ts/package.json`
+- `ts/package-lock.json`
 
-If `premain` is used directly after a stable release (without a `staging` promotion), back-merge `main` into `premain`
-as well so prereleases do not remain on an older major/minor track.
+This replaces manual manifest resets and manual post-release `main` -> `premain` / `main` -> `staging` release-baseline
+back-merges. The next `staging` -> `premain` promotion starts from the latest stable version, and the subsequent
+prerelease PR advances from that baseline.
 
-If `.release-please-manifest.premain.json` is behind the latest stable version, reset it to the latest stable version
-to start the next prerelease cycle from the correct baseline.
+Acceptable post-stable sync paths:
+
+- Preferred: PR from `main` to `staging`, then PR from `main` or updated `staging` to `premain`.
+- Acceptable automation: a documented workflow that creates PR branches, runs COM-8 and SEC-2 checks, and never pushes
+  directly to protected branches.
+- Recovery: if a branch is already stranded, create a new PR branch from the correct base and replay only the needed file
+  state. Do not retag, overwrite release assets, force-push, delete branches, or mutate GitHub releases.
 
 ## Protections (required)
 
 Protect both `premain` and `main`:
 
-- Require PRs (no direct pushes).
+- Require PRs for human-authored changes.
+- Allow only the stable release workflow token to fast-forward post-release baseline sync commits to `premain`.
 - Require CODEOWNERS/review approvals.
 - Require CI status checks to pass (at minimum: `Quality Gates (10/10 Rubric)`).
 - Restrict force-pushes and deletions.
@@ -69,6 +95,11 @@ GitHub Releases must attach build artifacts for the non-Go SDKs:
 - **TypeScript:** `npm pack` output from `ts/` (tarball)
 - **Python:** wheel + sdist from `py/` (`python -m build`)
 
+If a release workflow was expected to publish but `release_created` is false, pause before trying to patch files by hand.
+If an asset upload or publish step has no `tag_name`, fail the workflow. If a GitHub release exists but TypeScript/Python
+assets are missing, use a documented asset recovery workflow only after confirming the tag and release are immutable and
+correct.
+
 ## Multi-language versioning (required)
 
 - **Single shared repo version:** Go, TypeScript, and Python use the same GitHub tag/release version.
@@ -84,6 +115,9 @@ These files are required to exist and be kept current:
 
 - `.github/workflows/prerelease.yml`
 - `.github/workflows/release.yml`
+- `scripts/verify-release-cycle-state.sh`
+- `scripts/watch-release-cycle.sh`
+- `scripts/prepare-stable-promotion.sh`
 
 Additionally, quality/security workflows should run on PRs to (and/or pushes on) both protected branches:
 
@@ -94,3 +128,20 @@ Additionally, quality/security workflows should run on PRs to (and/or pushes on)
 
 - This policy is intentionally tool-agnostic; the rubric requires automation and pinning, not a specific release tool.
 - Branch protection rules are configured in the hosting platform (GitHub settings) and must be treated as part of the supply chain.
+
+## Release watchpoints
+
+Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--strict` before merge/release gates. Pause on:
+
+- `origin/main` stable files containing `-rc`.
+- `.release-please-manifest.json` set to an RC version.
+- `origin/premain` stable manifest behind `origin/main`.
+- `origin/staging` missing the latest stable baseline after a stable release.
+- SEC-2/govulncheck still observing Go `1.26.3`.
+- COM-8 branch/version sync failing.
+- release-please opening a stable PR for an RC version.
+- `origin/main` in pending stable promotion without an open stable release-please PR for the normalized stable version.
+- a release workflow expected to create a release but not reporting `release_created`.
+- asset/publish steps missing `tag_name`.
+- a GitHub release existing without uploaded TypeScript/Python assets.
+- automation attempting direct branch mutation where PR sync is required.
