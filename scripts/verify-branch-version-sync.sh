@@ -6,7 +6,8 @@ set -euo pipefail
 # Why this exists:
 # - `main` cuts stable releases using `.release-please-manifest.json`
 # - `premain` cuts prereleases using `.release-please-manifest.premain.json`
-# If `premain` doesn't regularly back-merge `main`, prereleases can get stuck on an old major/minor track.
+# The stable release workflow owns that sync after a release is published. This
+# verifier catches drift before a stale prerelease track can cut the next RC.
 
 git_fetch_retry() {
   local remote="$1"
@@ -143,7 +144,7 @@ fi
 
 if [[ "${premain_stable}" != "${main_stable}" ]]; then
   echo "branch-version-sync: FAIL (premain .release-please-manifest.json ${premain_stable} != origin/main ${main_stable})"
-  echo "branch-version-sync: hint: merge main into premain (back-merge after stable releases)"
+  echo "branch-version-sync: hint: inspect the release.yml post-stable baseline sync for premain/staging"
   exit 1
 fi
 
@@ -183,8 +184,8 @@ if premain_tuple < main_tuple:
         f"(premain prerelease track {premain_version} is behind main {main_stable})"
     )
     print(
-        "branch-version-sync: hint: reset .release-please-manifest.premain.json "
-        "to the latest stable version after cutting a release on main"
+        "branch-version-sync: hint: release.yml should reset "
+        ".release-please-manifest.premain.json after cutting a release on main"
     )
     sys.exit(1)
 PY

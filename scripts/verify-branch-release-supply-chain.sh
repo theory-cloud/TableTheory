@@ -19,6 +19,7 @@ required_files=(
   "release-please-config.json"
   ".release-please-manifest.premain.json"
   ".release-please-manifest.json"
+  "scripts/sync-post-stable-release-baselines.sh"
 )
 
 for f in "${required_files[@]}"; do
@@ -114,6 +115,29 @@ if [[ -f ".github/workflows/release.yml" ]]; then
   }
   grep -Eq 'gh release upload' ".github/workflows/release.yml" || {
     echo "branch-release: release workflow must upload release assets to GitHub release"
+    failures=$((failures + 1))
+  }
+  grep -Fq "scripts/sync-post-stable-release-baselines.sh" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must sync post-stable baselines"
+    failures=$((failures + 1))
+  }
+  grep -Fq 'SYNC_RELEASE_BASELINE_PUSH: "true"' ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must enable post-stable baseline pushes"
+    failures=$((failures + 1))
+  }
+  grep -Fq 'SYNC_RELEASE_BASELINE_TARGETS: "premain staging"' ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must sync both premain and staging baselines"
+    failures=$((failures + 1))
+  }
+fi
+
+if [[ -f "scripts/sync-post-stable-release-baselines.sh" ]]; then
+  grep -Fq ".release-please-manifest.premain.json" "scripts/sync-post-stable-release-baselines.sh" || {
+    echo "branch-release: post-stable sync must reset the premain prerelease manifest"
+    failures=$((failures + 1))
+  }
+  grep -Fq ".release-please-manifest.json" "scripts/sync-post-stable-release-baselines.sh" || {
+    echo "branch-release: post-stable sync must copy the stable manifest baseline"
     failures=$((failures + 1))
   }
 fi

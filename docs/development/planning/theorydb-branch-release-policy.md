@@ -15,24 +15,29 @@ This document defines the intended branch strategy and release automation for Ta
 - A **release** is cut by merging `premain` into `main` (via PR), then merging the release-please stable release PR.
 - Hotfixes should still follow `staging` -> `premain` -> `main` so version lines stay aligned.
 
-## Post-release sync (required)
+## Post-release sync (automated)
 
-After a stable release is cut on `main`, immediately back-merge `main` into `staging` (via PR) so:
+After a stable release is published on `main`, the `Release (main)` workflow runs
+`scripts/sync-post-stable-release-baselines.sh`. The sync commits the stable release baseline back to
+`premain` and `staging`:
 
-- `staging` carries the latest `.release-please-manifest.json` stable version (and changelog/version files), and
-- the next `staging` -> `premain` promotion will carry forward the correct stable baseline.
+- `.release-please-manifest.json`
+- `.release-please-manifest.premain.json` reset to the newly published stable version
+- `CHANGELOG.md`
+- `py/src/theorydb_py/version.json`
+- `ts/package.json`
+- `ts/package-lock.json`
 
-If `premain` is used directly after a stable release (without a `staging` promotion), back-merge `main` into `premain`
-as well so prereleases do not remain on an older major/minor track.
-
-If `.release-please-manifest.premain.json` is behind the latest stable version, reset it to the latest stable version
-to start the next prerelease cycle from the correct baseline.
+This replaces manual manifest resets and manual post-release `main` -> `premain` / `main` -> `staging` release-baseline
+back-merges. The next `staging` -> `premain` promotion starts from the latest stable version, and the subsequent
+prerelease PR advances from that baseline.
 
 ## Protections (required)
 
 Protect both `premain` and `main`:
 
-- Require PRs (no direct pushes).
+- Require PRs for human-authored changes.
+- Allow only the stable release workflow token to fast-forward post-release baseline sync commits to `premain`.
 - Require CODEOWNERS/review approvals.
 - Require CI status checks to pass (at minimum: `Quality Gates (10/10 Rubric)`).
 - Restrict force-pushes and deletions.
