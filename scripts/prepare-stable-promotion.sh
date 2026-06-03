@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Normalize RC-owned files on a stable-promotion branch before it is proposed to main.
+# Diagnostic/fallback helper for inspecting or normalizing RC-owned files during stable-promotion recovery.
 #
-# Expected use:
-#   1. Create a promotion branch from origin/main.
-#   2. Merge origin/premain into that branch without pushing to main.
-#   3. Run this script in dry-run mode, then with --write after reviewing the plan.
-#   4. Open a PR from the normalized promotion branch to main.
+# Normal stable releases are CI/release-please driven:
+#   staging -> premain -> generated/published RC -> main -> generated/published stable release.
+#
+# Use this script only for diagnostics, or as an explicitly documented fallback when release automation is blocked.
 #
 # This script does not create branches, merge refs, push, tag, or publish releases.
 
 usage() {
   cat <<'USAGE'
 Usage: bash scripts/prepare-stable-promotion.sh [--check|--write] [--expected-version X.Y.Z]
+
+Diagnostic/fallback helper only. The normal stable release path leaves version and changelog edits to release-please.
 
 Options:
   --check                 Print the normalization plan only. This is the default.

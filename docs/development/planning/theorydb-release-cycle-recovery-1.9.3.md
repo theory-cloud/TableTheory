@@ -21,9 +21,15 @@ Recovery must stay inside the normal protected-branch and release-please flow:
 
 3. Merge `staging` into `premain` through a PR.
 4. Let release-please open and CI publish the generated `v1.9.3-rc.1` prerelease.
-5. Promote `premain` to `main` through the documented normalized stable-promotion PR.
-6. Let release-please open and CI publish the generated `v1.9.3` stable release.
-7. Sync the stable `main` baseline back to `staging` and `premain` through PRs or documented verified automation.
+5. After verifying that `v1.9.3-rc.1` is published, non-draft, marked prerelease, tagged, and asset-complete, promote
+   `premain` to `main` through a PR.
+6. Let `release.yml` skip stable publishing during the temporary pending stable-promotion state.
+7. Let `release-pr.yml` open the stable release-please PR with `release-as: 1.9.3`.
+8. Merge the stable release-please PR; release-please must normalize `.release-please-manifest.json`,
+   `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
+   `py/src/theorydb_py/version.json` to `1.9.3`.
+9. Let CI publish the generated immutable `v1.9.3` stable release.
+10. Sync the stable `main` baseline back to `staging` and `premain` through PRs or documented verified automation.
 
 ## Stop Conditions
 
@@ -32,6 +38,8 @@ Recovery must stay inside the normal protected-branch and release-please flow:
 - Do not hand-publish releases, edit immutable GitHub releases, or upload release assets by hand.
 - Do not hand-edit `.release-please-manifest*.json`, `CHANGELOG.md`, `ts/package*.json`, or
   `py/src/theorydb_py/version.json`; release-please owns those updates.
+- Do not use a local stable-normalization branch as the normal path; `scripts/prepare-stable-promotion.sh` is only a
+  diagnostic/fallback helper if release automation is blocked and recovery is explicitly documented.
 - Do not hard reset, force-push, or mutate protected branches directly.
 
 Abandoned or exhausted immutable versions are skipped only through a normal release-eligible commit/PR with a
