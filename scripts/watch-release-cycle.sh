@@ -142,18 +142,46 @@ main_stable=""
 premain_stable=""
 premain_prerelease=""
 staging_stable=""
+main_pending_promotion=0
+main_pending_version=""
 
 if git rev-parse --verify --quiet origin/main >/dev/null; then
   main_stable="$(json_value_at_ref origin/main .release-please-manifest.json '.')"
+  main_premain="$(json_value_at_ref origin/main .release-please-manifest.premain.json '.')"
   main_ts="$(json_value_at_ref origin/main ts/package.json version)"
   main_ts_lock="$(json_value_at_ref origin/main ts/package-lock.json version)"
   main_ts_lock_pkg="$(git show origin/main:ts/package-lock.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("packages", {}).get("", {}).get("version", ""))')"
   main_py="$(json_value_at_ref origin/main py/src/theorydb_py/version.json version)"
 
+  main_pending_candidate=1
+  main_pending_version="${main_premain}"
+  for version in "${main_premain}" "${main_ts}" "${main_ts_lock}" "${main_ts_lock_pkg}" "${main_py}"; do
+    if [[ -z "${version}" || "${version}" == *-* || "${version}" != "${main_pending_version}" ]]; then
+      main_pending_candidate=0
+    fi
+  done
+
+  if [[ "${main_pending_candidate}" -eq 1 && -n "${main_stable}" && "${main_stable}" != *-* ]] && semver_lt "${main_stable}" "${main_pending_version}"; then
+    main_pending_promotion=1
+    warn "origin/main pending stable promotion: stable manifest ${main_stable}, normalized files ${main_pending_version}"
+  fi
+
   if [[ "${main_stable}" == *-rc* ]]; then
     fail "origin/main stable manifest is prerelease (${main_stable})"
   else
     pass "origin/main stable manifest is ${main_stable:-<missing>}"
+  fi
+
+  if [[ -z "${main_premain}" ]]; then
+    fail "origin/main .release-please-manifest.premain.json version is missing"
+  elif [[ "${main_pending_promotion}" -eq 1 && "${main_premain}" == "${main_pending_version}" ]]; then
+    warn "origin/main .release-please-manifest.premain.json is pending stable promotion (${main_premain}; stable manifest ${main_stable})"
+  elif [[ "${main_premain}" == *-rc* ]]; then
+    fail "origin/main .release-please-manifest.premain.json remains prerelease (${main_premain})"
+  elif [[ -n "${main_stable}" && "${main_premain}" != "${main_stable}" ]]; then
+    fail "origin/main .release-please-manifest.premain.json ${main_premain} != stable manifest ${main_stable}"
+  else
+    pass "origin/main .release-please-manifest.premain.json is stable (${main_premain})"
   fi
 
   for item in \
@@ -167,6 +195,8 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
       fail "origin/main ${label} version is missing"
     elif [[ "${version}" == *-rc* ]]; then
       fail "origin/main ${label} remains prerelease (${version})"
+    elif [[ "${main_pending_promotion}" -eq 1 && "${version}" == "${main_pending_version}" ]]; then
+      warn "origin/main ${label} is pending stable promotion (${version}; stable manifest ${main_stable})"
     elif [[ -n "${main_stable}" && "${version}" != "${main_stable}" ]]; then
       fail "origin/main ${label} ${version} != stable manifest ${main_stable}"
     else
@@ -260,6 +290,25 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     pass "no open main release PR advertises an RC version"
   fi
 
+  if [[ "${main_pending_promotion}" -eq 1 ]]; then
+    pending_prs="$(
+      VERSION="${main_pending_version}" gh pr list \
+        --repo theory-cloud/TableTheory \
+        --base main \
+        --state open \
+        --json number,title,headRefName,url \
+        --jq '.[] | select((.headRefName == "release-please--branches--main") or ((.title | test("release"; "i")) and (.title | test(env.VERSION)))) | "\(.number) \(.title) \(.url)"' \
+        2>/dev/null || true
+    )"
+    if [[ -z "${pending_prs}" ]]; then
+      fail "origin/main pending stable promotion ${main_pending_version} has no open stable release-please PR; pause and investigate"
+    else
+      while IFS= read -r pr; do
+        pass "pending stable promotion has open stable release PR: ${pr}"
+      done <<<"${pending_prs}"
+    fi
+  fi
+
   if [[ -n "${tag_name}" ]]; then
     release_json="$(gh release view "${tag_name}" --repo theory-cloud/TableTheory --json assets,isDraft,isPrerelease,tagName 2>/dev/null || true)"
     if [[ -z "${release_json}" ]]; then
@@ -276,6 +325,9 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     warn "no --tag supplied; skipped GitHub release asset check"
   fi
 else
+  if [[ "${main_pending_promotion}" -eq 1 ]]; then
+    warn "origin/main pending stable promotion requires an open stable release PR check, but gh is unavailable or unauthenticated"
+  fi
   warn "gh is unavailable or unauthenticated; skipped PR and release asset watchpoints"
 fi
 

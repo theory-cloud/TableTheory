@@ -47,11 +47,35 @@ Do not raw-merge `premain` into `main` and then fix `main`. Use this path instea
 `ts/package-lock.json`, and `py/src/theorydb_py/version.json`. It validates but does not advance
 `.release-please-manifest.json`; release-please must advance the stable manifest in the stable release PR.
 
+### Pending stable promotion
+
+The normalized promotion commit on `main` is a deliberate temporary state:
+
+- `.release-please-manifest.json` remains at the previous stable version.
+- `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
+  `py/src/theorydb_py/version.json` are stable, non-prerelease, internally consistent, and may be one stable base ahead of
+  `.release-please-manifest.json`.
+- The state is valid only between the normalized promotion PR merge to `main` and the stable release-please PR merge.
+
+Automation must make this state explicit. `.github/workflows/release-pr.yml` may verify with
+`RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true` so it can open the stable release-please PR. `.github/workflows/release.yml`
+must classify the same state, verify it with the pending env var, and skip stable release creation until strict equality
+is restored.
+
+After the stable release-please PR merges, pending mode is no longer allowed operationally. Run
+`bash scripts/verify-release-cycle-state.sh` without `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION`; the stable manifest
+and SDK files must match again before the stable release workflow creates `vX.Y.Z`.
+
+If the pending state persists because release-please did not open the stable PR, pause and investigate workflow logs,
+permissions, release-please configuration, and COM-8 results. Do not patch `main`, hand-advance manifests, retag, or edit
+GitHub releases to force the cycle forward.
+
 Forbidden on `main`:
 
 - `.release-please-manifest.json` set to an RC version.
 - `ts/package.json`, `ts/package-lock.json`, or `py/src/theorydb_py/version.json` left at `X.Y.Z-rc.N`.
 - A stable release PR titled or shaped as an RC release.
+- A pending stable promotion that persists without an open stable release-please PR for the normalized stable version.
 - Direct pushes or branch-ref API mutations to `main`, `premain`, or `staging` where this policy requires PR sync.
 
 ## Post-release sync (required)
@@ -161,6 +185,7 @@ Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--str
 - SEC-2/govulncheck still observing Go `1.26.3`.
 - COM-8 branch/version sync failing.
 - release-please opening a stable PR for an RC version.
+- `origin/main` in pending stable promotion without an open stable release-please PR for the normalized stable version.
 - a release workflow expected to create a release but not reporting `release_created`.
 - asset/publish steps missing `tag_name`.
 - a GitHub release existing without uploaded TypeScript/Python assets.

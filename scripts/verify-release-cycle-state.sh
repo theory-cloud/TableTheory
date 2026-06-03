@@ -39,7 +39,9 @@ done
 if [[ "${failures}" -eq 0 ]]; then
   if ! python3 - <<'PY'
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -50,11 +52,15 @@ def read(path: str) -> object:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def fail(message: str) -> None:
+    print(f"release-cycle-state: FAIL ({message})")
+    raise SystemExit(1)
+
+
 def version_info(label: str, version: str) -> tuple[tuple[int, int, int], bool]:
     match = semver_re.match(version.strip())
     if not match:
-        print(f"release-cycle-state: FAIL ({label} has invalid semver {version!r})")
-        raise SystemExit(1)
+        fail(f"{label} has invalid semver {version!r}")
     base = tuple(int(part) for part in match.group(1, 2, 3))
     return base, bool(match.group(4))
 
@@ -75,40 +81,82 @@ stable_files = {
     "py/src/theorydb_py/version.json": py_version,
 }
 
+normalized_promotion_files = {
+    ".release-please-manifest.premain.json": premain,
+    "ts/package.json": ts_package,
+    "ts/package-lock.json": ts_lock_root,
+    "ts/package-lock.json packages['']": ts_lock_pkg,
+    "py/src/theorydb_py/version.json": py_version,
+}
+
 for label, version in {**stable_files, ".release-please-manifest.premain.json": premain}.items():
     if not isinstance(version, str) or not version.strip():
-        print(f"release-cycle-state: FAIL ({label} is missing a version)")
-        raise SystemExit(1)
+        fail(f"{label} is missing a version")
 
 stable_base, stable_is_prerelease = version_info(".release-please-manifest.json", stable)
 if stable_is_prerelease:
-    print(f"release-cycle-state: FAIL (.release-please-manifest.json is prerelease {stable})")
-    raise SystemExit(1)
+    fail(f".release-please-manifest.json is prerelease {stable}")
 
 current_branch = (
-    __import__("os").environ.get("GITHUB_BASE_REF")
-    or __import__("os").environ.get("GITHUB_REF_NAME")
+    os.environ.get("GITHUB_BASE_REF")
+    or os.environ.get("GITHUB_REF_NAME")
     or ""
 )
 if not current_branch:
-    import subprocess
-
     current_branch = subprocess.check_output(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
     ).strip()
+
+pending_mode_raw = os.environ.get("RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION", "")
+pending_mode = pending_mode_raw == "true"
+if pending_mode_raw and pending_mode_raw not in {"true", "false"}:
+    fail("RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION must be exactly true or false")
+
+if pending_mode:
+    if current_branch != "main":
+        fail(
+            "pending stable promotion mode is only allowed on main "
+            f"(current branch: {current_branch})"
+        )
+
+    pending_base = None
+    pending_version = None
+    for label, version in normalized_promotion_files.items():
+        base, is_prerelease = version_info(label, version)
+        if is_prerelease:
+            fail(f"{label} is prerelease {version} in pending stable promotion mode")
+        if pending_base is None:
+            pending_base = base
+            pending_version = version
+            continue
+        if base != pending_base or version != pending_version:
+            fail(
+                "pending stable promotion files are inconsistent "
+                f"({label} {version} != {pending_version})"
+            )
+
+    if pending_base is None or pending_version is None:
+        fail("pending stable promotion has no normalized version files")
+    if pending_base <= stable_base:
+        fail(
+            "pending stable promotion version must be ahead of the stable manifest "
+            f"({pending_version} <= {stable})"
+        )
+
+    print(
+        "release-cycle-state: PASS "
+        f"(branch={current_branch}, mode=pending-stable-promotion, "
+        f"stable={stable}, pending={pending_version})"
+    )
+    raise SystemExit(0)
 
 if current_branch in {"main", "staging"}:
     for label, version in stable_files.items():
         base, is_prerelease = version_info(label, version)
         if is_prerelease:
-            print(f"release-cycle-state: FAIL ({label} is prerelease {version} on {current_branch})")
-            raise SystemExit(1)
-        if base != stable_base:
-            print(
-                "release-cycle-state: FAIL "
-                f"({label} {version} does not match stable manifest {stable})"
-            )
-            raise SystemExit(1)
+            fail(f"{label} is prerelease {version} on {current_branch}")
+        if base != stable_base or version != stable:
+            fail(f"{label} {version} does not match stable manifest {stable}")
 
 print(
     "release-cycle-state: PASS "

@@ -109,6 +109,22 @@ if [[ -f ".github/workflows/release.yml" ]]; then
     echo "branch-release: release workflow must verify release-cycle state before release-please"
     failures=$((failures + 1))
   }
+  grep -Fq "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must explicitly verify pending stable promotion mode"
+    failures=$((failures + 1))
+  }
+  grep -Fq "pending_stable_promotion" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must classify pending stable promotion"
+    failures=$((failures + 1))
+  }
+  grep -Fq "stable release creation is skipped" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must skip stable release creation during pending promotion"
+    failures=$((failures + 1))
+  }
+  grep -Fq "steps.cycle.outputs.pending_stable_promotion != 'true'" ".github/workflows/release.yml" || {
+    echo "branch-release: release workflow must gate stable release-please on strict release-cycle state"
+    failures=$((failures + 1))
+  }
   grep -Eq 'missing tag_name output' ".github/workflows/release.yml" || {
     echo "branch-release: release workflow must fail asset/publish steps when tag_name is missing"
     failures=$((failures + 1))
@@ -187,6 +203,14 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
   }
   grep -Fq "scripts/verify-release-cycle-state.sh" ".github/workflows/release-pr.yml" || {
     echo "branch-release: release-pr workflow must verify release-cycle state before release-please"
+    failures=$((failures + 1))
+  }
+  grep -Fq "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must explicitly allow pending stable promotion verification"
+    failures=$((failures + 1))
+  }
+  grep -Fq "pending stable promotion accepted for stable Release PR generation" ".github/workflows/release-pr.yml" || {
+    echo "branch-release: release-pr workflow must document pending promotion PR generation"
     failures=$((failures + 1))
   }
   grep -Eq 'skip-github-release:\s*true' ".github/workflows/release-pr.yml" || {

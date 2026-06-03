@@ -84,6 +84,19 @@ Stable promotion path:
   strips RC state from the prerelease manifest and SDK version files before the PR targets `main`; the stable manifest is
   left for release-please to advance in the stable Release PR.
 - Open a PR from the normalized promotion branch to `main`. Raw RC files must not land on `main`.
+- After the normalized promotion PR merges to `main`, the release cycle may enter a short **pending stable promotion**
+  state: `.release-please-manifest.json` remains at the prior stable version while
+  `.release-please-manifest.premain.json` and the TypeScript/Python version files are normalized to the next stable
+  version. This state is allowed only until `.github/workflows/release-pr.yml` opens the stable release-please PR and that
+  PR merges.
+- Pending stable promotion is explicit automation state only:
+  `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true` may be used by the release workflows to verify the normalized
+  promotion commit, and `.github/workflows/release.yml` must skip stable release creation while that state is present.
+- After the stable release-please PR merges, strict stable equality is required again: run
+  `bash scripts/verify-release-cycle-state.sh` without the pending env var, and confirm the stable manifest and SDK files
+  match.
+- If pending state persists because release-please did not open the stable PR, pause and investigate the workflow/check
+  failure. Do not patch `main`, retag, edit releases, or hand-edit manifests to advance the cycle.
 - After the stable release is published, sync `main` back to `staging` and `premain` through PRs, or through an explicitly
   documented automation path that runs the same verifiers and does not directly mutate protected branches.
 
@@ -94,6 +107,8 @@ Release watchpoints and stop conditions:
   stable release.
 - Stop if SEC-2/govulncheck still observes Go `1.26.3`, COM-8 branch/version sync fails, or release-please opens a
   stable PR for an RC version.
+- Stop if `main` remains in pending stable promotion and no stable release-please PR opens for the normalized stable
+  version.
 - Stop if a release workflow was expected to create a release but did not report `release_created`, if asset/publish steps
   have no `tag_name`, or if a GitHub release exists without the TypeScript/Python assets.
 - Stop if automation tries to push directly to `staging`, `premain`, or `main` where this policy requires PR sync.
