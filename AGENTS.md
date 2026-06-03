@@ -68,6 +68,88 @@ Multi-language versioning:
 - **TypeScript**: `ts/package.json`, `ts/package-lock.json`
 - **Python**: `py/src/theorydb_py/version.json`
 
+Release ownership:
+
+- `staging` owns integration-ready code, docs, security/toolchain updates, and the latest stable baseline returned from
+  `main`. It must not pretend to cut a release. During active RC reconciliation, it may temporarily carry the current
+  `premain` RC lane in prerelease/SDK files only when the stable manifest stays aligned with `main` and the RC files are
+  internally consistent and ahead of that stable baseline.
+- `premain` owns RC generation. It may carry `X.Y.Z-rc.N` in the prerelease manifest and SDK version files only while
+  the prerelease lane is active.
+- `main` owns stable state only. Outside explicit pending stable promotion, the stable manifest, prerelease manifest, and
+  SDK version files on `main` must not contain `-rc`.
+
+Immutable version reuse:
+
+- Treat published GitHub release tag names as one-time-use, even if the published release or git tag was later deleted.
+  A deleted immutable release/tag has exhausted that version name for release-cycle purposes.
+- Do not manually recreate tags, hand-publish releases, edit immutable release assets, or hand-edit manifests as recovery.
+- If publishing fails with `tag_name was used by an immutable release`, recover through a normal release-eligible PR and
+  let release-please advance to the next RC/stable version for that lane.
+- If a version is abandoned or exhausted, skip it only through a normal release-eligible commit/PR with a release-please
+  `Release-As` footer for the next allowed version. Do not recover through tags, resets, manual release edits,
+  manifest/package-version edits, or reruns of failed exhausted-version workflows.
+- Current THE-1869 lane decision: `1.9.2` is abandoned; the next RC must be `v1.9.3-rc.1`; the next stable release must be
+  `v1.9.3`; the release-eligible recovery commit must carry `Release-As: 1.9.3-rc.1` and that footer must survive the
+  `staging` -> `premain` merge path.
+
+Stable promotion path:
+
+- Do not start `premain` -> `main` promotion until the intended RC exists as a GitHub release that is published,
+  non-draft, marked prerelease, backed by `refs/tags/vX.Y.Z-rc.N`, and complete with the required TypeScript/Python
+  assets.
+- Open and merge the promotion PR from `premain` to `main`; do not create a local stable-normalization branch as the
+  normal path.
+- After the `premain` -> `main` promotion merges, the release cycle may enter a short **pending stable promotion** state:
+  `.release-please-manifest.json` remains at the prior stable version while prerelease/SDK files still reflect the
+  promoted RC lane. This state is allowed only until `.github/workflows/release-pr.yml` opens the stable release-please PR
+  and that PR merges.
+- Pending stable promotion is explicit automation state only:
+  `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true` may be used by the release workflows to verify the promotion
+  commit, and `.github/workflows/release.yml` must skip stable release creation while that state is present.
+- `.github/workflows/release-pr.yml` computes the stable `release-as` value from the premain RC baseline (for THE-1869,
+  `1.9.3`) and opens the stable release-please PR.
+- The stable release-please PR must normalize `.release-please-manifest.json`,
+  `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
+  `py/src/theorydb_py/version.json` to the stable version; `release-please-config.json` owns those version-file changes.
+- After the stable release-please PR merges, strict stable equality is required again: run
+  `bash scripts/verify-release-cycle-state.sh` without the pending env var, and confirm the stable manifest and SDK files
+  match.
+- If pending state persists because release-please did not open the stable PR, pause and investigate the workflow/check
+  failure. Do not patch `main`, retag, edit releases, or hand-edit manifests to advance the cycle.
+- After the stable release is published, sync `main` back to `staging` and `premain` through PRs, or through an explicitly
+  documented automation path that runs the same verifiers and does not directly mutate protected branches.
+- `scripts/prepare-stable-promotion.sh` is diagnostic/fallback tooling only. It is not the normal stable release path and
+  must not replace release-please-owned stable version/changelog updates.
+
+Release watchpoints and stop conditions:
+
+- Stop if `main` stable files contain `-rc` outside explicit pending stable promotion, or if
+  `.release-please-manifest.json` is an RC version.
+- Stop if `premain` stable manifest is behind `origin/main`, or if `staging` lacks the latest stable baseline after a
+  stable release, or if `staging` keeps RC reconciliation files after the active lane has normalized to stable.
+- Stop if SEC-2/govulncheck still observes Go `1.26.3`, COM-8 branch/version sync fails, or release-please opens a
+  stable PR for an RC version.
+- Stop if `main` remains in pending stable promotion and no stable release-please PR opens for the computed stable
+  version.
+- Stop if a release workflow was expected to create a release but did not report `release_created`, if asset/publish steps
+  have no `tag_name`, or if a GitHub release exists without the TypeScript/Python assets.
+- Stop if a requested release tag is draft, has no `publishedAt`, uses an `untagged-...` release URL, is missing
+  `refs/tags/<tag>`, or points the release target and git tag ref at different commits.
+- Stop if release recovery would reuse a deleted or exhausted immutable release version; use a release-eligible PR to
+  advance to the next release-please version instead.
+- Stop if abandoned-version recovery lacks the required release-please `Release-As` footer or tries to hand-edit manifests,
+  package versions, tags, releases, or release assets.
+- Stop if automation tries to push directly to `staging`, `premain`, or `main` where this policy requires PR sync.
+
+Useful checks:
+
+- `bash scripts/verify-branch-release-supply-chain.sh`
+- `bash scripts/verify-branch-version-sync.sh`
+- `bash scripts/verify-release-cycle-state.sh`
+- `bash scripts/watch-release-cycle.sh` for read-only PASS/WARN/FAIL branch and release watchpoints; add `--strict`
+  before merge/release gates.
+
 Every PR to `staging` must check both release and release-candidate version alignment before it is opened or updated.
 The stable release baseline and prerelease/RC baseline must agree with the current `main` line so release-please never
 generates an older RC (for example `v1.6.0-rc.N`) after a newer stable release (for example `v1.7.0`) has shipped.
