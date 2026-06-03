@@ -23,9 +23,12 @@ This document defines the intended branch strategy and release automation for Ta
 
 - Feature/fix work lands via PRs into `staging`.
 - An **RC** is cut by merging `staging` into `premain` (via PR), then merging the release-please prerelease PR.
-- A **release** is prepared by creating a promotion branch from `origin/main`, merging `origin/premain` into that branch,
-  normalizing RC-owned files to stable state, and opening a PR to `main`.
-- A **release** is cut by merging the normalized promotion PR to `main`, then merging the release-please stable release PR.
+- A **release** is prepared by verifying the intended RC release, then opening and merging the `premain` -> `main`
+  promotion PR.
+- The `main` release workflow skips publishing while pending stable promotion is present, and `release-pr.yml` opens the
+  stable release-please PR with `release-as` computed from the premain RC baseline.
+- A **release** is cut by merging the stable release-please PR, which normalizes the stable manifest, prerelease manifest,
+  and SDK version files to stable state before the stable release workflow publishes `vX.Y.Z`.
 - Hotfixes should still follow `staging` -> `premain` -> `main` so version lines stay aligned.
 
 ## Post-release sync (automated)
@@ -44,6 +47,11 @@ After a stable release is published on `main`, the `Release (main)` workflow run
 This replaces manual manifest resets and manual post-release `main` -> `premain` / `main` -> `staging` release-baseline
 back-merges. The next `staging` -> `premain` promotion starts from the latest stable version, and the subsequent
 prerelease PR advances from that baseline.
+
+The normal stable promotion path does not use a local stable-normalization branch. `release-please-config.json` must keep
+`.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
+`py/src/theorydb_py/version.json` wired as stable release-please extra-files so the generated stable Release PR owns all
+version-file normalization.
 
 Acceptable post-stable sync paths:
 
@@ -132,6 +140,8 @@ not sufficient evidence that a release is healthy.
   update `ts/package.json` and `ts/package-lock.json` to match the repo version.
 - **Release automation must update Python versions:** if `py/pyproject.toml` exists, the prerelease/release workflows must
   update `py/src/theorydb_py/version.json` to match the repo version.
+- **Stable release automation must normalize prerelease state:** `release-please-config.json` must update
+  `.release-please-manifest.premain.json` to the stable version in the generated stable Release PR.
 
 ## Required workflow artifacts (Rubric COM-8)
 
@@ -142,6 +152,9 @@ These files are required to exist and be kept current:
 - `scripts/verify-release-cycle-state.sh`
 - `scripts/watch-release-cycle.sh`
 - `scripts/prepare-stable-promotion.sh`
+
+`scripts/prepare-stable-promotion.sh` is retained as a diagnostic/fallback helper. It is not the normal stable promotion
+path, and it must not replace release-please-owned stable version/changelog updates.
 
 Additionally, quality/security workflows should run on PRs to (and/or pushes on) both protected branches:
 
@@ -164,7 +177,7 @@ Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--str
 - SEC-2/govulncheck still observing Go `1.26.3`.
 - COM-8 branch/version sync failing.
 - release-please opening a stable PR for an RC version.
-- `origin/main` in pending stable promotion without an open stable release-please PR for the normalized stable version.
+- `origin/main` in pending stable promotion without an open stable release-please PR for the computed stable version.
 - a release workflow expected to create a release but not reporting `release_created`.
 - asset/publish steps missing `tag_name`.
 - a GitHub release existing without uploaded TypeScript/Python assets.
