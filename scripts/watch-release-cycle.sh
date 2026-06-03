@@ -312,6 +312,38 @@ if git rev-parse --verify --quiet origin/staging >/dev/null; then
 fi
 
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  premain_bad_release_prs="$(
+    gh pr list \
+      --repo "${github_repo}" \
+      --base premain \
+      --state open \
+      --json number,title,headRefName,url \
+      --jq '.[] | select(.headRefName == "release-please--branches--premain") | select((.title | test("^chore\\(premain\\): release [0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[0-9]+$")) | not) | "\(.number) \(.title) \(.url)"' \
+      2>/dev/null || true
+  )"
+  if [[ -n "${premain_bad_release_prs}" ]]; then
+    while IFS= read -r pr; do
+      fail "premain release-please PR is not RC-shaped: ${pr}"
+    done <<<"${premain_bad_release_prs}"
+  fi
+
+  premain_rc_prs="$(
+    gh pr list \
+      --repo "${github_repo}" \
+      --base premain \
+      --state open \
+      --json number,title,headRefName,url \
+      --jq '.[] | select(.headRefName == "release-please--branches--premain") | select(.title | test("^chore\\(premain\\): release [0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[0-9]+$")) | "\(.number) \(.title) \(.url)"' \
+      2>/dev/null || true
+  )"
+  if [[ -n "${premain_rc_prs}" ]]; then
+    while IFS= read -r pr; do
+      pass "open premain generated RC release PR: ${pr}"
+    done <<<"${premain_rc_prs}"
+  else
+    pass "no open premain generated RC release PR"
+  fi
+
   stable_rc_prs="$(
     gh pr list \
       --repo "${github_repo}" \

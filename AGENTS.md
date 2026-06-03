@@ -66,6 +66,11 @@ Branch roles:
 - **`premain`**: prerelease branch (RCs like `vX.Y.Z-rc.N`)
 - **`main`**: stable release branch (releases like `vX.Y.Z`)
 
+Promotion PRs to `premain` or `main` are release-intent gates, not optional/no-op syncs. A `staging` -> `premain` PR
+must contain a release-eligible conventional commit or RC-shaped `Release-As:` footer that release-please can use to open
+the generated RC PR. A `premain` -> `main` PR must carry a pending RC promotion state that can become stable; `main` must
+never receive an RC-shaped release PR or release.
+
 Multi-language versioning:
 
 - **Stable manifest**: `.release-please-manifest.json`
@@ -138,6 +143,11 @@ Release watchpoints and stop conditions:
   stable PR for an RC version.
 - Stop if `main` remains in pending stable promotion and no stable release-please PR opens for the computed stable
   version.
+- Stop if release-please reports "No user facing commits" on a `premain` or `main` gate. Fix the staging content, PR
+  squash title, or `Release-As:` footer through normal PR flow; do not recover through tags, resets, direct pushes,
+  manual release edits, or manifest/package-version edits.
+- Stop if `.github/workflows/prerelease-pr.yml` completes after a `staging` -> `premain` promotion without an open
+  generated RC release-please PR targeting `premain`.
 - Stop if a release workflow was expected to create a release but did not report `release_created`, if asset/publish steps
   have no `tag_name`, or if a GitHub release exists without the TypeScript/Python assets.
 - Stop if a requested release tag is draft, has no `publishedAt`, uses an `untagged-...` release URL, is missing
