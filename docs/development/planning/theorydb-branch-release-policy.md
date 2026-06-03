@@ -12,12 +12,15 @@ This document defines the intended branch strategy and release automation for Ta
 
 - `staging` owns integration-ready code, docs, security/toolchain updates, and release-cycle guardrails before they enter
   prerelease or stable lanes. After a stable release, `staging` must receive the latest stable baseline from `main` so the
-  next cycle starts from the released state.
+  next cycle starts from the released state. During active RC reconciliation, `staging` may temporarily carry the current
+  `premain` RC lane in `.release-please-manifest.premain.json` and SDK version files, but only while the stable manifest
+  remains aligned with `main` and the RC files are internally consistent and ahead of that stable baseline.
 - `premain` owns prerelease state. The prerelease manifest `.release-please-manifest.premain.json` and SDK version files
   (`ts/package.json`, `ts/package-lock.json`, `py/src/theorydb_py/version.json`) may carry `X.Y.Z-rc.N` while an RC is in
   progress. Its stable manifest `.release-please-manifest.json` must stay aligned with the latest stable baseline.
-- `main` owns stable state only. `.release-please-manifest.json`, `ts/package.json`, `ts/package-lock.json`, and
-  `py/src/theorydb_py/version.json` must never contain `-rc` on `main`.
+- `main` owns stable state only. Outside explicit pending stable promotion, `.release-please-manifest.json`,
+  `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
+  `py/src/theorydb_py/version.json` must not contain `-rc` on `main`.
 
 ## Merge flow (expected)
 
@@ -26,7 +29,8 @@ This document defines the intended branch strategy and release automation for Ta
 - A **release** is prepared by verifying the intended RC release, then opening and merging the `premain` -> `main`
   promotion PR.
 - The `main` release workflow skips publishing while pending stable promotion is present, and `release-pr.yml` opens the
-  stable release-please PR with `release-as` computed from the premain RC baseline.
+  stable release-please PR with `release-as` computed from the premain RC baseline. Pull-request quality checks for the
+  `premain` -> `main` promotion may verify this state with explicit pending stable-promotion mode.
 - A **release** is cut by merging the stable release-please PR, which normalizes the stable manifest, prerelease manifest,
   and SDK version files to stable state before the stable release workflow publishes `vX.Y.Z`.
 - Hotfixes should still follow `staging` -> `premain` -> `main` so version lines stay aligned.
@@ -170,10 +174,11 @@ Additionally, quality/security workflows should run on PRs to (and/or pushes on)
 
 Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--strict` before merge/release gates. Pause on:
 
-- `origin/main` stable files containing `-rc`.
+- `origin/main` stable files containing `-rc` outside explicit pending stable promotion.
 - `.release-please-manifest.json` set to an RC version.
 - `origin/premain` stable manifest behind `origin/main`.
-- `origin/staging` missing the latest stable baseline after a stable release.
+- `origin/staging` missing the latest stable baseline after a stable release, or carrying RC reconciliation files after
+  the active RC lane has been normalized to stable.
 - SEC-2/govulncheck still observing Go `1.26.3`.
 - COM-8 branch/version sync failing.
 - release-please opening a stable PR for an RC version.

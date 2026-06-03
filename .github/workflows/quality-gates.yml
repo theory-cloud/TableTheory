@@ -59,6 +59,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: dummy
           DYNAMODB_ENDPOINT: http://localhost:8000
           GOSEC_SARIF_PATH: gosec.sarif
+          RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
         run: make rubric
 
       - name: Rubric report (stdout)
