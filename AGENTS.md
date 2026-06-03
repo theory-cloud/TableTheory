@@ -76,10 +76,21 @@ Release ownership:
   the prerelease lane is active.
 - `main` owns stable state only. The stable manifest and SDK version files on `main` must never contain `-rc`.
 
+Immutable version reuse:
+
+- Treat published GitHub release tag names as one-time-use, even if the published release or git tag was later deleted.
+  A deleted immutable release/tag has exhausted that version name for release-cycle purposes.
+- Do not manually recreate tags, hand-publish releases, edit immutable release assets, or hand-edit manifests as recovery.
+- If publishing fails with `tag_name was used by an immutable release`, recover through a normal release-eligible PR and
+  let release-please advance to the next RC/stable version for that lane.
+
 Stable promotion path:
 
 - Create a promotion branch from `origin/main`.
 - Merge `origin/premain` into that promotion branch locally or in a PR branch, not directly into `main`.
+- Do not start `premain` -> `main` promotion until the intended RC exists as a GitHub release that is published,
+  non-draft, marked prerelease, backed by `refs/tags/vX.Y.Z-rc.N`, and complete with the required TypeScript/Python
+  assets.
 - Run `bash scripts/prepare-stable-promotion.sh --check`, then `--write` after reviewing the deterministic plan. This
   strips RC state from the prerelease manifest and SDK version files before the PR targets `main`; the stable manifest is
   left for release-please to advance in the stable Release PR.
@@ -111,6 +122,10 @@ Release watchpoints and stop conditions:
   version.
 - Stop if a release workflow was expected to create a release but did not report `release_created`, if asset/publish steps
   have no `tag_name`, or if a GitHub release exists without the TypeScript/Python assets.
+- Stop if a requested release tag is draft, has no `publishedAt`, uses an `untagged-...` release URL, is missing
+  `refs/tags/<tag>`, or points the release target and git tag ref at different commits.
+- Stop if release recovery would reuse a deleted or exhausted immutable release version; use a release-eligible PR to
+  advance to the next release-please version instead.
 - Stop if automation tries to push directly to `staging`, `premain`, or `main` where this policy requires PR sync.
 
 Useful checks:

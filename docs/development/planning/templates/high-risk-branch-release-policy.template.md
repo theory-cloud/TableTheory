@@ -60,6 +60,12 @@ Document forbidden stable-branch states:
 - release automation opening a stable release PR for an RC version.
 - pending stable promotion persisting after the normalized promotion commit without an open stable release PR.
 - direct branch pushes or ref mutations where policy requires PR sync.
+- manual recovery that recreates deleted tags, hand-publishes replacement releases, or reuses an exhausted immutable
+  release version.
+
+Document immutable release version reuse explicitly. Treat published release tag names as one-time-use even if the release
+or tag is later deleted. If a publish step fails with `tag_name was used by an immutable release`, recovery must go through
+a normal release-eligible PR and the release tool must advance to the next RC/stable version for that lane.
 
 If release-please or another release-PR tool leaves the stable manifest at the prior stable version until the stable
 release PR merges, document the state as explicit pending stable promotion. The pending verifier mode must be visible in
@@ -94,8 +100,11 @@ Pause before merge or release when:
 - release automation completes without creating the expected release.
 - pending stable promotion persists without an open stable release PR.
 - release asset steps have no tag name, or the GitHub release exists without required assets.
+- a requested release tag is draft, lacks a published timestamp, has no git tag ref, uses an `untagged-...` draft URL, or
+  points the release target and git tag ref at different commits.
+- the intended RC is not yet published, non-draft, marked prerelease, tagged, and asset-complete.
 - automation attempts direct branch mutation where the documented path expects PR sync.
 
 Allowed recovery should be non-destructive: new PR branches from known bases, deterministic normalization scripts, and
-verified PR-based sync. Do not retag, overwrite release assets, force-push, delete protected branches, or merge around
-quality/security checks.
+verified PR-based sync. Do not retag, overwrite release assets, force-push, delete protected branches, hand-publish
+replacement releases, reuse exhausted immutable release versions, or merge around quality/security checks.
