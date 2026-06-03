@@ -28,8 +28,15 @@ TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` 
 
 - Feature/fix work lands via PRs into `staging`.
 - An **RC** is cut by merging `staging` into `premain` (via PR), then merging the release-please prerelease PR.
+- A `staging` -> `premain` PR is a release-intent gate, not an optional sync. It must include a release-eligible
+  conventional commit or RC-shaped `Release-As:` footer so release-please can open the generated RC PR. If release-please
+  would report "No user facing commits", the gate is failing and the fix must happen through normal `staging` PR content
+  or the promotion PR squash title/body/footer.
 - A **release** is prepared by verifying the intended RC release, then opening and merging the `premain` -> `main`
   promotion PR.
+- A `premain` -> `main` PR is also a release-intent gate. It is valid only when it carries an RC/pending stable promotion
+  state that can become stable. The follow-up generated release-please PR targeting `main` must be stable-shaped; RC-shaped
+  main release PRs and releases are forbidden.
 - The `main` release workflow skips publishing while pending stable promotion is present, and `release-pr.yml` opens the
   stable release-please PR with `release-as` computed from the premain RC baseline. Pull-request quality checks for the
   `premain` -> `main` promotion may verify this state with explicit pending stable-promotion mode.
@@ -116,6 +123,10 @@ Recommended approach: **release-please** (merge-driven versioning + changelog up
 
 - **Dependency/platform updates must use a release-eligible conventional commit type** (recommended: `fix(deps): ...`) so they produce an rc/release.
 - Pure `chore(...)` commits may be treated as non-user-facing and can be skipped by `release-please`.
+- On `premain` and `main` gates, a release-please "No user facing commits" result is a failed gate precondition, not a
+  successful no-op. Correct remediation is a release-eligible conventional commit or the appropriate `Release-As:` footer
+  through normal PR flow. Do not create tags, reset branches, force-push, direct-push protected branches, hand-edit
+  manifests/package versions, or mutate GitHub releases to force a release.
 
 **Recommendation:** use squash-merge and set the squash title to a conventional commit that matches the intended version bump:
 
@@ -134,6 +145,11 @@ If a release workflow was expected to publish but `release_created` is false, pa
 If an asset upload or publish step has no `tag_name`, fail the workflow. If a GitHub release exists but TypeScript/Python
 assets are missing, use a documented asset recovery workflow only after confirming the tag and release are immutable and
 correct.
+
+Generated release-please PR merges are the publish steps. If a generated RC PR merge on `premain` or generated stable PR
+merge on `main` reports `release_created=false`, fail loudly; do not treat the publish workflow as green. Plain
+`staging` -> `premain` and `premain` -> `main` promotion merges are PR-generation setup only when `prerelease-pr.yml` or
+`release-pr.yml` is responsible for and required to open the generated release-please PR.
 
 Before promoting `premain` to `main`, confirm the intended RC is actually published: it must be non-draft, marked as a
 GitHub prerelease, have a `publishedAt` timestamp, resolve through `refs/tags/vX.Y.Z-rc.N`, use a tag-addressed release
@@ -191,6 +207,9 @@ Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--str
 - COM-8 branch/version sync failing.
 - release-please opening a stable PR for an RC version.
 - `origin/main` in pending stable promotion without an open stable release-please PR for the computed stable version.
+- `prerelease-pr.yml` completing after a `staging` -> `premain` promotion without an open generated RC release-please PR
+  targeting `premain`.
+- release-please reporting "No user facing commits" on a `premain` or `main` release-intent gate.
 - a release workflow expected to create a release but not reporting `release_created`.
 - asset/publish steps missing `tag_name`.
 - a GitHub release existing without uploaded TypeScript/Python assets.

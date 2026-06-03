@@ -67,6 +67,22 @@ jobs:
           fail(f"unsupported release-hygiene base branch {base!r}")
           PY
 
+      - name: Verify human promotion release driver
+        if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-promotion-release-driver.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base "${GITHUB_BASE_REF}" \
+            --head "${GITHUB_HEAD_REF}" \
+            --pr "${PR_NUMBER}"
+
       - name: Verify release cycle state
         env:
           RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
