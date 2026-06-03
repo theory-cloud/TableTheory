@@ -13,7 +13,7 @@ Usage: bash scripts/watch-release-cycle.sh [--strict] [--tag vX.Y.Z]
 
 Options:
   --strict   Exit non-zero if any FAIL finding is reported.
-  --tag TAG  Check that an existing GitHub release has non-source assets.
+  --tag TAG  Check that an existing GitHub release is published, tagged, and has non-source assets.
   -h, --help Show this help.
 
 This command reads local refs and, when gh is authenticated, open PR/release
@@ -23,6 +23,7 @@ USAGE
 
 strict=0
 tag_name=""
+github_repo="theory-cloud/TableTheory"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -94,6 +95,44 @@ for part in expr.split("."):
         value = ""
 print(value if isinstance(value, str) else "")
 ' "${expr}"
+}
+
+json_string_value() {
+  local json="$1"
+  local expr="$2"
+
+  JSON_INPUT="${json}" python3 - "${expr}" <<'PY'
+import json
+import os
+import sys
+
+expr = sys.argv[1]
+raw = os.environ["JSON_INPUT"]
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError:
+    try:
+        data, _ = json.JSONDecoder().raw_decode(raw)
+    except json.JSONDecodeError:
+        print("")
+        raise SystemExit(0)
+value = data
+for part in expr.split("."):
+    if not part:
+        continue
+    if isinstance(value, dict):
+        value = value.get(part)
+    else:
+        value = None
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is None:
+    print("")
+elif isinstance(value, (str, int, float)):
+    print(value)
+else:
+    print(json.dumps(value))
+PY
 }
 
 toolchain_at_ref() {
@@ -275,7 +314,7 @@ fi
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   stable_rc_prs="$(
     gh pr list \
-      --repo theory-cloud/TableTheory \
+      --repo "${github_repo}" \
       --base main \
       --state open \
       --json number,title,headRefName,url \
@@ -293,7 +332,7 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   if [[ "${main_pending_promotion}" -eq 1 ]]; then
     pending_prs="$(
       VERSION="${main_pending_version}" gh pr list \
-        --repo theory-cloud/TableTheory \
+        --repo "${github_repo}" \
         --base main \
         --state open \
         --json number,title,headRefName,url \
@@ -310,11 +349,110 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   fi
 
   if [[ -n "${tag_name}" ]]; then
-    release_json="$(gh release view "${tag_name}" --repo theory-cloud/TableTheory --json assets,isDraft,isPrerelease,tagName 2>/dev/null || true)"
+    release_json="$(
+      gh release view "${tag_name}" \
+        --repo "${github_repo}" \
+        --json assets,isDraft,isPrerelease,publishedAt,tagName,targetCommitish,url \
+        2>/dev/null || true
+    )"
     if [[ -z "${release_json}" ]]; then
       fail "GitHub release ${tag_name} does not exist"
     else
+      release_tag="$(json_string_value "${release_json}" tagName)"
+      release_is_draft="$(json_string_value "${release_json}" isDraft)"
+      release_is_prerelease="$(json_string_value "${release_json}" isPrerelease)"
+      release_published_at="$(json_string_value "${release_json}" publishedAt)"
+      release_target_commitish="$(json_string_value "${release_json}" targetCommitish)"
+      release_url="$(json_string_value "${release_json}" url)"
       asset_count="$(python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("assets", [])))' <<<"${release_json}")"
+
+      if [[ "${release_tag}" != "${tag_name}" ]]; then
+        fail "GitHub release lookup for ${tag_name} returned tag ${release_tag:-<missing>}"
+      else
+        pass "GitHub release ${tag_name} reports matching tag name"
+      fi
+
+      if [[ "${release_is_draft}" == "true" ]]; then
+        fail "GitHub release ${tag_name} is still draft"
+      else
+        pass "GitHub release ${tag_name} is not draft"
+      fi
+
+      if [[ -z "${release_published_at}" ]]; then
+        fail "GitHub release ${tag_name} has no publishedAt timestamp"
+      else
+        pass "GitHub release ${tag_name} publishedAt is ${release_published_at}"
+      fi
+
+      if [[ "${release_url}" == *"/releases/tag/untagged-"* ]]; then
+        fail "GitHub release ${tag_name} URL is an untagged draft URL (${release_url})"
+      elif [[ -z "${release_url}" ]]; then
+        warn "GitHub release ${tag_name} URL is missing from release metadata"
+      else
+        pass "GitHub release ${tag_name} URL is tag-addressed"
+      fi
+
+      if [[ "${tag_name}" == *"-rc"* ]]; then
+        if [[ "${release_is_prerelease}" == "true" ]]; then
+          pass "GitHub release ${tag_name} is marked prerelease"
+        else
+          fail "GitHub release ${tag_name} is not marked prerelease"
+        fi
+      elif [[ "${release_is_prerelease}" == "true" ]]; then
+        fail "GitHub release ${tag_name} is marked prerelease for a non-RC tag"
+      fi
+
+      tag_ref_json="$(gh api "repos/${github_repo}/git/ref/tags/${tag_name}" 2>/dev/null || true)"
+      tag_ref_target_sha=""
+      tag_ref_status="$(json_string_value "${tag_ref_json:-{}}" status)"
+      tag_ref_message="$(json_string_value "${tag_ref_json:-{}}" message)"
+      if [[ -z "${tag_ref_json}" || "${tag_ref_status}" == "404" || "${tag_ref_message}" == "Not Found" ]]; then
+        fail "git tag ref refs/tags/${tag_name} is missing"
+      else
+        tag_ref_type="$(json_string_value "${tag_ref_json}" object.type)"
+        tag_ref_sha="$(json_string_value "${tag_ref_json}" object.sha)"
+        case "${tag_ref_type}" in
+          commit)
+            tag_ref_target_sha="${tag_ref_sha}"
+            pass "git tag ref refs/tags/${tag_name} points to commit ${tag_ref_target_sha}"
+            ;;
+          tag)
+            annotated_tag_json="$(gh api "repos/${github_repo}/git/tags/${tag_ref_sha}" 2>/dev/null || true)"
+            if [[ -z "${annotated_tag_json}" ]]; then
+              fail "git tag ref refs/tags/${tag_name} points to an unreadable annotated tag ${tag_ref_sha}"
+            else
+              annotated_target_type="$(json_string_value "${annotated_tag_json}" object.type)"
+              annotated_target_sha="$(json_string_value "${annotated_tag_json}" object.sha)"
+              if [[ "${annotated_target_type}" == "commit" && -n "${annotated_target_sha}" ]]; then
+                tag_ref_target_sha="${annotated_target_sha}"
+                pass "git tag ref refs/tags/${tag_name} dereferences to commit ${tag_ref_target_sha}"
+              else
+                fail "git tag ref refs/tags/${tag_name} does not dereference to a commit"
+              fi
+            fi
+            ;;
+          "")
+            fail "git tag ref refs/tags/${tag_name} has no observable target"
+            ;;
+          *)
+            fail "git tag ref refs/tags/${tag_name} points to unsupported object type ${tag_ref_type}"
+            ;;
+        esac
+      fi
+
+      if [[ -n "${release_target_commitish}" && -n "${tag_ref_target_sha}" ]]; then
+        release_target_sha="$(gh api "repos/${github_repo}/commits/${release_target_commitish}" --jq .sha 2>/dev/null || true)"
+        if [[ -z "${release_target_sha}" ]]; then
+          warn "GitHub release ${tag_name} targetCommitish ${release_target_commitish} could not be resolved"
+        elif [[ "${release_target_sha}" != "${tag_ref_target_sha}" ]]; then
+          fail "git tag ref ${tag_name} targets ${tag_ref_target_sha}, release targetCommitish resolves to ${release_target_sha}"
+        else
+          pass "git tag ref ${tag_name} matches release targetCommitish ${release_target_sha}"
+        fi
+      elif [[ -z "${release_target_commitish}" ]]; then
+        warn "GitHub release ${tag_name} targetCommitish is missing from release metadata"
+      fi
+
       if [[ "${asset_count}" -eq 0 ]]; then
         fail "GitHub release ${tag_name} exists but has no uploaded assets"
       else

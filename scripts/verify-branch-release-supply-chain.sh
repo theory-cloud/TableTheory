@@ -29,6 +29,47 @@ for f in "${required_files[@]}"; do
   fi
 done
 
+if [[ -f "scripts/watch-release-cycle.sh" ]]; then
+  grep -Fq "isDraft" "scripts/watch-release-cycle.sh" || {
+    echo "branch-release: watch-release-cycle must check GitHub release draft state for --tag"
+    failures=$((failures + 1))
+  }
+  grep -Fq "publishedAt" "scripts/watch-release-cycle.sh" || {
+    echo "branch-release: watch-release-cycle must check GitHub release publishedAt for --tag"
+    failures=$((failures + 1))
+  }
+  grep -Fq "git/ref/tags" "scripts/watch-release-cycle.sh" || {
+    echo "branch-release: watch-release-cycle must check git tag refs for --tag"
+    failures=$((failures + 1))
+  }
+  grep -Fq "untagged-" "scripts/watch-release-cycle.sh" || {
+    echo "branch-release: watch-release-cycle must reject untagged draft release URLs for --tag"
+    failures=$((failures + 1))
+  }
+  grep -Fq "targetCommitish" "scripts/watch-release-cycle.sh" || {
+    echo "branch-release: watch-release-cycle must compare release targetCommitish with the tag ref"
+    failures=$((failures + 1))
+  }
+fi
+
+grep -Fq "tag_name was used by an immutable release" "docs/development/planning/theorydb-branch-release-policy.md" || {
+  echo "branch-release: branch release policy must document immutable release tag-name reuse recovery"
+  failures=$((failures + 1))
+}
+grep -Fq "one-time-use" "docs/development/planning/theorydb-branch-release-policy.md" || {
+  echo "branch-release: branch release policy must name one-time-use immutable release versions"
+  failures=$((failures + 1))
+}
+grep -Fq "Do not manually recreate tags" "AGENTS.md" || {
+  echo "branch-release: AGENTS.md must prohibit manual tag recreation during release recovery"
+  failures=$((failures + 1))
+}
+grep -Fq "tag_name was used by an immutable release" \
+  "docs/development/planning/templates/high-risk-branch-release-policy.template.md" || {
+  echo "branch-release: high-risk branch policy template must include immutable release reuse recovery"
+  failures=$((failures + 1))
+}
+
 if [[ -f ".github/workflows/prerelease.yml" ]]; then
   grep -Eq 'branches:.*premain' ".github/workflows/prerelease.yml" || {
     echo "branch-release: prerelease workflow must target premain"
