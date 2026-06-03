@@ -1,8 +1,8 @@
 # TableTheory: Branch + Release Policy (main release, premain prerelease)
 
 This document defines the intended branch strategy and release automation for TableTheory in high-risk usage contexts.
-TableTheory has one release lane: `staging` -> `premain` -> RC -> `main` -> stable release. `premain` owns the RC
-phase of that lane, and `main` owns the stable phase; neither branch starts a separate release path.
+TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` (staging -> premain -> main -> staging).
+`premain` owns the RC phase of that lane, and `main` owns the stable phase; neither branch starts a separate release path.
 
 ## Branches
 
@@ -28,44 +28,50 @@ phase of that lane, and `main` owns the stable phase; neither branch starts a se
 
 - Feature/fix work lands via PRs into `staging`.
 - An **RC** is cut by merging `staging` into `premain` (via PR), then merging the release-please prerelease PR.
+- A `staging` -> `premain` PR is a release-intent gate, not an optional sync. It must include a release-eligible
+  conventional commit or RC-shaped `Release-As:` footer so release-please can open the generated RC PR. If release-please
+  would report "No user facing commits", the gate is failing and the fix must happen through normal `staging` PR content
+  or the promotion PR squash title/body/footer.
 - A **release** is prepared by verifying the intended RC release, then opening and merging the `premain` -> `main`
   promotion PR.
+- A `premain` -> `main` PR is also a release-intent gate. It is valid only when it carries an RC/pending stable promotion
+  state that can become stable. The follow-up generated release-please PR targeting `main` must be stable-shaped; RC-shaped
+  main release PRs and releases are forbidden.
 - The `main` release workflow skips publishing while pending stable promotion is present, and `release-pr.yml` opens the
   stable release-please PR with `release-as` computed from the premain RC baseline. Pull-request quality checks for the
   `premain` -> `main` promotion may verify this state with explicit pending stable-promotion mode.
 - A **release** is cut by merging the stable release-please PR, which normalizes the stable manifest, prerelease manifest,
   and SDK version files to stable state before the stable release workflow publishes `vX.Y.Z`.
+- After the stable release publishes, the next operator step is a normal PR backmerge from `main` to `staging`; `premain`
+  receives the new baseline through the next `staging` -> `premain` promotion.
 - Hotfixes should still follow `staging` -> `premain` -> `main` so version lines stay aligned.
 
-## Post-release sync (automated)
+## Post-release backmerge (operator PR)
 
-After a stable release is published on `main`, the `Release (main)` workflow runs
-`scripts/sync-post-stable-release-baselines.sh`. The sync commits the stable release baseline back to
-`premain` and `staging`:
+After a stable release is published on `main`, CI must not push baseline sync commits to `premain` or `staging`. The
+post-release lane step is a normal PR backmerge from `main` to `staging` so the next cycle starts from the released
+stable state:
 
 - `.release-please-manifest.json`
-- `.release-please-manifest.premain.json` reset to the newly published stable version
+- `.release-please-manifest.premain.json`
 - `CHANGELOG.md`
 - `py/src/theorydb_py/version.json`
 - `ts/package.json`
 - `ts/package-lock.json`
 
-This replaces manual manifest resets and manual post-release `main` -> `premain` / `main` -> `staging` release-baseline
-back-merges. The next `staging` -> `premain` promotion starts from the latest stable version, and the subsequent
-prerelease PR advances from that baseline.
+Do not direct-push from CI to `premain` or `staging`, do not run a workflow that mutates protected branch refs through the
+GitHub API, and do not sync `main` directly to `premain` after stable publication. The next `staging` -> `premain`
+promotion carries the stable baseline into `premain`.
 
 The normal stable promotion path does not use a local stable-normalization branch. `release-please-config.json` must keep
 `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
 `py/src/theorydb_py/version.json` wired as stable release-please extra-files so the generated stable Release PR owns all
 version-file normalization.
 
-Acceptable post-stable sync paths:
-
-- Preferred: PR from `main` to `staging`, then PR from `main` or updated `staging` to `premain`.
-- Acceptable automation: a documented workflow that creates PR branches, runs COM-8 and SEC-2 checks, and never pushes
-  directly to protected branches.
-- Recovery: if a branch is already stranded, create a new PR branch from the correct base and replay only the needed file
-  state. Do not retag, overwrite release assets, force-push, delete branches, or mutate GitHub releases.
+`scripts/sync-post-stable-release-baselines.sh` is deprecated, dry-run-only, and operator-only. It must not be called from
+release workflows and must not push sync commits. Recovery remains PR-based: if a branch is stranded, create a new PR
+branch from the correct base and replay only the needed file state. Do not retag, overwrite release assets, force-push,
+delete branches, mutate GitHub releases, or direct-push protected branches.
 
 ## Immutable release version reuse
 
@@ -91,10 +97,13 @@ Current recovery decision: `1.9.2` is abandoned; the next RC must be `v1.9.3-rc.
 Protect both `premain` and `main`:
 
 - Require PRs for human-authored changes.
-- Allow only the stable release workflow token to fast-forward post-release baseline sync commits to `premain`.
 - Require CODEOWNERS/review approvals.
-- Require CI status checks to pass (at minimum: `Quality Gates (10/10 Rubric)`).
+- Require release-hygiene status checks for PRs targeting `premain` and `main`; do not require the full Hypergenium rubric
+  on those promotion branches.
 - Restrict force-pushes and deletions.
+
+Protect `staging` with the full Hypergenium rubric on PRs targeting `staging`. The full rubric may also run by
+`workflow_dispatch`, but it must not run on push or on PRs targeting `premain` or `main`.
 
 ## Automated releases (required)
 
@@ -114,6 +123,10 @@ Recommended approach: **release-please** (merge-driven versioning + changelog up
 
 - **Dependency/platform updates must use a release-eligible conventional commit type** (recommended: `fix(deps): ...`) so they produce an rc/release.
 - Pure `chore(...)` commits may be treated as non-user-facing and can be skipped by `release-please`.
+- On `premain` and `main` gates, a release-please "No user facing commits" result is a failed gate precondition, not a
+  successful no-op. Correct remediation is a release-eligible conventional commit or the appropriate `Release-As:` footer
+  through normal PR flow. Do not create tags, reset branches, force-push, direct-push protected branches, hand-edit
+  manifests/package versions, or mutate GitHub releases to force a release.
 
 **Recommendation:** use squash-merge and set the squash title to a conventional commit that matches the intended version bump:
 
@@ -132,6 +145,11 @@ If a release workflow was expected to publish but `release_created` is false, pa
 If an asset upload or publish step has no `tag_name`, fail the workflow. If a GitHub release exists but TypeScript/Python
 assets are missing, use a documented asset recovery workflow only after confirming the tag and release are immutable and
 correct.
+
+Generated release-please PR merges are the publish steps. If a generated RC PR merge on `premain` or generated stable PR
+merge on `main` reports `release_created=false`, fail loudly; do not treat the publish workflow as green. Plain
+`staging` -> `premain` and `premain` -> `main` promotion merges are PR-generation setup only when `prerelease-pr.yml` or
+`release-pr.yml` is responsible for and required to open the generated release-please PR.
 
 Before promoting `premain` to `main`, confirm the intended RC is actually published: it must be non-draft, marked as a
 GitHub prerelease, have a `publishedAt` timestamp, resolve through `refs/tags/vX.Y.Z-rc.N`, use a tag-addressed release
@@ -162,10 +180,14 @@ These files are required to exist and be kept current:
 `scripts/prepare-stable-promotion.sh` is retained as a diagnostic/fallback helper. It is not the normal stable promotion
 path, and it must not replace release-please-owned stable version/changelog updates.
 
-Additionally, quality/security workflows should run on PRs to (and/or pushes on) both protected branches:
+Release-lane quality workflow expectations:
 
-- `.github/workflows/quality-gates.yml`
-- `.github/workflows/codeql.yml`
+- `.github/workflows/quality-gates.yml` runs the full Hypergenium rubric only for PRs targeting `staging` and for
+  manual dispatch.
+- `.github/workflows/release-hygiene.yml` runs lightweight source-branch, release-cycle, supply-chain, and main-RC-PR
+  checks for PRs targeting `premain` and `main`.
+- Other security workflows, such as `.github/workflows/codeql.yml`, may run independently, but they do not replace the
+  release-lane gate split above.
 
 ## Notes
 
@@ -185,6 +207,9 @@ Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--str
 - COM-8 branch/version sync failing.
 - release-please opening a stable PR for an RC version.
 - `origin/main` in pending stable promotion without an open stable release-please PR for the computed stable version.
+- `prerelease-pr.yml` completing after a `staging` -> `premain` promotion without an open generated RC release-please PR
+  targeting `premain`.
+- release-please reporting "No user facing commits" on a `premain` or `main` release-intent gate.
 - a release workflow expected to create a release but not reporting `release_created`.
 - asset/publish steps missing `tag_name`.
 - a GitHub release existing without uploaded TypeScript/Python assets.

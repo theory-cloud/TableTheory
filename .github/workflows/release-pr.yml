@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths-ignore:
       - ".release-please-manifest.json"
+      - ".release-please-manifest.premain.json"
       - "CHANGELOG.md"
       - "py/src/theorydb_py/version.json"
       - "ts/package.json"
@@ -25,7 +26,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      - name: Forbid RC-shaped main Release PRs
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-main-release-pr-postcondition.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --forbid-rc-only
+
       - name: Verify release cycle state
+        id: cycle
         run: |
           set -euo pipefail
 
@@ -40,12 +53,14 @@ jobs:
 
           if bash scripts/verify-release-cycle-state.sh >"${strict_log}" 2>&1; then
             cat "${strict_log}"
+            echo "pending_stable_promotion=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
           if RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true bash scripts/verify-release-cycle-state.sh >"${pending_log}" 2>&1; then
             cat "${pending_log}"
             echo "release-cycle-state: pending stable promotion accepted for stable Release PR generation"
+            echo "pending_stable_promotion=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -84,8 +99,11 @@ jobs:
 
           premain_base = premain.split("+", 1)[0].split("-", 1)[0]
 
-          # If premain is already on a higher major/minor/patch line (e.g., 1.3.0-rc.1),
-          # force the stable Release PR to promote that baseline (e.g., 1.3.0).
+          if "-rc" not in premain:
+              raise SystemExit("")
+
+          # Pending stable promotion is promoted from an RC baseline
+          # (e.g., 1.3.0-rc.1 -> release-as 1.3.0).
           if parse_base(premain_base) > parse_base(stable):
               print(premain_base)
           PY
@@ -97,9 +115,20 @@ jobs:
       - name: Release Please CLI (PR only)
         env:
           RELEASE_AS: ${{ steps.version.outputs.release_as }}
+          PENDING_STABLE_PROMOTION: ${{ steps.cycle.outputs.pending_stable_promotion }}
           RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+
+          if [[ "${PENDING_STABLE_PROMOTION}" != "true" ]]; then
+            echo "release-pr: strict stable state; no release-as computed and no release-please call needed"
+            exit 0
+          fi
+
+          if [[ -z "${RELEASE_AS}" ]]; then
+            echo "release-pr: FAIL (pending stable promotion did not compute a stable release-as)"
+            exit 1
+          fi
 
           if [[ -z "${RELEASE_PLEASE_TOKEN}" ]]; then
             echo "release-pr: FAIL (missing release-please token)"
@@ -115,14 +144,12 @@ jobs:
             --token "${RELEASE_PLEASE_TOKEN}"
           )
 
-          if [[ -n "${RELEASE_AS}" ]]; then
-            args+=(--release-as "${RELEASE_AS}")
-          fi
+          args+=(--release-as "${RELEASE_AS}")
 
           npx --yes "release-please@${RELEASE_PLEASE_CLI_VERSION}" "${args[@]}"
 
       - name: Verify stable Release PR postcondition
-        if: steps.version.outputs.release_as != ''
+        if: steps.cycle.outputs.pending_stable_promotion == 'true'
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.release_as }}
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}

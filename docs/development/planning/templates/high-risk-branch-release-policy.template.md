@@ -4,6 +4,8 @@ This template is intended to be copied and filled per project.
 Use one release lane with an RC phase followed by a stable phase. Branches can separate integration, RC generation, and
 stable publishing duties, but they must not create a second release path for the same product.
 
+Factory-standard three-branch framework lane: `staging -> premain -> main -> staging`.
+
 ## Branches
 
 - `[prerelease-branch]` — prerelease integration branch (source of prereleases).
@@ -29,15 +31,17 @@ If the project uses separate integration, prerelease, and stable branches, prefe
 
 1. Work lands on `[integration-branch]`.
 2. `[integration-branch]` -> `[prerelease-branch]` PR starts the RC phase.
-3. Prerelease automation produces `vX.Y.Z-rc.N` on `[prerelease-branch]`.
+3. Prerelease automation opens a generated RC release PR, then publishes `vX.Y.Z-rc.N` only after that generated PR
+   merges.
 4. Verify the intended RC is published and asset-complete, then open and merge the `[prerelease-branch]` ->
    `[release-branch]` promotion PR.
 5. Release automation skips publishing during the temporary pending stable promotion state while release-PR automation
    opens the stable release PR with the stable `release-as` derived from the RC baseline.
 6. Merging the stable release PR normalizes stable manifests, prerelease manifests, and SDK/package version files to the
    stable version; stable automation then publishes immutable `vX.Y.Z`.
-7. Sync the stable baseline back to `[integration-branch]` and `[prerelease-branch]` through PRs or documented verified
-   automation.
+7. Backmerge the stable baseline from `[release-branch]` to `[integration-branch]` through a normal PR. Do not direct-sync
+   `[release-branch]` to `[prerelease-branch]`; the next `[integration-branch]` -> `[prerelease-branch]` promotion carries
+   the stable baseline forward.
 
 ## Protections (required)
 
@@ -45,8 +49,13 @@ Protect both `[prerelease-branch]` and `[release-branch]`:
 
 - Require PRs (no direct pushes).
 - Require review approvals (CODEOWNERS recommended).
-- Require CI status checks to pass (define the minimum required checks explicitly).
+- Require lightweight release-hygiene checks that validate source branches, release-cycle state, branch release
+  supply-chain scaffolding, human promotion release drivers, generated release-PR shape, and stable-branch no-RC release
+  PRs.
 - Restrict force-pushes and deletions.
+
+Protect `[integration-branch]` with the full project rubric only on PRs targeting `[integration-branch]` and optional
+manual dispatch. Do not require or run the full rubric on PRs targeting `[prerelease-branch]` or `[release-branch]`.
 
 ## Automated releases (required)
 
@@ -54,6 +63,16 @@ Define and automate:
 
 - **Prereleases** on merges to `[prerelease-branch]` (tag convention: `[vX.Y.Z-rc.N]` or similar).
 - **Releases** on merges to `[release-branch]` (tag convention: `vX.Y.Z`).
+
+PRs to `[prerelease-branch]` and `[release-branch]` are release-intent gates, not optional/no-op syncs. A promotion into
+the prerelease branch must carry a release-eligible conventional commit or prerelease-shaped explicit version footer that
+the release tool can use to open the generated RC PR. A promotion into the release branch must carry a pending RC
+promotion state that can become stable. If release-please or another release-PR tool reports "No user facing commits" on
+these gates, treat that as a failed precondition, not a green no-op.
+
+Correct remediation is a release-eligible conventional commit or explicit version footer through normal PR flow. Do not
+create tags, reset branches, force-push, direct-push protected branches, hand-edit manifests/package versions, or mutate
+GitHub releases to force a release.
 
 Implementation options (pick one and pin versions):
 
@@ -65,8 +84,11 @@ Document forbidden stable-branch states:
 - stable manifest set to `X.Y.Z-rc.N`.
 - language/package version files left at `X.Y.Z-rc.N`.
 - release automation opening a stable release PR for an RC version.
+- prerelease PR automation completing without an open generated RC release PR after a prerelease promotion.
 - pending stable promotion persisting after the release-branch promotion without an open stable release PR.
+- publish automation seeing `release_created=false` or a missing tag name after a generated RC/stable release PR merge.
 - direct branch pushes or ref mutations where policy requires PR sync.
+- automated post-stable direct-push sync to `[prerelease-branch]` or `[integration-branch]`.
 - manual recovery that recreates deleted tags, hand-publishes replacement releases, or reuses an exhausted immutable
   release version.
 
@@ -95,13 +117,16 @@ release branch and all prerelease/package files carry one internally consistent 
 
 - `.github/workflows/prerelease.yml`
 - `.github/workflows/release.yml`
+- `.github/workflows/quality-gates.yml` for integration-branch full rubric only
+- `.github/workflows/release-hygiene.yml` for prerelease/release branch PR hygiene
 
 ## Evidence / verification
 
 - Link this policy from the project’s rubric (as an artifact check) and add a verifier that fails if:
   - the workflows don’t exist,
   - tools are unpinned (`@latest`),
-  - releases are not gated on the project’s quality/security surface.
+  - the full rubric is not limited to integration-branch PRs and manual dispatch,
+  - prerelease/release branch PRs do not have lightweight release hygiene.
 
 Evidence should include deterministic branch/version checks and a read-only release watch command.
 
@@ -115,15 +140,19 @@ Pause before merge or release when:
   active RC phase has been normalized to stable.
 - security/governance checks still observe a vulnerable toolchain or dependency state.
 - branch/version sync checks fail.
+- release-please or the release-PR tool reports "No user facing commits" on a prerelease/release branch gate.
+- prerelease PR automation completes without an open generated RC release PR.
 - an abandoned/exhausted version recovery lacks the required release-eligible commit footer or tries to skip the release
   tool with manual version/tag/release edits.
-- release automation completes without creating the expected release.
+- release automation completes without creating the expected release, including `release_created=false` after a generated
+  RC/stable release PR merge.
 - pending stable promotion persists without an open stable release PR.
 - release asset steps have no tag name, or the GitHub release exists without required assets.
 - a requested release tag is draft, lacks a published timestamp, has no git tag ref, uses an `untagged-...` draft URL, or
   points the release target and git tag ref at different commits.
 - the intended RC is not yet published, non-draft, marked prerelease, tagged, and asset-complete.
-- automation attempts direct branch mutation where the documented path expects PR sync.
+- automation attempts direct branch mutation where the documented path expects PR sync, including post-stable baseline
+  sync pushes.
 
 Allowed recovery should be non-destructive: new PR branches from known bases, diagnostic/fallback normalization helpers,
 and verified PR-based sync. The normal release path should leave version and changelog edits to release automation. Do not
