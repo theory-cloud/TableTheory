@@ -18,6 +18,51 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout (for release state verification)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Classify release cycle state
+        if: github.ref == 'refs/heads/main'
+        id: cycle
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-branch-version-sync.sh
+
+          strict_log="$(mktemp)"
+          pending_log="$(mktemp)"
+          cleanup() {
+            rm -f "${strict_log}" "${pending_log}"
+          }
+          trap cleanup EXIT
+
+          if bash scripts/verify-release-cycle-state.sh >"${strict_log}" 2>&1; then
+            cat "${strict_log}"
+            echo "pending_stable_promotion=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          if RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true bash scripts/verify-release-cycle-state.sh >"${pending_log}" 2>&1; then
+            cat "${pending_log}"
+            echo "pending_stable_promotion=true" >> "${GITHUB_OUTPUT}"
+            {
+              echo "### Stable release skipped"
+              echo
+              echo "Pending stable promotion detected. release-pr.yml must open the stable release-please PR; stable release creation resumes only after that PR merges and strict equality is restored."
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          cat "${strict_log}"
+          cat "${pending_log}"
+          exit 1
+
+      - name: Skip stable release during pending promotion
+        if: github.ref == 'refs/heads/main' && steps.cycle.outputs.pending_stable_promotion == 'true'
+        run: |
+          echo "release-cycle-state: pending stable promotion detected; stable release creation is skipped until the stable release-please PR merges"
+
       - name: Checkout (for tag-triggered assets)
         if: startsWith(github.ref, 'refs/tags/') || inputs.tag_name != ''
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -83,7 +128,7 @@ jobs:
 
       - name: Release Please (Stable)
         id: release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.cycle.outputs.pending_stable_promotion != 'true'
         uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
