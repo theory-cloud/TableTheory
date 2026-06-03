@@ -53,6 +53,16 @@ Acceptable post-stable sync paths:
 - Recovery: if a branch is already stranded, create a new PR branch from the correct base and replay only the needed file
   state. Do not retag, overwrite release assets, force-push, delete branches, or mutate GitHub releases.
 
+## Immutable release version reuse
+
+GitHub release tag names are one-time-use for TableTheory release-cycle purposes. If a published immutable release or its
+git tag is deleted, that version name is still exhausted and must not be reused. Do not manually recreate the tag, publish
+a replacement release by hand, edit immutable release assets, or patch manifests to make the same version run again.
+
+If a publish step fails with `tag_name was used by an immutable release`, recover through the normal PR-driven release
+flow: land a release-eligible change, promote it through the documented branch path, and let release-please advance to the
+next RC or stable version for that lane.
+
 ## Protections (required)
 
 Protect both `premain` and `main`:
@@ -100,6 +110,11 @@ If an asset upload or publish step has no `tag_name`, fail the workflow. If a Gi
 assets are missing, use a documented asset recovery workflow only after confirming the tag and release are immutable and
 correct.
 
+Before promoting `premain` to `main`, confirm the intended RC is actually published: it must be non-draft, marked as a
+GitHub prerelease, have a `publishedAt` timestamp, resolve through `refs/tags/vX.Y.Z-rc.N`, use a tag-addressed release
+URL rather than an `untagged-...` draft URL, and include the required TypeScript/Python assets. Asset presence alone is
+not sufficient evidence that a release is healthy.
+
 ## Multi-language versioning (required)
 
 - **Single shared repo version:** Go, TypeScript, and Python use the same GitHub tag/release version.
@@ -144,4 +159,8 @@ Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--str
 - a release workflow expected to create a release but not reporting `release_created`.
 - asset/publish steps missing `tag_name`.
 - a GitHub release existing without uploaded TypeScript/Python assets.
+- a requested release tag that is draft, missing `publishedAt`, missing `refs/tags/<tag>`, using an `untagged-...` release
+  URL, or whose git tag ref target differs from the release target commitish.
+- any recovery plan that reuses a deleted/exhausted immutable release version instead of advancing through a
+  release-eligible PR and release-please.
 - automation attempting direct branch mutation where PR sync is required.
