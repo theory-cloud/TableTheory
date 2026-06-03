@@ -39,7 +39,8 @@ Single test example: `go test -v -run TestName ./pkg/query`
 - Tests use `testing` + `stretchr/testify`; prefer table-driven tests.
 - Unit tests should avoid Docker; use interfaces in `pkg/core/` and mocks in `pkg/mocks/`.
 - Integration tests rely on DynamoDB Local and `DYNAMODB_ENDPOINT` (see `tests/README.md` and `./tests/setup_test_env.sh`).
-- `make rubric` is the core CI parity/quality check and must pass before opening or updating a pull request.
+- `make rubric` is the core CI parity/quality check and must pass before opening or updating a pull request targeting
+  `staging`.
 
 ## Commit & Pull Request Guidelines
 - Branch naming commonly uses `feature/...`, `fix/...`, `chore/...`.
@@ -54,6 +55,10 @@ published requires:
 - **staging → premain**: merge a PR from `staging` into `premain` to start the prerelease pipeline (RCs)
 - **premain → main**: merge a PR from `premain` into `main` to start the stable release pipeline
 - **post-release sync**: back-merge `main` into `staging` so the next cycle starts from the latest stable baseline
+
+The cross-framework release lane is exactly `staging -> premain -> main -> staging`. `staging` is the only branch that
+requires the full Hypergenium rubric, and only on PRs targeting `staging` plus manual workflow dispatch. PRs targeting
+`premain` or `main` require release-hygiene checks only, not the full rubric.
 
 Branch roles:
 
@@ -117,8 +122,9 @@ Stable promotion path:
   match.
 - If pending state persists because release-please did not open the stable PR, pause and investigate the workflow/check
   failure. Do not patch `main`, retag, edit releases, or hand-edit manifests to advance the cycle.
-- After the stable release is published, sync `main` back to `staging` and `premain` through PRs, or through an explicitly
-  documented automation path that runs the same verifiers and does not directly mutate protected branches.
+- After the stable release is published, do not let CI push sync commits to `premain` or `staging`. The next operator step
+  is a normal PR backmerge from `main` to `staging`; `premain` receives that baseline through the next
+  `staging` -> `premain` promotion.
 - `scripts/prepare-stable-promotion.sh` is diagnostic/fallback tooling only. It is not the normal stable release path and
   must not replace release-please-owned stable version/changelog updates.
 

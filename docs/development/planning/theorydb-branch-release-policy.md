@@ -1,8 +1,8 @@
 # TableTheory: Branch + Release Policy (main release, premain prerelease)
 
 This document defines the intended branch strategy and release automation for TableTheory in high-risk usage contexts.
-TableTheory has one release lane: `staging` -> `premain` -> RC -> `main` -> stable release. `premain` owns the RC
-phase of that lane, and `main` owns the stable phase; neither branch starts a separate release path.
+TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` (staging -> premain -> main -> staging).
+`premain` owns the RC phase of that lane, and `main` owns the stable phase; neither branch starts a separate release path.
 
 ## Branches
 
@@ -35,37 +35,36 @@ phase of that lane, and `main` owns the stable phase; neither branch starts a se
   `premain` -> `main` promotion may verify this state with explicit pending stable-promotion mode.
 - A **release** is cut by merging the stable release-please PR, which normalizes the stable manifest, prerelease manifest,
   and SDK version files to stable state before the stable release workflow publishes `vX.Y.Z`.
+- After the stable release publishes, the next operator step is a normal PR backmerge from `main` to `staging`; `premain`
+  receives the new baseline through the next `staging` -> `premain` promotion.
 - Hotfixes should still follow `staging` -> `premain` -> `main` so version lines stay aligned.
 
-## Post-release sync (automated)
+## Post-release backmerge (operator PR)
 
-After a stable release is published on `main`, the `Release (main)` workflow runs
-`scripts/sync-post-stable-release-baselines.sh`. The sync commits the stable release baseline back to
-`premain` and `staging`:
+After a stable release is published on `main`, CI must not push baseline sync commits to `premain` or `staging`. The
+post-release lane step is a normal PR backmerge from `main` to `staging` so the next cycle starts from the released
+stable state:
 
 - `.release-please-manifest.json`
-- `.release-please-manifest.premain.json` reset to the newly published stable version
+- `.release-please-manifest.premain.json`
 - `CHANGELOG.md`
 - `py/src/theorydb_py/version.json`
 - `ts/package.json`
 - `ts/package-lock.json`
 
-This replaces manual manifest resets and manual post-release `main` -> `premain` / `main` -> `staging` release-baseline
-back-merges. The next `staging` -> `premain` promotion starts from the latest stable version, and the subsequent
-prerelease PR advances from that baseline.
+Do not direct-push from CI to `premain` or `staging`, do not run a workflow that mutates protected branch refs through the
+GitHub API, and do not sync `main` directly to `premain` after stable publication. The next `staging` -> `premain`
+promotion carries the stable baseline into `premain`.
 
 The normal stable promotion path does not use a local stable-normalization branch. `release-please-config.json` must keep
 `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
 `py/src/theorydb_py/version.json` wired as stable release-please extra-files so the generated stable Release PR owns all
 version-file normalization.
 
-Acceptable post-stable sync paths:
-
-- Preferred: PR from `main` to `staging`, then PR from `main` or updated `staging` to `premain`.
-- Acceptable automation: a documented workflow that creates PR branches, runs COM-8 and SEC-2 checks, and never pushes
-  directly to protected branches.
-- Recovery: if a branch is already stranded, create a new PR branch from the correct base and replay only the needed file
-  state. Do not retag, overwrite release assets, force-push, delete branches, or mutate GitHub releases.
+`scripts/sync-post-stable-release-baselines.sh` is deprecated, dry-run-only, and operator-only. It must not be called from
+release workflows and must not push sync commits. Recovery remains PR-based: if a branch is stranded, create a new PR
+branch from the correct base and replay only the needed file state. Do not retag, overwrite release assets, force-push,
+delete branches, mutate GitHub releases, or direct-push protected branches.
 
 ## Immutable release version reuse
 
@@ -91,10 +90,13 @@ Current recovery decision: `1.9.2` is abandoned; the next RC must be `v1.9.3-rc.
 Protect both `premain` and `main`:
 
 - Require PRs for human-authored changes.
-- Allow only the stable release workflow token to fast-forward post-release baseline sync commits to `premain`.
 - Require CODEOWNERS/review approvals.
-- Require CI status checks to pass (at minimum: `Quality Gates (10/10 Rubric)`).
+- Require release-hygiene status checks for PRs targeting `premain` and `main`; do not require the full Hypergenium rubric
+  on those promotion branches.
 - Restrict force-pushes and deletions.
+
+Protect `staging` with the full Hypergenium rubric on PRs targeting `staging`. The full rubric may also run by
+`workflow_dispatch`, but it must not run on push or on PRs targeting `premain` or `main`.
 
 ## Automated releases (required)
 
@@ -162,10 +164,14 @@ These files are required to exist and be kept current:
 `scripts/prepare-stable-promotion.sh` is retained as a diagnostic/fallback helper. It is not the normal stable promotion
 path, and it must not replace release-please-owned stable version/changelog updates.
 
-Additionally, quality/security workflows should run on PRs to (and/or pushes on) both protected branches:
+Release-lane quality workflow expectations:
 
-- `.github/workflows/quality-gates.yml`
-- `.github/workflows/codeql.yml`
+- `.github/workflows/quality-gates.yml` runs the full Hypergenium rubric only for PRs targeting `staging` and for
+  manual dispatch.
+- `.github/workflows/release-hygiene.yml` runs lightweight source-branch, release-cycle, supply-chain, and main-RC-PR
+  checks for PRs targeting `premain` and `main`.
+- Other security workflows, such as `.github/workflows/codeql.yml`, may run independently, but they do not replace the
+  release-lane gate split above.
 
 ## Notes
 
