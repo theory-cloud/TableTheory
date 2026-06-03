@@ -1,0 +1,88 @@
+name: Release Hygiene
+
+on:
+  pull_request:
+    branches: ["premain", "main"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Validate release-lane source branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+
+          base = os.environ["BASE_REF"]
+          head = os.environ["HEAD_REF"]
+          title = os.environ["PR_TITLE"]
+
+
+          def fail(message: str) -> None:
+              print(f"release-hygiene: FAIL ({message})", file=sys.stderr)
+              raise SystemExit(1)
+
+
+          if base == "premain":
+              if head == "staging":
+                  print("release-hygiene: source branch OK (staging -> premain)")
+                  raise SystemExit(0)
+              if head == "release-please--branches--premain":
+                  if re.fullmatch(r"chore\(premain\): release \d+\.\d+\.\d+-rc\.\d+", title):
+                      print("release-hygiene: source branch OK (premain release-please RC PR)")
+                      raise SystemExit(0)
+                  fail(f"premain release-please PR must advertise an RC version, got {title!r}")
+              fail(f"premain PR head must be staging, got {head!r}")
+
+          if base == "main":
+              if re.search(r"\d+\.\d+\.\d+-rc(?:[.\-\w]*)?", title):
+                  fail(f"main PR must not advertise an RC version, got {title!r}")
+              if head == "premain":
+                  print("release-hygiene: source branch OK (premain -> main)")
+                  raise SystemExit(0)
+              if head == "release-please--branches--main":
+                  if re.fullmatch(r"chore\(main\): release \d+\.\d+\.\d+", title):
+                      print("release-hygiene: source branch OK (main stable release-please PR)")
+                      raise SystemExit(0)
+                  fail(f"main release-please PR must advertise a stable version, got {title!r}")
+              fail(f"main PR head must be premain, got {head!r}")
+
+          fail(f"unsupported release-hygiene base branch {base!r}")
+          PY
+
+      - name: Verify release cycle state
+        env:
+          RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
+        run: bash scripts/verify-release-cycle-state.sh
+
+      - name: Verify release supply-chain scaffolding
+        run: bash scripts/verify-branch-release-supply-chain.sh
+
+      - name: Forbid RC-shaped main Release PRs
+        if: github.event_name != 'pull_request' || github.base_ref == 'main'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-main-release-pr-postcondition.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --forbid-rc-only

@@ -1,16 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Verifies required branch/release supply-chain artifacts exist and are wired for the expected flow:
-# - `premain` -> prereleases
-# - `main` -> stable releases
+# Verifies the TableTheory release-lane scaffolding:
+# - one lane: staging -> premain -> main -> staging
+# - full Hypergenium rubric only on staging PRs and workflow_dispatch
+# - lightweight release hygiene on premain/main PRs
+# - premain cuts RCs; main cuts stable releases only
+# - no post-stable CI direct-push sync to protected branches
 #
-# This is a deterministic grep-based check (not a full YAML parser).
+# This is a deterministic grep-based check, not a full YAML parser.
 
 failures=0
 
+fail() {
+  echo "branch-release: $1"
+  failures=$((failures + 1))
+}
+
+require_file() {
+  local path="$1"
+  if [[ ! -f "${path}" ]]; then
+    fail "missing ${path}"
+  fi
+}
+
+require_fixed() {
+  local needle="$1"
+  local path="$2"
+  local message="$3"
+
+  grep -Fq -- "${needle}" "${path}" || fail "${message}"
+}
+
+require_regex() {
+  local pattern="$1"
+  local path="$2"
+  local message="$3"
+
+  grep -Eq -- "${pattern}" "${path}" || fail "${message}"
+}
+
 required_files=(
+  "AGENTS.md"
   "docs/development/planning/theorydb-branch-release-policy.md"
+  "docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md"
+  "docs/development/planning/templates/high-risk-branch-release-policy.template.md"
+  ".github/workflows/quality-gates.yml"
+  ".github/workflows/release-hygiene.yml"
   ".github/workflows/prerelease.yml"
   ".github/workflows/prerelease-pr.yml"
   ".github/workflows/release.yml"
@@ -21,348 +57,243 @@ required_files=(
   ".release-please-manifest.json"
   "scripts/sync-post-stable-release-baselines.sh"
   "scripts/verify-main-release-pr-postcondition.sh"
-  "docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md"
+  "scripts/watch-release-cycle.sh"
 )
 
-for f in "${required_files[@]}"; do
-  if [[ ! -f "${f}" ]]; then
-    echo "branch-release: missing ${f}"
-    failures=$((failures + 1))
-  fi
+for path in "${required_files[@]}"; do
+  require_file "${path}"
 done
 
 if [[ -f "scripts/watch-release-cycle.sh" ]]; then
-  grep -Fq "isDraft" "scripts/watch-release-cycle.sh" || {
-    echo "branch-release: watch-release-cycle must check GitHub release draft state for --tag"
-    failures=$((failures + 1))
-  }
-  grep -Fq "publishedAt" "scripts/watch-release-cycle.sh" || {
-    echo "branch-release: watch-release-cycle must check GitHub release publishedAt for --tag"
-    failures=$((failures + 1))
-  }
-  grep -Fq "git/ref/tags" "scripts/watch-release-cycle.sh" || {
-    echo "branch-release: watch-release-cycle must check git tag refs for --tag"
-    failures=$((failures + 1))
-  }
-  grep -Fq "untagged-" "scripts/watch-release-cycle.sh" || {
-    echo "branch-release: watch-release-cycle must reject untagged draft release URLs for --tag"
-    failures=$((failures + 1))
-  }
-  grep -Fq "targetCommitish" "scripts/watch-release-cycle.sh" || {
-    echo "branch-release: watch-release-cycle must compare release targetCommitish with the tag ref"
-    failures=$((failures + 1))
-  }
+  require_fixed "isDraft" "scripts/watch-release-cycle.sh" \
+    "watch-release-cycle must check GitHub release draft state for --tag"
+  require_fixed "publishedAt" "scripts/watch-release-cycle.sh" \
+    "watch-release-cycle must check GitHub release publishedAt for --tag"
+  require_fixed "git/ref/tags" "scripts/watch-release-cycle.sh" \
+    "watch-release-cycle must check git tag refs for --tag"
+  require_fixed "untagged-" "scripts/watch-release-cycle.sh" \
+    "watch-release-cycle must reject untagged draft release URLs for --tag"
+  require_fixed "targetCommitish" "scripts/watch-release-cycle.sh" \
+    "watch-release-cycle must compare release targetCommitish with the tag ref"
 fi
 
-grep -Fq "tag_name was used by an immutable release" "docs/development/planning/theorydb-branch-release-policy.md" || {
-  echo "branch-release: branch release policy must document immutable release tag-name reuse recovery"
-  failures=$((failures + 1))
-}
-grep -Fq "one-time-use" "docs/development/planning/theorydb-branch-release-policy.md" || {
-  echo "branch-release: branch release policy must name one-time-use immutable release versions"
-  failures=$((failures + 1))
-}
-grep -Fq "Do not manually recreate tags" "AGENTS.md" || {
-  echo "branch-release: AGENTS.md must prohibit manual tag recreation during release recovery"
-  failures=$((failures + 1))
-}
-grep -Fq "tag_name was used by an immutable release" \
-  "docs/development/planning/templates/high-risk-branch-release-policy.template.md" || {
-  echo "branch-release: high-risk branch policy template must include immutable release reuse recovery"
-  failures=$((failures + 1))
-}
-grep -Fq "Release-As:" "docs/development/planning/templates/high-risk-branch-release-policy.template.md" || {
-  echo "branch-release: high-risk branch policy template must document release-please Release-As version recovery"
-  failures=$((failures + 1))
-}
-grep -Fq "Release-As: 1.9.3-rc.1" "AGENTS.md" || {
-  echo "branch-release: AGENTS.md must document the THE-1869 1.9.3 recovery footer"
-  failures=$((failures + 1))
-}
-if [[ -f "docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md" ]]; then
-  recovery_doc="docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md"
-  grep -Fq "1.9.2" "${recovery_doc}" || {
-    echo "branch-release: recovery doc must record the abandoned 1.9.2 release-cycle decision"
-    failures=$((failures + 1))
-  }
-  grep -Fq "v1.9.3-rc.1" "${recovery_doc}" || {
-    echo "branch-release: recovery doc must record v1.9.3-rc.1 as the next RC"
-    failures=$((failures + 1))
-  }
-  grep -Fq "v1.9.3" "${recovery_doc}" || {
-    echo "branch-release: recovery doc must record v1.9.3 as the next stable release"
-    failures=$((failures + 1))
-  }
-  grep -Fq "Release-As: 1.9.3-rc.1" "${recovery_doc}" || {
-    echo "branch-release: recovery doc must record the release-please Release-As footer"
-    failures=$((failures + 1))
-  }
-  grep -Fq "Do not hand-edit" "${recovery_doc}" && grep -Fq ".release-please-manifest*.json" "${recovery_doc}" || {
-    echo "branch-release: recovery doc must forbid manual release manifest edits"
-    failures=$((failures + 1))
-  }
-  grep -Fq "staging" "${recovery_doc}" && grep -Fq "premain" "${recovery_doc}" && grep -Fq "main" "${recovery_doc}" || {
-    echo "branch-release: recovery doc must document the staging/premain/main path"
-    failures=$((failures + 1))
-  }
+if [[ -f ".github/workflows/quality-gates.yml" ]]; then
+  q=".github/workflows/quality-gates.yml"
+  require_fixed "pull_request:" "${q}" \
+    "quality-gates must run on pull_request"
+  require_fixed 'branches: ["staging"]' "${q}" \
+    "quality-gates pull_request must target staging only"
+  require_fixed "workflow_dispatch:" "${q}" \
+    "quality-gates must support workflow_dispatch"
+  require_fixed "run: make rubric" "${q}" \
+    "quality-gates must run the full rubric"
+  if grep -Eq '^[[:space:]]*push:' "${q}"; then
+    fail "quality-gates must not run on push"
+  fi
+  if grep -Eq 'branches:.*premain|branches:.*main' "${q}"; then
+    fail "quality-gates must not target premain/main PRs"
+  fi
+  if grep -Fq "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION" "${q}"; then
+    fail "quality-gates must not carry premain/main pending-promotion logic"
+  fi
+fi
+
+if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
+  h=".github/workflows/release-hygiene.yml"
+  require_fixed 'branches: ["premain", "main"]' "${h}" \
+    "release-hygiene must target premain and main PRs"
+  require_fixed 'head == "staging"' "${h}" \
+    "release-hygiene must validate staging -> premain promotion PRs"
+  require_fixed 'head == "premain"' "${h}" \
+    "release-hygiene must validate premain -> main promotion PRs"
+  require_fixed 'release-please--branches--premain' "${h}" \
+    "release-hygiene must explicitly gate generated premain release-please PRs"
+  require_fixed 'release-please--branches--main' "${h}" \
+    "release-hygiene must explicitly gate generated main release-please PRs"
+  require_fixed "scripts/verify-release-cycle-state.sh" "${h}" \
+    "release-hygiene must verify release-cycle state"
+  require_fixed "scripts/verify-branch-release-supply-chain.sh" "${h}" \
+    "release-hygiene must verify release supply-chain scaffolding"
+  require_fixed "--forbid-rc-only" "${h}" \
+    "release-hygiene must forbid RC-shaped main Release PRs"
+  if grep -Eq 'make rubric|verify-rubric' "${h}"; then
+    fail "release-hygiene must not run the full rubric"
+  fi
+fi
+
+for doc in \
+  "AGENTS.md" \
+  "docs/development/planning/theorydb-branch-release-policy.md" \
+  "docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md" \
+  "docs/development/planning/templates/high-risk-branch-release-policy.template.md"; do
+  [[ -f "${doc}" ]] || continue
+  require_fixed "staging -> premain -> main -> staging" "${doc}" \
+    "${doc} must describe the one release lane"
+done
+
+require_fixed "tag_name was used by an immutable release" \
+  "docs/development/planning/theorydb-branch-release-policy.md" \
+  "branch release policy must document immutable release tag-name reuse recovery"
+require_fixed "one-time-use" \
+  "docs/development/planning/theorydb-branch-release-policy.md" \
+  "branch release policy must name one-time-use immutable release versions"
+require_fixed "Do not manually recreate tags" "AGENTS.md" \
+  "AGENTS.md must prohibit manual tag recreation during release recovery"
+require_fixed "Release-As: 1.9.3-rc.1" "AGENTS.md" \
+  "AGENTS.md must document the THE-1869 1.9.3 recovery footer"
+require_fixed "tag_name was used by an immutable release" \
+  "docs/development/planning/templates/high-risk-branch-release-policy.template.md" \
+  "high-risk branch policy template must include immutable release reuse recovery"
+require_fixed "Release-As:" \
+  "docs/development/planning/templates/high-risk-branch-release-policy.template.md" \
+  "high-risk branch policy template must document release-please Release-As version recovery"
+
+if grep -RInE 'two release lanes|separate release lanes' \
+  AGENTS.md docs/development/planning/theorydb-branch-release-policy.md \
+  docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md \
+  docs/development/planning/templates/high-risk-branch-release-policy.template.md; then
+  fail "docs must not describe TableTheory as having two release lanes"
 fi
 
 if [[ -f ".github/workflows/prerelease.yml" ]]; then
-  grep -Eq 'branches:.*premain' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must target premain"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must pin release-please v4 by commit SHA"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'contents:\s*write' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must request contents: write"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'config-file:\s*release-please-config\.premain\.json' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must reference release-please-config.premain.json"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'manifest-file:\s*\.release-please-manifest\.premain\.json' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must reference .release-please-manifest.premain.json"
-    failures=$((failures + 1))
-  }
-  grep -Fq "scripts/verify-release-cycle-state.sh" ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must verify release-cycle state before release-please"
-    failures=$((failures + 1))
-  }
-  grep -Fq "scripts/verify-branch-version-sync.sh" ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must verify branch version sync before release-please"
-    failures=$((failures + 1))
-  }
-
-  # Ensure prereleases attach multi-language release artifacts.
-  grep -Eq 'release_created' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must use release-please outputs (release_created)"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'pushd ts' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must package TypeScript from ts/ (pushd ts)"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'npm pack --pack-destination \.\./release-assets' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must attach TypeScript npm pack artifact"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'python -m build --outdir \.\./release-assets' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must attach Python wheel/sdist artifacts"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'gh release upload' ".github/workflows/prerelease.yml" || {
-    echo "branch-release: prerelease workflow must upload release assets to GitHub release"
-    failures=$((failures + 1))
-  }
-fi
-
-if [[ -f ".github/workflows/release.yml" ]]; then
-  grep -Eq 'branches:.*main' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must target main"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must pin release-please v4 by commit SHA"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'contents:\s*write' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must request contents: write"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'config-file:\s*release-please-config\.json' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must reference release-please-config.json"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'manifest-file:\s*\.release-please-manifest\.json' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must reference .release-please-manifest.json"
-    failures=$((failures + 1))
-  }
-  grep -Fq "scripts/verify-release-cycle-state.sh" ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must verify release-cycle state before release-please"
-    failures=$((failures + 1))
-  }
-  grep -Fq "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must explicitly verify pending stable promotion mode"
-    failures=$((failures + 1))
-  }
-  grep -Fq "pending_stable_promotion" ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must classify pending stable promotion"
-    failures=$((failures + 1))
-  }
-  grep -Fq "stable release creation is skipped" ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must skip stable release creation during pending promotion"
-    failures=$((failures + 1))
-  }
-  grep -Fq "steps.cycle.outputs.pending_stable_promotion != 'true'" ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must gate stable release-please on strict release-cycle state"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'missing tag_name output' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must fail asset/publish steps when tag_name is missing"
-    failures=$((failures + 1))
-  }
-
-  # Ensure stable releases attach multi-language release artifacts.
-  grep -Eq 'release_created' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must use release-please outputs (release_created)"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'pushd ts' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must package TypeScript from ts/ (pushd ts)"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'npm pack --pack-destination \.\./release-assets' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must attach TypeScript npm pack artifact"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'python -m build --outdir \.\./release-assets' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must attach Python wheel/sdist artifacts"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'gh release upload' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must upload release assets to GitHub release"
-    failures=$((failures + 1))
-  }
-  grep -Fq "scripts/sync-post-stable-release-baselines.sh" ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must sync post-stable baselines"
-    failures=$((failures + 1))
-  }
-  grep -Fq 'SYNC_RELEASE_BASELINE_PUSH: "true"' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must enable post-stable baseline pushes"
-    failures=$((failures + 1))
-  }
-  grep -Fq 'SYNC_RELEASE_BASELINE_TARGETS: "premain staging"' ".github/workflows/release.yml" || {
-    echo "branch-release: release workflow must sync both premain and staging baselines"
-    failures=$((failures + 1))
-  }
-fi
-
-if [[ -f "scripts/sync-post-stable-release-baselines.sh" ]]; then
-  grep -Fq ".release-please-manifest.premain.json" "scripts/sync-post-stable-release-baselines.sh" || {
-    echo "branch-release: post-stable sync must reset the premain prerelease manifest"
-    failures=$((failures + 1))
-  }
-  grep -Fq ".release-please-manifest.json" "scripts/sync-post-stable-release-baselines.sh" || {
-    echo "branch-release: post-stable sync must copy the stable manifest baseline"
-    failures=$((failures + 1))
-  }
+  p=".github/workflows/prerelease.yml"
+  require_regex 'branches:.*premain' "${p}" \
+    "prerelease workflow must target premain"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${p}" \
+    "prerelease workflow must pin release-please v4 by commit SHA"
+  require_regex 'contents:\s*write' "${p}" \
+    "prerelease workflow must request contents: write"
+  require_regex 'config-file:\s*release-please-config\.premain\.json' "${p}" \
+    "prerelease workflow must reference release-please-config.premain.json"
+  require_regex 'manifest-file:\s*\.release-please-manifest\.premain\.json' "${p}" \
+    "prerelease workflow must reference .release-please-manifest.premain.json"
+  require_fixed "scripts/verify-release-cycle-state.sh" "${p}" \
+    "prerelease workflow must verify release-cycle state before release-please"
+  require_fixed "scripts/verify-branch-version-sync.sh" "${p}" \
+    "prerelease workflow must verify branch version sync before release-please"
+  require_regex 'release_created' "${p}" \
+    "prerelease workflow must use release-please outputs"
+  require_regex 'pushd ts' "${p}" \
+    "prerelease workflow must package TypeScript from ts/"
+  require_regex 'npm pack --pack-destination \.\./release-assets' "${p}" \
+    "prerelease workflow must attach TypeScript npm pack artifact"
+  require_regex 'python -m build --outdir \.\./release-assets' "${p}" \
+    "prerelease workflow must attach Python wheel/sdist artifacts"
+  require_regex 'gh release upload' "${p}" \
+    "prerelease workflow must upload release assets"
 fi
 
 if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
-  grep -Eq 'branches:.*premain' ".github/workflows/prerelease-pr.yml" || {
-    echo "branch-release: prerelease-pr workflow must target premain"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' ".github/workflows/prerelease-pr.yml" || {
-    echo "branch-release: prerelease-pr workflow must pin release-please v4 by commit SHA"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'config-file:\s*release-please-config\.premain\.json' ".github/workflows/prerelease-pr.yml" || {
-    echo "branch-release: prerelease-pr workflow must reference release-please-config.premain.json"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'manifest-file:\s*\.release-please-manifest\.premain\.json' ".github/workflows/prerelease-pr.yml" || {
-    echo "branch-release: prerelease-pr workflow must reference .release-please-manifest.premain.json"
-    failures=$((failures + 1))
-  }
-  grep -Fq "scripts/verify-release-cycle-state.sh" ".github/workflows/prerelease-pr.yml" || {
-    echo "branch-release: prerelease-pr workflow must verify release-cycle state before release-please"
-    failures=$((failures + 1))
-  }
-  grep -Fq "scripts/verify-branch-version-sync.sh" ".github/workflows/prerelease-pr.yml" || {
-    echo "branch-release: prerelease-pr workflow must verify branch version sync before release-please"
-    failures=$((failures + 1))
-  }
-  grep -Eq 'skip-github-release:\s*true' ".github/workflows/prerelease-pr.yml" || {
-    echo "branch-release: prerelease-pr workflow must set skip-github-release: true"
-    failures=$((failures + 1))
-  }
+  pp=".github/workflows/prerelease-pr.yml"
+  require_regex 'branches:.*premain' "${pp}" \
+    "prerelease-pr workflow must target premain"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${pp}" \
+    "prerelease-pr workflow must pin release-please v4 by commit SHA"
+  require_regex 'config-file:\s*release-please-config\.premain\.json' "${pp}" \
+    "prerelease-pr workflow must reference release-please-config.premain.json"
+  require_regex 'manifest-file:\s*\.release-please-manifest\.premain\.json' "${pp}" \
+    "prerelease-pr workflow must reference .release-please-manifest.premain.json"
+  require_fixed "scripts/verify-release-cycle-state.sh" "${pp}" \
+    "prerelease-pr workflow must verify release-cycle state before release-please"
+  require_fixed "scripts/verify-branch-version-sync.sh" "${pp}" \
+    "prerelease-pr workflow must verify branch version sync before release-please"
+  require_regex 'skip-github-release:\s*true' "${pp}" \
+    "prerelease-pr workflow must set skip-github-release: true"
+fi
+
+if [[ -f ".github/workflows/release.yml" ]]; then
+  r=".github/workflows/release.yml"
+  require_regex 'branches:.*main' "${r}" \
+    "release workflow must target main"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${r}" \
+    "release workflow must pin release-please v4 by commit SHA"
+  require_regex 'contents:\s*write' "${r}" \
+    "release workflow must request contents: write"
+  require_regex 'config-file:\s*release-please-config\.json' "${r}" \
+    "release workflow must reference release-please-config.json"
+  require_regex 'manifest-file:\s*\.release-please-manifest\.json' "${r}" \
+    "release workflow must reference .release-please-manifest.json"
+  require_fixed "scripts/verify-release-cycle-state.sh" "${r}" \
+    "release workflow must verify release-cycle state before release-please"
+  require_fixed "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" "${r}" \
+    "release workflow must explicitly verify pending stable promotion mode"
+  require_fixed "pending_stable_promotion" "${r}" \
+    "release workflow must classify pending stable promotion"
+  require_fixed "stable release creation is skipped" "${r}" \
+    "release workflow must skip stable release creation during pending promotion"
+  require_fixed "steps.cycle.outputs.pending_stable_promotion != 'true'" "${r}" \
+    "release workflow must gate stable release-please on strict release-cycle state"
+  require_regex 'missing tag_name output' "${r}" \
+    "release workflow must fail asset/publish steps when tag_name is missing"
+  require_regex 'release_created' "${r}" \
+    "release workflow must use release-please outputs"
+  require_regex 'pushd ts' "${r}" \
+    "release workflow must package TypeScript from ts/"
+  require_regex 'npm pack --pack-destination \.\./release-assets' "${r}" \
+    "release workflow must attach TypeScript npm pack artifact"
+  require_regex 'python -m build --outdir \.\./release-assets' "${r}" \
+    "release workflow must attach Python wheel/sdist artifacts"
+  require_regex 'gh release upload' "${r}" \
+    "release workflow must upload release assets"
+  if grep -Fq "scripts/sync-post-stable-release-baselines.sh" "${r}"; then
+    fail "release workflow must not call post-stable baseline sync"
+  fi
+  if grep -Fq "SYNC_RELEASE_BASELINE" "${r}"; then
+    fail "release workflow must not configure post-stable direct-push sync"
+  fi
 fi
 
 if [[ -f ".github/workflows/release-pr.yml" ]]; then
-  grep -Eq 'branches:.*main' ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must target main"
-    failures=$((failures + 1))
-  }
-  if grep -Fq "googleapis/release-please-action" ".github/workflows/release-pr.yml"; then
-    echo "branch-release: release-pr workflow must use pinned release-please CLI, not release-please-action, so release-as is honored in manifest mode"
-    failures=$((failures + 1))
+  rp=".github/workflows/release-pr.yml"
+  require_regex 'branches:.*main' "${rp}" \
+    "release-pr workflow must target main"
+  if grep -Fq "googleapis/release-please-action" "${rp}"; then
+    fail "release-pr workflow must use pinned release-please CLI, not release-please-action"
   fi
-  grep -Fq 'RELEASE_PLEASE_CLI_VERSION: "17.3.0"' ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must pin release-please CLI to v17.3.0"
-    failures=$((failures + 1))
-  }
-  grep -Fq 'npx --yes "release-please@${RELEASE_PLEASE_CLI_VERSION}"' ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must invoke the pinned release-please CLI"
-    failures=$((failures + 1))
-  }
-  grep -Fq "release-pr" ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must run the release-pr CLI command"
-    failures=$((failures + 1))
-  }
-  grep -Eq -- '--target-branch[[:space:]]+main' ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must target main through the CLI"
-    failures=$((failures + 1))
-  }
-  grep -Eq -- '--config-file[[:space:]]+release-please-config\.json' ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must reference release-please-config.json"
-    failures=$((failures + 1))
-  }
-  grep -Eq -- '--manifest-file[[:space:]]+\.release-please-manifest\.json' ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must reference .release-please-manifest.json"
-    failures=$((failures + 1))
-  }
-  grep -Fq "scripts/verify-release-cycle-state.sh" ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must verify release-cycle state before release-please"
-    failures=$((failures + 1))
-  }
-  grep -Fq "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must explicitly allow pending stable promotion verification"
-    failures=$((failures + 1))
-  }
-  grep -Fq "pending stable promotion accepted for stable Release PR generation" ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must document pending promotion PR generation"
-    failures=$((failures + 1))
-  }
-  grep -Fq "scripts/verify-main-release-pr-postcondition.sh" ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must verify the stable Release PR postcondition"
-    failures=$((failures + 1))
-  }
-
-  # Ensure stable releases promote the RC baseline on premain (e.g., 1.3.0-rc.1 -> 1.3.0),
-  # so the stable line never lags behind the prerelease line.
-  grep -Fq "release-as:" ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must set release-as to promote the premain RC baseline"
-    failures=$((failures + 1))
-  }
-  grep -Fq -- "--release-as" ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must pass release-as to the pinned CLI"
-    failures=$((failures + 1))
-  }
-  grep -Fq "steps.version.outputs.release_as" ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must pass release-as from computed premain RC baseline"
-    failures=$((failures + 1))
-  }
-  grep -Fq ".release-please-manifest.premain.json" ".github/workflows/release-pr.yml" || {
-    echo "branch-release: release-pr workflow must read .release-please-manifest.premain.json to align versions"
-    failures=$((failures + 1))
-  }
+  require_fixed '.release-please-manifest.premain.json' "${rp}" \
+    "release-pr paths-ignore must include .release-please-manifest.premain.json and compute RC baseline"
+  require_fixed 'RELEASE_PLEASE_CLI_VERSION: "17.3.0"' "${rp}" \
+    "release-pr workflow must pin release-please CLI to v17.3.0"
+  require_fixed 'npx --yes "release-please@${RELEASE_PLEASE_CLI_VERSION}"' "${rp}" \
+    "release-pr workflow must invoke the pinned release-please CLI"
+  require_fixed "release-pr" "${rp}" \
+    "release-pr workflow must run the release-pr CLI command"
+  require_regex '--target-branch[[:space:]]+main' "${rp}" \
+    "release-pr workflow must target main through the CLI"
+  require_regex '--config-file[[:space:]]+release-please-config\.json' "${rp}" \
+    "release-pr workflow must reference release-please-config.json"
+  require_regex '--manifest-file[[:space:]]+\.release-please-manifest\.json' "${rp}" \
+    "release-pr workflow must reference .release-please-manifest.json"
+  require_fixed "scripts/verify-release-cycle-state.sh" "${rp}" \
+    "release-pr workflow must verify release-cycle state before release-please"
+  require_fixed "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" "${rp}" \
+    "release-pr workflow must explicitly allow pending stable promotion verification"
+  require_fixed "pending stable promotion accepted for stable Release PR generation" "${rp}" \
+    "release-pr workflow must document pending promotion PR generation"
+  require_fixed "PENDING_STABLE_PROMOTION" "${rp}" \
+    "release-pr workflow must gate release-please on pending promotion"
+  require_fixed "strict stable state; no release-as computed and no release-please call needed" "${rp}" \
+    "release-pr workflow must no-op when main is already strict/stable"
+  require_fixed "pending stable promotion did not compute a stable release-as" "${rp}" \
+    "release-pr workflow must fail if pending promotion has no stable release-as"
+  require_fixed "--release-as" "${rp}" \
+    "release-pr workflow must pass release-as to the pinned CLI"
+  require_fixed "steps.version.outputs.release_as" "${rp}" \
+    "release-pr workflow must pass release-as from computed premain RC baseline"
+  require_fixed "--forbid-rc-only" "${rp}" \
+    "release-pr workflow must forbid RC-shaped main Release PRs"
+  require_fixed "scripts/verify-main-release-pr-postcondition.sh" "${rp}" \
+    "release-pr workflow must verify the stable Release PR postcondition"
 fi
 
 if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
   postcondition="scripts/verify-main-release-pr-postcondition.sh"
-  grep -Fq "expected version must be stable X.Y.Z" "${postcondition}" || {
-    echo "branch-release: main Release PR postcondition must reject RC-valued expected versions"
-    failures=$((failures + 1))
-  }
-  grep -Fq "advertises an RC version" "${postcondition}" || {
-    echo "branch-release: main Release PR postcondition must reject open RC-valued main release PRs"
-    failures=$((failures + 1))
-  }
+  require_fixed "expected version must be stable X.Y.Z" "${postcondition}" \
+    "main Release PR postcondition must reject RC-valued expected versions"
+  require_fixed "advertises an RC version" "${postcondition}" \
+    "main Release PR postcondition must reject open RC-valued main release PRs"
+  require_fixed "--forbid-rc-only" "${postcondition}" \
+    "main Release PR postcondition must support read-only RC-only checks"
   for path in \
     ".release-please-manifest.json" \
     ".release-please-manifest.premain.json" \
@@ -370,77 +301,53 @@ if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
     "ts/package.json" \
     "ts/package-lock.json" \
     "CHANGELOG.md"; do
-    grep -Fq "${path}" "${postcondition}" || {
-      echo "branch-release: main Release PR postcondition must require ${path}"
-      failures=$((failures + 1))
-    }
+    require_fixed "${path}" "${postcondition}" \
+      "main Release PR postcondition must require ${path}"
   done
 fi
 
-grep -Fq "one release lane" "docs/development/planning/theorydb-branch-release-policy.md" || {
-  echo "branch-release: TableTheory branch release policy must describe one release lane"
-  failures=$((failures + 1))
-}
-grep -Fq "one release lane" "docs/development/planning/templates/high-risk-branch-release-policy.template.md" || {
-  echo "branch-release: high-risk branch policy template must describe one release lane"
-  failures=$((failures + 1))
-}
-if grep -RInE 'two release lanes|separate release lanes' \
-  AGENTS.md docs/development/planning/theorydb-branch-release-policy.md \
-  docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md \
-  docs/development/planning/templates/high-risk-branch-release-policy.template.md; then
-  echo "branch-release: docs must not describe TableTheory as having two release lanes"
-  failures=$((failures + 1))
+if [[ -f "scripts/sync-post-stable-release-baselines.sh" ]]; then
+  sync_script="scripts/sync-post-stable-release-baselines.sh"
+  require_fixed "DEPRECATED" "${sync_script}" \
+    "post-stable sync helper must be marked deprecated"
+  require_fixed "dry-run only" "${sync_script}" \
+    "post-stable sync helper must be dry-run only"
+  require_fixed "normal PR backmerge from main to staging" "${sync_script}" \
+    "post-stable sync helper must point operators to main -> staging PR backmerge"
+  require_fixed ".release-please-manifest.premain.json" "${sync_script}" \
+    "post-stable sync helper must still name the prerelease manifest"
+  if grep -Eq 'git[[:space:]].*push|gh[[:space:]]+api[[:space:]].*(git/refs|contents)' "${sync_script}"; then
+    fail "deprecated post-stable sync helper must not contain branch mutation commands"
+  fi
 fi
 
-for wf in ".github/workflows/quality-gates.yml" ".github/workflows/codeql.yml"; do
-  if [[ ! -f "${wf}" ]]; then
-    continue
-  fi
-  grep -Eq 'branches:.*premain.*main|branches:.*main.*premain' "${wf}" || {
-    echo "branch-release: ${wf}: expected triggers for both premain and main"
-    failures=$((failures + 1))
-  }
-done
+if grep -RInF "scripts/sync-post-stable-release-baselines.sh" .github/workflows; then
+  fail "workflows must not call deprecated post-stable baseline sync"
+fi
 
-if [[ -f ".github/workflows/quality-gates.yml" ]]; then
-  grep -Fq "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION" ".github/workflows/quality-gates.yml" || {
-    echo "branch-release: quality-gates workflow must pass pending stable promotion mode for premain -> main PR checks"
-    failures=$((failures + 1))
-  }
-  grep -Fq "github.base_ref == 'main'" ".github/workflows/quality-gates.yml" &&
-    grep -Fq "github.head_ref == 'premain'" ".github/workflows/quality-gates.yml" || {
-      echo "branch-release: quality-gates workflow must limit pending stable promotion mode to premain -> main PR checks"
-      failures=$((failures + 1))
-    }
+if grep -RInF "SYNC_RELEASE_BASELINE" .github/workflows; then
+  fail "workflows must not configure post-stable baseline sync"
+fi
+
+if grep -RInE 'git[[:space:]].*push.*(refs/heads/)?(main|premain|staging)|gh[[:space:]]+api[[:space:]].*(git/refs|contents).*(main|premain|staging)' \
+  .github/workflows scripts | grep -v 'verify-release-cycle-state.sh'; then
+  fail "release automation contains direct protected branch mutation"
 fi
 
 if [[ -f "ts/package.json" ]]; then
-  grep -Eq '"private"\s*:\s*true' "ts/package.json" || {
-    echo "branch-release: ts/package.json must remain private (no npm publishing)"
-    failures=$((failures + 1))
-  }
+  require_regex '"private"\s*:\s*true' "ts/package.json" \
+    "ts/package.json must remain private (no npm publishing)"
 
   for cfg in "release-please-config.premain.json" "release-please-config.json"; do
-    if [[ ! -f "${cfg}" ]]; then
-      continue
-    fi
-    grep -Eq '"extra-files"\s*:' "${cfg}" || {
-      echo "branch-release: ${cfg}: must define extra-files for multi-language versioning"
-      failures=$((failures + 1))
-    }
-    grep -Eq '"path"\s*:\s*"ts/package\.json"' "${cfg}" || {
-      echo "branch-release: ${cfg}: must bump ts/package.json version"
-      failures=$((failures + 1))
-    }
-    grep -Eq '"path"\s*:\s*"ts/package-lock\.json"' "${cfg}" || {
-      echo "branch-release: ${cfg}: must bump ts/package-lock.json version"
-      failures=$((failures + 1))
-    }
-    grep -Eq "\\$\\.packages\\[''\\]\\.version" "${cfg}" || {
-      echo "branch-release: ${cfg}: must bump ts/package-lock.json packages[''].version"
-      failures=$((failures + 1))
-    }
+    [[ -f "${cfg}" ]] || continue
+    require_regex '"extra-files"\s*:' "${cfg}" \
+      "${cfg}: must define extra-files for multi-language versioning"
+    require_regex '"path"\s*:\s*"ts/package\.json"' "${cfg}" \
+      "${cfg}: must bump ts/package.json version"
+    require_regex '"path"\s*:\s*"ts/package-lock\.json"' "${cfg}" \
+      "${cfg}: must bump ts/package-lock.json version"
+    require_regex "\\$\\.packages\\[''\\]\\.version" "${cfg}" \
+      "${cfg}: must bump ts/package-lock.json packages[''].version"
   done
 fi
 
@@ -464,24 +371,17 @@ for entry in extra_files:
 raise SystemExit(1)
 PY
   then
-    echo "branch-release: release-please-config.json must normalize .release-please-manifest.premain.json through stable release-please"
-    failures=$((failures + 1))
+    fail "release-please-config.json must normalize .release-please-manifest.premain.json through stable release-please"
   fi
 fi
 
 if [[ -f "py/pyproject.toml" ]]; then
   for cfg in "release-please-config.premain.json" "release-please-config.json"; do
-    if [[ ! -f "${cfg}" ]]; then
-      continue
-    fi
-    grep -Eq '"extra-files"\s*:' "${cfg}" || {
-      echo "branch-release: ${cfg}: must define extra-files for multi-language versioning"
-      failures=$((failures + 1))
-    }
-    grep -Eq '"path"\s*:\s*"py/src/theorydb_py/version\.json"' "${cfg}" || {
-      echo "branch-release: ${cfg}: must bump py/src/theorydb_py/version.json version"
-      failures=$((failures + 1))
-    }
+    [[ -f "${cfg}" ]] || continue
+    require_regex '"extra-files"\s*:' "${cfg}" \
+      "${cfg}: must define extra-files for multi-language versioning"
+    require_regex '"path"\s*:\s*"py/src/theorydb_py/version\.json"' "${cfg}" \
+      "${cfg}: must bump py/src/theorydb_py/version.json version"
   done
 fi
 

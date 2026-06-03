@@ -11,6 +11,7 @@ Usage: bash scripts/verify-main-release-pr-postcondition.sh --expected-version X
 
 Options:
   --expected-version X.Y.Z  Stable version the main release PR must advertise.
+  --forbid-rc-only          Only verify no open main release PR advertises an RC version.
   --repo OWNER/REPO         GitHub repository. Defaults to $GITHUB_REPOSITORY or theory-cloud/TableTheory.
   --base BRANCH            Release PR base branch. Defaults to main.
   --head BRANCH            Release-please PR head branch. Defaults to release-please--branches--main.
@@ -26,6 +27,7 @@ repo="${GITHUB_REPOSITORY:-theory-cloud/TableTheory}"
 base="main"
 head="release-please--branches--main"
 expected_version="${RELEASE_PR_EXPECTED_VERSION:-}"
+forbid_rc_only=0
 dry_run=0
 
 while [[ $# -gt 0 ]]; do
@@ -37,6 +39,10 @@ while [[ $# -gt 0 ]]; do
       fi
       expected_version="$2"
       shift 2
+      ;;
+    --forbid-rc-only)
+      forbid_rc_only=1
+      shift
       ;;
     --repo)
       if [[ $# -lt 2 ]]; then
@@ -83,11 +89,11 @@ fail() {
   exit 1
 }
 
-if [[ -z "${expected_version}" ]]; then
+if [[ "${forbid_rc_only}" -ne 1 && -z "${expected_version}" ]]; then
   fail "missing --expected-version"
 fi
 
-if [[ ! "${expected_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ "${forbid_rc_only}" -ne 1 && ! "${expected_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   fail "expected version must be stable X.Y.Z, got ${expected_version}"
 fi
 
@@ -116,6 +122,40 @@ gh pr list \
   --base "${base}" \
   --state open \
   --json number,title,headRefName,url >"${open_prs}"
+
+if [[ "${forbid_rc_only}" -eq 1 ]]; then
+  python3 - "${open_prs}" "${base}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+path, base = sys.argv[1:3]
+prs = json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def fail(message: str) -> None:
+    print(f"release-pr-postcondition: FAIL ({message})", file=sys.stderr)
+    raise SystemExit(1)
+
+
+rc_release_prs = [
+    pr
+    for pr in prs
+    if "release" in pr.get("title", "").lower()
+    and re.search(r"\d+\.\d+\.\d+-rc(?:[.\-\w]*)?", pr.get("title", ""))
+]
+if rc_release_prs:
+    details = ", ".join(
+        f"#{pr.get('number')} {pr.get('title')} {pr.get('url')}"
+        for pr in rc_release_prs
+    )
+    fail(f"open {base} release PR advertises an RC version: {details}")
+
+print(f"release-pr-postcondition: PASS (no open {base} RC-shaped release PRs)")
+PY
+  exit 0
+fi
 
 python3 - "${open_prs}" "${expected_version}" "${base}" "${head}" >"${candidate_number_file}" <<'PY'
 import json
