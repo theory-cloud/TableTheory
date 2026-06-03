@@ -16,6 +16,19 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [1.9.2-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.9.1...v1.9.2-rc.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* adopt go1.26.4 toolchain to clear Go stdlib CVEs (GO-2026-5037/5038/5039) ([35a6149](https://github.com/theory-cloud/TableTheory/commit/35a61497585ed83d6c140cade71fd63777e95a9c))
+* release go1.26.4 toolchain adoption as 1.9.2-rc.1 ([5060eed](https://github.com/theory-cloud/TableTheory/commit/5060eed52ebe1921f94d840676e644a485a0f48b))
+* **release:** allow pending stable promotion guard ([40c44a5](https://github.com/theory-cloud/TableTheory/commit/40c44a5ac779d4585eda53c8f4f2f6e1fe5a398a))
+* **release:** recover release cycle guardrails ([b32693a](https://github.com/theory-cloud/TableTheory/commit/b32693ad01d1c24169fde1bd61edc05d96a81490))
+* **release:** recover release cycle guardrails ([df7e4f7](https://github.com/theory-cloud/TableTheory/commit/df7e4f71af65fb990e0ef2a42a77d12e8d5d2bae))
+* **release:** sync premain baseline after stable releases ([9a26ea6](https://github.com/theory-cloud/TableTheory/commit/9a26ea63b26a6fee7ac274a97f43c26d349934a7))
+* **release:** sync premain baseline after stable releases ([807442d](https://github.com/theory-cloud/TableTheory/commit/807442dc55aa38859e92beef79cb883d9e783bfe))
+
 ## [1.9.1](https://github.com/theory-cloud/TableTheory/compare/v1.9.0...v1.9.1) (2026-05-30)
 
 
