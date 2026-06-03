@@ -16,6 +16,14 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [1.9.2-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.9.1...v1.9.2-rc.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* adopt go1.26.4 toolchain to clear Go stdlib CVEs (GO-2026-5037/5038/5039) ([35a6149](https://github.com/theory-cloud/TableTheory/commit/35a61497585ed83d6c140cade71fd63777e95a9c))
+* release go1.26.4 toolchain adoption as 1.9.2-rc.1 ([5060eed](https://github.com/theory-cloud/TableTheory/commit/5060eed52ebe1921f94d840676e644a485a0f48b))
+
 ## [1.9.1](https://github.com/theory-cloud/TableTheory/compare/v1.9.0...v1.9.1) (2026-05-30)
 
 
