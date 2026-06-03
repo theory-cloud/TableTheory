@@ -365,8 +365,8 @@ if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
     "prerelease PR postcondition must require the generated premain head branch"
   require_fixed "rc_title_re = re.compile" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require RC-shaped release titles"
-  require_fixed "-rc\\.\\d+" "${prerelease_postcondition}" \
-    "prerelease PR postcondition must require RC version syntax"
+  require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must accept bare and numbered RC version syntax"
   require_fixed ".release-please-manifest.premain.json" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require the prerelease manifest"
 fi
