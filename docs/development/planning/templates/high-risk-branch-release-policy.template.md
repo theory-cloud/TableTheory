@@ -1,6 +1,8 @@
 # Branch + Release Policy Template (High-Risk Domains)
 
 This template is intended to be copied and filled per project.
+Use one release lane with an RC phase followed by a stable phase. Branches can separate integration, RC generation, and
+stable publishing duties, but they must not create a second release path for the same product.
 
 ## Branches
 
@@ -10,7 +12,7 @@ This template is intended to be copied and filled per project.
 Define exactly what each branch owns. For a three-branch model, document:
 
 - `[integration-branch]` owns normal work and the latest stable baseline after release. During active RC reconciliation,
-  it may temporarily carry the current `[prerelease-branch]` RC lane in prerelease manifests and SDK/package files, but
+  it may temporarily carry the current `[prerelease-branch]` RC phase in prerelease manifests and SDK/package files, but
   only while the stable manifest remains aligned with `[release-branch]` and the RC files are internally consistent and
   ahead of that stable baseline.
 - `[prerelease-branch]` owns RC state and may carry `X.Y.Z-rc.N` in prerelease manifests and SDK/package files.
@@ -26,7 +28,7 @@ Define exactly what each branch owns. For a three-branch model, document:
 If the project uses separate integration, prerelease, and stable branches, prefer this stable-promotion flow:
 
 1. Work lands on `[integration-branch]`.
-2. `[integration-branch]` -> `[prerelease-branch]` PR starts the prerelease lane.
+2. `[integration-branch]` -> `[prerelease-branch]` PR starts the RC phase.
 3. Prerelease automation produces `vX.Y.Z-rc.N` on `[prerelease-branch]`.
 4. Verify the intended RC is published and asset-complete, then open and merge the `[prerelease-branch]` ->
    `[release-branch]` promotion PR.
@@ -70,9 +72,9 @@ Document forbidden stable-branch states:
 
 Document immutable release version reuse explicitly. Treat published release tag names as one-time-use even if the release
 or tag is later deleted. If a publish step fails with `tag_name was used by an immutable release`, recovery must go through
-a normal release-eligible PR and the release tool must advance to the next RC/stable version for that lane.
+a normal release-eligible PR and the release tool must advance to the next RC/stable version for the single release lane.
 
-Document abandoned or exhausted lane recovery explicitly. A skipped immutable version must advance only through a normal
+Document abandoned or exhausted version recovery explicitly. A skipped immutable version must advance only through a normal
 release-eligible commit/PR with the release tool's explicit version override footer, for example
 `Release-As: [next-version-or-rc]` when using release-please. The footer must survive the integration -> prerelease merge
 path. Do not recover by creating tags, rerunning failed exhausted-version workflows, editing immutable releases, patching
@@ -110,7 +112,7 @@ Pause before merge or release when:
 - stable-branch files contain `-rc` outside explicit pending stable promotion.
 - prerelease stable baseline is behind the release branch.
 - integration branch lacks the latest stable baseline after a stable release, or keeps RC reconciliation files after the
-  active lane has been normalized to stable.
+  active RC phase has been normalized to stable.
 - security/governance checks still observe a vulnerable toolchain or dependency state.
 - branch/version sync checks fail.
 - an abandoned/exhausted version recovery lacks the required release-eligible commit footer or tries to skip the release

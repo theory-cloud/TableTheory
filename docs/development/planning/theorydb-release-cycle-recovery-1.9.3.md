@@ -1,12 +1,13 @@
-# TableTheory Release-Cycle Recovery: 1.9.3 Lane
+# TableTheory Release-Cycle Recovery: 1.9.3
 
-This record documents the THE-1869 release-cycle recovery decision for the abandoned `1.9.2` lane.
+This record documents the THE-1869 release-cycle recovery decision for the abandoned `1.9.2` version in TableTheory's
+one release lane: `staging` -> `premain` -> RC -> `main` -> stable release.
 
 ## Decision
 
 - `1.9.2` is abandoned and must not be released as an RC or as a stable release.
-- The next prerelease lane is `v1.9.3-rc.1`.
-- The eventual stable release for this lane is `v1.9.3`.
+- The next RC is `v1.9.3-rc.1`.
+- The stable release for the same semver base is `v1.9.3`.
 
 ## Required Recovery Path
 
@@ -33,7 +34,7 @@ Recovery must stay inside the normal protected-branch and release-please flow:
 
 During this recovery, a reconciliation PR to `staging` may merge current `premain` first to surface promotion conflicts
 before they reach `main`. That PR may carry `.release-please-manifest.premain.json`, `ts/package*.json`, and
-`py/src/theorydb_py/version.json` at the active `1.9.3-rc.1` lane as merge-carried state only. The stable manifest must
+`py/src/theorydb_py/version.json` at the active `1.9.3-rc.1` RC phase as merge-carried state only. The stable manifest must
 remain on the current `main` baseline, the RC files must be internally consistent and ahead of that baseline, and the
 state must be removed by the stable release-please PR plus post-stable sync after `v1.9.3` publishes.
 
@@ -50,4 +51,4 @@ state must be removed by the stable release-please PR plus post-stable sync afte
 
 Abandoned or exhausted immutable versions are skipped only through a normal release-eligible commit/PR with a
 release-please `Release-As` footer. For this recovery, the footer must survive the `staging` merge and later
-`staging` -> `premain` promotion so release-please advances the prerelease lane to `v1.9.3-rc.1` instead of `1.9.2`.
+`staging` -> `premain` promotion so release-please advances the RC phase to `v1.9.3-rc.1` instead of `1.9.2`.
