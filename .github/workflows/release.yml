@@ -214,12 +214,3 @@ jobs:
             exit 1
           fi
           gh release edit "${TAG_NAME}" --draft=false
-
-      - name: Sync post-stable release baselines
-        if: steps.release.outputs.release_created == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
-          RELEASE_TAG_NAME: ${{ steps.release.outputs.tag_name }}
-          SYNC_RELEASE_BASELINE_PUSH: "true"
-          SYNC_RELEASE_BASELINE_TARGETS: "premain staging"
-        run: bash scripts/sync-post-stable-release-baselines.sh

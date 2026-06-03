@@ -16,6 +16,27 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [1.9.3](https://github.com/theory-cloud/TableTheory/compare/v1.9.1...v1.9.3) (2026-06-03)
+
+
+### Bug Fixes
+
+* adopt go1.26.4 toolchain to clear Go stdlib CVEs (GO-2026-5037/5038/5039) ([35a6149](https://github.com/theory-cloud/TableTheory/commit/35a61497585ed83d6c140cade71fd63777e95a9c))
+* release go1.26.4 toolchain adoption as 1.9.2-rc.1 ([5060eed](https://github.com/theory-cloud/TableTheory/commit/5060eed52ebe1921f94d840676e644a485a0f48b))
+* **release:** advance release lane to 1.9.3 ([5c9e9f5](https://github.com/theory-cloud/TableTheory/commit/5c9e9f5778dd43ef84b3bec7d51afb1743346eac))
+* **release:** advance release lane to 1.9.3 ([0fffa03](https://github.com/theory-cloud/TableTheory/commit/0fffa03ce70580fd3c7fb7609203784b06471f69))
+* **release:** allow pending stable promotion guard ([40c44a5](https://github.com/theory-cloud/TableTheory/commit/40c44a5ac779d4585eda53c8f4f2f6e1fe5a398a))
+* **release:** carry CI-driven stable promotion to premain ([09e3c9e](https://github.com/theory-cloud/TableTheory/commit/09e3c9e613790f83a64cfd23c839b6428012b57c))
+* **release:** detect exhausted immutable RC state ([f2ba073](https://github.com/theory-cloud/TableTheory/commit/f2ba0739b5b6e48d3afa0921e529b2f98c6d46f5))
+* **release:** detect exhausted immutable RC state ([dc593a3](https://github.com/theory-cloud/TableTheory/commit/dc593a3b0f6ac47b4d6e643d6f4defd8309e9027))
+* **release:** make stable promotion CI-driven ([325e3be](https://github.com/theory-cloud/TableTheory/commit/325e3be580f56b0d8ddaa55fe7a8d3e9288245fc))
+* **release:** make stable promotion CI-driven ([f25efba](https://github.com/theory-cloud/TableTheory/commit/f25efbae55786e4eac8f904bb3d317a28b0f5f34))
+* **release:** recover immutable RC publish flow ([bd2e481](https://github.com/theory-cloud/TableTheory/commit/bd2e481be6068d00307331e61849fbb2ba9d9b07))
+* **release:** recover release cycle guardrails ([b32693a](https://github.com/theory-cloud/TableTheory/commit/b32693ad01d1c24169fde1bd61edc05d96a81490))
+* **release:** recover release cycle guardrails ([df7e4f7](https://github.com/theory-cloud/TableTheory/commit/df7e4f71af65fb990e0ef2a42a77d12e8d5d2bae))
+* **release:** sync premain baseline after stable releases ([9a26ea6](https://github.com/theory-cloud/TableTheory/commit/9a26ea63b26a6fee7ac274a97f43c26d349934a7))
+* **release:** sync premain baseline after stable releases ([807442d](https://github.com/theory-cloud/TableTheory/commit/807442dc55aa38859e92beef79cb883d9e783bfe))
+
 ## [1.9.3-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.9.2-rc.1...v1.9.3-rc.1) (2026-06-03)
 
 

@@ -4,6 +4,8 @@ This template is intended to be copied and filled per project.
 Use one release lane with an RC phase followed by a stable phase. Branches can separate integration, RC generation, and
 stable publishing duties, but they must not create a second release path for the same product.
 
+Factory-standard three-branch framework lane: `staging -> premain -> main -> staging`.
+
 ## Branches
 
 - `[prerelease-branch]` — prerelease integration branch (source of prereleases).
@@ -36,8 +38,9 @@ If the project uses separate integration, prerelease, and stable branches, prefe
    opens the stable release PR with the stable `release-as` derived from the RC baseline.
 6. Merging the stable release PR normalizes stable manifests, prerelease manifests, and SDK/package version files to the
    stable version; stable automation then publishes immutable `vX.Y.Z`.
-7. Sync the stable baseline back to `[integration-branch]` and `[prerelease-branch]` through PRs or documented verified
-   automation.
+7. Backmerge the stable baseline from `[release-branch]` to `[integration-branch]` through a normal PR. Do not direct-sync
+   `[release-branch]` to `[prerelease-branch]`; the next `[integration-branch]` -> `[prerelease-branch]` promotion carries
+   the stable baseline forward.
 
 ## Protections (required)
 
@@ -45,8 +48,12 @@ Protect both `[prerelease-branch]` and `[release-branch]`:
 
 - Require PRs (no direct pushes).
 - Require review approvals (CODEOWNERS recommended).
-- Require CI status checks to pass (define the minimum required checks explicitly).
+- Require lightweight release-hygiene checks that validate source branches, release-cycle state, branch release
+  supply-chain scaffolding, and stable-branch no-RC release PRs.
 - Restrict force-pushes and deletions.
+
+Protect `[integration-branch]` with the full project rubric only on PRs targeting `[integration-branch]` and optional
+manual dispatch. Do not require or run the full rubric on PRs targeting `[prerelease-branch]` or `[release-branch]`.
 
 ## Automated releases (required)
 
@@ -67,6 +74,7 @@ Document forbidden stable-branch states:
 - release automation opening a stable release PR for an RC version.
 - pending stable promotion persisting after the release-branch promotion without an open stable release PR.
 - direct branch pushes or ref mutations where policy requires PR sync.
+- automated post-stable direct-push sync to `[prerelease-branch]` or `[integration-branch]`.
 - manual recovery that recreates deleted tags, hand-publishes replacement releases, or reuses an exhausted immutable
   release version.
 
@@ -95,13 +103,16 @@ release branch and all prerelease/package files carry one internally consistent 
 
 - `.github/workflows/prerelease.yml`
 - `.github/workflows/release.yml`
+- `.github/workflows/quality-gates.yml` for integration-branch full rubric only
+- `.github/workflows/release-hygiene.yml` for prerelease/release branch PR hygiene
 
 ## Evidence / verification
 
 - Link this policy from the project’s rubric (as an artifact check) and add a verifier that fails if:
   - the workflows don’t exist,
   - tools are unpinned (`@latest`),
-  - releases are not gated on the project’s quality/security surface.
+  - the full rubric is not limited to integration-branch PRs and manual dispatch,
+  - prerelease/release branch PRs do not have lightweight release hygiene.
 
 Evidence should include deterministic branch/version checks and a read-only release watch command.
 
@@ -123,7 +134,8 @@ Pause before merge or release when:
 - a requested release tag is draft, lacks a published timestamp, has no git tag ref, uses an `untagged-...` draft URL, or
   points the release target and git tag ref at different commits.
 - the intended RC is not yet published, non-draft, marked prerelease, tagged, and asset-complete.
-- automation attempts direct branch mutation where the documented path expects PR sync.
+- automation attempts direct branch mutation where the documented path expects PR sync, including post-stable baseline
+  sync pushes.
 
 Allowed recovery should be non-destructive: new PR branches from known bases, diagnostic/fallback normalization helpers,
 and verified PR-based sync. The normal release path should leave version and changelog edits to release automation. Do not
