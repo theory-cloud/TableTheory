@@ -342,6 +342,18 @@ for wf in ".github/workflows/quality-gates.yml" ".github/workflows/codeql.yml"; 
   }
 done
 
+if [[ -f ".github/workflows/quality-gates.yml" ]]; then
+  grep -Fq "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION" ".github/workflows/quality-gates.yml" || {
+    echo "branch-release: quality-gates workflow must pass pending stable promotion mode for premain -> main PR checks"
+    failures=$((failures + 1))
+  }
+  grep -Fq "github.base_ref == 'main'" ".github/workflows/quality-gates.yml" &&
+    grep -Fq "github.head_ref == 'premain'" ".github/workflows/quality-gates.yml" || {
+      echo "branch-release: quality-gates workflow must limit pending stable promotion mode to premain -> main PR checks"
+      failures=$((failures + 1))
+    }
+fi
+
 if [[ -f "ts/package.json" ]]; then
   grep -Eq '"private"\s*:\s*true' "ts/package.json" || {
     echo "branch-release: ts/package.json must remain private (no npm publishing)"

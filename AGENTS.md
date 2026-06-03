@@ -71,10 +71,13 @@ Multi-language versioning:
 Release ownership:
 
 - `staging` owns integration-ready code, docs, security/toolchain updates, and the latest stable baseline returned from
-  `main`. It must not pretend to cut a release.
+  `main`. It must not pretend to cut a release. During active RC reconciliation, it may temporarily carry the current
+  `premain` RC lane in prerelease/SDK files only when the stable manifest stays aligned with `main` and the RC files are
+  internally consistent and ahead of that stable baseline.
 - `premain` owns RC generation. It may carry `X.Y.Z-rc.N` in the prerelease manifest and SDK version files only while
   the prerelease lane is active.
-- `main` owns stable state only. The stable manifest and SDK version files on `main` must never contain `-rc`.
+- `main` owns stable state only. Outside explicit pending stable promotion, the stable manifest, prerelease manifest, and
+  SDK version files on `main` must not contain `-rc`.
 
 Immutable version reuse:
 
@@ -121,9 +124,10 @@ Stable promotion path:
 
 Release watchpoints and stop conditions:
 
-- Stop if `main` stable files contain `-rc`, or if `.release-please-manifest.json` is an RC version.
+- Stop if `main` stable files contain `-rc` outside explicit pending stable promotion, or if
+  `.release-please-manifest.json` is an RC version.
 - Stop if `premain` stable manifest is behind `origin/main`, or if `staging` lacks the latest stable baseline after a
-  stable release.
+  stable release, or if `staging` keeps RC reconciliation files after the active lane has normalized to stable.
 - Stop if SEC-2/govulncheck still observes Go `1.26.3`, COM-8 branch/version sync fails, or release-please opens a
   stable PR for an RC version.
 - Stop if `main` remains in pending stable promotion and no stable release-please PR opens for the computed stable

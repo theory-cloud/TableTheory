@@ -9,9 +9,13 @@ This template is intended to be copied and filled per project.
 
 Define exactly what each branch owns. For a three-branch model, document:
 
-- `[integration-branch]` owns normal work and the latest stable baseline after release.
+- `[integration-branch]` owns normal work and the latest stable baseline after release. During active RC reconciliation,
+  it may temporarily carry the current `[prerelease-branch]` RC lane in prerelease manifests and SDK/package files, but
+  only while the stable manifest remains aligned with `[release-branch]` and the RC files are internally consistent and
+  ahead of that stable baseline.
 - `[prerelease-branch]` owns RC state and may carry `X.Y.Z-rc.N` in prerelease manifests and SDK/package files.
-- `[release-branch]` owns stable state only; stable manifests and SDK/package files must not contain `-rc`.
+- `[release-branch]` owns stable state only; outside explicit pending stable promotion, stable manifests and SDK/package
+  files must not contain `-rc`.
 
 ## Merge flow (expected)
 
@@ -81,6 +85,10 @@ to the stable version, and must not publish a stable release. Once the stable re
 required again. If the pending state persists because no stable release PR opens, pause and investigate; do not patch the
 release branch by hand.
 
+If the integration branch must merge the prerelease branch during active recovery to surface later promotion conflicts,
+document that as bounded RC reconciliation. The verifier should accept it only when the stable manifest still matches the
+release branch and all prerelease/package files carry one internally consistent RC version ahead of that stable baseline.
+
 ## Required workflow artifacts
 
 - `.github/workflows/prerelease.yml`
@@ -99,9 +107,10 @@ Evidence should include deterministic branch/version checks and a read-only rele
 
 Pause before merge or release when:
 
-- stable-branch files contain `-rc`.
+- stable-branch files contain `-rc` outside explicit pending stable promotion.
 - prerelease stable baseline is behind the release branch.
-- integration branch lacks the latest stable baseline after a stable release.
+- integration branch lacks the latest stable baseline after a stable release, or keeps RC reconciliation files after the
+  active lane has been normalized to stable.
 - security/governance checks still observe a vulnerable toolchain or dependency state.
 - branch/version sync checks fail.
 - an abandoned/exhausted version recovery lacks the required release-eligible commit footer or tries to skip the release

@@ -31,6 +31,12 @@ Recovery must stay inside the normal protected-branch and release-please flow:
 9. Let CI publish the generated immutable `v1.9.3` stable release.
 10. Sync the stable `main` baseline back to `staging` and `premain` through PRs or documented verified automation.
 
+During this recovery, a reconciliation PR to `staging` may merge current `premain` first to surface promotion conflicts
+before they reach `main`. That PR may carry `.release-please-manifest.premain.json`, `ts/package*.json`, and
+`py/src/theorydb_py/version.json` at the active `1.9.3-rc.1` lane as merge-carried state only. The stable manifest must
+remain on the current `main` baseline, the RC files must be internally consistent and ahead of that baseline, and the
+state must be removed by the stable release-please PR plus post-stable sync after `v1.9.3` publishes.
+
 ## Stop Conditions
 
 - Do not create, recreate, or delete tags for recovery.
