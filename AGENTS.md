@@ -83,6 +83,12 @@ Immutable version reuse:
 - Do not manually recreate tags, hand-publish releases, edit immutable release assets, or hand-edit manifests as recovery.
 - If publishing fails with `tag_name was used by an immutable release`, recover through a normal release-eligible PR and
   let release-please advance to the next RC/stable version for that lane.
+- If a version is abandoned or exhausted, skip it only through a normal release-eligible commit/PR with a release-please
+  `Release-As` footer for the next allowed version. Do not recover through tags, resets, manual release edits,
+  manifest/package-version edits, or reruns of failed exhausted-version workflows.
+- Current THE-1869 lane decision: `1.9.2` is abandoned; the next RC must be `v1.9.3-rc.1`; the next stable release must be
+  `v1.9.3`; the release-eligible recovery commit must carry `Release-As: 1.9.3-rc.1` and that footer must survive the
+  `staging` -> `premain` merge path.
 
 Stable promotion path:
 
@@ -126,6 +132,8 @@ Release watchpoints and stop conditions:
   `refs/tags/<tag>`, or points the release target and git tag ref at different commits.
 - Stop if release recovery would reuse a deleted or exhausted immutable release version; use a release-eligible PR to
   advance to the next release-please version instead.
+- Stop if abandoned-version recovery lacks the required release-please `Release-As` footer or tries to hand-edit manifests,
+  package versions, tags, releases, or release assets.
 - Stop if automation tries to push directly to `staging`, `premain`, or `main` where this policy requires PR sync.
 
 Useful checks:
