@@ -1,7 +1,7 @@
 # theorydb Threat Model (custom — v0.2)
 
 This document enumerates the highest-risk threats for the in-scope system and assigns stable IDs (`THR-*`) that must map
-to controls in `hgm-infra/planning/theorydb-controls-matrix.md`.
+to controls in `gov-infra/planning/theorydb-controls-matrix.md`.
 
 ## Scope (must be explicit)
 - **System:** Theorydb (DynamoDB library and helpers; multi-language repo)
@@ -39,8 +39,8 @@ Threat IDs must be stable over time. When a new class of risk is discovered:
 | THR-2 | Expression misuse / injection-by-construction | Unvalidated attribute names/paths produce incorrect expressions or broaden access patterns | QUA-1, QUA-2, QUA-5, SEC-1, SEC-6 | `bash scripts/verify-unit-tests.sh`, `bash scripts/verify-integration-tests.sh`, `bash scripts/fuzz-smoke.sh`, `bash scripts/sec-gosec.sh`, `bash scripts/verify-expression-hardening.sh` |
 | THR-3 | Unsafe reflection/unsafe operations lead to panics or memory safety hazards | Panic crashers or undefined behavior in marshaling/attribute conversion | QUA-1, QUA-3, QUA-5, SEC-1, SEC-4 | `bash scripts/verify-unit-tests.sh`, `bash scripts/verify-coverage.sh`, `bash scripts/fuzz-smoke.sh`, `bash scripts/sec-gosec.sh`, `bash scripts/verify-no-panics.sh` |
 | THR-4 | DoS / cost blowups via unbounded operations | Unbounded scans/queries/batches cause throttling or large spend | QUA-2, SEC-7 | `bash scripts/verify-integration-tests.sh`, `bash scripts/verify-network-hygiene.sh` (plus targeted regression tests as needed) |
-| THR-5 | Sensitive data exposure | Values that may include CHD/PII leak via logs/errors/examples; encryption tags become “paper security” | SEC-5, SEC-8, SEC-9 | `bash scripts/verify-safe-defaults.sh`, `bash scripts/verify-encrypted-tag-implemented.sh`, `bash hgm-infra/verifiers/hgm-verify-rubric.sh` |
-| THR-6 | Supply-chain and verifier drift | CI/tool versions drift or gates are weakened (excludes/threshold lowering) causing missed issues | COM-1..8, SEC-2, SEC-3, DOC-4, DOC-5 | `bash hgm-infra/verifiers/hgm-verify-rubric.sh` |
+| THR-5 | Sensitive data exposure | Values that may include CHD/PII leak via logs/errors/examples; encryption tags become “paper security” | SEC-5, SEC-8, SEC-9 | `bash scripts/verify-safe-defaults.sh`, `bash scripts/verify-encrypted-tag-implemented.sh`, `bash gov-infra/verifiers/gov-verify-rubric.sh` |
+| THR-6 | Supply-chain and verifier drift | CI/tool versions drift or gates are weakened (excludes/threshold lowering) causing missed issues | COM-1..8, SEC-2, SEC-3, DOC-4, DOC-5 | `bash gov-infra/verifiers/gov-verify-rubric.sh` |
 | THR-7 | Public API contract drift | Exported helpers diverge from canonical tag semantics; consumers make unsafe assumptions | CON-3 | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh` |
 
 ## Parity Rule (no “named threat without control”)

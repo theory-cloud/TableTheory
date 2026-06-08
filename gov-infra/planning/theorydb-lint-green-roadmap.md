@@ -13,11 +13,11 @@ reviewable and should not block unrelated remediation work (coverage/security/et
 ## Baseline (start of remediation)
 Snapshot (2026-01-17):
 - Primary command: `bash scripts/verify-lint.sh`
-- Current status: unknown (run `bash hgm-infra/verifiers/hgm-verify-rubric.sh` to record evidence)
+- Current status: unknown (run `bash gov-infra/verifiers/gov-verify-rubric.sh` to record evidence)
 - Top failure sources: golangci-lint / eslint / ruff (as applicable)
 
 ## Progress snapshots
-- Baseline (2026-01-17): evidence to be captured in `hgm-infra/evidence/CON-2-output.log`
+- Baseline (2026-01-17): evidence to be captured in `gov-infra/evidence/CON-2-output.log`
 - After LINT-1 (TBD): TBD
 - After LINT-2 (TBD): TBD
 

@@ -74,4 +74,4 @@ jobs:
             py/coverage.xml
             py/coverage-*.json
             gosec.sarif
-            hgm-infra/evidence
+            gov-infra/evidence

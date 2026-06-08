@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-report="${1:-hgm-infra/evidence/hgm-rubric-report.json}"
+report="${1:-gov-infra/evidence/gov-rubric-report.json}"
 
 if [[ ! -f "${report}" ]]; then
   echo "rubric-summary: no report found at ${report}"

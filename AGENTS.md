@@ -64,7 +64,7 @@ published requires:
 - **post-release sync**: back-merge `main` into `staging` so the next cycle starts from the latest stable baseline
 
 The cross-framework release lane is exactly `staging -> premain -> main -> staging`. `staging` is the only branch that
-requires the full Hypergenium rubric, and only on PRs targeting `staging` plus manual workflow dispatch. PRs targeting
+requires the full gov-infra rubric, and only on PRs targeting `staging` plus manual workflow dispatch. PRs targeting
 `premain` or `main` require release-hygiene checks only, not the full rubric.
 
 Branch roles:

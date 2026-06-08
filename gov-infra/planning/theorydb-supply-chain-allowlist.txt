@@ -11,4 +11,4 @@
 # - Do not use this file for visible upstream-bundled findings; use theorydb-visible-npm-audit-findings.json instead.
 #
 # Examples (copy exact IDs from the failing scanner output):
-# HGM-SUPPLY:GO:REPLACE:rule=REMOTE_REPLACE:from=github.com/example/upstream@v1.2.3:to=github.com/example/fork@v1.2.3
+# GOV-SUPPLY:GO:REPLACE:rule=REMOTE_REPLACE:from=github.com/example/upstream@v1.2.3:to=github.com/example/fork@v1.2.3

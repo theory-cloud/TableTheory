@@ -1,27 +1,36 @@
 #!/usr/bin/env bash
-# Hypergenium Rubric Verifier (Single Entrypoint)
+# gov-infra Rubric Verifier (Single Entrypoint)
 # Generated from pack version: 816465a1618d
 # Project: theorydb (theorydb)
 #
 # Usage (from repo root; scripts may be non-executable by default):
-#   bash hgm-infra/verifiers/hgm-verify-rubric.sh
+#   bash gov-infra/verifiers/gov-verify-rubric.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-HGM_INFRA="${REPO_ROOT}/hgm-infra"
-PLANNING_DIR="${HGM_INFRA}/planning"
-EVIDENCE_DIR="${HGM_INFRA}/evidence"
-REPORT_PATH="${EVIDENCE_DIR}/hgm-rubric-report.json"
+GOV_INFRA="${REPO_ROOT}/gov-infra"
+PLANNING_DIR="${GOV_INFRA}/planning"
+EVIDENCE_DIR="${GOV_INFRA}/evidence"
+REPORT_PATH="${EVIDENCE_DIR}/gov-rubric-report.json"
 
 cd "${REPO_ROOT}"
 
 # Local-only tool install dir (do not commit binaries)
-HGM_TOOLS_DIR="${HGM_INFRA}/.tools"
-HGM_TOOLS_BIN="${HGM_TOOLS_DIR}/bin"
-mkdir -p "${HGM_TOOLS_BIN}"
-export PATH="${HGM_TOOLS_BIN}:${PATH}"
+GOV_TOOLS_DIR="${GOV_INFRA}/.tools"
+GOV_TOOLS_BIN="${GOV_TOOLS_DIR}/bin"
+mkdir -p "${GOV_TOOLS_BIN}"
+
+# Prefer the executable Go toolchain path discovered by the shell before adding
+# repo-local tools. This avoids non-executable PATH shadows on developer hosts
+# without changing CI's pinned setup-go behavior.
+GO_TOOL_BIN="$(command -v go 2>/dev/null || true)"
+if [[ -n "${GO_TOOL_BIN}" ]]; then
+  GO_TOOL_DIR="$(dirname "${GO_TOOL_BIN}")"
+  export PATH="${GO_TOOL_DIR}:${PATH}"
+fi
+export PATH="${GOV_TOOLS_BIN}:${PATH}"
 
 # Tool pins (derived from repo CI and go.mod)
 PIN_GOLANGCI_LINT_VERSION="v2.5.0"
@@ -38,7 +47,8 @@ rm -f \
   "${EVIDENCE_DIR}/"*-output.log \
   "${EVIDENCE_DIR}/DOC-5-parity.log"
 
-REPORT_SCHEMA_VERSION=1
+REPORT_SCHEMA_URI="theorymcp://namespaces/theorycloud/governance-profiles/theorycloud_governance_profile.v0.1/schemas/gov_rubric_report.v1"
+REPORT_SCHEMA_VERSION="gov_rubric_report.v1"
 REPORT_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -88,7 +98,7 @@ is_unset_token() {
 }
 
 ensure_go_tool_pinned() {
-  # Installs a Go tool into ${HGM_TOOLS_BIN} at a pinned version.
+  # Installs a Go tool into ${GOV_TOOLS_BIN} at a pinned version.
   # Returns:
   #   0 success
   #   2 BLOCKED (missing go toolchain / install failed)
@@ -161,8 +171,8 @@ ensure_go_tool_pinned() {
     fi
   fi
 
-  echo "Installing ${tool_name} (${module_at_ver}) into ${HGM_TOOLS_BIN}..." >&2
-  if ! GOBIN="${HGM_TOOLS_BIN}" go install "${module_at_ver}"; then
+  echo "Installing ${tool_name} (${module_at_ver}) into ${GOV_TOOLS_BIN}..." >&2
+  if ! GOBIN="${GOV_TOOLS_BIN}" go install "${module_at_ver}"; then
     echo "BLOCKED: failed to install pinned ${tool_name} (${module_at_ver})" >&2
     return 2
   fi
@@ -260,30 +270,30 @@ check_file_exists() {
   fi
 }
 
-check_threat_controls_parity_hgm() {
+check_threat_controls_parity_gov() {
   local threat_model="${PLANNING_DIR}/theorydb-threat-model.md"
   local controls_matrix="${PLANNING_DIR}/theorydb-controls-matrix.md"
   local evidence_path="${EVIDENCE_DIR}/DOC-5-parity.log"
 
   if [[ ! -f "${threat_model}" ]] || [[ ! -f "${controls_matrix}" ]]; then
-    printf '%s\n' "Threat model or controls matrix missing (HGM planning)" >"${evidence_path}"
-    echo "threat-parity(hgm): BLOCKED (missing threat model or controls matrix)" >&2
+    printf '%s\n' "Threat model or controls matrix missing (gov-infra planning)" >"${evidence_path}"
+    echo "threat-parity(gov): BLOCKED (missing threat model or controls matrix)" >&2
     return 2
   fi
 
   local threats
   threats="$(grep -oE 'THR-[0-9]+' "${threat_model}" | sort -u || true)"
   if [[ -z "${threats}" ]]; then
-    printf '%s\n' "No THR-* IDs found in HGM threat model" >"${evidence_path}"
-    echo "threat-parity(hgm): FAIL (no THR-* IDs found in threat model)" >&2
+    printf '%s\n' "No THR-* IDs found in gov-infra threat model" >"${evidence_path}"
+    echo "threat-parity(gov): FAIL (no THR-* IDs found in threat model)" >&2
     return 1
   fi
 
   local mapped
   mapped="$(grep -oE 'THR-[0-9]+' "${controls_matrix}" | sort -u || true)"
   if [[ -z "${mapped}" ]]; then
-    printf '%s\n' "No THR-* IDs found in HGM controls matrix" >"${evidence_path}"
-    echo "threat-parity(hgm): FAIL (no THR-* IDs found in controls matrix)" >&2
+    printf '%s\n' "No THR-* IDs found in gov-infra controls matrix" >"${evidence_path}"
+    echo "threat-parity(gov): FAIL (no THR-* IDs found in controls matrix)" >&2
     return 1
   fi
 
@@ -293,23 +303,23 @@ check_threat_controls_parity_hgm() {
   unknown_list="$(comm -13 <(printf '%s\n' "${threats}") <(printf '%s\n' "${mapped}") || true)"
 
   {
-    echo "Threat IDs found (HGM threat model): ${threats}"
-    echo "Threat IDs referenced (HGM controls matrix): ${mapped}"
+    echo "Threat IDs found (gov-infra threat model): ${threats}"
+    echo "Threat IDs referenced (gov-infra controls matrix): ${mapped}"
     echo "Missing from controls:${missing_list:- none}"
     echo "Unknown threats referenced in controls:${unknown_list:- none}"
   } >"${evidence_path}"
 
   if [[ -n "${missing_list}" || -n "${unknown_list}" ]]; then
-    echo "threat-parity(hgm): FAIL" >&2
+    echo "threat-parity(gov): FAIL" >&2
     return 1
   fi
 
-  echo "threat-parity(hgm): PASS"
+  echo "threat-parity(gov): PASS"
   return 0
 }
 
 check_threat_controls_parity_full() {
-  check_threat_controls_parity_hgm
+  check_threat_controls_parity_gov
   bash scripts/verify-threat-controls-parity.sh
 }
 
@@ -510,8 +520,8 @@ check_maintainability_roadmap() {
   return 0
 }
 
-check_hgm_doc_integrity() {
-  # DOC-4: doc integrity for hgm-infra only.
+check_gov_doc_integrity() {
+  # DOC-4: doc integrity for gov-infra only.
   # Checks:
   # - No unrendered template token markers (double-curly style)
   # - All relative markdown links resolve to existing files (fragment anchors are not validated)
@@ -529,22 +539,22 @@ import re
 from pathlib import Path
 
 repo_root = Path(os.getcwd())
-hgm = repo_root / "hgm-infra"
+gov = repo_root / "gov-infra"
 
-if not hgm.exists():
-    raise SystemExit("FAIL: hgm-infra directory missing")
+if not gov.exists():
+    raise SystemExit("FAIL: gov-infra directory missing")
 
 md_files = []
-for p in [hgm / "README.md", hgm / "AGENTS.md"]:
+for p in [gov / "README.md", gov / "AGENTS.md"]:
     if p.exists():
         md_files.append(p)
 
-planning_dir = hgm / "planning"
+planning_dir = gov / "planning"
 if planning_dir.exists():
     md_files.extend(sorted(planning_dir.glob("*.md")))
 
 if not md_files:
-    raise SystemExit("FAIL: no markdown files found under hgm-infra")
+    raise SystemExit("FAIL: no markdown files found under gov-infra")
 
 link_re = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
@@ -597,11 +607,11 @@ PY
 }
 
 check_doc_integrity() {
-  check_hgm_doc_integrity
+  check_gov_doc_integrity
   bash scripts/verify-doc-integrity.sh
 }
 
-echo "=== Hypergenium Rubric Verifier ==="
+echo "=== gov-infra Rubric Verifier ==="
 echo "Project: theorydb"
 echo "Timestamp: ${REPORT_TIMESTAMP}"
 echo ""
@@ -706,8 +716,8 @@ fi
 
 cat >"${REPORT_PATH}" <<EOF
 {
-  "\$schema": "https://hgm.pai.dev/schemas/hgm-rubric-report.schema.json",
-  "schemaVersion": ${REPORT_SCHEMA_VERSION},
+  "\$schema": "${REPORT_SCHEMA_URI}",
+  "schemaVersion": "${REPORT_SCHEMA_VERSION}",
   "timestamp": "${REPORT_TIMESTAMP}",
   "pack": {
     "version": "816465a1618d",

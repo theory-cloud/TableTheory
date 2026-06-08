@@ -24,7 +24,7 @@ Document common failure modes when using LLMs/agents and the guardrails to preve
 2. Fix failing gates before reducing scope; if scope must shrink, time-box and document explicitly.
 3. If a verifier is wrong/flaky, fix the verifier and bump rubric version (no silent loosening).
 4. Update roadmap + evidence plan when controls move or new risks appear.
-5. Refresh the signature bundle (`hgm sign`) after material changes to controls/rubric/roadmap.
+5. Do not refresh signing bundles; signing is retired for this MCP-managed governance surface.
 
 ## Turning discoveries into durable gates (recommended)
 When a new class of failure is discovered (security, quality, compliance, or AI drift), treat it as “candidate rubric

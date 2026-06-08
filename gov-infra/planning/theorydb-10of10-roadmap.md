@@ -18,9 +18,9 @@ drift”.
 | Docs | 10/10 | — |
 
 Evidence (refresh whenever behavior changes):
-- `bash hgm-infra/verifiers/hgm-verify-rubric.sh`
-- `cat hgm-infra/evidence/hgm-rubric-report.json`
-- See `hgm-infra/planning/theorydb-evidence-plan.md` for per-check refresh commands.
+- `bash gov-infra/verifiers/gov-verify-rubric.sh`
+- `cat gov-infra/evidence/gov-rubric-report.json`
+- See `gov-infra/planning/theorydb-evidence-plan.md` for per-check refresh commands.
 
 ## Rubric-to-milestone mapping
 | Rubric ID | Status | Milestone |
@@ -65,8 +65,8 @@ Evidence (refresh whenever behavior changes):
 ## Workstream tracking docs (when blockers require a dedicated plan)
 Large remediation workstreams usually need their own roadmaps so they can be executed in reviewable slices and keep the
 main roadmap readable:
-- Lint remediation: `hgm-infra/planning/theorydb-lint-green-roadmap.md`
-- Coverage remediation: `hgm-infra/planning/theorydb-coverage-roadmap.md`
+- Lint remediation: `gov-infra/planning/theorydb-lint-green-roadmap.md`
+- Coverage remediation: `gov-infra/planning/theorydb-coverage-roadmap.md`
 
 ## Milestones (sequenced)
 ### M0 — Freeze rubric + planning artifacts
@@ -78,13 +78,13 @@ main roadmap readable:
 - Threat model exists and is owned.
 - Controls matrix exists and maps threats → controls.
 - Evidence plan maps rubric IDs → verifiers → artifacts.
-- Doc integrity + threat-controls parity checks are green (repo docs + HGM planning docs).
+- Doc integrity + threat-controls parity checks are green (repo docs + gov-infra planning docs).
 
 ### M1 — Make core lint/build loop reproducible
 **Closes:** CON-1, CON-2, COM-4  
 **Goal:** strict lint/format enforcement with pinned tools; no drift.
 
-Tracking document: `hgm-infra/planning/theorydb-lint-green-roadmap.md`
+Tracking document: `gov-infra/planning/theorydb-lint-green-roadmap.md`
 
 **Acceptance criteria**
 - Formatter clean; lint green with schema-valid config; pinned tool versions; no blanket excludes.
@@ -93,7 +93,7 @@ Tracking document: `hgm-infra/planning/theorydb-lint-green-roadmap.md`
 **Closes:** QUA-1..5, COM-5  
 **Goal:** reach and maintain coverage floor (≥ 90%) without reducing scope; tests green.
 
-Tracking document: `hgm-infra/planning/theorydb-coverage-roadmap.md`
+Tracking document: `gov-infra/planning/theorydb-coverage-roadmap.md`
 
 ### M2 — Security + anti-drift enforcement
 **Closes:** COM-1, COM-2, COM-6..8, SEC-1..3  
@@ -108,13 +108,13 @@ Tracking document: `hgm-infra/planning/theorydb-coverage-roadmap.md`
 **Goal:** keep code convergent to reduce future security/quality drift.
 
 Notes:
-- MAI-2 requires a repo-local maintainability roadmap under `hgm-infra/planning/` and should be updated after major refactors.
+- MAI-2 requires a repo-local maintainability roadmap under `gov-infra/planning/` and should be updated after major refactors.
 
 ### M5 — Sunset legacy rubric runner (single entrypoint)
 **Closes:** (meta; no rubric IDs)  
-**Goal:** replace the legacy `scripts/verify-rubric.sh` orchestration with the HGM verifier without losing any checks.
+**Goal:** replace the legacy `scripts/verify-rubric.sh` orchestration with the gov-infra verifier without losing any checks.
 
 **Acceptance criteria**
 - `make rubric` continues to work unchanged.
-- `scripts/verify-rubric.sh` delegates to `bash hgm-infra/verifiers/hgm-verify-rubric.sh`.
-- All legacy rubric checks are still enforced via HGM (no lost gates).
+- `scripts/verify-rubric.sh` delegates to `bash gov-infra/verifiers/gov-verify-rubric.sh`.
+- All legacy rubric checks are still enforced via gov-infra (no lost gates).
