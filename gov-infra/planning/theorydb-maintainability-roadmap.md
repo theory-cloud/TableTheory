@@ -10,7 +10,7 @@ changes.
 Snapshot (2026-01-17):
 - Maintainability gates in the rubric:
   - MAI-1: `bash scripts/verify-file-size.sh`
-  - MAI-2: this document + HGM verifier
+  - MAI-2: this document + gov-infra verifier
   - MAI-3: `bash scripts/verify-query-singleton.sh`
 
 ## Hotspots
@@ -33,7 +33,7 @@ Gate:
 Goal: keep a current plan as refactors land, so maintainability doesn’t drift silently.
 
 Gate:
-- `check_maintainability_roadmap` (via `bash hgm-infra/verifiers/hgm-verify-rubric.sh`)
+- `check_maintainability_roadmap` (via `bash gov-infra/verifiers/gov-verify-rubric.sh`)
 
 Update triggers:
 - Major refactors (file moves/splits, query/executor rewrites, marshaling architecture changes).

@@ -10,16 +10,16 @@ The rubric remains the source of truth:
 
 ## Scope and blockers
 - **Workstream:** maintainability-plan
-- **Goal:** establish a repo-local maintainability convergence plan under `hgm-infra/planning/` and wire a deterministic verifier (MAI-2).
+- **Goal:** establish a repo-local maintainability convergence plan under `gov-infra/planning/` and wire a deterministic verifier (MAI-2).
 - **Blocking rubric IDs:** MAI-2
-- **Primary verifier:** `TODO: create verifier (e.g., bash hgm-infra/verifiers/verify-maintainability-roadmap.sh)`
-- **Primary evidence:** `hgm-infra/evidence/MAI-2-output.log`
+- **Primary verifier:** `TODO: create verifier (e.g., bash gov-infra/verifiers/verify-maintainability-roadmap.sh)`
+- **Primary evidence:** `gov-infra/evidence/MAI-2-output.log`
 
 ## Baseline (start of remediation)
 Snapshot (2026-01-17):
-- Current status: BLOCKED (no maintainability roadmap/verifier under `hgm-infra/` yet)
+- Current status: BLOCKED (no maintainability roadmap/verifier under `gov-infra/` yet)
 - Failure mode(s): missing artifact + missing deterministic check
-- Notes: repo currently contains maintainability plans under `docs/development/planning/`, but HGM governance is scoped to `hgm-infra/` only.
+- Notes: repo currently contains maintainability plans under `docs/development/planning/`, but gov-infra governance is scoped to `gov-infra/` only.
 
 ## Guardrails (no “green by dilution”)
 - Do not shrink scope to make numbers look better (no new excludes, no coverage denominator games).
@@ -36,7 +36,7 @@ Snapshot (2026-01-17):
 
 ### WS-1 — Define maintainability plan artifact
 Acceptance criteria:
-- Add `hgm-infra/planning/theorydb-maintainability-roadmap.md` with at least:
+- Add `gov-infra/planning/theorydb-maintainability-roadmap.md` with at least:
   - Baseline snapshot
   - Hotspots
   - Convergence workstreams
@@ -44,14 +44,14 @@ Acceptance criteria:
 
 ### WS-2 — Implement deterministic verifier
 Acceptance criteria:
-- Add a verifier wired into `hgm-infra/verifiers/hgm-verify-rubric.sh` that checks:
+- Add a verifier wired into `gov-infra/verifiers/gov-verify-rubric.sh` that checks:
   - file exists
   - required headings/sections exist
   - no unrendered tokens
 
 ### WS-3 — Enforce in CI
 Acceptance criteria:
-- CI runs `bash hgm-infra/verifiers/hgm-verify-rubric.sh` and uploads `hgm-infra/evidence/*`.
+- CI runs `bash gov-infra/verifiers/gov-verify-rubric.sh` and uploads `gov-infra/evidence/*`.
 
 ## Notes
-- Update `hgm-infra/planning/theorydb-10of10-roadmap.md` once MAI-2 changes from BLOCKED to PASS.
+- Update `gov-infra/planning/theorydb-10of10-roadmap.md` once MAI-2 changes from BLOCKED to PASS.

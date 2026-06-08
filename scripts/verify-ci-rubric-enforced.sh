@@ -158,6 +158,15 @@ grep -q 'gosec.sarif' "${wf}" || {
   echo "ci-rubric: ${wf}: must upload gosec.sarif"
   failures=$((failures + 1))
 }
+grep -q 'gov-infra/evidence' "${wf}" || {
+  echo "ci-rubric: ${wf}: must upload gov-infra/evidence"
+  failures=$((failures + 1))
+}
+legacy_evidence_path="hgm""-infra/evidence"
+if grep -q "${legacy_evidence_path}" "${wf}"; then
+  echo "ci-rubric: ${wf}: must not upload legacy governance evidence"
+  failures=$((failures + 1))
+fi
 
 if [[ "${failures}" -ne 0 ]]; then
   echo "ci-rubric: FAIL (${failures} issue(s))"

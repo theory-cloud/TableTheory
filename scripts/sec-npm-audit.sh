@@ -11,8 +11,8 @@ command -v npm >/dev/null 2>&1 || {
   exit 1
 }
 
-allowlist_file="hgm-infra/planning/theorydb-supply-chain-allowlist.txt"
-visible_policy_file="hgm-infra/planning/theorydb-visible-npm-audit-findings.json"
+allowlist_file="gov-infra/planning/theorydb-supply-chain-allowlist.txt"
+visible_policy_file="gov-infra/planning/theorydb-visible-npm-audit-findings.json"
 
 run_npm_audit() {
   local prefix="$1"

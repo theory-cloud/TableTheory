@@ -1,0 +1,39 @@
+{
+  "$schema": "theorymcp://namespaces/theorycloud/lifecycle-packs/govern/schemas/gov_pack.v1",
+  "schemaVersion": 1,
+  "packVersion": "816465a1618d",
+  "packDigest": "896aed16549928f21626fb4effe9bb6236fc60292a8f50bae8ce77e873ac775b",
+  "domain": "custom",
+  "projectSlug": "theorydb",
+  "generatedAt": "2026-01-17T00:00:00Z",
+  "source": {
+    "commitSha": "8d664766d002716a2d36563ed30132700bdf7301",
+    "branch": "premain"
+  },
+  "artifacts": {
+    "planning": [
+      "gov-infra/README.md",
+      "gov-infra/AGENTS.md",
+      "gov-infra/planning/theorydb-controls-matrix.md",
+      "gov-infra/planning/theorydb-threat-model.md",
+      "gov-infra/planning/theorydb-10of10-rubric.md",
+      "gov-infra/planning/theorydb-10of10-roadmap.md",
+      "gov-infra/planning/theorydb-evidence-plan.md",
+      "gov-infra/planning/theorydb-lint-green-roadmap.md",
+      "gov-infra/planning/theorydb-coverage-roadmap.md",
+      "gov-infra/planning/theorydb-logging-ops-standards.md",
+      "gov-infra/planning/theorydb-maintainability-roadmap.md",
+      "gov-infra/planning/theorydb-workstream-logging-ops-roadmap.md",
+      "gov-infra/planning/theorydb-workstream-maintainability-plan-roadmap.md",
+      "gov-infra/planning/theorydb-supply-chain-allowlist.txt",
+      "gov-infra/planning/theorydb-visible-npm-audit-findings.json",
+      "gov-infra/planning/theorydb-ai-drift-recovery.md"
+    ],
+    "verifiers": [
+      "gov-infra/verifiers/gov-verify-rubric.sh"
+    ],
+    "evidence": [
+      "gov-infra/evidence/gov-rubric-report.json"
+    ]
+  }
+}

@@ -13,11 +13,11 @@ intermediate milestones, guardrails, and repeatable measurement.
 ## Current state
 Snapshot (2026-01-17):
 - Coverage gate: `bash scripts/verify-coverage.sh`
-- Current result: unknown (run `bash hgm-infra/verifiers/hgm-verify-rubric.sh` to record evidence)
+- Current result: unknown (run `bash gov-infra/verifiers/gov-verify-rubric.sh` to record evidence)
 - Measurement surface: as implemented by `scripts/coverage.sh` and `scripts/verify-coverage.sh`
 
 ## Progress snapshots
-- Baseline (2026-01-17): evidence to be captured in `hgm-infra/evidence/QUA-3-output.log`
+- Baseline (2026-01-17): evidence to be captured in `gov-infra/evidence/QUA-3-output.log`
 - After COV-1 (TBD): TBD
 - After COV-2 (TBD): TBD
 

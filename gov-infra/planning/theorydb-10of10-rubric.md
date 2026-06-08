@@ -9,8 +9,8 @@ This rubric defines what “10/10” means and how category grades are computed.
 - **Change rule:** bump the version + changelog entry for any rubric change (what changed + why).
 
 ### Changelog
-- `v0.2`: Bring the HGM verifier to parity with the legacy `make rubric` surface (no lost checks) while keeping deterministic evidence under `hgm-infra/evidence/`.
-- `v0.1`: Initial Hypergenium governance scaffold under `hgm-infra/`.
+- `v0.2`: Bring the gov-infra verifier to parity with the legacy `make rubric` surface (no lost checks) while keeping deterministic evidence under `gov-infra/evidence/`.
+- `v0.1`: Initial gov-infra governance scaffold under `gov-infra/`.
 
 ## Scoring (deterministic)
 - Each category is scored **0–10**.
@@ -24,7 +24,7 @@ Every rubric item has exactly one verification mechanism:
 - a deterministic artifact check (required doc exists and matches an agreed format).
 
 Enforcement rule (anti-drift):
-- If an item’s verifier is a command/script, it only counts as passing once it runs and produces evidence under `hgm-infra/evidence/`.
+- If an item’s verifier is a command/script, it only counts as passing once it runs and produces evidence under `gov-infra/evidence/`.
 
 ---
 
@@ -73,16 +73,16 @@ Enforcement rule (anti-drift):
 | SEC-6 | 1 | Expression boundary hardening (no injection-by-construction; list index update paths validated) | `bash scripts/verify-expression-hardening.sh` |
 | SEC-7 | 1 | Network hygiene defaults (timeouts + retry posture) | `bash scripts/verify-network-hygiene.sh` |
 | SEC-8 | 1 | `theorydb:"encrypted"` has enforced semantics (fail closed) | `bash scripts/verify-encrypted-tag-implemented.sh` |
-| SEC-9 | 1 | Logging/operational standards enforced (repo-scoped) | `check_logging_ops_standards` (implemented in `hgm-infra/verifiers/hgm-verify-rubric.sh`) |
+| SEC-9 | 1 | Logging/operational standards enforced (repo-scoped) | `check_logging_ops_standards` (implemented in `gov-infra/verifiers/gov-verify-rubric.sh`) |
 
 **10/10 definition:** SEC-1 through SEC-9 pass.
 
 ## Compliance Readiness (CMP) — auditability and evidence
 | ID | Points | Requirement | How to verify |
 | --- | ---: | --- | --- |
-| CMP-1 | 4 | Controls matrix exists and is current | File exists: `hgm-infra/planning/theorydb-controls-matrix.md` |
-| CMP-2 | 3 | Evidence plan exists and is reproducible | File exists: `hgm-infra/planning/theorydb-evidence-plan.md` |
-| CMP-3 | 3 | Threat model exists and is current | File exists: `hgm-infra/planning/theorydb-threat-model.md` |
+| CMP-1 | 4 | Controls matrix exists and is current | File exists: `gov-infra/planning/theorydb-controls-matrix.md` |
+| CMP-2 | 3 | Evidence plan exists and is reproducible | File exists: `gov-infra/planning/theorydb-evidence-plan.md` |
+| CMP-3 | 3 | Threat model exists and is current | File exists: `gov-infra/planning/theorydb-threat-model.md` |
 
 **10/10 definition:** CMP-1 through CMP-3 pass.
 
@@ -98,11 +98,11 @@ Enforcement rule (anti-drift):
 ## Docs (DOC) — integrity and parity
 | ID | Points | Requirement | How to verify |
 | --- | ---: | --- | --- |
-| DOC-1 | 2 | Threat model present | File exists: `hgm-infra/planning/theorydb-threat-model.md` |
-| DOC-2 | 2 | Evidence plan present | File exists: `hgm-infra/planning/theorydb-evidence-plan.md` |
-| DOC-3 | 2 | Rubric + roadmap present | File exists: `hgm-infra/planning/theorydb-10of10-rubric.md` |
-| DOC-4 | 2 | Doc integrity (repo docs + HGM docs) | `check_doc_integrity` (implemented in `hgm-infra/verifiers/hgm-verify-rubric.sh`) |
-| DOC-5 | 2 | Threat ↔ controls parity (repo docs + HGM docs) | `check_threat_controls_parity_full` (implemented in `hgm-infra/verifiers/hgm-verify-rubric.sh`) |
+| DOC-1 | 2 | Threat model present | File exists: `gov-infra/planning/theorydb-threat-model.md` |
+| DOC-2 | 2 | Evidence plan present | File exists: `gov-infra/planning/theorydb-evidence-plan.md` |
+| DOC-3 | 2 | Rubric + roadmap present | File exists: `gov-infra/planning/theorydb-10of10-rubric.md` |
+| DOC-4 | 2 | Doc integrity (repo docs + gov-infra docs) | `check_doc_integrity` (implemented in `gov-infra/verifiers/gov-verify-rubric.sh`) |
+| DOC-5 | 2 | Threat ↔ controls parity (repo docs + gov-infra docs) | `check_threat_controls_parity_full` (implemented in `gov-infra/verifiers/gov-verify-rubric.sh`) |
 
 **10/10 definition:** DOC-1 through DOC-5 pass.
 
@@ -149,5 +149,5 @@ bash scripts/verify-file-size.sh
 bash scripts/verify-maintainability-roadmap.sh
 bash scripts/verify-query-singleton.sh
 
-bash hgm-infra/verifiers/hgm-verify-rubric.sh
+bash gov-infra/verifiers/gov-verify-rubric.sh
 ```

@@ -3,7 +3,7 @@
 
 # Generated evidence logs (CI artifacts; keep the machine report tracked)
 evidence/*.log
-!evidence/hgm-rubric-report.json
+!evidence/gov-rubric-report.json
 
 # Local certification/signature bundles (do not commit)
 signatures/

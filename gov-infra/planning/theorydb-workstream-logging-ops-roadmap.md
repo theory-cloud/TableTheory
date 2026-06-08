@@ -13,7 +13,7 @@ The rubric remains the source of truth:
 - **Goal:** define the logging/operational standards that apply to Theorydb as a library, then implement deterministic gates where applicable.
 - **Blocking rubric IDs:** COM-6
 - **Primary verifier:** `TODO: add logging/operational standards verifier`
-- **Primary evidence:** `hgm-infra/evidence/COM-6-output.log`
+- **Primary evidence:** `gov-infra/evidence/COM-6-output.log`
 
 ## Baseline (start of remediation)
 Snapshot (2026-01-17):
@@ -30,7 +30,7 @@ Snapshot (2026-01-17):
 
 ### WS-1 — Define the standard
 Acceptance criteria:
-- Add `hgm-infra/planning/theorydb-logging-ops-standards.md` describing:
+- Add `gov-infra/planning/theorydb-logging-ops-standards.md` describing:
   - allowed logging APIs (if any)
   - prohibited patterns (logging raw structs/attribute maps)
   - rules for examples vs library code
@@ -43,4 +43,4 @@ Acceptance criteria:
 
 ### WS-3 — Wire into CI
 Acceptance criteria:
-- Verifier runs in the HGM rubric surface and produces evidence under `hgm-infra/evidence/`.
+- Verifier runs in the gov-infra rubric surface and produces evidence under `gov-infra/evidence/`.
