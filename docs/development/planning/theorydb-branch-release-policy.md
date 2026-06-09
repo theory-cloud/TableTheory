@@ -98,11 +98,11 @@ Protect both `premain` and `main`:
 
 - Require PRs for human-authored changes.
 - Require CODEOWNERS/review approvals.
-- Require release-hygiene status checks for PRs targeting `premain` and `main`; do not require the full Hypergenium rubric
+- Require release-hygiene status checks for PRs targeting `premain` and `main`; do not require the full gov-infra rubric
   on those promotion branches.
 - Restrict force-pushes and deletions.
 
-Protect `staging` with the full Hypergenium rubric on PRs targeting `staging`. The full rubric may also run by
+Protect `staging` with the full gov-infra rubric on PRs targeting `staging`. The full rubric may also run by
 `workflow_dispatch`, but it must not run on push or on PRs targeting `premain` or `main`.
 
 ## Automated releases (required)
@@ -182,7 +182,7 @@ path, and it must not replace release-please-owned stable version/changelog upda
 
 Release-lane quality workflow expectations:
 
-- `.github/workflows/quality-gates.yml` runs the full Hypergenium rubric only for PRs targeting `staging` and for
+- `.github/workflows/quality-gates.yml` runs the full gov-infra rubric only for PRs targeting `staging` and for
   manual dispatch.
 - `.github/workflows/release-hygiene.yml` runs lightweight source-branch, release-cycle, supply-chain, and main-RC-PR
   checks for PRs targeting `premain` and `main`.

@@ -102,7 +102,7 @@ expect_failure_contains \
   "visible finding(s) cannot also be in the suppression allowlist" \
   node "${checker}" "${tmpdir}/audit.json" "${tmpdir}/allowlist.txt" examples/cdk-multilang "${tmpdir}/visible.json"
 
-if grep -Fxq "${finding}" hgm-infra/planning/theorydb-supply-chain-allowlist.txt; then
+if grep -Fxq "${finding}" gov-infra/planning/theorydb-supply-chain-allowlist.txt; then
   echo "npm-audit-policy-test: THE-1757 brace-expansion finding must not be in the suppression allowlist"
   exit 1
 fi
@@ -121,7 +121,7 @@ if (bundledBrace?.version !== '5.0.5') {
   throw new Error(`expected aws-cdk-lib bundled brace-expansion lock entry to remain 5.0.5, got ${bundledBrace?.version ?? 'missing'}`);
 }
 
-const policy = JSON.parse(fs.readFileSync('hgm-infra/planning/theorydb-visible-npm-audit-findings.json', 'utf8'));
+const policy = JSON.parse(fs.readFileSync('gov-infra/planning/theorydb-visible-npm-audit-findings.json', 'utf8'));
 const hasVisibleBracePolicy = policy.findings?.some(
   (finding) =>
     finding.project === 'examples/cdk-multilang' &&

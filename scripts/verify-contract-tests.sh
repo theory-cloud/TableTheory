@@ -6,6 +6,9 @@ if [[ ! -d "contract-tests" ]]; then
   exit 0
 fi
 
+echo "contract-tests: generated-ts"
+bash scripts/verify-generated-ts-key-contract.sh
+
 skip="${SKIP_INTEGRATION:-}"
 if [[ "${skip}" == "1" || "${skip}" == "true" ]]; then
   echo "contract-tests: SKIP (SKIP_INTEGRATION=${skip})"
@@ -40,4 +43,3 @@ if [[ -d "contract-tests/runners/py" ]]; then
 fi
 
 echo "contract-tests: PASS"
-

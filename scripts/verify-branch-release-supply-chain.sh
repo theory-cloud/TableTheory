@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Verifies the TableTheory release-lane scaffolding:
 # - one lane: staging -> premain -> main -> staging
-# - full Hypergenium rubric only on staging PRs and workflow_dispatch
+# - full gov-infra rubric only on staging PRs and workflow_dispatch
 # - lightweight release hygiene on premain/main PRs
 # - premain cuts RCs; main cuts stable releases only
 # - no post-stable CI direct-push sync to protected branches
@@ -90,6 +90,12 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
     "quality-gates must support workflow_dispatch"
   require_fixed "run: make rubric" "${q}" \
     "quality-gates must run the full rubric"
+  require_fixed "gov-infra/evidence" "${q}" \
+    "quality-gates must upload gov-infra evidence artifacts"
+  legacy_evidence_path="hgm""-infra/evidence"
+  if grep -Fq "${legacy_evidence_path}" "${q}"; then
+    fail "quality-gates must not upload legacy governance evidence artifacts"
+  fi
   if grep -Eq '^[[:space:]]*push:' "${q}"; then
     fail "quality-gates must not run on push"
   fi

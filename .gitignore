@@ -84,6 +84,10 @@ Thumbs.db
 # Cursor AI specific
 .cursor/
 .codex/
+.claude/
+.agents/
+.mcp.json
+GEMINI.md
 
 # Project specific
 /docs/development/notes/
