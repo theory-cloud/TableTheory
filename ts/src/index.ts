@@ -22,3 +22,4 @@ export * from './write-policy.js';
 export * from './release-state.js';
 export * from './lease.js';
 export * from './facetheory-isr.js';
+export * from './key-contract.js';

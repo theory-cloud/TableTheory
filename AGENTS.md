@@ -1,3 +1,10 @@
+# TableTheory Agent Bootstrap
+
+- This repository's stewardship agent is the published `tabletheory` Theory Cloud namespace agent.
+- The namespace agent is materialized into git-ignored host installs under `.codex/`, `.claude/`, and `.agents/`.
+- The published namespace is the source of truth; do not hand-edit those materialized files. Re-materialize the namespace agent to change them.
+- See `.codex/steward.md` for the steward's full identity and skills.
+
 # Repository Guidelines
 
 ## Stewardship Loop
@@ -57,7 +64,7 @@ published requires:
 - **post-release sync**: back-merge `main` into `staging` so the next cycle starts from the latest stable baseline
 
 The cross-framework release lane is exactly `staging -> premain -> main -> staging`. `staging` is the only branch that
-requires the full Hypergenium rubric, and only on PRs targeting `staging` plus manual workflow dispatch. PRs targeting
+requires the full gov-infra rubric, and only on PRs targeting `staging` plus manual workflow dispatch. PRs targeting
 `premain` or `main` require release-hygiene checks only, not the full rubric.
 
 Branch roles:

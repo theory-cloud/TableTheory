@@ -60,7 +60,7 @@ TheoryCloud TableTheory subtree.
 
 ### 📝 Repo-local Maintainer Artifacts
 
-- Planning, decision, and clarification templates live under `docs/development/**` and `hgm-infra/planning/**`.
+- Planning, decision, and clarification templates live under `docs/development/**` and `gov-infra/planning/**`.
 - These maintainer artifacts are intentionally excluded from the TheoryCloud user-facing TableTheory subtree.
 
 ## Audience
