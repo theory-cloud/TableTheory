@@ -1,0 +1,329 @@
+tabletheory_model_contract_version: "0.1"
+namespace: "theorymcp.examples"
+dms_version: "0.1"
+models:
+  - name: "KnowledgeAccessPolicy"
+    derived_keys: ["CanonicalPolicyKey"]
+  - name: "PrincipalBinding"
+    derived_keys: ["CanonicalBindingKey"]
+  - name: "AgentInterfaceScope"
+    derived_keys: ["InterfaceScopeKey", "SkillScopeKey"]
+  - name: "AgentEmailBinding"
+    derived_keys: ["AgentScopeKey", "AgentBindingCollectionKey", "EmailBindingSortKey"]
+  - name: "AgentGitHubAppBinding"
+    derived_keys:
+      - "AgentScopeKey"
+      - "AgentBindingCollectionKey"
+      - "GitHubAppBindingSortKey"
+      - "GitHubInstallationLookupKey"
+      - "GitHubInstallationBindingSortKey"
+      - "GitHubRepositoryLookupKey"
+  - name: "AgentPackageImportSession"
+    derived_keys: ["ImportSessionScopeKey"]
+derived_keys:
+  - name: "WildcardScope"
+    helper: "wildcardScope"
+    description: "TheoryMCP wildcard scope primitive captured as a generic trim + wildcard_empty template."
+    join: ""
+    inputs:
+      - { name: "scope", ts_name: "scope", type: "string", optional: true }
+    segments:
+      - name: "scope"
+        value: { input: "scope" }
+        transforms: ["trim", "wildcard_empty"]
+    fixtures:
+      - name: "empty_to_wildcard"
+        input: { scope: "" }
+        expect: "*"
+      - name: "trim_to_value"
+        input: { scope: " keybank " }
+        expect: "keybank"
+      - name: "trim_nel_to_wildcard"
+        input: { scope: "\u0085" }
+        expect: "*"
+      - name: "trim_bom_to_wildcard"
+        input: { scope: "\uFEFF" }
+        expect: "*"
+
+  - name: "CanonicalPolicyKey"
+    helper: "canonicalPolicyKey"
+    description: "KnowledgeAccessPolicy.CanonicalPolicyKey fixture mirror; product validation stays outside TableTheory."
+    join: "|"
+    inputs:
+      - { name: "client_namespace", ts_name: "clientNamespace", type: "string", optional: true }
+      - { name: "agent_id", ts_name: "agentId", type: "string", optional: true }
+      - { name: "partner_id", ts_name: "partnerId", type: "string", optional: true }
+      - { name: "kb_name", ts_name: "kbName", type: "string" }
+      - { name: "effect", ts_name: "effect", type: "string" }
+      - { name: "access_mode", ts_name: "accessMode", type: "string" }
+      - { name: "policy_version", ts_name: "policyVersion", type: "number" }
+      - { name: "management_mode", ts_name: "managementMode", type: "string", optional: true }
+    segments:
+      - { name: "namespace", prefix: "ns=", value: { input: "client_namespace" }, transforms: ["trim", "wildcard_empty"] }
+      - { name: "agent", prefix: "agent=", value: { input: "agent_id" }, transforms: ["trim", "wildcard_empty"] }
+      - { name: "partner", prefix: "partner=", value: { input: "partner_id" }, transforms: ["trim", "wildcard_empty"] }
+      - { name: "kb", prefix: "kb=", value: { input: "kb_name" }, transforms: ["trim"] }
+      - { name: "effect", prefix: "effect=", value: { input: "effect" } }
+      - { name: "mode", prefix: "mode=", value: { input: "access_mode" } }
+      - { name: "version", prefix: "v=", value: { input: "policy_version" } }
+      - name: "management"
+        prefix: "mgmt="
+        value: { input: "management_mode" }
+        transforms: ["trim"]
+        default: "manual"
+        optional: true
+        omit_when: { default: true }
+    fixtures:
+      - name: "manual_default_omits_management"
+        input:
+          client_namespace: "theorycloud"
+          agent_id: "apptheory"
+          partner_id: ""
+          kb_name: " payments "
+          effect: "allow"
+          access_mode: "agent"
+          policy_version: 3
+        expect: "ns=theorycloud|agent=apptheory|partner=*|kb=payments|effect=allow|mode=agent|v=3"
+      - name: "manual_explicit_omits_management"
+        input:
+          client_namespace: "theorycloud"
+          agent_id: "apptheory"
+          partner_id: "keybank"
+          kb_name: "payments"
+          effect: "deny"
+          access_mode: "partner"
+          policy_version: 4
+          management_mode: "manual"
+        expect: "ns=theorycloud|agent=apptheory|partner=keybank|kb=payments|effect=deny|mode=partner|v=4"
+      - name: "server_managed_appends_management"
+        input:
+          client_namespace: "theorycloud"
+          agent_id: "apptheory"
+          partner_id: "keybank"
+          kb_name: "payments"
+          effect: "allow"
+          access_mode: "partner"
+          policy_version: 5
+          management_mode: "auto_manifest_namespace_binding"
+        expect: "ns=theorycloud|agent=apptheory|partner=keybank|kb=payments|effect=allow|mode=partner|v=5|mgmt=auto_manifest_namespace_binding"
+
+  - name: "CanonicalBindingKey"
+    helper: "canonicalBindingKey"
+    description: "PrincipalBinding.CanonicalBindingKey fixture mirror."
+    join: "|"
+    inputs:
+      - { name: "client_namespace", ts_name: "clientNamespace", type: "string", optional: true }
+      - { name: "partner_id", ts_name: "partnerId", type: "string", optional: true }
+      - { name: "auth_source", ts_name: "authSource", type: "string" }
+      - { name: "binding_type", ts_name: "bindingType", type: "string" }
+      - { name: "binding_value", ts_name: "bindingValue", type: "string" }
+    segments:
+      - { name: "namespace", prefix: "ns=", value: { input: "client_namespace" }, transforms: ["trim", "wildcard_empty"] }
+      - { name: "partner", prefix: "partner=", value: { input: "partner_id" }, transforms: ["trim", "wildcard_empty"] }
+      - { name: "source", prefix: "source=", value: { input: "auth_source" }, transforms: ["trim"] }
+      - { name: "type", prefix: "type=", value: { input: "binding_type" } }
+      - { name: "value", prefix: "value=", value: { input: "binding_value" }, transforms: ["trim"] }
+    fixtures:
+      - name: "partner_subject_pattern"
+        input:
+          client_namespace: "theorycloud"
+          partner_id: "keybank"
+          auth_source: " okta "
+          binding_type: "subject_pattern"
+          binding_value: " user/* "
+        expect: "ns=theorycloud|partner=keybank|source=okta|type=subject_pattern|value=user/*"
+      - name: "wildcard_namespace_and_partner"
+        input:
+          client_namespace: ""
+          partner_id: ""
+          auth_source: "github"
+          binding_type: "org_id"
+          binding_value: "12345"
+        expect: "ns=*|partner=*|source=github|type=org_id|value=12345"
+
+  - name: "InterfaceScopeKey"
+    helper: "interfaceScopeKey"
+    description: "AgentInterfaceScope.ScopeKey fixture mirror."
+    join: "|"
+    inputs:
+      - { name: "tenant_id", ts_name: "tenantId", type: "string" }
+      - { name: "client_namespace", ts_name: "clientNamespace", type: "string" }
+      - { name: "agent_id", ts_name: "agentId", type: "string" }
+    segments:
+      - { name: "tenant", prefix: "tenant=", value: { input: "tenant_id" }, transforms: ["trim"] }
+      - { name: "namespace", prefix: "ns=", value: { input: "client_namespace" }, transforms: ["trim"] }
+      - { name: "agent", prefix: "agent=", value: { input: "agent_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "tenant_namespace_agent"
+        input: { tenant_id: " tenant-theorycloud ", client_namespace: " theorycloud ", agent_id: " apptheory " }
+        expect: "tenant=tenant-theorycloud|ns=theorycloud|agent=apptheory"
+
+  - name: "SkillScopeKey"
+    helper: "skillScopeKey"
+    description: "Interface skill child scope fixture mirror."
+    join: "|"
+    inputs:
+      - { name: "tenant_id", ts_name: "tenantId", type: "string" }
+      - { name: "client_namespace", ts_name: "clientNamespace", type: "string" }
+      - { name: "agent_id", ts_name: "agentId", type: "string" }
+      - { name: "skill_id", ts_name: "skillId", type: "string" }
+    segments:
+      - { name: "tenant", prefix: "tenant=", value: { input: "tenant_id" }, transforms: ["trim"] }
+      - { name: "namespace", prefix: "ns=", value: { input: "client_namespace" }, transforms: ["trim"] }
+      - { name: "agent", prefix: "agent=", value: { input: "agent_id" }, transforms: ["trim"] }
+      - { name: "skill", prefix: "skill=", value: { input: "skill_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "skill_child_scope"
+        input: { tenant_id: "tenant-theorycloud", client_namespace: "theorycloud", agent_id: "apptheory", skill_id: " skill-001 " }
+        expect: "tenant=tenant-theorycloud|ns=theorycloud|agent=apptheory|skill=skill-001"
+
+  - name: "AgentScopeKey"
+    helper: "agentScopeKey"
+    description: "Shared TheoryMCP agent scope used by email and GitHub binding records."
+    join: "|"
+    inputs:
+      - { name: "client_namespace", ts_name: "clientNamespace", type: "string" }
+      - { name: "partner_id", ts_name: "partnerId", type: "string", optional: true }
+      - { name: "agent_id", ts_name: "agentId", type: "string" }
+    segments:
+      - { name: "namespace", prefix: "ns=", value: { input: "client_namespace" }, transforms: ["trim"] }
+      - { name: "partner", prefix: "partner=", value: { input: "partner_id" }, transforms: ["trim", "wildcard_empty"] }
+      - { name: "agent", prefix: "agent=", value: { input: "agent_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "email_and_github_default_partner"
+        input: { client_namespace: "theorycloud", partner_id: "", agent_id: "apptheory" }
+        expect: "ns=theorycloud|partner=*|agent=apptheory"
+      - name: "email_delivery_partner_scope"
+        input: { client_namespace: "theorycloud", partner_id: "keybank", agent_id: "apptheory" }
+        expect: "ns=theorycloud|partner=keybank|agent=apptheory"
+
+  - name: "AgentBindingCollectionKey"
+    helper: "agentBindingCollectionKey"
+    description: "Email/GitHub binding GSI collection key fixture mirror."
+    join: "|"
+    inputs:
+      - { name: "client_namespace", ts_name: "clientNamespace", type: "string" }
+      - { name: "agent_id", ts_name: "agentId", type: "string" }
+    segments:
+      - { name: "namespace", prefix: "ns=", value: { input: "client_namespace" }, transforms: ["trim"] }
+      - { name: "agent", prefix: "agent=", value: { input: "agent_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "binding_collection"
+        input: { client_namespace: "theorycloud", agent_id: "apptheory" }
+        expect: "ns=theorycloud|agent=apptheory"
+
+  - name: "EmailBindingSortKey"
+    helper: "emailBindingSortKey"
+    description: "AgentEmailBinding BindingAgentSortKey fixture mirror."
+    join: "|"
+    inputs:
+      - { name: "partner_id", ts_name: "partnerId", type: "string", optional: true }
+      - { name: "email_binding_id", ts_name: "emailBindingId", type: "string" }
+    segments:
+      - { name: "partner", prefix: "partner=", value: { input: "partner_id" }, transforms: ["trim", "wildcard_empty"] }
+      - { name: "binding", prefix: "binding=", value: { input: "email_binding_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "default_partner"
+        input: { partner_id: "", email_binding_id: "binding-001" }
+        expect: "partner=*|binding=binding-001"
+      - name: "partner_scoped"
+        input: { partner_id: "keybank", email_binding_id: "binding-001" }
+        expect: "partner=keybank|binding=binding-001"
+
+  - name: "GitHubAppBindingSortKey"
+    helper: "githubAppBindingSortKey"
+    description: "AgentGitHubAppBinding BindingAgentSortKey fixture mirror."
+    join: "|"
+    inputs:
+      - { name: "partner_id", ts_name: "partnerId", type: "string", optional: true }
+      - { name: "github_app_binding_id", ts_name: "githubAppBindingId", type: "string" }
+    segments:
+      - { name: "partner", prefix: "partner=", value: { input: "partner_id" }, transforms: ["trim", "wildcard_empty"] }
+      - { name: "github_binding", prefix: "github_app_binding=", value: { input: "github_app_binding_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "default_partner"
+        input: { partner_id: "", github_app_binding_id: "ghbind-001" }
+        expect: "partner=*|github_app_binding=ghbind-001"
+
+  - name: "GitHubInstallationLookupKey"
+    helper: "githubInstallationLookupKey"
+    description: "GitHub installation lookup key fixture mirror."
+    join: "|"
+    inputs:
+      - { name: "github_app_id", ts_name: "githubAppId", type: "string" }
+      - { name: "github_installation_id", ts_name: "githubInstallationId", type: "string" }
+    segments:
+      - { name: "app", prefix: "github_app=", value: { input: "github_app_id" }, transforms: ["trim"] }
+      - { name: "installation", prefix: "installation=", value: { input: "github_installation_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "installation_lookup"
+        input: { github_app_id: "12345", github_installation_id: "98765" }
+        expect: "github_app=12345|installation=98765"
+
+  - name: "GitHubInstallationBindingSortKey"
+    helper: "githubInstallationBindingSortKey"
+    description: "GitHub installation binding sort key fixture mirror."
+    join: ""
+    inputs:
+      - { name: "github_app_binding_id", ts_name: "githubAppBindingId", type: "string" }
+    segments:
+      - { name: "binding", prefix: "github_app_binding=", value: { input: "github_app_binding_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "installation_binding_sort"
+        input: { github_app_binding_id: "ghbind-001" }
+        expect: "github_app_binding=ghbind-001"
+
+  - name: "GitHubRepositoryLookupKey"
+    helper: "githubRepositoryLookupKey"
+    description: "GitHub repository lookup key fixture mirror."
+    join: "|"
+    inputs:
+      - { name: "github_app_id", ts_name: "githubAppId", type: "string" }
+      - { name: "github_installation_id", ts_name: "githubInstallationId", type: "string" }
+      - { name: "github_repository_id", ts_name: "githubRepositoryId", type: "string" }
+    segments:
+      - { name: "app", prefix: "github_app=", value: { input: "github_app_id" }, transforms: ["trim"] }
+      - { name: "installation", prefix: "installation=", value: { input: "github_installation_id" }, transforms: ["trim"] }
+      - { name: "repository", prefix: "repository=", value: { input: "github_repository_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "repository_lookup"
+        input: { github_app_id: "12345", github_installation_id: "98765", github_repository_id: "45678" }
+        expect: "github_app=12345|installation=98765|repository=45678"
+
+  - name: "ImportSessionScopeKey"
+    helper: "importSessionScopeKey"
+    description: "AgentPackageImportSession ImportSessionScopeKey fixture mirror via AgentMemoryScope.MemoryScopeKey."
+    join: "|"
+    inputs:
+      - { name: "tenant_id", ts_name: "tenantId", type: "string" }
+      - { name: "client_namespace", ts_name: "clientNamespace", type: "string" }
+      - { name: "partner_id", ts_name: "partnerId", type: "string", optional: true }
+      - { name: "agent_id", ts_name: "agentId", type: "string" }
+    segments:
+      - { name: "tenant", prefix: "tenant=", value: { input: "tenant_id" }, transforms: ["trim"] }
+      - { name: "namespace", prefix: "ns=", value: { input: "client_namespace" }, transforms: ["trim"] }
+      - { name: "partner", prefix: "partner=", value: { input: "partner_id" }, transforms: ["trim", "wildcard_empty"] }
+      - { name: "agent", prefix: "agent=", value: { input: "agent_id" }, transforms: ["trim"] }
+    fixtures:
+      - name: "import_session_default_partner"
+        input: { tenant_id: "tenant-theorycloud", client_namespace: "theorycloud", partner_id: "", agent_id: "apptheory" }
+        expect: "tenant=tenant-theorycloud|ns=theorycloud|partner=*|agent=apptheory"
+
+  - name: "ScalarNumberKey"
+    helper: "scalarNumberKey"
+    description: "Generic TableTheory numeric string canonicalization boundary fixture."
+    join: ""
+    inputs:
+      - { name: "value", ts_name: "value", type: "number" }
+    segments:
+      - { name: "value", prefix: "n=", value: { input: "value" } }
+    fixtures:
+      - name: "large_boundary_1e21"
+        input: { value: 1e21 }
+        expect: "n=1000000000000000000000"
+      - name: "small_boundary_1e_minus_6"
+        input: { value: 1e-6 }
+        expect: "n=0.000001"
+      - name: "negative_zero_normalizes"
+        input: { value: -0.0 }
+        expect: "n=0"
