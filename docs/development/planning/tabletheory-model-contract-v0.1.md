@@ -62,8 +62,45 @@ For each segment, evaluators perform the following steps in order:
 
 Supported transforms in v0.1:
 
-- `trim` — remove leading and trailing Unicode whitespace.
+- `trim` — remove leading and trailing contract whitespace using an explicit codepoint set, independent of any language runtime's default trim behavior.
 - `wildcard_empty` — map the empty string to `*`. It does not trim by itself; declare `trim` before it when whitespace should become wildcard-eligible.
+
+The `trim` codepoint set is exactly:
+
+```text
+U+0009 CHARACTER TABULATION
+U+000A LINE FEED
+U+000B LINE TABULATION
+U+000C FORM FEED
+U+000D CARRIAGE RETURN
+U+0020 SPACE
+U+0085 NEXT LINE
+U+00A0 NO-BREAK SPACE
+U+1680 OGHAM SPACE MARK
+U+2000 EN QUAD
+U+2001 EM QUAD
+U+2002 EN SPACE
+U+2003 EM SPACE
+U+2004 THREE-PER-EM SPACE
+U+2005 FOUR-PER-EM SPACE
+U+2006 SIX-PER-EM SPACE
+U+2007 FIGURE SPACE
+U+2008 PUNCTUATION SPACE
+U+2009 THIN SPACE
+U+200A HAIR SPACE
+U+2028 LINE SEPARATOR
+U+2029 PARAGRAPH SEPARATOR
+U+202F NARROW NO-BREAK SPACE
+U+205F MEDIUM MATHEMATICAL SPACE
+U+3000 IDEOGRAPHIC SPACE
+U+FEFF ZERO WIDTH NO-BREAK SPACE / BOM
+```
+
+Numeric conversion is canonical and byte-oriented:
+
+- `number` inputs must be finite. `NaN`, positive infinity, and negative infinity are model-evaluation errors.
+- Negative zero is normalized to `0`.
+- Finite numbers are rendered as the shortest round-trip decimal significand for the runtime value with any exponent notation expanded to plain decimal. The key byte stream therefore never contains `e`/`E` exponent notation. Examples: `1e21` renders as `1000000000000000000000`, and `1e-6` renders as `0.000001`.
 
 Supported omission rules:
 
@@ -96,5 +133,6 @@ Generated helpers import the runtime evaluator from `@theory-cloud/tabletheory-t
 - email/GitHub binding scope and sort keys
 - GitHub installation/repository lookup keys
 - `ImportSessionScopeKey`
+- generic scalar number formatting boundaries (`1e21`, `1e-6`, negative zero)
 
 Future consumer fixture files can be dropped under `contract-tests/key-contracts/v0.1/` and exercised by the same Go/TypeScript evaluators without code changes.

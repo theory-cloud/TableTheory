@@ -54,3 +54,11 @@ func TestGenerateTypeScriptOptionsAndErrors(t *testing.T) {
 	_, err = GenerateTypeScript(invalidHelper, GenerateTypeScriptOptions{})
 	require.Error(t, err)
 }
+
+func TestQuoteTSUsesJSONCompatibleEscaping(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, `"line\nbreak"`, quoteTS("line\nbreak"))
+	require.Equal(t, `"nul\u0000byte"`, quoteTS("nul\x00byte"))
+	require.Equal(t, `"separator\u2028paragraph\u2029"`, quoteTS("separator\u2028paragraph\u2029"))
+}

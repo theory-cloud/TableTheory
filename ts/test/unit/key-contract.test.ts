@@ -25,7 +25,7 @@ const fixture = parseDerivedKeyContract(readFileSync(fixturePath, 'utf8'));
   const counts = new Map(
     fixture.derived_keys.map((key) => [key.name, key.fixtures?.length ?? 0]),
   );
-  assert.equal(counts.get('WildcardScope'), 2);
+  assert.equal(counts.get('WildcardScope'), 4);
   assert.equal(counts.get('CanonicalPolicyKey'), 3);
   assert.equal(counts.get('CanonicalBindingKey'), 2);
   assert.equal(counts.get('InterfaceScopeKey'), 1);
@@ -34,6 +34,7 @@ const fixture = parseDerivedKeyContract(readFileSync(fixturePath, 'utf8'));
   assert.equal(counts.get('EmailBindingSortKey'), 2);
   assert.equal(counts.get('GitHubRepositoryLookupKey'), 1);
   assert.equal(counts.get('ImportSessionScopeKey'), 1);
+  assert.equal(counts.get('ScalarNumberKey'), 3);
 }
 
 {
@@ -88,6 +89,47 @@ const fixture = parseDerivedKeyContract(readFileSync(fixturePath, 'utf8'));
     evaluateDerivedKeyDefinition(key, { scope: '', mode: 'auto' }),
     'scope=*|mode=auto',
   );
+  assert.equal(
+    evaluateDerivedKeyDefinition(key, { scope: '\u0085keybank\ufeff' }),
+    'scope=keybank',
+  );
+}
+
+{
+  const key: DerivedKeyDefinition = {
+    name: 'NumberKey',
+    join: '',
+    inputs: [{ name: 'value', type: 'number' }],
+    segments: [{ prefix: 'n=', value: { input: 'value' } }],
+  };
+
+  assert.equal(
+    evaluateDerivedKeyDefinition(key, { value: 1e21 }),
+    'n=1000000000000000000000',
+  );
+  assert.equal(
+    evaluateDerivedKeyDefinition(key, { value: 1e-6 }),
+    'n=0.000001',
+  );
+  assert.equal(
+    evaluateDerivedKeyDefinition(key, { value: 1e-7 }),
+    'n=0.0000001',
+  );
+  assert.equal(evaluateDerivedKeyDefinition(key, { value: -0 }), 'n=0');
+}
+
+{
+  for (const value of [NaN, Infinity, -Infinity]) {
+    assert.throws(
+      () => evaluateDerivedKey(fixture, 'ScalarNumberKey', { value }),
+      (err) => {
+        assert.ok(err instanceof TheorydbError);
+        assert.equal(err.code, 'ErrInvalidModel');
+        assert.match(err.message, /finite number/);
+        return true;
+      },
+    );
+  }
 }
 
 {

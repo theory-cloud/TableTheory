@@ -2,6 +2,7 @@ package keycontract
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -107,7 +108,7 @@ func applyTransforms(value string, transforms []string) (string, error) {
 	for _, transform := range transforms {
 		switch transform {
 		case TransformTrim:
-			value = strings.TrimSpace(value)
+			value = trimContractWhitespace(value)
 		case TransformWildcardEmpty:
 			if value == "" {
 				value = "*"
@@ -167,9 +168,9 @@ func scalarToString(value any) (string, error) {
 	case bool:
 		return strconv.FormatBool(v), nil
 	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 32), nil
+		return canonicalFloatToString(float64(v), 32)
 	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64), nil
+		return canonicalFloatToString(v, 64)
 	}
 	if out, ok := integerScalarToString(value); ok {
 		return out, nil
@@ -201,5 +202,88 @@ func integerScalarToString(value any) (string, bool) {
 		return strconv.FormatUint(v, 10), true
 	default:
 		return "", false
+	}
+}
+
+func trimContractWhitespace(value string) string {
+	return strings.TrimFunc(value, isContractTrimWhitespace)
+}
+
+func isContractTrimWhitespace(r rune) bool {
+	switch r {
+	case '\u0009', // CHARACTER TABULATION
+		'\u000A', // LINE FEED
+		'\u000B', // LINE TABULATION
+		'\u000C', // FORM FEED
+		'\u000D', // CARRIAGE RETURN
+		'\u0020', // SPACE
+		'\u0085', // NEXT LINE
+		'\u00A0', // NO-BREAK SPACE
+		'\u1680', // OGHAM SPACE MARK
+		'\u2000', // EN QUAD
+		'\u2001', // EM QUAD
+		'\u2002', // EN SPACE
+		'\u2003', // EM SPACE
+		'\u2004', // THREE-PER-EM SPACE
+		'\u2005', // FOUR-PER-EM SPACE
+		'\u2006', // SIX-PER-EM SPACE
+		'\u2007', // FIGURE SPACE
+		'\u2008', // PUNCTUATION SPACE
+		'\u2009', // THIN SPACE
+		'\u200A', // HAIR SPACE
+		'\u2028', // LINE SEPARATOR
+		'\u2029', // PARAGRAPH SEPARATOR
+		'\u202F', // NARROW NO-BREAK SPACE
+		'\u205F', // MEDIUM MATHEMATICAL SPACE
+		'\u3000', // IDEOGRAPHIC SPACE
+		'\uFEFF': // ZERO WIDTH NO-BREAK SPACE / BOM
+		return true
+	default:
+		return false
+	}
+}
+
+func canonicalFloatToString(value float64, bitSize int) (string, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return "", fmt.Errorf("must be a finite number")
+	}
+	if value == 0 {
+		return "0", nil
+	}
+	return expandExponentDecimal(strconv.FormatFloat(value, 'g', -1, bitSize)), nil
+}
+
+func expandExponentDecimal(value string) string {
+	expIndex := strings.IndexAny(value, "eE")
+	if expIndex < 0 {
+		return value
+	}
+
+	mantissa := value[:expIndex]
+	exponent, err := strconv.Atoi(value[expIndex+1:])
+	if err != nil {
+		return value
+	}
+
+	sign := ""
+	if strings.HasPrefix(mantissa, "-") || strings.HasPrefix(mantissa, "+") {
+		sign = mantissa[:1]
+		mantissa = mantissa[1:]
+	}
+
+	intPart, fracPart, ok := strings.Cut(mantissa, ".")
+	if !ok {
+		fracPart = ""
+	}
+	digits := intPart + fracPart
+	decimalIndex := len(intPart) + exponent
+
+	switch {
+	case decimalIndex <= 0:
+		return sign + "0." + strings.Repeat("0", -decimalIndex) + digits
+	case decimalIndex >= len(digits):
+		return sign + digits + strings.Repeat("0", decimalIndex-len(digits))
+	default:
+		return sign + digits[:decimalIndex] + "." + digits[decimalIndex:]
 	}
 }

@@ -38,6 +38,12 @@ derived_keys:
       - name: "trim_to_value"
         input: { scope: " keybank " }
         expect: "keybank"
+      - name: "trim_nel_to_wildcard"
+        input: { scope: "\u0085" }
+        expect: "*"
+      - name: "trim_bom_to_wildcard"
+        input: { scope: "\uFEFF" }
+        expect: "*"
 
   - name: "CanonicalPolicyKey"
     helper: "canonicalPolicyKey"
@@ -302,3 +308,22 @@ derived_keys:
       - name: "import_session_default_partner"
         input: { tenant_id: "tenant-theorycloud", client_namespace: "theorycloud", partner_id: "", agent_id: "apptheory" }
         expect: "tenant=tenant-theorycloud|ns=theorycloud|partner=*|agent=apptheory"
+
+  - name: "ScalarNumberKey"
+    helper: "scalarNumberKey"
+    description: "Generic TableTheory numeric string canonicalization boundary fixture."
+    join: ""
+    inputs:
+      - { name: "value", ts_name: "value", type: "number" }
+    segments:
+      - { name: "value", prefix: "n=", value: { input: "value" } }
+    fixtures:
+      - name: "large_boundary_1e21"
+        input: { value: 1e21 }
+        expect: "n=1000000000000000000000"
+      - name: "small_boundary_1e_minus_6"
+        input: { value: 1e-6 }
+        expect: "n=0.000001"
+      - name: "negative_zero_normalizes"
+        input: { value: -0.0 }
+        expect: "n=0"

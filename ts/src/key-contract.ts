@@ -394,7 +394,7 @@ function evaluateSegment(
   for (const transform of segment.transforms ?? []) {
     switch (transform) {
       case 'trim':
-        value = value.trim();
+        value = trimContractWhitespace(value);
         break;
       case 'wildcard_empty':
         if (value === '') value = '*';
@@ -480,7 +480,7 @@ function scalarToString(value: unknown, inputName: string): string {
           `Derived key input ${inputName} must be a finite number`,
         );
       }
-      return String(value);
+      return canonicalNumberToString(value);
     case 'boolean':
       return value ? 'true' : 'false';
     default:
@@ -489,6 +489,87 @@ function scalarToString(value: unknown, inputName: string): string {
         `Derived key input ${inputName} must be a scalar`,
       );
   }
+}
+
+const contractTrimWhitespaceCodePoints = new Set<number>([
+  0x0009, // CHARACTER TABULATION
+  0x000a, // LINE FEED
+  0x000b, // LINE TABULATION
+  0x000c, // FORM FEED
+  0x000d, // CARRIAGE RETURN
+  0x0020, // SPACE
+  0x0085, // NEXT LINE
+  0x00a0, // NO-BREAK SPACE
+  0x1680, // OGHAM SPACE MARK
+  0x2000, // EN QUAD
+  0x2001, // EM QUAD
+  0x2002, // EN SPACE
+  0x2003, // EM SPACE
+  0x2004, // THREE-PER-EM SPACE
+  0x2005, // FOUR-PER-EM SPACE
+  0x2006, // SIX-PER-EM SPACE
+  0x2007, // FIGURE SPACE
+  0x2008, // PUNCTUATION SPACE
+  0x2009, // THIN SPACE
+  0x200a, // HAIR SPACE
+  0x2028, // LINE SEPARATOR
+  0x2029, // PARAGRAPH SEPARATOR
+  0x202f, // NARROW NO-BREAK SPACE
+  0x205f, // MEDIUM MATHEMATICAL SPACE
+  0x3000, // IDEOGRAPHIC SPACE
+  0xfeff, // ZERO WIDTH NO-BREAK SPACE / BOM
+]);
+
+function trimContractWhitespace(value: string): string {
+  let start = 0;
+  while (start < value.length) {
+    const codePoint = value.charCodeAt(start);
+    if (!contractTrimWhitespaceCodePoints.has(codePoint)) {
+      break;
+    }
+    start += 1;
+  }
+
+  let end = value.length;
+  while (end > start) {
+    const codePoint = value.charCodeAt(end - 1);
+    if (!contractTrimWhitespaceCodePoints.has(codePoint)) {
+      break;
+    }
+    end -= 1;
+  }
+
+  return value.slice(start, end);
+}
+
+function canonicalNumberToString(value: number): string {
+  if (Object.is(value, -0) || value === 0) return '0';
+  return expandExponentDecimal(String(value));
+}
+
+function expandExponentDecimal(value: string): string {
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(value);
+  if (!match) return value;
+
+  const sign = match[1] ?? '';
+  const intPart = match[2];
+  const rawExponent = match[4];
+  if (intPart === undefined || rawExponent === undefined) return value;
+
+  const fracPart = match[3] ?? '';
+  const exponent = Number.parseInt(rawExponent, 10);
+  const digits = intPart + fracPart;
+  const decimalIndex = intPart.length + exponent;
+
+  if (decimalIndex <= 0) {
+    return `${sign}0.${'0'.repeat(-decimalIndex)}${digits}`;
+  }
+  if (decimalIndex >= digits.length) {
+    return `${sign}${digits}${'0'.repeat(decimalIndex - digits.length)}`;
+  }
+  return `${sign}${digits.slice(0, decimalIndex)}.${digits.slice(
+    decimalIndex,
+  )}`;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

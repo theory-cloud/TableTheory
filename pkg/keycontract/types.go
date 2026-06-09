@@ -4,7 +4,8 @@ package keycontract
 const ContractVersion = "0.1"
 
 const (
-	// TransformTrim removes leading and trailing Unicode whitespace.
+	// TransformTrim removes leading and trailing contract whitespace using the
+	// explicit codepoint set documented in the v0.1 sidecar spec.
 	TransformTrim = "trim"
 	// TransformWildcardEmpty maps the empty string to "*". It does not trim by itself;
 	// use TransformTrim before it when whitespace should be ignored.

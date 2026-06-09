@@ -1,6 +1,7 @@
 package keycontract
 
 import (
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,6 +46,46 @@ func TestEvaluateDerivedKeyTransformsDefaultsAndOmission(t *testing.T) {
 	got, err = EvaluateDerivedKey(key, map[string]any{"scope": "", "mode": "auto"})
 	require.NoError(t, err)
 	require.Equal(t, "scope=*|mode=auto", got)
+
+	got, err = EvaluateDerivedKey(key, map[string]any{"scope": "\u0085keybank\ufeff"})
+	require.NoError(t, err)
+	require.Equal(t, "scope=keybank", got)
+}
+
+func TestScalarToStringCanonicalNumberFormat(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{name: "large_without_exponent", value: float64(1e21), want: "1000000000000000000000"},
+		{name: "small_without_exponent", value: float64(1e-6), want: "0.000001"},
+		{name: "smaller_without_exponent", value: float64(1e-7), want: "0.0000001"},
+		{name: "negative_zero_float64", value: math.Copysign(0, -1), want: "0"},
+		{name: "negative_zero_float32", value: float32(math.Copysign(0, -1)), want: "0"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := scalarToString(tc.value)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestScalarToStringRejectsNonFiniteNumbers(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []any{math.NaN(), math.Inf(1), math.Inf(-1), float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1))} {
+		_, err := scalarToString(value)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "finite number")
+	}
 }
 
 func TestEvaluateDerivedKeyMissingRequiredInput(t *testing.T) {
@@ -66,8 +107,9 @@ func TestTheoryMCPDerivedKeyFixtures(t *testing.T) {
 	contract := loadTheoryMCPFixtureContract(t)
 	require.NoError(t, VerifyFixtures(contract))
 
-	assertFixtureCount(t, contract, "WildcardScope", 2)
+	assertFixtureCount(t, contract, "WildcardScope", 4)
 	assertFixtureCount(t, contract, "CanonicalPolicyKey", 3)
+	assertFixtureCount(t, contract, "ScalarNumberKey", 3)
 	assertFixtureCount(t, contract, "CanonicalBindingKey", 2)
 	assertFixtureCount(t, contract, "InterfaceScopeKey", 1)
 	assertFixtureCount(t, contract, "SkillScopeKey", 1)

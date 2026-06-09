@@ -2,6 +2,7 @@ package keycontract
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -99,7 +100,7 @@ func GenerateTypeScript(contract *Contract, opts GenerateTypeScriptOptions) (str
 		out.WriteString("}\n\n")
 	}
 
-	return out.String(), nil
+	return strings.TrimRight(out.String(), "\n") + "\n", nil
 }
 
 func generatedNames(key DerivedKey) (functionName string, typeName string, err error) {
@@ -145,7 +146,11 @@ func tsInputType(inputType string) string {
 }
 
 func quoteTS(value string) string {
-	return fmt.Sprintf("%q", value)
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return `""`
+	}
+	return string(encoded)
 }
 
 var splitNamePattern = regexp.MustCompile(`[^A-Za-z0-9]+`)
