@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 
 const [reportPath, allowlistPath, projectPathArg, visiblePolicyPath] = process.argv.slice(2);
+const acceptVisibleFindings = process.env.NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS === 'true';
 
 if (!reportPath || !allowlistPath || !projectPathArg) {
   console.error(
@@ -45,6 +46,22 @@ function requirePolicyString(entry, index, field) {
   return value.trim();
 }
 
+function requirePolicyDate(entry, index, field) {
+  const value = requirePolicyString(entry, index, field);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    policyError(`findings[${index}].${field} must be YYYY-MM-DD`);
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || value !== parsed.toISOString().slice(0, 10)) {
+    policyError(`findings[${index}].${field} must be a valid calendar date`);
+  }
+  return value;
+}
+
+function todayUtc() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function loadVisiblePolicy(policyPath) {
   if (!policyPath || !fs.existsSync(policyPath)) {
     return new Map();
@@ -75,6 +92,14 @@ function loadVisiblePolicy(policyPath) {
     const visibility = requirePolicyString(entry, index, 'visibility');
     if (visibility !== 'visible') {
       policyError(`findings[${index}].visibility must be "visible"`);
+    }
+    requirePolicyString(entry, index, 'status');
+    requirePolicyDate(entry, index, 'reviewed_on');
+    const expiresOn = requirePolicyDate(entry, index, 'expires_on');
+    requirePolicyString(entry, index, 'remove_when');
+    requirePolicyString(entry, index, 'justification');
+    if (expiresOn < todayUtc()) {
+      policyError(`findings[${index}].expires_on ${expiresOn} is expired`);
     }
 
     const id = findingId(
@@ -210,9 +235,17 @@ if (allowlistedFindings.length > 0) {
 }
 
 if (visibleMissing.length > 0) {
-  console.log(`npm-audit: ${visibleMissing.length} visible unallowlisted finding(s) in ${projectPath}`);
-  console.log('npm-audit: visible findings remain in SEC-2 evidence and are not supply-chain allowlist suppressions');
+  const method = acceptVisibleFindings ? 'accepted' : 'not accepted';
+  const stream = acceptVisibleFindings ? console.log : console.error;
+  stream(`npm-audit: ${visibleMissing.length} visible unallowlisted finding(s) in ${projectPath} (${method})`);
+  stream('npm-audit: visible findings remain in SEC-2 evidence and are not supply-chain allowlist suppressions');
   for (const finding of visibleMissing) {
-    console.log(`  ${finding}`);
+    stream(`  ${finding}`);
+  }
+  if (!acceptVisibleFindings) {
+    console.error(
+      'npm-audit: set NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS=true only in reviewed CI contexts that intentionally accept visible, expiring findings',
+    );
+    process.exit(1);
   }
 }

@@ -10,6 +10,8 @@ on:
       - "py/src/theorydb_py/version.json"
       - "ts/package.json"
       - "ts/package-lock.json"
+      - "scripts/release-please-cli/package.json"
+      - "scripts/release-please-cli/package-lock.json"
   workflow_dispatch: {}
 
 permissions:
@@ -25,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Forbid RC-shaped main Release PRs
         env:
@@ -146,7 +150,8 @@ jobs:
 
           args+=(--release-as "${RELEASE_AS}")
 
-          npx --yes "release-please@${RELEASE_PLEASE_CLI_VERSION}" "${args[@]}"
+          npm ci --prefix scripts/release-please-cli --ignore-scripts
+          scripts/release-please-cli/node_modules/.bin/release-please "${args[@]}"
 
       - name: Verify stable Release PR postcondition
         if: steps.cycle.outputs.pending_stable_promotion == 'true'

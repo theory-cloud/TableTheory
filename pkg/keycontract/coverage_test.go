@@ -65,7 +65,6 @@ func TestScalarToStringCoversSupportedScalars(t *testing.T) {
 		value any
 		want  string
 	}{
-		{nil, ""},
 		{"x", "x"},
 		{false, "false"},
 		{float32(1.5), "1.5"},
@@ -88,7 +87,11 @@ func TestScalarToStringCoversSupportedScalars(t *testing.T) {
 		require.Equal(t, tc.want, got)
 	}
 
-	_, err := scalarToString([]string{"not", "scalar"})
+	_, err := scalarToString(nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must not be null")
+
+	_, err = scalarToString([]string{"not", "scalar"})
 	require.Error(t, err)
 }
 
