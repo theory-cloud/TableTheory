@@ -132,6 +132,10 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must explicitly gate generated main release-please PRs"
   require_fixed "scripts/verify-release-cycle-state.sh" "${h}" \
     "release-hygiene must verify release-cycle state"
+  require_fixed 'RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr' "${h}" \
+    "release-hygiene must point trusted release-cycle verifier at the checked-out PR head"
+  require_fixed "RELEASE_CYCLE_REPO_ROOT" "scripts/verify-release-cycle-state.sh" \
+    "release-cycle-state verifier must support an explicit target repo root"
   require_fixed "scripts/verify-branch-release-supply-chain.sh" "${h}" \
     "release-hygiene must verify release supply-chain scaffolding"
   require_fixed "--forbid-rc-only" "${h}" \
