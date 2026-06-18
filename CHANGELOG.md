@@ -16,6 +16,16 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [1.10.1-rc.4](https://github.com/theory-cloud/TableTheory/compare/v1.10.1-rc.3...v1.10.1-rc.4) (2026-06-18)
+
+
+### Bug Fixes
+
+* **release:** allow cycle-state bootstrap repair ([5c32373](https://github.com/theory-cloud/TableTheory/commit/5c32373953d533b798eda265763f487af1276333))
+* **release:** allow cycle-state bootstrap repair ([9429dfc](https://github.com/theory-cloud/TableTheory/commit/9429dfce5add1915d471a6910e0e4732f1f0a22d))
+* **release:** validate cycle state target checkout ([02ed9a2](https://github.com/theory-cloud/TableTheory/commit/02ed9a23c2c38c46b65a76b2c75ea9e2fc4361a1))
+* **release:** validate cycle state target checkout ([bec4917](https://github.com/theory-cloud/TableTheory/commit/bec4917f45890a7bad86e7724fafcd84c92a726c))
+
 ## [1.10.1-rc.3](https://github.com/theory-cloud/TableTheory/compare/v1.10.1-rc.2...v1.10.1-rc.3) (2026-06-18)
 
 
