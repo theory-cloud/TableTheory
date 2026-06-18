@@ -2,12 +2,7 @@ import YAML from 'yaml';
 
 import { TheorydbError } from './errors.js';
 
-export type KeyContractInputValue =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined;
+export type KeyContractInputValue = string | number | boolean;
 export type KeyContractTransform = 'trim' | 'wildcard_empty';
 
 export interface DerivedKeyContract {
@@ -391,13 +386,17 @@ function evaluateSegment(
   }
 
   let value = resolved.value;
+  let generatedWildcard = false;
   for (const transform of segment.transforms ?? []) {
     switch (transform) {
       case 'trim':
         value = trimContractWhitespace(value);
         break;
       case 'wildcard_empty':
-        if (value === '') value = '*';
+        if (value === '') {
+          value = '*';
+          generatedWildcard = true;
+        }
         break;
       default:
         throw new TheorydbError(
@@ -405,6 +404,10 @@ function evaluateSegment(
           `Derived key ${keyName} segment ${label}: unsupported transform ${String(transform)}`,
         );
     }
+  }
+
+  if (resolved.fromInput && !generatedWildcard) {
+    value = escapeDerivedKeyInputValue(value);
   }
 
   if (value === '' && segment.default !== undefined) {
@@ -425,17 +428,17 @@ function resolveSegmentValue(
   input: Record<string, KeyContractInputValue>,
   keyName: string,
   label: string,
-): { value: string; present: boolean } {
+): { value: string; present: boolean; fromInput: boolean } {
   if (segment.literal !== undefined)
-    return { value: segment.literal, present: true };
+    return { value: segment.literal, present: true, fromInput: false };
   if (segment.value?.literal !== undefined) {
-    return { value: segment.value.literal, present: true };
+    return { value: segment.value.literal, present: true, fromInput: false };
   }
   const inputName = segment.value?.input;
   if (inputName) {
     if (!Object.prototype.hasOwnProperty.call(input, inputName)) {
       if (segment.default !== undefined || segment.optional) {
-        return { value: '', present: false };
+        return { value: '', present: false, fromInput: false };
       }
       throw new TheorydbError(
         'ErrInvalidModel',
@@ -445,6 +448,7 @@ function resolveSegmentValue(
     return {
       value: scalarToString(input[inputName], inputName),
       present: true,
+      fromInput: true,
     };
   }
   throw new TheorydbError(
@@ -469,7 +473,12 @@ function shouldOmitSegment(value: string, segment: DerivedKeySegment): boolean {
 }
 
 function scalarToString(value: unknown, inputName: string): string {
-  if (value === null || value === undefined) return '';
+  if (value === null || value === undefined) {
+    throw new TheorydbError(
+      'ErrInvalidModel',
+      `Derived key input ${inputName} must not be null or undefined`,
+    );
+  }
   switch (typeof value) {
     case 'string':
       return value;
@@ -489,6 +498,30 @@ function scalarToString(value: unknown, inputName: string): string {
         `Derived key input ${inputName} must be a scalar`,
       );
   }
+}
+
+function escapeDerivedKeyInputValue(value: string): string {
+  let out = '';
+  for (const byte of Buffer.from(value, 'utf8')) {
+    if (isDerivedKeyUnreservedByte(byte)) {
+      out += String.fromCharCode(byte);
+      continue;
+    }
+    out += `%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+  }
+  return out;
+}
+
+function isDerivedKeyUnreservedByte(byte: number): boolean {
+  return (
+    (byte >= 0x41 && byte <= 0x5a) ||
+    (byte >= 0x61 && byte <= 0x7a) ||
+    (byte >= 0x30 && byte <= 0x39) ||
+    byte === 0x2d ||
+    byte === 0x2e ||
+    byte === 0x5f ||
+    byte === 0x7e
+  );
 }
 
 const contractTrimWhitespaceCodePoints = new Set<number>([

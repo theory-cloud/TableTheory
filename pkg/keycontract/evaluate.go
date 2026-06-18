@@ -62,17 +62,20 @@ func VerifyFixtures(contract *Contract) error {
 func evaluateSegment(keyName string, index int, segment Segment, input map[string]any) (value string, omit bool, err error) {
 	label := segmentLabel(segment, index)
 
-	value, present, err := resolveSegmentValue(segment, input)
+	resolved, err := resolveSegmentValue(segment, input)
 	if err != nil {
 		return "", false, fmt.Errorf("derived key %s segment %s: %w", keyName, label, err)
 	}
-	if shouldOmitMissingSegment(present, segment) {
+	if shouldOmitMissingSegment(resolved.present, segment) {
 		return "", true, nil
 	}
 
-	value, err = applyTransforms(value, segment.Transforms)
+	value, generatedWildcard, err := applyTransforms(resolved.value, segment.Transforms)
 	if err != nil {
 		return "", false, fmt.Errorf("derived key %s segment %s: %w", keyName, label, err)
+	}
+	if resolved.fromInput && !generatedWildcard {
+		value = escapeDerivedKeyInputValue(value)
 	}
 	value = applyDefault(value, segment)
 
@@ -104,7 +107,8 @@ func applyDefault(value string, segment Segment) string {
 	return value
 }
 
-func applyTransforms(value string, transforms []string) (string, error) {
+func applyTransforms(value string, transforms []string) (string, bool, error) {
+	generatedWildcard := false
 	for _, transform := range transforms {
 		switch transform {
 		case TransformTrim:
@@ -112,35 +116,42 @@ func applyTransforms(value string, transforms []string) (string, error) {
 		case TransformWildcardEmpty:
 			if value == "" {
 				value = "*"
+				generatedWildcard = true
 			}
 		default:
-			return "", fmt.Errorf("unsupported transform %q", transform)
+			return "", false, fmt.Errorf("unsupported transform %q", transform)
 		}
 	}
-	return value, nil
+	return value, generatedWildcard, nil
 }
 
-func resolveSegmentValue(segment Segment, input map[string]any) (string, bool, error) {
+type resolvedSegmentValue struct {
+	value     string
+	present   bool
+	fromInput bool
+}
+
+func resolveSegmentValue(segment Segment, input map[string]any) (resolvedSegmentValue, error) {
 	switch {
 	case segment.Literal != nil:
-		return *segment.Literal, true, nil
+		return resolvedSegmentValue{value: *segment.Literal, present: true}, nil
 	case segment.Value.Literal != nil:
-		return *segment.Value.Literal, true, nil
+		return resolvedSegmentValue{value: *segment.Value.Literal, present: true}, nil
 	case segment.Value.Input != "":
 		value, ok := input[segment.Value.Input]
 		if !ok {
 			if segment.Default != nil || segment.Optional {
-				return "", false, nil
+				return resolvedSegmentValue{}, nil
 			}
-			return "", false, fmt.Errorf("missing required input %q", segment.Value.Input)
+			return resolvedSegmentValue{}, fmt.Errorf("missing required input %q", segment.Value.Input)
 		}
 		out, err := scalarToString(value)
 		if err != nil {
-			return "", true, fmt.Errorf("input %q: %w", segment.Value.Input, err)
+			return resolvedSegmentValue{present: true, fromInput: true}, fmt.Errorf("input %q: %w", segment.Value.Input, err)
 		}
-		return out, true, nil
+		return resolvedSegmentValue{value: out, present: true, fromInput: true}, nil
 	default:
-		return "", false, fmt.Errorf("missing value source")
+		return resolvedSegmentValue{}, fmt.Errorf("missing value source")
 	}
 }
 
@@ -162,7 +173,7 @@ func shouldOmitSegment(value string, segment Segment) bool {
 func scalarToString(value any) (string, error) {
 	switch v := value.(type) {
 	case nil:
-		return "", nil
+		return "", fmt.Errorf("must not be null")
 	case string:
 		return v, nil
 	case bool:
@@ -176,6 +187,30 @@ func scalarToString(value any) (string, error) {
 		return out, nil
 	}
 	return "", fmt.Errorf("unsupported non-scalar value %T", value)
+}
+
+func escapeDerivedKeyInputValue(value string) string {
+	var out strings.Builder
+	for i := 0; i < len(value); i++ {
+		b := value[i]
+		if isDerivedKeyUnreservedByte(b) {
+			out.WriteByte(b)
+			continue
+		}
+		out.WriteByte('%')
+		out.WriteByte(upperHex[b>>4])
+		out.WriteByte(upperHex[b&0x0f])
+	}
+	return out.String()
+}
+
+const upperHex = "0123456789ABCDEF"
+
+func isDerivedKeyUnreservedByte(b byte) bool {
+	return b >= 'A' && b <= 'Z' ||
+		b >= 'a' && b <= 'z' ||
+		b >= '0' && b <= '9' ||
+		b == '-' || b == '.' || b == '_' || b == '~'
 }
 
 func integerScalarToString(value any) (string, bool) {

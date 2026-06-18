@@ -97,6 +97,65 @@ const fixture = parseDerivedKeyContract(readFileSync(fixturePath, 'utf8'));
 
 {
   const key: DerivedKeyDefinition = {
+    name: 'Composite',
+    join: '|',
+    inputs: [
+      { name: 'tenant', type: 'string' },
+      { name: 'resource', type: 'string' },
+    ],
+    segments: [
+      {
+        name: 'tenant',
+        prefix: 'tenant=',
+        value: { input: 'tenant' },
+        transforms: ['trim'],
+      },
+      {
+        name: 'resource',
+        prefix: 'resource=',
+        value: { input: 'resource' },
+        transforms: ['trim'],
+      },
+    ],
+  };
+
+  const left = evaluateDerivedKeyDefinition(key, {
+    tenant: 'a|resource=b',
+    resource: 'c',
+  });
+  const right = evaluateDerivedKeyDefinition(key, {
+    tenant: 'a',
+    resource: 'b|resource=c',
+  });
+  assert.equal(left, 'tenant=a%7Cresource%3Db|resource=c');
+  assert.equal(right, 'tenant=a|resource=b%7Cresource%3Dc');
+  assert.notEqual(left, right);
+  assert.equal(
+    evaluateDerivedKeyDefinition(key, {
+      tenant: 'user/*',
+      resource: 'café',
+    }),
+    'tenant=user%2F%2A|resource=caf%C3%A9',
+  );
+}
+
+{
+  assert.throws(
+    () =>
+      evaluateDerivedKey(fixture, 'ScalarNumberKey', {
+        value: null as never,
+      }),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(err.message, /must not be null or undefined/);
+      return true;
+    },
+  );
+}
+
+{
+  const key: DerivedKeyDefinition = {
     name: 'NumberKey',
     join: '',
     inputs: [{ name: 'value', type: 'number' }],
