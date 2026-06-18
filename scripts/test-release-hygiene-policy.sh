@@ -303,4 +303,10 @@ grep -Fq "pulls/\${PR_NUMBER}/files" "${repo_root}/.github/workflows/release-hyg
   exit 1
 }
 
+bootstrap_scope_section="$(sed -n '/Verify release-hygiene bootstrap scope/,/Verify release-lane same-repository provenance/p' "${repo_root}/.github/workflows/release-hygiene.yml")"
+grep -Fq "scripts/verify-release-cycle-state.sh" <<<"${bootstrap_scope_section}" || {
+  echo "release-hygiene-policy-test: main bootstrap guard must allow verify-release-cycle-state bootstrap repairs"
+  exit 1
+}
+
 echo "release-hygiene-policy-test: PASS"
