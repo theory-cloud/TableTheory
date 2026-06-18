@@ -45,6 +45,7 @@ jobs:
               scripts/verify-release-lane-provenance.sh|\
               scripts/verify-promotion-release-driver.sh|\
               scripts/test-release-hygiene-policy.sh|\
+              scripts/verify-release-cycle-state.sh|\
               scripts/verify-branch-release-supply-chain.sh)
                 ;;
               *)
