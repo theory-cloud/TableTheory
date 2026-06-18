@@ -16,6 +16,14 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [1.10.1-rc.2](https://github.com/theory-cloud/TableTheory/compare/v1.10.1-rc.1...v1.10.1-rc.2) (2026-06-18)
+
+
+### Bug Fixes
+
+* **security:** clear TableTheory example dependency alerts ([2916ea5](https://github.com/theory-cloud/TableTheory/commit/2916ea575aa131c7e2192ca4d53c5c6be85e7eec))
+* **security:** clear TableTheory example dependency alerts ([f0983b8](https://github.com/theory-cloud/TableTheory/commit/f0983b86873a3671e56d04f2c9d28ddcc7e451d5))
+
 ## [1.10.1-rc.1](https://github.com/theory-cloud/TableTheory/compare/v1.10.0...v1.10.1-rc.1) (2026-06-18)
 
 
