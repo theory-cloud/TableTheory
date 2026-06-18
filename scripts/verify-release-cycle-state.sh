@@ -1,19 +1,67 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CI-safe local release-cycle checks. This verifier is intentionally local: it
-# fails on checked-out forbidden stable state and on missing guardrails, while
-# remote branch drift is reported by scripts/watch-release-cycle.sh.
-
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "${repo_root}"
-
 failures=0
 
 fail() {
   echo "release-cycle-state: FAIL ($1)"
   failures=$((failures + 1))
 }
+
+usage() {
+  cat <<'USAGE'
+Usage: bash scripts/verify-release-cycle-state.sh [--repo-root ABSOLUTE_PATH]
+
+CI-safe local release-cycle checks. By default this verifier validates the
+checkout that contains the trusted script. Release Hygiene may pass an explicit
+target checkout root after same-repository provenance verification so trusted
+base scripts inspect the PR head files without executing PR-head scripts.
+
+Options:
+  --repo-root ABSOLUTE_PATH  Validate this checkout root instead of the script checkout.
+  -h, --help                Show this help.
+USAGE
+}
+
+script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+repo_root="${script_repo_root}"
+explicit_repo_root="${RELEASE_CYCLE_REPO_ROOT:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo-root)
+      if [[ $# -lt 2 ]]; then
+        echo "release-cycle-state: FAIL (--repo-root requires a value)" >&2
+        exit 2
+      fi
+      explicit_repo_root="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "release-cycle-state: FAIL (unknown argument: $1)" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -n "${explicit_repo_root}" ]]; then
+  if [[ "${explicit_repo_root}" != /* ]]; then
+    echo "release-cycle-state: FAIL (--repo-root/RELEASE_CYCLE_REPO_ROOT must be an absolute path)" >&2
+    exit 2
+  fi
+  if [[ ! -d "${explicit_repo_root}" ]]; then
+    echo "release-cycle-state: FAIL (--repo-root/RELEASE_CYCLE_REPO_ROOT does not exist: ${explicit_repo_root})" >&2
+    exit 2
+  fi
+  repo_root="$(cd "${explicit_repo_root}" && pwd -P)"
+fi
+
+cd "${repo_root}"
 
 require_file() {
   local path="$1"
@@ -217,10 +265,97 @@ PY
   fi
 fi
 
-if ! bash scripts/prepare-stable-promotion.sh --check >/tmp/tabletheory-stable-promotion-check.$$ 2>&1; then
+# Do not execute scripts from an explicit target checkout: release hygiene runs
+# this verifier from the trusted base checkout while inspecting PR-head files.
+# Keep the stable-promotion dry-run as trusted verifier logic over target data.
+if ! python3 - <<'PY' >/tmp/tabletheory-stable-promotion-check.$$ 2>&1; then
+import json
+import re
+from pathlib import Path
+
+semver_re = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
+
+
+def fail(message: str) -> None:
+    print(f"stable-promotion: FAIL ({message})")
+    raise SystemExit(1)
+
+
+def load_json(path: str) -> object:
+    p = Path(path)
+    if not p.is_file():
+        fail(f"missing {path}")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def semver_info(version: str) -> tuple[tuple[int, int, int], str, bool]:
+    match = semver_re.match(version.strip())
+    if not match:
+        fail(f"invalid semver: {version}")
+    base_tuple = tuple(int(part) for part in match.group(1, 2, 3))
+    base = ".".join(str(part) for part in base_tuple)
+    prerelease = match.group(4) or ""
+    return base_tuple, base, bool(prerelease)
+
+
+stable_manifest = load_json(".release-please-manifest.json")
+premain_manifest = load_json(".release-please-manifest.premain.json")
+ts_package = load_json("ts/package.json")
+ts_lock = load_json("ts/package-lock.json")
+py_version = load_json("py/src/theorydb_py/version.json")
+
+versions = {
+    ".release-please-manifest.json": stable_manifest.get(".", ""),
+    ".release-please-manifest.premain.json": premain_manifest.get(".", ""),
+    "ts/package.json": ts_package.get("version", ""),
+    "ts/package-lock.json": ts_lock.get("version", ""),
+    "ts/package-lock.json packages['']": ts_lock.get("packages", {}).get("", {}).get("version", ""),
+    "py/src/theorydb_py/version.json": py_version.get("version", ""),
+}
+
+for path, version in versions.items():
+    if not isinstance(version, str) or not version.strip():
+        fail(f"missing version in {path}")
+
+parsed = {path: semver_info(version) for path, version in versions.items()}
+
+stable_version = versions[".release-please-manifest.json"]
+if parsed[".release-please-manifest.json"][2]:
+    fail(f"stable manifest is a prerelease: {stable_version}")
+
+target_tuple, target_version = max((info[0], info[1]) for info in parsed.values())
+
+if parsed[".release-please-manifest.json"][0] > target_tuple:
+    fail(
+        "stable manifest is ahead of derived promotion baseline "
+        f"({stable_version} > {target_version})"
+    )
+
+changes: list[tuple[str, str, str]] = []
+
+
+def plan(path: str, current: str, desired: str) -> None:
+    if current != desired:
+        changes.append((path, current, desired))
+
+
+plan(".release-please-manifest.premain.json", versions[".release-please-manifest.premain.json"], target_version)
+plan("ts/package.json", versions["ts/package.json"], target_version)
+plan("ts/package-lock.json", versions["ts/package-lock.json"], target_version)
+plan("ts/package-lock.json packages['']", versions["ts/package-lock.json packages['']"], target_version)
+plan("py/src/theorydb_py/version.json", versions["py/src/theorydb_py/version.json"], target_version)
+
+print(f"stable-promotion: target={target_version}")
+print(f"stable-promotion: stable-manifest={stable_version} (validated, not advanced)")
+
+for path, current, desired in changes:
+    print(f"stable-promotion: PLAN {path}: {current} -> {desired}")
+
+print("stable-promotion: PASS (dry-run)")
+PY
   cat /tmp/tabletheory-stable-promotion-check.$$
   rm -f /tmp/tabletheory-stable-promotion-check.$$
-  fail "stable promotion helper dry-run failed"
+  fail "stable promotion dry-run failed"
 else
   rm -f /tmp/tabletheory-stable-promotion-check.$$
 fi
