@@ -120,6 +120,7 @@ jobs:
         working-directory: pr
         env:
           RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
+          RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr
         run: bash ../trusted-release/scripts/verify-release-cycle-state.sh
 
       - name: Verify release cycle state
