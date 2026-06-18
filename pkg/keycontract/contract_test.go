@@ -52,6 +52,50 @@ func TestEvaluateDerivedKeyTransformsDefaultsAndOmission(t *testing.T) {
 	require.Equal(t, "scope=keybank", got)
 }
 
+func TestEvaluateDerivedKeyEscapesUserSuppliedReservedBytes(t *testing.T) {
+	t.Parallel()
+
+	key := DerivedKey{
+		Name: "Composite",
+		Join: "|",
+		Inputs: []Input{
+			{Name: "tenant"},
+			{Name: "resource"},
+		},
+		Segments: []Segment{
+			{Name: "tenant", Prefix: "tenant=", Value: ValueSource{Input: "tenant"}, Transforms: []string{TransformTrim}},
+			{Name: "resource", Prefix: "resource=", Value: ValueSource{Input: "resource"}, Transforms: []string{TransformTrim}},
+		},
+	}
+
+	left, err := EvaluateDerivedKey(key, map[string]any{"tenant": "a|resource=b", "resource": "c"})
+	require.NoError(t, err)
+	require.Equal(t, "tenant=a%7Cresource%3Db|resource=c", left)
+
+	right, err := EvaluateDerivedKey(key, map[string]any{"tenant": "a", "resource": "b|resource=c"})
+	require.NoError(t, err)
+	require.Equal(t, "tenant=a|resource=b%7Cresource%3Dc", right)
+	require.NotEqual(t, left, right)
+
+	got, err := EvaluateDerivedKey(key, map[string]any{"tenant": "user/*", "resource": "café"})
+	require.NoError(t, err)
+	require.Equal(t, "tenant=user%2F%2A|resource=caf%C3%A9", got)
+}
+
+func TestEvaluateDerivedKeyRejectsExplicitNullInput(t *testing.T) {
+	t.Parallel()
+
+	key := DerivedKey{
+		Name:     "Required",
+		Segments: []Segment{{Value: ValueSource{Input: "id"}}},
+	}
+
+	_, err := EvaluateDerivedKey(key, map[string]any{"id": nil})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `input "id"`)
+	require.Contains(t, err.Error(), "must not be null")
+}
+
 func TestScalarToStringCanonicalNumberFormat(t *testing.T) {
 	t.Parallel()
 

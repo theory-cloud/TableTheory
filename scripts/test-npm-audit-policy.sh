@@ -43,11 +43,24 @@ cat >"${tmpdir}/visible.json" <<'JSON'
       "advisory": "GHSA-jxxr-4gwj-5jf2",
       "node": "node_modules/aws-cdk-lib/node_modules/brace-expansion",
       "visibility": "visible",
-      "status": "upstream-bundled-pending-fix"
+      "status": "upstream-bundled-pending-fix",
+      "reviewed_on": "2026-06-18",
+      "expires_on": "2099-12-31",
+      "remove_when": "Remove when aws-cdk-lib bundles a fixed brace-expansion.",
+      "justification": "Synthetic test fixture for visible npm audit policy handling."
     }
   ]
 }
 JSON
+
+cp "${tmpdir}/visible.json" "${tmpdir}/expired-visible.json"
+node - "${tmpdir}/expired-visible.json" <<'NODE'
+const fs = require('node:fs');
+const path = process.argv[2];
+const policy = JSON.parse(fs.readFileSync(path, 'utf8'));
+policy.findings[0].expires_on = '2000-01-01';
+fs.writeFileSync(path, `${JSON.stringify(policy, null, 2)}\n`);
+NODE
 
 : >"${tmpdir}/empty-allowlist.txt"
 
@@ -85,9 +98,17 @@ expect_failure_contains() {
   fi
 }
 
-expect_success_contains \
+expect_failure_contains \
   "visible unallowlisted finding(s)" \
   node "${checker}" "${tmpdir}/audit.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang "${tmpdir}/visible.json"
+
+expect_success_contains \
+  "visible unallowlisted finding(s)" \
+  env NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS=true node "${checker}" "${tmpdir}/audit.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang "${tmpdir}/visible.json"
+
+expect_failure_contains \
+  "expires_on 2000-01-01 is expired" \
+  env NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS=true node "${checker}" "${tmpdir}/audit.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang "${tmpdir}/expired-visible.json"
 
 expect_failure_contains \
   "unallowlisted finding(s)" \
@@ -129,6 +150,7 @@ const hasVisibleBracePolicy = policy.findings?.some(
     finding.advisory === 'GHSA-jxxr-4gwj-5jf2' &&
     finding.node === 'node_modules/aws-cdk-lib/node_modules/brace-expansion' &&
     finding.visibility === 'visible' &&
+    typeof finding.expires_on === 'string' &&
     finding.current_upstream_version === '2.257.0' &&
     finding.current_bundled_version === '5.0.5',
 );

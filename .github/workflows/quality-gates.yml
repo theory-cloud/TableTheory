@@ -57,6 +57,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: dummy
           DYNAMODB_ENDPOINT: http://localhost:8000
           GOSEC_SARIF_PATH: gosec.sarif
+          NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS: "true"
         run: make rubric
 
       - name: Rubric report (stdout)

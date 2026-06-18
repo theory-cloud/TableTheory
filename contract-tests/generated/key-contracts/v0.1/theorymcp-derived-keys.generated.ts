@@ -396,7 +396,7 @@ export const tabletheoryModelContract = {
             "client_namespace": "theorycloud",
             "partner_id": "keybank"
           },
-          "expect": "ns=theorycloud|partner=keybank|source=okta|type=subject_pattern|value=user/*"
+          "expect": "ns=theorycloud|partner=keybank|source=okta|type=subject_pattern|value=user%2F%2A"
         },
         {
           "name": "wildcard_namespace_and_partner",

@@ -181,9 +181,9 @@ metadata_path = Path(sys.argv[1])
 base = os.environ["BASE_REF"]
 head = os.environ["HEAD_REF"]
 
-rc_version_re = re.compile(r"^v?\d+\.\d+\.\d+-rc(?:\.\d+)?$")
+rc_version_re = re.compile(r"^v?\d+\.\d+\.\d+-rc\.\d+$")
 stable_version_re = re.compile(r"^v?\d+\.\d+\.\d+$")
-rc_title_re = re.compile(r"^chore\(premain\): release \d+\.\d+\.\d+-rc(?:\.\d+)?$")
+rc_title_re = re.compile(r"^chore\(premain\): release \d+\.\d+\.\d+-rc\.\d+$")
 stable_title_re = re.compile(r"^chore\(main\): release \d+\.\d+\.\d+$")
 any_rc_re = re.compile(r"\d+\.\d+\.\d+-rc(?:[.\-\w]*)?")
 
@@ -292,7 +292,7 @@ def pending_stable_promotion_version() -> str:
     if not isinstance(first_version, str) or not rc_version_re.match(first_version):
         fail(
             "premain -> main promotion must carry an RC pending stable "
-            f"promotion state; {first_label} is {first_version!r}"
+            f"promotion state with numbered -rc.N syntax; {first_label} is {first_version!r}"
         )
     for label, version in pending_files.items():
         if version != first_version:
@@ -313,7 +313,7 @@ aggregate = "\n\n".join([title, body, *commits])
 
 if base == "premain" and head == "release-please--branches--premain":
     if not rc_title_re.fullmatch(title):
-        fail(f"generated premain release-please PR must be RC-shaped, got {title!r}")
+        fail(f"generated premain release-please PR must be numbered RC-shaped, got {title!r}")
     print(f"promotion-release-driver: PASS (generated premain RC PR {title!r})")
     raise SystemExit(0)
 
@@ -331,7 +331,7 @@ if base == "premain":
     if invalid:
         fail(
             "staging -> premain Release-As footers must be RC-shaped "
-            f"X.Y.Z-rc or X.Y.Z-rc.N, got {', '.join(invalid)}"
+            f"X.Y.Z-rc.N, got {', '.join(invalid)}"
         )
     if versions:
         print(

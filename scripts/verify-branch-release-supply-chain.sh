@@ -58,8 +58,11 @@ required_files=(
   "scripts/sync-post-stable-release-baselines.sh"
   "scripts/verify-main-release-pr-postcondition.sh"
   "scripts/verify-prerelease-pr-postcondition.sh"
+  "scripts/verify-release-lane-provenance.sh"
   "scripts/verify-promotion-release-driver.sh"
   "scripts/verify-release-created-postcondition.sh"
+  "scripts/release-please-cli/package.json"
+  "scripts/release-please-cli/package-lock.json"
   "scripts/watch-release-cycle.sh"
 )
 
@@ -111,13 +114,21 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   h=".github/workflows/release-hygiene.yml"
   require_fixed 'branches: ["premain", "main"]' "${h}" \
     "release-hygiene must target premain and main PRs"
-  require_fixed 'head == "staging"' "${h}" \
-    "release-hygiene must validate staging -> premain promotion PRs"
-  require_fixed 'head == "premain"' "${h}" \
-    "release-hygiene must validate premain -> main promotion PRs"
-  require_fixed 'release-please--branches--premain' "${h}" \
+  require_fixed "trusted-release/scripts/verify-release-lane-provenance.sh" "${h}" \
+    "release-hygiene must verify release-lane same-repository provenance from trusted scripts"
+  require_fixed "github.event.pull_request.base.sha" "${h}" \
+    "release-hygiene must check out trusted release scripts from the PR base SHA"
+  require_fixed "github.event.pull_request.head.sha" "${h}" \
+    "release-hygiene must check out the PR head by exact SHA after provenance verification"
+  require_fixed "persist-credentials: false" "${h}" \
+    "release-hygiene checkouts must not persist GitHub credentials"
+  require_fixed 'HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}' "${h}" \
+    "release-hygiene must pass PR head repository metadata to provenance guard"
+  require_fixed 'BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}' "${h}" \
+    "release-hygiene must pass PR base repository metadata to provenance guard"
+  require_fixed 'release-please--branches--premain' "scripts/verify-release-lane-provenance.sh" \
     "release-hygiene must explicitly gate generated premain release-please PRs"
-  require_fixed 'release-please--branches--main' "${h}" \
+  require_fixed 'release-please--branches--main' "scripts/verify-release-lane-provenance.sh" \
     "release-hygiene must explicitly gate generated main release-please PRs"
   require_fixed "scripts/verify-release-cycle-state.sh" "${h}" \
     "release-hygiene must verify release-cycle state"
@@ -131,6 +142,11 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must run the release driver guard on staging -> premain PRs"
   require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \
     "release-hygiene must run the release driver guard on premain -> main PRs"
+  require_fixed "../trusted-release/scripts/verify-promotion-release-driver.sh" "${h}" \
+    "release-hygiene must run the promotion driver from trusted checkout"
+  if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${h}"; then
+    fail "release-hygiene must not expose release-please token"
+  fi
   if grep -Eq 'make rubric|verify-rubric' "${h}"; then
     fail "release-hygiene must not run the full rubric"
   fi
@@ -295,8 +311,12 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
     "release-pr paths-ignore must include .release-please-manifest.premain.json and compute RC baseline"
   require_fixed 'RELEASE_PLEASE_CLI_VERSION: "17.3.0"' "${rp}" \
     "release-pr workflow must pin release-please CLI to v17.3.0"
-  require_fixed 'npx --yes "release-please@${RELEASE_PLEASE_CLI_VERSION}"' "${rp}" \
-    "release-pr workflow must invoke the pinned release-please CLI"
+  require_fixed "npm ci --prefix scripts/release-please-cli --ignore-scripts" "${rp}" \
+    "release-pr workflow must install release-please from a lockfile without lifecycle scripts"
+  require_fixed "scripts/release-please-cli/node_modules/.bin/release-please" "${rp}" \
+    "release-pr workflow must invoke the locked release-please CLI"
+  require_fixed "persist-credentials: false" "${rp}" \
+    "release-pr checkout must not persist GitHub credentials"
   require_fixed "release-pr" "${rp}" \
     "release-pr workflow must run the release-pr CLI command"
   require_regex '--target-branch[[:space:]]+main' "${rp}" \
@@ -363,6 +383,18 @@ if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
     "promotion release driver guard must name release-please no-op as a failed precondition"
   require_fixed "do not use tags, resets, manual manifests" "${driver}" \
     "promotion release driver guard must instruct normal PR-flow remediation"
+  require_fixed "X.Y.Z-rc.N" "${driver}" \
+    "promotion release driver guard must require numbered RC syntax"
+fi
+
+if [[ -f "scripts/verify-release-lane-provenance.sh" ]]; then
+  provenance="scripts/verify-release-lane-provenance.sh"
+  require_fixed "release-lane PRs must be same-repository" "${provenance}" \
+    "release-lane provenance guard must reject fork/name-spoofed PRs"
+  require_fixed "does not match same-repository refs/heads" "${provenance}" \
+    "release-lane provenance guard must verify exact branch SHAs"
+  require_fixed "-rc\\.[0-9]+" "${provenance}" \
+    "release-lane provenance guard must require numbered RC release-please PR titles"
 fi
 
 if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
@@ -371,10 +403,32 @@ if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
     "prerelease PR postcondition must require the generated premain head branch"
   require_fixed "rc_title_re = re.compile" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require RC-shaped release titles"
-  require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
-    "prerelease PR postcondition must accept bare and numbered RC version syntax"
+  require_fixed "-rc\\.\\d+" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must require numbered RC version syntax"
   require_fixed ".release-please-manifest.premain.json" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require the prerelease manifest"
+fi
+
+if [[ -f "scripts/release-please-cli/package-lock.json" ]]; then
+  if ! python3 - <<'PY'
+import json
+from pathlib import Path
+
+package = json.loads(Path("scripts/release-please-cli/package.json").read_text(encoding="utf-8"))
+lock = json.loads(Path("scripts/release-please-cli/package-lock.json").read_text(encoding="utf-8"))
+release_please = lock.get("packages", {}).get("node_modules/release-please", {})
+if package.get("private") is not True:
+    raise SystemExit(1)
+if package.get("dependencies", {}).get("release-please") != "17.3.0":
+    raise SystemExit(1)
+if release_please.get("version") != "17.3.0":
+    raise SystemExit(1)
+if not str(release_please.get("integrity", "")).startswith("sha512-"):
+    raise SystemExit(1)
+PY
+  then
+    fail "release-please CLI lockfile must pin release-please 17.3.0 with sha512 integrity"
+  fi
 fi
 
 if [[ -f "scripts/sync-post-stable-release-baselines.sh" ]]; then
