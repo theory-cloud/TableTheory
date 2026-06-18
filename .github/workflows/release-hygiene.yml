@@ -35,15 +35,92 @@ jobs:
         run: |
           set -euo pipefail
 
-          bash trusted-release/scripts/verify-release-lane-provenance.sh \
-            --repo "${GITHUB_REPOSITORY}" \
-            --base "${BASE_REF}" \
-            --head "${HEAD_REF}" \
-            --base-repo "${BASE_REPOSITORY}" \
-            --head-repo "${HEAD_REPOSITORY}" \
-            --base-sha "${BASE_SHA}" \
-            --head-sha "${HEAD_SHA}" \
-            --title "${PR_TITLE}"
+          trusted_provenance_checker="trusted-release/scripts/verify-release-lane-provenance.sh"
+
+          if [[ -f "${trusted_provenance_checker}" ]]; then
+            bash "${trusted_provenance_checker}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base "${BASE_REF}" \
+              --head "${HEAD_REF}" \
+              --base-repo "${BASE_REPOSITORY}" \
+              --head-repo "${HEAD_REPOSITORY}" \
+              --base-sha "${BASE_SHA}" \
+              --head-sha "${HEAD_SHA}" \
+              --title "${PR_TITLE}"
+            exit 0
+          fi
+
+          # Bootstrap compatibility for the first staging -> premain promotion
+          # where premain predates the trusted provenance helper. Keep this
+          # inline, read-only, and narrower than the trusted helper.
+          if [[ "${BASE_REF}" != "premain" || "${HEAD_REF}" != "staging" ]]; then
+            echo "release-lane-provenance: FAIL (trusted provenance checker missing on base checkout; bootstrap fallback only supports staging -> premain)" >&2
+            exit 1
+          fi
+
+          echo "release-lane-provenance: trusted checker missing on base checkout; using one-time staging -> premain bootstrap verifier"
+
+          fail() {
+            echo "release-lane-provenance: FAIL ($1)" >&2
+            exit 1
+          }
+
+          require_sha() {
+            local label="$1"
+            local value="$2"
+
+            if [[ ! "${value}" =~ ^[0-9a-f]{40}$ ]]; then
+              fail "${label} must be a 40-character lowercase git SHA, got ${value:-<empty>}"
+            fi
+          }
+
+          lookup_ref_sha() {
+            local branch="$1"
+            local ref="refs/heads/${branch}"
+
+            command -v gh >/dev/null 2>&1 || fail "gh is required for ${ref} lookup"
+            gh auth status >/dev/null 2>&1 || fail "gh authentication is required for ${ref} lookup"
+
+            local refs_json
+            refs_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/heads/${branch}")"
+            python3 -c '
+          import json
+          import sys
+
+          want = sys.argv[1]
+          refs = json.load(sys.stdin)
+          for entry in refs:
+              if entry.get("ref") == want:
+                  print(entry.get("object", {}).get("sha", ""))
+                  raise SystemExit(0)
+          raise SystemExit(1)
+          ' "${ref}" <<<"${refs_json}"
+          }
+
+          if [[ -z "${GITHUB_REPOSITORY}" || -z "${BASE_REPOSITORY}" || -z "${HEAD_REPOSITORY}" ]]; then
+            fail "missing repository metadata"
+          fi
+          if [[ "${BASE_REPOSITORY}" != "${GITHUB_REPOSITORY}" || "${HEAD_REPOSITORY}" != "${GITHUB_REPOSITORY}" ]]; then
+            fail "release-lane PRs must be same-repository (${HEAD_REPOSITORY} -> ${BASE_REPOSITORY}, expected ${GITHUB_REPOSITORY})"
+          fi
+
+          require_sha "base SHA" "${BASE_SHA}"
+          require_sha "head SHA" "${HEAD_SHA}"
+
+          expected_base_sha="$(lookup_ref_sha "${BASE_REF}")" || fail "could not resolve refs/heads/${BASE_REF}"
+          expected_head_sha="$(lookup_ref_sha "${HEAD_REF}")" || fail "could not resolve refs/heads/${HEAD_REF}"
+
+          require_sha "resolved base ref SHA" "${expected_base_sha}"
+          require_sha "resolved head ref SHA" "${expected_head_sha}"
+
+          if [[ "${BASE_SHA}" != "${expected_base_sha}" ]]; then
+            fail "base SHA ${BASE_SHA} does not match same-repository refs/heads/${BASE_REF} ${expected_base_sha}"
+          fi
+          if [[ "${HEAD_SHA}" != "${expected_head_sha}" ]]; then
+            fail "head SHA ${HEAD_SHA} does not match same-repository refs/heads/${HEAD_REF} ${expected_head_sha}"
+          fi
+
+          echo "release-lane-provenance: PASS (${HEAD_REF}@${HEAD_SHA} -> ${BASE_REF}@${BASE_SHA})"
 
       - name: Checkout pull request head after provenance verification
         if: github.event_name == 'pull_request'
