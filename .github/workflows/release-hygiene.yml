@@ -13,88 +13,108 @@ jobs:
   hygiene:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout trusted release scripts
+        if: github.event_name == 'pull_request'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-release
+          persist-credentials: false
 
-      - name: Validate release-lane source branch
+      - name: Verify release-lane same-repository provenance
         if: github.event_name == 'pull_request'
         env:
+          GH_TOKEN: ${{ github.token }}
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
+          BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
 
-          python3 - <<'PY'
-          import os
-          import re
-          import sys
+          bash trusted-release/scripts/verify-release-lane-provenance.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base "${BASE_REF}" \
+            --head "${HEAD_REF}" \
+            --base-repo "${BASE_REPOSITORY}" \
+            --head-repo "${HEAD_REPOSITORY}" \
+            --base-sha "${BASE_SHA}" \
+            --head-sha "${HEAD_SHA}" \
+            --title "${PR_TITLE}"
 
-          base = os.environ["BASE_REF"]
-          head = os.environ["HEAD_REF"]
-          title = os.environ["PR_TITLE"]
+      - name: Checkout pull request head after provenance verification
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
 
-
-          def fail(message: str) -> None:
-              print(f"release-hygiene: FAIL ({message})", file=sys.stderr)
-              raise SystemExit(1)
-
-
-          if base == "premain":
-              if head == "staging":
-                  print("release-hygiene: source branch OK (staging -> premain)")
-                  raise SystemExit(0)
-              if head == "release-please--branches--premain":
-                  if re.fullmatch(r"chore\(premain\): release \d+\.\d+\.\d+-rc\.\d+", title):
-                      print("release-hygiene: source branch OK (premain release-please RC PR)")
-                      raise SystemExit(0)
-                  fail(f"premain release-please PR must advertise an RC version, got {title!r}")
-              fail(f"premain PR head must be staging, got {head!r}")
-
-          if base == "main":
-              if re.search(r"\d+\.\d+\.\d+-rc(?:[.\-\w]*)?", title):
-                  fail(f"main PR must not advertise an RC version, got {title!r}")
-              if head == "premain":
-                  print("release-hygiene: source branch OK (premain -> main)")
-                  raise SystemExit(0)
-              if head == "release-please--branches--main":
-                  if re.fullmatch(r"chore\(main\): release \d+\.\d+\.\d+", title):
-                      print("release-hygiene: source branch OK (main stable release-please PR)")
-                      raise SystemExit(0)
-                  fail(f"main release-please PR must advertise a stable version, got {title!r}")
-              fail(f"main PR head must be premain, got {head!r}")
-
-          fail(f"unsupported release-hygiene base branch {base!r}")
-          PY
+      - name: Checkout workflow dispatch ref
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Verify human promotion release driver
         if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
+        working-directory: pr
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
 
-          bash scripts/verify-promotion-release-driver.sh \
+          bash ../trusted-release/scripts/verify-promotion-release-driver.sh \
             --repo "${GITHUB_REPOSITORY}" \
             --base "${GITHUB_BASE_REF}" \
             --head "${GITHUB_HEAD_REF}" \
             --pr "${PR_NUMBER}"
 
       - name: Verify release cycle state
+        if: github.event_name == 'pull_request'
+        working-directory: pr
         env:
-          RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
+          RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
+        run: bash ../trusted-release/scripts/verify-release-cycle-state.sh
+
+      - name: Verify release cycle state
+        if: github.event_name != 'pull_request'
+        env:
+          RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: "false"
         run: bash scripts/verify-release-cycle-state.sh
 
       - name: Verify release supply-chain scaffolding
+        if: github.event_name == 'pull_request'
+        working-directory: pr
+        run: bash ../trusted-release/scripts/verify-branch-release-supply-chain.sh
+
+      - name: Verify release supply-chain scaffolding
+        if: github.event_name != 'pull_request'
         run: bash scripts/verify-branch-release-supply-chain.sh
 
       - name: Forbid RC-shaped main Release PRs
-        if: github.event_name != 'pull_request' || github.base_ref == 'main'
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        working-directory: pr
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          bash ../trusted-release/scripts/verify-main-release-pr-postcondition.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --forbid-rc-only
+
+      - name: Forbid RC-shaped main Release PRs
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
