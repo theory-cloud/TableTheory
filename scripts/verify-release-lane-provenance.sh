@@ -17,6 +17,9 @@ Options:
   --head-repo OWNER/REPO  PR head repository full name.
   --base-sha SHA          PR base SHA.
   --head-sha SHA          PR head SHA.
+  --pr NUMBER             PR number for current lifecycle lookup.
+  --pr-state STATE        PR state from the event payload or test fixture.
+  --pr-merged BOOL        Whether the PR is known merged from the event payload or test fixture.
   --title TITLE           PR title for generated release-please PR validation.
   --ref REF=SHA           Test-only ref override, e.g. refs/heads/staging=<sha>.
   -h, --help              Show this help.
@@ -34,6 +37,9 @@ base_repo="${BASE_REPOSITORY:-}"
 head_repo="${HEAD_REPOSITORY:-}"
 base_sha="${BASE_SHA:-}"
 head_sha="${HEAD_SHA:-}"
+pr_number="${PR_NUMBER:-}"
+pr_state="${PR_STATE:-}"
+pr_merged="${PR_MERGED:-}"
 title="${PR_TITLE:-}"
 ref_overrides=()
 
@@ -72,6 +78,21 @@ while [[ $# -gt 0 ]]; do
     --head-sha)
       [[ $# -ge 2 ]] || { echo "release-lane-provenance: FAIL (--head-sha requires a value)" >&2; exit 2; }
       head_sha="$2"
+      shift 2
+      ;;
+    --pr)
+      [[ $# -ge 2 ]] || { echo "release-lane-provenance: FAIL (--pr requires a value)" >&2; exit 2; }
+      pr_number="$2"
+      shift 2
+      ;;
+    --pr-state)
+      [[ $# -ge 2 ]] || { echo "release-lane-provenance: FAIL (--pr-state requires a value)" >&2; exit 2; }
+      pr_state="$2"
+      shift 2
+      ;;
+    --pr-merged)
+      [[ $# -ge 2 ]] || { echo "release-lane-provenance: FAIL (--pr-merged requires a value)" >&2; exit 2; }
+      pr_merged="$2"
       shift 2
       ;;
     --title)
@@ -152,6 +173,67 @@ raise SystemExit(1)
 ' "${ref}" <<<"${refs_json}"
 }
 
+refresh_pr_lifecycle() {
+  if [[ -z "${pr_number}" ]]; then
+    return 0
+  fi
+  command -v gh >/dev/null 2>&1 || return 0
+  gh auth status >/dev/null 2>&1 || return 0
+
+  local pr_json
+  if ! pr_json="$(gh pr view "${pr_number}" --repo "${repo}" --json state,mergedAt,closed 2>/dev/null)"; then
+    return 0
+  fi
+
+  local parsed live_state live_merged
+  if ! parsed="$(python3 -c '
+import json
+import sys
+
+data = json.load(sys.stdin)
+state = str(data.get("state") or "")
+merged_at = data.get("mergedAt")
+print(state, "true" if merged_at else "false")
+' <<<"${pr_json}")"; then
+    return 0
+  fi
+  read -r live_state live_merged <<<"${parsed}"
+  if [[ -n "${live_state}" ]]; then
+    pr_state="${live_state}"
+  fi
+  if [[ -n "${live_merged}" ]]; then
+    pr_merged="${live_merged}"
+  fi
+}
+
+pr_is_merged() {
+  local state="${pr_state,,}"
+  local merged="${pr_merged,,}"
+
+  [[ "${state}" == "merged" ]] || [[ "${merged}" == "true" ]]
+}
+
+is_premain_release_please_rc_pr() {
+  [[ "${base}" == "premain" ]] &&
+    [[ "${head}" == "release-please--branches--premain" ]] &&
+    [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+}
+
+stale_merged_rc_pr_allowed=0
+allow_stale_merged_rc_pr() {
+  if [[ "${stale_merged_rc_pr_allowed}" -eq 1 ]]; then
+    return 0
+  fi
+  return 1
+}
+
+pass_stale_merged_rc_pr() {
+  local reason="$1"
+
+  echo "release-lane-provenance: PASS (stale merged premain release-please RC PR; ${reason})"
+  exit 0
+}
+
 if [[ -z "${repo}" || -z "${base}" || -z "${head}" ]]; then
   fail "missing repository or PR base/head branch"
 fi
@@ -190,16 +272,37 @@ else
   fail "unsupported release-hygiene base branch ${base@Q}"
 fi
 
-expected_base_sha="$(lookup_ref_sha "${base}")" || fail "could not resolve refs/heads/${base}"
-expected_head_sha="$(lookup_ref_sha "${head}")" || fail "could not resolve refs/heads/${head}"
+refresh_pr_lifecycle
+if is_premain_release_please_rc_pr && pr_is_merged; then
+  stale_merged_rc_pr_allowed=1
+fi
+
+expected_base_sha="$(lookup_ref_sha "${base}")" || {
+  if allow_stale_merged_rc_pr; then
+    pass_stale_merged_rc_pr "could not resolve live refs/heads/${base} after merge"
+  fi
+  fail "could not resolve refs/heads/${base}"
+}
+expected_head_sha="$(lookup_ref_sha "${head}")" || {
+  if allow_stale_merged_rc_pr; then
+    pass_stale_merged_rc_pr "could not resolve live refs/heads/${head} after merge"
+  fi
+  fail "could not resolve refs/heads/${head}"
+}
 
 require_sha "resolved base ref SHA" "${expected_base_sha}"
 require_sha "resolved head ref SHA" "${expected_head_sha}"
 
 if [[ "${base_sha}" != "${expected_base_sha}" ]]; then
+  if allow_stale_merged_rc_pr; then
+    pass_stale_merged_rc_pr "base ref advanced from ${base_sha} to ${expected_base_sha}"
+  fi
   fail "base SHA ${base_sha} does not match same-repository refs/heads/${base} ${expected_base_sha}"
 fi
 if [[ "${head_sha}" != "${expected_head_sha}" ]]; then
+  if allow_stale_merged_rc_pr; then
+    pass_stale_merged_rc_pr "head ref advanced from ${head_sha} to ${expected_head_sha}"
+  fi
   fail "head SHA ${head_sha} does not match same-repository refs/heads/${head} ${expected_head_sha}"
 fi
 
