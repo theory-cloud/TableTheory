@@ -288,4 +288,19 @@ grep -Fq "../trusted-release/scripts/verify-promotion-release-driver.sh" "${repo
   exit 1
 }
 
+grep -Fq "Verify release-hygiene bootstrap scope" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: main bootstrap PRs must have a scoped hygiene guard"
+  exit 1
+}
+
+grep -Fq "fix/release-hygiene-main-bootstrap-" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: main bootstrap guard must be branch-scoped"
+  exit 1
+}
+
+grep -Fq "pulls/\${PR_NUMBER}/files" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: main bootstrap guard must inspect PR changed files"
+  exit 1
+}
+
 echo "release-hygiene-policy-test: PASS"
