@@ -1,2 +1,2 @@
-cryptography==46.0.7
+cryptography==49.0.0
 PyYAML==6.0.3
