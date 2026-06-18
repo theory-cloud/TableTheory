@@ -16,6 +16,21 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [1.10.0](https://github.com/theory-cloud/TableTheory/compare/v1.9.4...v1.10.0) (2026-06-09)
+
+
+### Features
+
+* **keycontract:** add derived-key contract parity (THE-2032/THE-2041/THE-2042/THE-2043) ([7e99b12](https://github.com/theory-cloud/TableTheory/commit/7e99b129dc3254aa4d684ed98a0744de10c7055d))
+* **keycontract:** define derived-key sidecar contract ([d86b715](https://github.com/theory-cloud/TableTheory/commit/d86b71590b16402cd3d45d9f248ed9d7e9ac0ddb))
+* **keycontract:** generate ts key helpers ([4d2071f](https://github.com/theory-cloud/TableTheory/commit/4d2071f1d869a7c5a3c35aaed232ccd166e5ba0c))
+* **ts:** add derived-key contract evaluator ([88fbc05](https://github.com/theory-cloud/TableTheory/commit/88fbc050b97c56dad58f6405c7faf56b9346384d))
+
+
+### Bug Fixes
+
+* **keycontract:** harden cross-runtime key transforms ([4bc99a4](https://github.com/theory-cloud/TableTheory/commit/4bc99a4f0c521da9321638da05f0497dff94ee17))
+
 ## [1.10.0-rc](https://github.com/theory-cloud/TableTheory/compare/v1.9.4...v1.10.0-rc) (2026-06-09)
 
 

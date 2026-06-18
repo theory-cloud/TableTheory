@@ -131,7 +131,7 @@ derived_keys:
           auth_source: " okta "
           binding_type: "subject_pattern"
           binding_value: " user/* "
-        expect: "ns=theorycloud|partner=keybank|source=okta|type=subject_pattern|value=user/*"
+        expect: "ns=theorycloud|partner=keybank|source=okta|type=subject_pattern|value=user%2F%2A"
       - name: "wildcard_namespace_and_partner"
         input:
           client_namespace: ""

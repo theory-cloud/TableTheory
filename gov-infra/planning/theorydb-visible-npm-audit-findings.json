@@ -10,6 +10,7 @@
       "visibility": "visible",
       "status": "upstream-bundled-pending-fix",
       "reviewed_on": "2026-05-30",
+      "expires_on": "2026-07-30",
       "current_upstream_package": "aws-cdk-lib",
       "current_upstream_version": "2.257.0",
       "current_bundled_version": "5.0.5",

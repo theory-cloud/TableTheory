@@ -21,7 +21,7 @@
     "constructs": "10.6.0"
   },
   "devDependencies": {
-    "esbuild": "0.28.0",
+    "esbuild": "0.28.1",
     "tsx": "4.22.3",
     "typescript": "5.9.3"
   },
