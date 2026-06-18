@@ -7,6 +7,10 @@ trap 'rm -rf "${tmpdir}"' EXIT
 finding="NPM-AUDIT:examples/cdk-multilang:brace-expansion:GHSA-jxxr-4gwj-5jf2:node_modules/aws-cdk-lib/node_modules/brace-expansion"
 checker="scripts/check-npm-audit-allowlist.mjs"
 
+# Keep negative policy assertions deterministic when the SEC-2 CI job enables
+# reviewed visible findings for the real scanner path.
+unset NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS
+
 cat >"${tmpdir}/audit.json" <<'JSON'
 {
   "auditReportVersion": 2,
