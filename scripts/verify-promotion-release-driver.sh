@@ -16,6 +16,7 @@ Options:
   --pr NUMBER           Pull request number for read-only GitHub metadata lookup.
   --title TITLE         PR title fallback when --pr/gh is unavailable.
   --body BODY           PR body fallback when --pr/gh is unavailable.
+  --commit-message MSG  Local/test fallback commit message; repeatable.
   --dry-run             Print that local read-only mode is being used.
   -h, --help            Show this help.
 
@@ -31,6 +32,7 @@ pr_number="${PR_NUMBER:-}"
 title="${PR_TITLE:-}"
 body="${PR_BODY:-}"
 dry_run=0
+commit_messages=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -80,6 +82,14 @@ while [[ $# -gt 0 ]]; do
         exit 2
       fi
       body="$2"
+      shift 2
+      ;;
+    --commit-message)
+      if [[ $# -lt 2 ]]; then
+        echo "promotion-release-driver: FAIL (--commit-message requires a value)" >&2
+        exit 2
+      fi
+      commit_messages+=("$2")
       shift 2
       ;;
     --dry-run)
@@ -143,15 +153,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-python3 - "${fallback_file}" "${title}" "${body}" <<'PY'
+python3 - "${fallback_file}" "${title}" "${body}" "${commit_messages[@]}" <<'PY'
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-path, title, body = sys.argv[1:4]
-commits = []
-if not title.strip() and not body.strip():
+path, title, body, *commits = sys.argv[1:]
+if not commits and not title.strip() and not body.strip():
     try:
         out = subprocess.check_output(
             ["git", "log", "--format=%s%n%b%x1e", "--max-count=50"],
@@ -310,6 +319,7 @@ def pending_stable_promotion_version() -> str:
 
 title, body, commits = read_metadata()
 aggregate = "\n\n".join([title, body, *commits])
+pr_text = "\n\n".join([title, body])
 
 if base == "premain" and head == "release-please--branches--premain":
     if not rc_title_re.fullmatch(title):
@@ -357,13 +367,15 @@ if base == "main":
         fail(f"main promotion PR head must be premain, got {head!r}")
     if any_rc_re.search(title):
         fail(f"premain -> main PR title must not be RC-shaped, got {title!r}")
-    versions = release_as_versions(aggregate)
+    versions = release_as_versions(pr_text)
     rc_versions = [version for version in versions if rc_version_re.match(version)]
     if rc_versions:
         fail(
             "premain -> main Release-As footers must be stable X.Y.Z, "
             f"not RC-shaped ({', '.join(rc_versions)})"
         )
+    if any_rc_re.search(pr_text):
+        fail("premain -> main PR title/body must not be RC-shaped")
     invalid = [
         version
         for version in versions
@@ -373,6 +385,11 @@ if base == "main":
         fail(f"invalid Release-As footer(s): {', '.join(invalid)}")
     pending_rc = pending_stable_promotion_version()
     pending_stable = pending_rc.split("-", 1)[0]
+    if not versions:
+        fail(
+            "premain -> main promotion requires a stable Release-As footer "
+            f"matching the pending RC base {pending_stable}"
+        )
     mismatched = [version for version in versions if version != pending_stable]
     if mismatched:
         fail(
