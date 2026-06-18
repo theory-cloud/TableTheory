@@ -136,30 +136,39 @@ node <<'NODE'
 const fs = require('node:fs');
 
 const lock = JSON.parse(fs.readFileSync('examples/cdk-multilang/package-lock.json', 'utf8'));
+
+function versionAtLeast(actual, minimum) {
+  if (typeof actual !== 'string') return false;
+  const actualParts = actual.split('.').map((part) => Number(part));
+  const minimumParts = minimum.split('.').map((part) => Number(part));
+  if (actualParts.length !== 3 || minimumParts.length !== 3 || actualParts.some(Number.isNaN)) {
+    return false;
+  }
+  for (let i = 0; i < 3; i += 1) {
+    if (actualParts[i] > minimumParts[i]) return true;
+    if (actualParts[i] < minimumParts[i]) return false;
+  }
+  return true;
+}
+
 const cdkLib = lock.packages?.['node_modules/aws-cdk-lib'];
-if (cdkLib?.version !== '2.257.0') {
-  throw new Error(`expected aws-cdk-lib lock entry to remain 2.257.0 while the visible policy is active, got ${cdkLib?.version ?? 'missing'}`);
+if (!versionAtLeast(cdkLib?.version, '2.260.0')) {
+  throw new Error(`expected aws-cdk-lib lock entry to be at least 2.260.0, got ${cdkLib?.version ?? 'missing'}`);
 }
 
 const bundledBrace = lock.packages?.['node_modules/aws-cdk-lib/node_modules/brace-expansion'];
-if (bundledBrace?.version !== '5.0.5') {
-  throw new Error(`expected aws-cdk-lib bundled brace-expansion lock entry to remain 5.0.5, got ${bundledBrace?.version ?? 'missing'}`);
+if (!versionAtLeast(bundledBrace?.version, '5.0.6')) {
+  throw new Error(`expected aws-cdk-lib bundled brace-expansion lock entry to be at least 5.0.6, got ${bundledBrace?.version ?? 'missing'}`);
 }
 
 const policy = JSON.parse(fs.readFileSync('gov-infra/planning/theorydb-visible-npm-audit-findings.json', 'utf8'));
 const hasVisibleBracePolicy = policy.findings?.some(
   (finding) =>
-    finding.project === 'examples/cdk-multilang' &&
     finding.package === 'brace-expansion' &&
-    finding.advisory === 'GHSA-jxxr-4gwj-5jf2' &&
-    finding.node === 'node_modules/aws-cdk-lib/node_modules/brace-expansion' &&
-    finding.visibility === 'visible' &&
-    typeof finding.expires_on === 'string' &&
-    finding.current_upstream_version === '2.257.0' &&
-    finding.current_bundled_version === '5.0.5',
+    finding.node === 'node_modules/aws-cdk-lib/node_modules/brace-expansion'
 );
-if (!hasVisibleBracePolicy) {
-  throw new Error('expected visible THE-1757 brace-expansion policy for bundled version 5.0.5');
+if (hasVisibleBracePolicy) {
+  throw new Error('expected no visible brace-expansion policy after dependency update');
 }
 NODE
 
