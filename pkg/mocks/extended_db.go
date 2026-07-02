@@ -77,18 +77,18 @@ func (m *MockExtendedDB) DescribeTable(model any) (any, error) {
 // WithLambdaTimeout sets a deadline based on Lambda context
 func (m *MockExtendedDB) WithLambdaTimeout(ctx context.Context) core.DB {
 	args := m.Called(ctx)
-	return mockCoreDB(&m.MockDB.Mock, "WithLambdaTimeout", args.Get(0))
+	return mockCoreDB(&m.Mock, "WithLambdaTimeout", args.Get(0))
 }
 
 // WithLambdaTimeoutBuffer sets a custom timeout buffer
 func (m *MockExtendedDB) WithLambdaTimeoutBuffer(buffer time.Duration) core.DB {
 	args := m.Called(buffer)
-	return mockCoreDB(&m.MockDB.Mock, "WithLambdaTimeoutBuffer", args.Get(0))
+	return mockCoreDB(&m.Mock, "WithLambdaTimeoutBuffer", args.Get(0))
 }
 
 // TransactionFunc executes a mocked legacy transaction callback.
 //
-// Deprecated: use Transact() in new code. The production compatibility helper is
+// Deprecation notice: use Transact() in new code. The production compatibility helper is
 // planned for removal in v2.
 func (m *MockExtendedDB) TransactionFunc(fn func(tx any) error) error {
 	if fn == nil {
@@ -124,7 +124,7 @@ func (m *MockExtendedDB) TransactionFunc(fn func(tx any) error) error {
 // Transact returns a transaction builder mock
 func (m *MockExtendedDB) Transact() core.TransactionBuilder {
 	args := m.Called()
-	return mockTransactionBuilder(&m.MockDB.Mock, "Transact", args.Get(0))
+	return mockTransactionBuilder(&m.Mock, "Transact", args.Get(0))
 }
 
 // TransactWrite executes a function with a transaction builder
@@ -233,5 +233,5 @@ func NewMockExtendedDBStrict() *MockExtendedDB {
 // AssertExpectations reports return type mismatches recorded by MockExtendedDB
 // in addition to testify/mock expectation failures.
 func (m *MockExtendedDB) AssertExpectations(t mock.TestingT) bool {
-	return assertMockExpectations(t, &m.MockDB.Mock)
+	return assertMockExpectations(t, &m.Mock)
 }

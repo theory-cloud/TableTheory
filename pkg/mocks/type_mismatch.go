@@ -27,7 +27,10 @@ func recordReturnTypeMismatch(m *mock.Mock, method string, index int, expected s
 	)
 
 	data := m.TestData()
-	mismatches, _ := data[mockReturnTypeMismatchKey].([]string)
+	mismatches, ok := data[mockReturnTypeMismatchKey].([]string)
+	if !ok {
+		mismatches = nil
+	}
 	data[mockReturnTypeMismatchKey] = append(mismatches, msg)
 }
 
@@ -50,7 +53,10 @@ func assertNoReturnTypeMismatches(t mock.TestingT, m *mock.Mock) bool {
 		return true
 	}
 
-	mismatches, _ := m.TestData()[mockReturnTypeMismatchKey].([]string)
+	mismatches, ok := m.TestData()[mockReturnTypeMismatchKey].([]string)
+	if !ok {
+		mismatches = nil
+	}
 	if len(mismatches) == 0 {
 		return true
 	}

@@ -244,7 +244,7 @@ func (db *DB) Model(model any) core.Query {
 // Transaction executes fn with a legacy Tx wrapper. It is not atomic: operations
 // performed through the Tx are sent as independent DynamoDB requests.
 //
-// Deprecated: use Transact() for DynamoDB TransactWriteItems atomicity. This
+// Deprecation notice: use Transact() for DynamoDB TransactWriteItems atomicity. This
 // compatibility helper is planned for removal in v2.
 func (db *DB) Transaction(fn func(tx *core.Tx) error) error {
 	tx := &core.Tx{}

@@ -79,10 +79,6 @@ func mockUpdateBuilder(m *mock.Mock, method string, v any) core.UpdateBuilder {
 	return nil
 }
 
-func mustTransactionBuilder(v any) core.TransactionBuilder {
-	return mockTransactionBuilder(nil, "", v)
-}
-
 func mockTransactionBuilder(m *mock.Mock, method string, v any) core.TransactionBuilder {
 	if v == nil {
 		return nil
@@ -91,10 +87,6 @@ func mockTransactionBuilder(m *mock.Mock, method string, v any) core.Transaction
 		return builder
 	}
 	return nil
-}
-
-func mustBatchGetBuilder(v any) core.BatchGetBuilder {
-	return mockBatchGetBuilder(nil, "", v)
 }
 
 func mockBatchGetBuilder(m *mock.Mock, method string, v any) core.BatchGetBuilder {

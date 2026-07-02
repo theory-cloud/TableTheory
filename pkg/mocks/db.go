@@ -30,7 +30,7 @@ func (m *MockDB) Model(model any) core.Query {
 
 // Transaction executes a mocked legacy transaction callback.
 //
-// Deprecated: use Transact() in new code. The production compatibility helper is
+// Deprecation notice: use Transact() in new code. The production compatibility helper is
 // planned for removal in v2.
 func (m *MockDB) Transaction(fn func(tx *core.Tx) error) error {
 	if fn == nil {

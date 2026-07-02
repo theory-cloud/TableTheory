@@ -20,7 +20,7 @@ type DB interface {
 	// Transaction executes fn with a legacy Tx wrapper. It is not atomic: operations
 	// performed through the Tx are sent as independent DynamoDB requests.
 	//
-	// Deprecated: use Transact() for DynamoDB TransactWriteItems atomicity. This
+	// Deprecation notice: use Transact() for DynamoDB TransactWriteItems atomicity. This
 	// compatibility helper is planned for removal in v2.
 	Transaction(fn func(tx *Tx) error) error
 
@@ -73,7 +73,7 @@ type ExtendedDB interface {
 	// TransactionFunc executes fn with the legacy transaction context.
 	// tx should be of type *transaction.Transaction.
 	//
-	// Deprecated: use Transact() for DynamoDB TransactWriteItems atomicity. This
+	// Deprecation notice: use Transact() for DynamoDB TransactWriteItems atomicity. This
 	// compatibility helper is planned for removal in v2.
 	TransactionFunc(fn func(tx any) error) error
 
@@ -309,7 +309,7 @@ type PaginatedResult struct {
 // the underlying DB as independent requests and does not provide DynamoDB
 // transaction atomicity.
 //
-// Deprecated: use Transact() for DynamoDB TransactWriteItems atomicity. Tx is
+// Deprecation notice: use Transact() for DynamoDB TransactWriteItems atomicity. Tx is
 // planned for removal in v2 with DB.Transaction.
 type Tx struct {
 	db DB
