@@ -198,11 +198,12 @@ func TestTestDB_ExpectationHelpers(t *testing.T) {
 	testDB.MockDB.ExpectedCalls = nil
 	testDB.MockQuery.ExpectedCalls = nil
 
-	// Touch DefaultDBFactory.CreateDB for coverage; it's a placeholder.
+	// Touch DefaultDBFactory.CreateDB for coverage; it fails loudly until an
+	// application-provided production factory is supplied.
 	var factory theorydbtesting.DefaultDBFactory
 	db, err := factory.CreateDB(session.Config{Region: "us-east-1"})
-	require.NoError(t, err)
 	require.Nil(t, db)
+	require.Error(t, err)
 }
 
 func TestQueryChain_ExpectAll(t *testing.T) {

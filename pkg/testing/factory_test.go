@@ -35,6 +35,15 @@ func TestMockDBFactory_CreateDB(t *testing.T) {
 	require.Nil(t, db)
 }
 
+func TestDefaultDBFactory_CreateDBFailsLoudly(t *testing.T) {
+	var factory theorydbtesting.DefaultDBFactory
+
+	db, err := factory.CreateDB(session.Config{Region: "us-east-1"})
+	require.Nil(t, db)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "DefaultDBFactory")
+}
+
 func TestMockDBFactory_WithMockDB(t *testing.T) {
 	factory := theorydbtesting.NewMockDBFactory()
 	other := mocks.NewMockExtendedDB()
