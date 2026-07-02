@@ -46,6 +46,13 @@ page2 = table.query("A", cursor=page1.next_cursor) if page1.next_cursor else Non
 table.batch_write(puts=[Note(pk="A", sk="2", value=1)], deletes=[("A", "1")])
 ```
 
+## Pattern: Aggregations are client-side
+
+`sum_field`, `average_field`, `min_field`, `max_field`, `aggregate_field`, `count_distinct`, and `group_by(...).execute()`
+operate on an already materialized Python sequence. If that sequence came from `query_all`, `scan_all`, or
+`scan_all_segments`, every matching item is already in memory. Use these helpers only for bounded result sets. When the
+planned native `count()` API lands, prefer it for count-only paths.
+
 ## Pattern: Streams unmarshalling
 
 ```python

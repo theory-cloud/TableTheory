@@ -30,36 +30,36 @@ The single distribution path is deliberate — it makes version drift between la
 The TypeScript public surface is **explicit**: models are declared via `defineModel({ … })` (no decorators), and operations run through a `TheorydbClient` instance.
 
 ```typescript
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { TheorydbClient, defineModel } from '@theory-cloud/tabletheory-ts';
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { TheorydbClient, defineModel } from "@theory-cloud/tabletheory-ts";
 
 const Note = defineModel({
-  name: 'Note',
-  table: { name: 'notes_contract' },
+  name: "Note",
+  table: { name: "notes_contract" },
   keys: {
-    partition: { attribute: 'PK', type: 'S' },
-    sort:      { attribute: 'SK', type: 'S' },
+    partition: { attribute: "PK", type: "S" },
+    sort: { attribute: "SK", type: "S" },
   },
   attributes: [
-    { attribute: 'PK',        type: 'S', roles: ['pk'] },
-    { attribute: 'SK',        type: 'S', roles: ['sk'] },
-    { attribute: 'body',      type: 'S', optional: true, omit_empty: true },
-    { attribute: 'createdAt', type: 'S', roles: ['created_at'] },
-    { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
-    { attribute: 'version',   type: 'N', roles: ['version'] },
+    { attribute: "PK", type: "S", roles: ["pk"] },
+    { attribute: "SK", type: "S", roles: ["sk"] },
+    { attribute: "body", type: "S", optional: true, omit_empty: true },
+    { attribute: "createdAt", type: "S", roles: ["created_at"] },
+    { attribute: "updatedAt", type: "S", roles: ["updated_at"] },
+    { attribute: "version", type: "N", roles: ["version"] },
   ],
 });
 
-const ddb = new DynamoDBClient({ region: 'us-east-1' });
-const db  = new TheorydbClient(ddb).register(Note);
+const ddb = new DynamoDBClient({ region: "us-east-1" });
+const db = new TheorydbClient(ddb).register(Note);
 
-await db.create('Note', {
-  PK:   'USER#42',
-  SK:   'NOTE#welcome',
-  body: 'Hello, Theory Cloud.',
+await db.create("Note", {
+  PK: "USER#42",
+  SK: "NOTE#welcome",
+  body: "Hello, Theory Cloud.",
 });
 
-const item = await db.get('Note', { PK: 'USER#42', SK: 'NOTE#welcome' });
+const item = await db.get("Note", { PK: "USER#42", SK: "NOTE#welcome" });
 ```
 
 For a complete working program (model + GSI + create + query + update + delete + cursor pagination), see [`ts/examples/local.ts`](https://github.com/theory-cloud/tabletheory/blob/main/ts/examples/local.ts).
@@ -68,17 +68,17 @@ For a complete working program (model + GSI + create + query + update + delete +
 
 Every `role` accepted by `defineModel` attributes maps one-to-one onto the canonical TableTheory contract:
 
-| Go tag                       | TypeScript role / option                    |
-|------------------------------|---------------------------------------------|
-| `theorydb:"pk"`              | `roles: ['pk']`                             |
-| `theorydb:"sk"`              | `roles: ['sk']`                             |
-| `theorydb:"gsi1pk"`          | `roles: ['gsi1pk']` + `indexes:`            |
-| `theorydb:"encrypted"`       | `encryption: { v: 1 }`                      |
-| `theorydb:"version"`         | `roles: ['version']`                        |
-| `theorydb:"created_at"`      | `roles: ['created_at']`                     |
-| `theorydb:"updated_at"`      | `roles: ['updated_at']`                     |
-| `theorydb:"ttl"`             | `roles: ['ttl']`                            |
-| `theorydb:"omitempty"`       | `omit_empty: true`                          |
+| Go tag                  | TypeScript role / option         |
+| ----------------------- | -------------------------------- |
+| `theorydb:"pk"`         | `roles: ['pk']`                  |
+| `theorydb:"sk"`         | `roles: ['sk']`                  |
+| `theorydb:"gsi1pk"`     | `roles: ['gsi1pk']` + `indexes:` |
+| `theorydb:"encrypted"`  | `encryption: { v: 1 }`           |
+| `theorydb:"version"`    | `roles: ['version']`             |
+| `theorydb:"created_at"` | `roles: ['created_at']`          |
+| `theorydb:"updated_at"` | `roles: ['updated_at']`          |
+| `theorydb:"ttl"`        | `roles: ['ttl']`                 |
+| `theorydb:"omitempty"`  | `omit_empty: true`               |
 
 Naming strategy is implied by how you declare each attribute's name — the explicit shape of `defineModel` means no separate "naming strategy" decoration is needed.
 
@@ -94,6 +94,13 @@ await db.delete('Note', key);
 
 const page = await db.query('Note').partitionKey('USER#42').limit(20).page();
 ```
+
+## Aggregation helper warning
+
+TypeScript aggregation helpers (`sum`, `average`, `min`, `max`, `aggregate`, `countDistinct`, and `groupBy`) are
+client-side conveniences over `all()`. They follow every page and materialize every matching item in memory before
+computing the result. Use them only for bounded result sets. When the planned native `count()` API lands, use it instead
+for count-only access patterns.
 
 ## Workflows
 

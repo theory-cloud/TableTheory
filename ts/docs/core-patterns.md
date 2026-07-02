@@ -56,6 +56,13 @@ const page2 = page1.cursor
   : { items: [] };
 ```
 
+## Pattern: Aggregations are client-side
+
+`db.query(...).sum(...)`, `average(...)`, `min(...)`, `max(...)`, `aggregate(...)`, `countDistinct(...)`, and
+`groupBy(...).execute()` are convenience helpers over `all()`: they follow every page and materialize every matching item
+in memory before computing the result. Use them only for bounded result sets. When the planned native `count()` API lands,
+prefer it for count-only paths.
+
 ## Pattern: Batch + Transactions
 
 ```ts

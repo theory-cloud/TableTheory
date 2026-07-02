@@ -1,3 +1,10 @@
+"""Client-side aggregation helpers over already materialized Python sequences.
+
+These helpers do not issue DynamoDB server-side aggregate requests. When used after
+``Table.query_all`` or ``Table.scan_all``, the full result set is already resident
+in memory; use them only for bounded result sets.
+"""
+
 from __future__ import annotations
 
 import math
@@ -42,6 +49,8 @@ class _HavingClause:
 
 
 class GroupByQuery[T]:
+    """Client-side group-by; stores the full source sequence and grouped items in memory."""
+
     def __init__(self, items: Sequence[T], group_by_field: str) -> None:
         self._items = list(items)
         self._group_by = group_by_field
@@ -49,30 +58,37 @@ class GroupByQuery[T]:
         self._having: list[_HavingClause] = []
 
     def count(self, alias: str) -> GroupByQuery[T]:
+        """Add a count aggregate computed in memory after the source sequence is materialized."""
         self._aggregates.append(_AggregateOp(function="COUNT", field="*", alias=alias))
         return self
 
     def sum(self, field: str, alias: str) -> GroupByQuery[T]:
+        """Add a sum aggregate computed in memory after the source sequence is materialized."""
         self._aggregates.append(_AggregateOp(function="SUM", field=field, alias=alias))
         return self
 
     def avg(self, field: str, alias: str) -> GroupByQuery[T]:
+        """Add an average aggregate computed in memory after the source sequence is materialized."""
         self._aggregates.append(_AggregateOp(function="AVG", field=field, alias=alias))
         return self
 
     def min(self, field: str, alias: str) -> GroupByQuery[T]:
+        """Add a minimum aggregate computed in memory after the source sequence is materialized."""
         self._aggregates.append(_AggregateOp(function="MIN", field=field, alias=alias))
         return self
 
     def max(self, field: str, alias: str) -> GroupByQuery[T]:
+        """Add a maximum aggregate computed in memory after the source sequence is materialized."""
         self._aggregates.append(_AggregateOp(function="MAX", field=field, alias=alias))
         return self
 
     def having(self, aggregate: str, operator: str, value: Any) -> GroupByQuery[T]:
+        """Add an in-memory having filter evaluated after groups and aggregates are materialized."""
         self._having.append(_HavingClause(aggregate=aggregate, operator=operator, value=value))
         return self
 
     def execute(self) -> list[GroupedResult[T]]:
+        """Materialize groups, grouped items, and aggregate values in memory."""
         groups: dict[str, GroupedResult[T]] = {}
 
         for item in self._items:
@@ -107,10 +123,12 @@ class GroupByQuery[T]:
 
 
 def group_by[T](items: Sequence[T], field: str) -> GroupByQuery[T]:
+    """Create a client-side group-by over an already materialized sequence."""
     return GroupByQuery(items, field)
 
 
 def sum_field[T](items: Sequence[T], field: str) -> float:
+    """Compute a client-side sum over an already materialized sequence."""
     total = 0.0
     for item in items:
         value = _extract_numeric_value(item, field)
@@ -121,6 +139,7 @@ def sum_field[T](items: Sequence[T], field: str) -> float:
 
 
 def average_field[T](items: Sequence[T], field: str) -> float:
+    """Compute a client-side average over an already materialized sequence."""
     if not items:
         return 0.0
 
@@ -139,14 +158,17 @@ def average_field[T](items: Sequence[T], field: str) -> float:
 
 
 def min_field[T](items: Sequence[T], field: str) -> Any:
+    """Compute a client-side minimum over an already materialized sequence."""
     return _extreme_value(items, field, direction=-1)
 
 
 def max_field[T](items: Sequence[T], field: str) -> Any:
+    """Compute a client-side maximum over an already materialized sequence."""
     return _extreme_value(items, field, direction=1)
 
 
 def aggregate_field[T](items: Sequence[T], field: str | None = None) -> AggregateResult:
+    """Compute a client-side aggregate over an already materialized sequence."""
     result = AggregateResult(count=len(items))
     if not field:
         return result
@@ -182,6 +204,7 @@ def aggregate_field[T](items: Sequence[T], field: str | None = None) -> Aggregat
 
 
 def count_distinct[T](items: Sequence[T], field: str) -> int:
+    """Compute a client-side distinct count over an already materialized sequence."""
     unique: set[str] = set()
     for item in items:
         value = _extract_field_value(item, field)

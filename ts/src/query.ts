@@ -561,30 +561,58 @@ export class QueryBuilder {
     }
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before summing.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async sum(field: string): Promise<number> {
     return sumField(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before averaging.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async average(field: string): Promise<number> {
     return averageField(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before selecting the minimum.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async min(field: string): Promise<unknown> {
     return minField(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before selecting the maximum.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async max(field: string): Promise<unknown> {
     return maxField(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before computing the aggregate.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async aggregate(...fields: string[]): Promise<AggregateResult> {
     return aggregateField(await this.all(), fields[0]);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before counting distinct values.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async countDistinct(field: string): Promise<number> {
     return countDistinct(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: the returned group query calls `all()` during `execute()` and keeps groups in memory.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   groupBy(field: string): GroupByQuery<Record<string, unknown>> {
     return new GroupByQuery(() => this.all(), field);
   }
@@ -947,30 +975,58 @@ export class ScanBuilder {
     }
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before summing.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async sum(field: string): Promise<number> {
     return sumField(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before averaging.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async average(field: string): Promise<number> {
     return averageField(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before selecting the minimum.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async min(field: string): Promise<unknown> {
     return minField(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before selecting the maximum.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async max(field: string): Promise<unknown> {
     return maxField(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before computing the aggregate.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async aggregate(...fields: string[]): Promise<AggregateResult> {
     return aggregateField(await this.all(), fields[0]);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before counting distinct values.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   async countDistinct(field: string): Promise<number> {
     return countDistinct(await this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: the returned group query calls `all()` during `execute()` and keeps groups in memory.
+   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   */
   groupBy(field: string): GroupByQuery<Record<string, unknown>> {
     return new GroupByQuery(() => this.all(), field);
   }

@@ -59,17 +59,17 @@ For a complete working program, see [`py/docs/getting-started.md`](https://githu
 
 `theorydb_field(roles=[…], encrypted=…, omitempty=…)` maps one-to-one onto the canonical TableTheory contract:
 
-| Go tag                       | Python field arg                          |
-|------------------------------|-------------------------------------------|
-| `theorydb:"pk"`              | `theorydb_field(roles=["pk"])`            |
-| `theorydb:"sk"`              | `theorydb_field(roles=["sk"])`            |
-| `theorydb:"gsi1pk"`          | `theorydb_field(roles=["gsi1pk"])`        |
-| `theorydb:"encrypted"`       | `theorydb_field(encrypted=True)`          |
-| `theorydb:"version"`         | `theorydb_field(roles=["version"])`       |
-| `theorydb:"created_at"`      | `theorydb_field(roles=["created_at"])`    |
-| `theorydb:"updated_at"`      | `theorydb_field(roles=["updated_at"])`    |
-| `theorydb:"ttl"`             | `theorydb_field(roles=["ttl"])`           |
-| `theorydb:"omitempty"`       | `theorydb_field(omitempty=True)`         |
+| Go tag                  | Python field arg                       |
+| ----------------------- | -------------------------------------- |
+| `theorydb:"pk"`         | `theorydb_field(roles=["pk"])`         |
+| `theorydb:"sk"`         | `theorydb_field(roles=["sk"])`         |
+| `theorydb:"gsi1pk"`     | `theorydb_field(roles=["gsi1pk"])`     |
+| `theorydb:"encrypted"`  | `theorydb_field(encrypted=True)`       |
+| `theorydb:"version"`    | `theorydb_field(roles=["version"])`    |
+| `theorydb:"created_at"` | `theorydb_field(roles=["created_at"])` |
+| `theorydb:"updated_at"` | `theorydb_field(roles=["updated_at"])` |
+| `theorydb:"ttl"`        | `theorydb_field(roles=["ttl"])`        |
+| `theorydb:"omitempty"`  | `theorydb_field(omitempty=True)`       |
 
 ## CRUD methods
 
@@ -85,6 +85,14 @@ table.delete(pk, sk)
 # Composite updates use update_builder for set/remove/add chains.
 table.update_builder(pk, sk).set("body", "updated").execute()
 ```
+
+## Aggregation helper warning
+
+Python aggregation helpers (`sum_field`, `average_field`, `min_field`, `max_field`, `aggregate_field`, `count_distinct`,
+and `group_by`) are client-side conveniences over already materialized sequences. If those sequences come from
+`query_all`, `scan_all`, or `scan_all_segments`, the runtime has loaded every matching item into memory before computing
+the result. Use them only for bounded result sets. When the planned native `count()` API lands, use it instead for
+count-only access patterns.
 
 ## Workflows
 

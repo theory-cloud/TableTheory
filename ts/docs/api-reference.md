@@ -198,6 +198,23 @@ and aggregation helpers as `QueryBuilder`, plus:
 - `parallelScan(segment: number, totalSegments: number): this`
 - `scanAllSegments(totalSegments: number, opts?: { concurrency?: number }): Promise<Array<Record<string, unknown>>>`
 
+## Client-side aggregation helpers
+
+`QueryBuilder` and `ScanBuilder` expose convenience helpers:
+
+- `sum(field)`
+- `average(field)`
+- `min(field)`
+- `max(field)`
+- `aggregate(...fields)`
+- `countDistinct(field)`
+- `groupBy(field).count(alias).sum(field, alias).avg(field, alias).min(field, alias).max(field, alias).execute()`
+
+These are **client-side** helpers. Each query/scan aggregation calls `all()` (or, for `groupBy`, calls `all()` when
+`execute()` runs), follows every page, and materializes every matching item in memory before computing the result. Use
+only for bounded result sets. There is no native server-side `count()` in this release; when the planned native `count()`
+API lands, prefer it for count-only paths.
+
 ## Batch + Transactions
 
 Actual signatures:

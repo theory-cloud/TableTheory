@@ -17,6 +17,7 @@ from theorydb_py import (
 )
 from theorydb_py import TransactConditionCheck, TransactDelete, TransactPut, TransactUpdate
 from theorydb_py import UpdateAdd, UpdateSetIfNotExists
+from theorydb_py import aggregate_field, average_field, count_distinct, group_by, max_field, min_field, sum_field
 from theorydb_py.mocks import FakeDynamoDBClient, FakeKmsClient
 ```
 
@@ -94,6 +95,22 @@ list; prefer page-by-page `scan` calls for large tables.
 ### `scan_all_segments(*, total_segments, index_name=None, limit=None, consistent_read=False, projection=None, filter=None, max_workers=None) -> list[T]`
 
 Runs a parallel scan across `total_segments` and materializes the combined result list.
+
+## Client-side aggregation helpers
+
+The Python package exports client-side helpers:
+
+- `sum_field(items, field)`
+- `average_field(items, field)`
+- `min_field(items, field)`
+- `max_field(items, field)`
+- `aggregate_field(items, field=None)`
+- `count_distinct(items, field)`
+- `group_by(items, field).count(alias).sum(field, alias).avg(field, alias).min(field, alias).max(field, alias).execute()`
+
+These helpers operate on an already materialized Python sequence. If the input came from `query_all`, `scan_all`, or
+`scan_all_segments`, every matching item is already resident in memory. Use only for bounded result sets. There is no
+native server-side `count()` in this release; when the planned native `count()` API lands, prefer it for count-only paths.
 
 ## Batch + transactions
 
