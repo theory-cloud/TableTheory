@@ -118,10 +118,12 @@ func TestGetRemainingTimeMillis(t *testing.T) {
 func BenchmarkLambdaColdStart(b *testing.B) {
 	// Clear global instance to simulate cold start
 	globalLambdaDB = nil
+	globalLambdaDBErr = nil
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		globalLambdaDB = nil // Reset for each iteration
+		globalLambdaDBErr = nil
 
 		startTime := time.Now()
 		db, err := NewLambdaOptimized()
