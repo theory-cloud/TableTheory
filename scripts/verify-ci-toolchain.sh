@@ -21,37 +21,57 @@ fi
 failures=0
 
 while IFS= read -r wf; do
+  uncommented="$(grep -Ev '^[[:space:]]*#' "${wf}" || true)"
+
   if grep -Eq '^[[:space:]]*uses:[[:space:]]*actions/setup-go@' "${wf}"; then
-    grep -Ev '^[[:space:]]*#' "${wf}" | grep -q 'go-version-file: go.mod' || {
+    grep -q 'go-version-file: go.mod' <<< "${uncommented}" || {
       echo "${wf}: setup-go must use go-version-file: go.mod"
       failures=$((failures + 1))
     }
   fi
 
   if grep -Eq '^[[:space:]]*uses:[[:space:]]*actions/setup-node@' "${wf}"; then
-    grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq 'node-version:[[:space:]]*["'"'"']?24(\\.x)?["'"'"']?' || {
-      echo "${wf}: setup-node must pin node-version: 24"
+    node_direct_pin=false
+    node_matrix_pin=false
+    if grep -Eq "node-version:[[:space:]]*\"?24(\\.x)?\"?" <<< "${uncommented}"; then
+      node_direct_pin=true
+    fi
+    if grep -Eq "node-version:[[:space:]]*\\$\\{\\{[[:space:]]*matrix[.]node-version[[:space:]]*\\}\\}" <<< "${uncommented}" \
+      && grep -Eq "node-version:[[:space:]]*\\[[^]]*\"?24(\\.x)?\"?[^]]*\\]" <<< "${uncommented}"; then
+      node_matrix_pin=true
+    fi
+    if [[ "${node_direct_pin}" != true && "${node_matrix_pin}" != true ]]; then
+      echo "${wf}: setup-node must pin node-version: 24 or use a matrix that includes 24"
       failures=$((failures + 1))
-    }
-    if grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq 'node-version:[[:space:]]*latest'; then
+    fi
+    if grep -Eq 'node-version:[[:space:]]*latest|node-version:[[:space:]]*\[[^]]*latest' <<< "${uncommented}"; then
       echo "${wf}: setup-node node-version must not be 'latest'"
       failures=$((failures + 1))
     fi
   fi
 
   if grep -Eq '^[[:space:]]*uses:[[:space:]]*actions/setup-python@' "${wf}"; then
-    grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq 'python-version:[[:space:]]*"?3[.]14([.]x)?"?' || {
-      echo "${wf}: setup-python must pin python-version: 3.14"
+    python_direct_pin=false
+    python_matrix_pin=false
+    if grep -Eq "python-version:[[:space:]]*\"?3[.]14([.]x)?\"?" <<< "${uncommented}"; then
+      python_direct_pin=true
+    fi
+    if grep -Eq "python-version:[[:space:]]*\\$\\{\\{[[:space:]]*matrix[.]python-version[[:space:]]*\\}\\}" <<< "${uncommented}" \
+      && grep -Eq "python-version:[[:space:]]*\\[[^]]*\"?3[.]14([.]x)?\"?[^]]*\\]" <<< "${uncommented}"; then
+      python_matrix_pin=true
+    fi
+    if [[ "${python_direct_pin}" != true && "${python_matrix_pin}" != true ]]; then
+      echo "${wf}: setup-python must pin python-version: 3.14 or use a matrix that includes 3.14"
       failures=$((failures + 1))
-    }
-    if grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq 'python-version:[[:space:]]*latest'; then
+    fi
+    if grep -Eq 'python-version:[[:space:]]*latest|python-version:[[:space:]]*\[[^]]*latest' <<< "${uncommented}"; then
       echo "${wf}: setup-python python-version must not be 'latest'"
       failures=$((failures + 1))
     fi
   fi
 
   # Reject @latest in workflows to avoid silent behavior drift.
-  if grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq '@latest'; then
+  if grep -Eq '@latest' <<< "${uncommented}"; then
     echo "${wf}: contains @latest; pin versions"
     failures=$((failures + 1))
   fi
