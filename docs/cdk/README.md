@@ -256,10 +256,9 @@ myFunction.addEnvironment('AWS_REGION', Stack.of(this).region);
 myFunction.addEnvironment('RATE_LIMIT_TABLE_NAME', rateLimitTable.tableName);
 myFunction.addEnvironment('IDEMPOTENCY_TABLE_NAME', idempotencyTable.tableName);
 
-// Optional TableTheory configuration
-myFunction.addEnvironment('DYNAMORM_DEBUG', 'false');
-myFunction.addEnvironment('DYNAMORM_RETRY_MAX_ATTEMPTS', '3');
-myFunction.addEnvironment('DYNAMORM_RETRY_BASE_DELAY', '100'); // milliseconds
+// TableTheory uses the standard AWS SDK/Lambda environment.
+// Configure TableTheory-specific retry or endpoint options in Go with
+// tabletheory.Config when constructing the DB.
 ```
 
 ### Lambda Handler Setup
@@ -269,29 +268,28 @@ package main
 
 import (
     "context"
-    "os"
+    "log"
+    "time"
     
     "github.com/aws/aws-lambda-go/lambda"
     "github.com/theory-cloud/tabletheory"
-    "github.com/theory-cloud/tabletheory/pkg/protection"
     "github.com/theory-cloud/limited"
 )
 
 var (
-    db *tabletheory.DB
+    db *tabletheory.LambdaDB
     rateLimiter *limited.Limiter
 )
 
 func init() {
-    // Initialize TableTheory with Lambda optimizations
-    db = tabletheory.New(
-        tabletheory.WithLambdaOptimizations(),
-        tabletheory.WithRetryPolicy(3, 100), // 3 retries, 100ms base delay
+    var err error
+    db, err = tabletheory.LambdaInit(
+        &RateLimitRecord{},
+        &IdempotencyRecord{},
     )
-    
-    // Register models
-    db.RegisterModel(&RateLimitRecord{})
-    db.RegisterModel(&IdempotencyRecord{})
+    if err != nil {
+        log.Fatalf("initialize TableTheory: %v", err)
+    }
     
     // Initialize Limited library with TableTheory backend
     rateLimiter = limited.New(
@@ -365,15 +363,15 @@ import (
     "fmt"
     "time"
     
-    "github.com/theory-cloud/tabletheory"
+    "github.com/theory-cloud/tabletheory/pkg/core"
     "github.com/theory-cloud/limited"
 )
 
 type TableTheoryBackend struct {
-    db *tabletheory.DB
+    db core.DB
 }
 
-func NewTableTheoryBackend(db *tabletheory.DB) *TableTheoryBackend {
+func NewTableTheoryBackend(db core.DB) *TableTheoryBackend {
     return &TableTheoryBackend{db: db}
 }
 
@@ -477,14 +475,14 @@ import (
     "fmt"
     "time"
     
-    "github.com/theory-cloud/tabletheory"
+    "github.com/theory-cloud/tabletheory/pkg/core"
 )
 
 type RateLimitService struct {
-    db *tabletheory.DB
+    db core.DB
 }
 
-func NewRateLimitService(db *tabletheory.DB) *RateLimitService {
+func NewRateLimitService(db core.DB) *RateLimitService {
     return &RateLimitService{db: db}
 }
 
@@ -549,14 +547,14 @@ import (
     "time"
     
     "github.com/google/uuid"
-    "github.com/theory-cloud/tabletheory"
+    "github.com/theory-cloud/tabletheory/pkg/core"
 )
 
 type IdempotencyService struct {
-    db *tabletheory.DB
+    db core.DB
 }
 
-func NewIdempotencyService(db *tabletheory.DB) *IdempotencyService {
+func NewIdempotencyService(db core.DB) *IdempotencyService {
     return &IdempotencyService{db: db}
 }
 
@@ -723,14 +721,17 @@ TableTheory is flexible with existing data:
 
 ### Performance Optimization
 
-1. **Use Lambda Optimizations**:
+1. **Initialize once during Lambda cold start**:
    ```go
-   db := tabletheory.New(tabletheory.WithLambdaOptimizations())
+   db, err := tabletheory.LambdaInit(&RateLimitRecord{}, &IdempotencyRecord{})
+   if err != nil {
+       return err
+   }
    ```
 
 2. **Batch Operations**: Use batch methods for multiple items
    ```go
-   db.Model(&RateLimitRecord{}).BatchCreate(ctx, records)
+   err := db.Model(&RateLimitRecord{}).BatchCreate(records)
    ```
 
 3. **Projection Optimization**: Only fetch needed attributes
