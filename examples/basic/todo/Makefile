@@ -28,7 +28,11 @@ dev-setup: docker-up setup
 dev: run
 
 docker-up:
-	$(COMPOSE) up -d
+	@if curl -sS --max-time 2 -o /dev/null http://localhost:8000; then \
+		echo "DynamoDB Local already available at http://localhost:8000"; \
+	else \
+		$(COMPOSE) up -d; \
+	fi
 
 docker-down clean:
 	$(COMPOSE) down
