@@ -63,7 +63,7 @@ Parity fills decided in scope: native `count()` (Select=COUNT), `get_or_none`/op
 ## Success criteria (observable)
 
 1. All four correctness traps have failing-before/passing-after tests; `DB.Transaction` doc no longer claims atomicity; Lambda init returns the cached error on every post-failure invocation (unit-testable); `-race` clean on the Lambda paths.
-2. A TS consumer gets compile errors for a typo'd field name in `filter()`/`.set()` against a `defineModel` schema; a Go consumer can write `ModelOf[User](db).All()` with no `any` and no reflection error path; mypy flags a typo'd Python role constant.
+2. A TS consumer gets compile errors for a typo'd field name in `filter()`/`.set()` against a `defineModel` schema; a Go consumer can use a future `ModelOf[User]` handle bound to `db` with no `any` and no reflection error path; mypy flags a typo'd Python role constant.
 3. `contract-tests/scenarios/` contains query/GSI/projection/pagination scenarios executed by all three runners; a non-integer number and an `NS`/`BS`/`B`/`BOOL`/`NULL`/`L` round-trip are asserted cross-runtime; `item_equals` and `cursor_equals` exist and are used; the Python KEY-M1 evaluator passes the shared fixture file; an item encrypted by Go is decrypted by TS and Py in a scenario run.
 4. `tabletheory init` produces a directory that reaches a successful CRUD write against DynamoDB Local in one documented command per language; `tabletheory gen` emits Go/TS/Py models from a DMS file that pass the equivalence gates; the hand-written contract models are deleted in favor of generated ones.
 5. `pip install` works on Python 3.12; `require()` works on Node 20; `import tabletheory_py` works with a deprecation-free path and `import theorydb_py` warns.

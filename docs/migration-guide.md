@@ -13,7 +13,7 @@ TheoryCloud TableTheory subtree. This page is the Go migration guide.
 
 **Problem:** Directly using the AWS SDK for Go v2 for DynamoDB operations often leads to verbose code, manual attribute marshaling, and lacks type safety. It also requires explicit context management for every call.
 
-**Solution:** Replace direct SDK calls with TableTheory's fluent, type-safe API. TableTheory handles marshaling/unmarshaling, context propagation, and error handling automatically.
+**Solution:** Replace direct SDK calls with TableTheory's fluent, model-aware API. TableTheory handles marshaling/unmarshaling, context propagation, and error handling automatically; field-name and operator mistakes are still validated by the runtime rather than by a Go generic compile-time layer.
 
 ### Example: Creating an Item
 

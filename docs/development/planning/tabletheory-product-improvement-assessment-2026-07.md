@@ -79,7 +79,7 @@ All three runtimes expose dynamically-typed surfaces in languages whose ecosyste
 - Stringly-typed operators: `Where(field, op string, value any)` with validity decided at execution by a runtime switch (`internal/expr/builder.go:583-691`). Exported typed operator constants (or `.WhereBeginsWith(...)`-style methods) move typos to compile time. `BETWEEN` requiring `value` as `[]any{lo, hi}` (`builder.go:626-635`) deserves a two-argument form.
 - Field references are Go field names as strings; a struct rename silently breaks queries.
 
-**Recommendation:** an additive generic layer — `tabletheory.ModelOf[T](db)` returning `Query[T]` with `First() (T, error)` / `All() ([]T, error)`, typed operator constants, concrete option types. Existing `any` API stays for compatibility.
+**Recommendation:** an additive generic layer — a `tabletheory.ModelOf` handle parameterized by `T` and bound to `db`, returning `Query[T]` with `First() (T, error)` / `All() ([]T, error)`, typed operator constants, concrete option types. Existing `any` API stays for compatibility.
 
 ### II.2 TypeScript: `defineModel` erases the type it just described
 

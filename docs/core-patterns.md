@@ -235,7 +235,7 @@ TableTheory is designed to provide significant business value by improving devel
 ### Developer Efficiency & Team Velocity
 
 - **Reduced Boilerplate:** TableTheory eliminates approximately **80% of the boilerplate code** typically required for DynamoDB interactions with the raw AWS SDK. This frees developers to focus on business logic.
-- **Type Safety:** Compile-time type safety with Go generics prevents common runtime errors, leading to fewer bugs and faster development cycles.
+- **Model-aware validation:** Go struct types, `theorydb` tags, and runtime model validation keep marshaling predictable without claiming a generic or compile-time field-name API that does not exist yet.
 - **Intuitive API:** The fluent, chainable API makes code more readable and easier to maintain, reducing the learning curve for new team members.
 
 ### Performance & Reliability
@@ -255,7 +255,7 @@ TableTheory is designed to provide significant business value by improving devel
 TableTheory is ideal for:
 
 - **Serverless Backends:** Building highly scalable and performant APIs with AWS Lambda and API Gateway.
-- **Event-Driven Architectures:** Processing DynamoDB Streams with type-safe model transformations.
+- **Event-Driven Architectures:** Processing DynamoDB Streams with struct-based model transformations.
 - **High-Throughput Microservices:** Services requiring fast, efficient interactions with DynamoDB.
 - **Financial & Critical Systems:** Leveraging atomic transactions for data consistency.
 - **Real-time Data Processing:** Applications needing low-latency access to DynamoDB data.

@@ -7,7 +7,7 @@ decisions:
     decision_tree:
       - condition: "Your service/runtime is Go"
         choice: "Use the Go SDK (this repo root module)"
-        reason: "First-class Go API with generics, query builder, and Lambda optimizations"
+        reason: "First-class Go API with reflection-backed model validation, query builder, and Lambda optimizations"
       - condition: "Your service/runtime is Node.js/TypeScript"
         choice: "Use the TypeScript SDK (`ts/`)"
         reason: "First-class Node.js 24 support with strict testkit and cross-language cursor contracts"
