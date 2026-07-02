@@ -10,6 +10,8 @@
   "files": [
     "dist"
   ],
+  "main": "./dist/cjs/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": {
@@ -47,10 +49,12 @@
     "build:cjs": "tsc -p tsconfig.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', JSON.stringify({ type: 'commonjs' }) + '\\n')\""
   },
   "dependencies": {
+    "yaml": "^2.9.0"
+  },
+  "peerDependencies": {
     "@aws-sdk/client-dynamodb": "^3.1053.0",
     "@aws-sdk/client-kms": "^3.1053.0",
-    "@aws-sdk/client-sts": "^3.1053.0",
-    "yaml": "^2.9.0"
+    "@aws-sdk/client-sts": "^3.1053.0"
   },
   "overrides": {
     "fast-xml-parser": "5.7.3",
@@ -65,8 +69,9 @@
     "globals": "^17.6.0",
     "prettier": "^3.8.3",
     "tsx": "^4.22.3",
-    "typescript": "^5.9.3"
-  },
-  "main": "./dist/cjs/index.js",
-  "types": "./dist/index.d.ts"
+    "typescript": "^5.9.3",
+    "@aws-sdk/client-dynamodb": "^3.1053.0",
+    "@aws-sdk/client-kms": "^3.1053.0",
+    "@aws-sdk/client-sts": "^3.1053.0"
+  }
 }

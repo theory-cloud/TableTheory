@@ -26,6 +26,17 @@ npm install --save-exact \
   https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/theory-cloud-tabletheory-ts-X.Y.Z-rc.N.tgz
 ```
 
+`@aws-sdk/client-dynamodb`, `@aws-sdk/client-kms`, and `@aws-sdk/client-sts` are peer dependencies. npm 7+ installs peers automatically for ordinary installs; if your package manager disables peer auto-install (for example `--legacy-peer-deps`, some pnpm/yarn configurations, or an offline mirror), install them explicitly in your application with the same tested range:
+
+```bash
+npm install \
+  @aws-sdk/client-dynamodb@^3.1053.0 \
+  @aws-sdk/client-kms@^3.1053.0 \
+  @aws-sdk/client-sts@^3.1053.0
+```
+
+This repository's `overrides` are development and release-build safeguards only. npm applies overrides from the consuming application's root `package.json`, so consumers that need audit overrides must declare their own root-level `overrides`/`resolutions`.
+
 The package exposes both ESM and CommonJS entry points. ESM consumers can keep using `import`, and CommonJS consumers can use `require`:
 
 ```js
