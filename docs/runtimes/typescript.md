@@ -5,7 +5,7 @@ description: TableTheory for TypeScript — installation, defineModel + Theorydb
 
 # TypeScript runtime
 
-The TypeScript runtime lives under [`ts/`](https://github.com/theory-cloud/tabletheory/tree/main/ts) and is distributed as `@theory-cloud/tabletheory-ts`. It targets **Node.js 24** and the AWS SDK for JavaScript v3.
+The TypeScript runtime lives under [`ts/`](https://github.com/theory-cloud/tabletheory/tree/main/ts) and is distributed as `@theory-cloud/tabletheory-ts`. It targets **Node.js 20+** (Node 20 LTS and Node 24 are exercised in CI) and the AWS SDK for JavaScript v3.
 
 The TypeScript runtime is a **peer**, not a port: it implements the same P0 contract scenarios as Go and Python, and a behavior that passes the Go contract test but fails in TypeScript is a parity regression — never a "TypeScript-specific quirk."
 
@@ -23,7 +23,42 @@ npm install --save-exact \
   https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/theory-cloud-tabletheory-ts-X.Y.Z-rc.N.tgz
 ```
 
+`@aws-sdk/client-dynamodb`, `@aws-sdk/client-kms`, and `@aws-sdk/client-sts` are peer dependencies. npm 7+ installs peers automatically for ordinary installs; package managers configured with `--legacy-peer-deps`, some pnpm/yarn modes, or offline mirrors should install those peers explicitly with the tested `^3.1053.0` range.
+
 The single distribution path is deliberate — it makes version drift between language registries impossible.
+
+### Find and automate release updates
+
+GitHub Releases are the version source of truth:
+
+```bash
+gh release view --repo theory-cloud/TableTheory --json tagName,publishedAt,url
+gh release list --repo theory-cloud/TableTheory --exclude-drafts --limit 10
+```
+
+Copy this Renovate regex manager into the consuming repository's `renovate.json` to update stable TypeScript tarball URLs:
+
+```json
+{
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update TableTheory TypeScript GitHub Release asset URLs",
+      "managerFilePatterns": ["/(^|/)package\\.json$/", "/(^|/)package-lock\\.json$/", "/(^|/)docs/.+\\.md$/"],
+      "matchStrings": [
+        "https://github\\.com/theory-cloud/[Tt]able[Tt]heory/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/theory-cloud-tabletheory-ts-(?<assetVersion>\\d+\\.\\d+\\.\\d+)\\.tgz"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "theory-cloud/TableTheory",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "autoReplaceStringTemplate": "https://github.com/theory-cloud/TableTheory/releases/download/v{{{newValue}}}/theory-cloud-tabletheory-ts-{{{newValue}}}.tgz"
+    }
+  ]
+}
+```
+
+For the combined TypeScript + Python config, see [Consumer update automation](../guides/consumer-updates.md).
 
 ## defineModel + TheorydbClient
 

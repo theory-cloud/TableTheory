@@ -25,6 +25,39 @@ pip install \
 
 The **release wheel asset** is `tabletheory_py-X.Y.Z-py3-none-any.whl`; the **canonical importable module** inside that wheel is `tabletheory_py`. Use `from tabletheory_py import …` in your application code. The legacy `theorydb_py` import path remains available for existing consumers.
 
+### Find and automate release updates
+
+GitHub Releases are the version source of truth:
+
+```bash
+gh release view --repo theory-cloud/TableTheory --json tagName,publishedAt,url
+gh release list --repo theory-cloud/TableTheory --exclude-drafts --limit 10
+```
+
+Copy this Renovate regex manager into the consuming repository's `renovate.json` to update stable Python wheel URLs:
+
+```json
+{
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update TableTheory Python wheel GitHub Release asset URLs",
+      "managerFilePatterns": ["/(^|/)requirements.*\\.txt$/", "/(^|/)README\\.md$/", "/(^|/)docs/.+\\.md$/"],
+      "matchStrings": [
+        "https://github\\.com/theory-cloud/[Tt]able[Tt]heory/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/tabletheory_py-(?<assetVersion>\\d+\\.\\d+\\.\\d+)-py3-none-any\\.whl"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "theory-cloud/TableTheory",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "autoReplaceStringTemplate": "https://github.com/theory-cloud/TableTheory/releases/download/v{{{newValue}}}/tabletheory_py-{{{newValue}}}-py3-none-any.whl"
+    }
+  ]
+}
+```
+
+For the combined TypeScript + Python config, see [Consumer update automation](../guides/consumer-updates.md).
+
 ## ModelDefinition + Table
 
 The Python public surface declares models as plain dataclasses with `theorydb_field()` defaults, then registers them via `ModelDefinition.from_dataclass()`. CRUD runs through a `Table` instance.

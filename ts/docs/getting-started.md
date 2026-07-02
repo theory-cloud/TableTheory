@@ -14,6 +14,16 @@
 
 This repo does **not** publish to npm. GitHub Releases are the source of truth.
 
+Find the current version before replacing `X.Y.Z`:
+
+```bash
+gh release view --repo theory-cloud/TableTheory --json tagName,publishedAt,url
+gh release list --repo theory-cloud/TableTheory --exclude-drafts --limit 10
+```
+
+The release tag includes the leading `v` (`vX.Y.Z`), while the TypeScript tarball omits it
+(`theory-cloud-tabletheory-ts-X.Y.Z.tgz`).
+
 ### Option A: Install from GitHub Release asset (recommended for consumers)
 
 ```bash
@@ -36,6 +46,32 @@ npm install \
 ```
 
 This repository's `overrides` are development and release-build safeguards only. npm applies overrides from the consuming application's root `package.json`, so consumers that need audit overrides must declare their own root-level `overrides`/`resolutions`.
+
+To keep pinned GitHub Release asset URLs current, copy this Renovate regex manager into the consuming repository's
+`renovate.json`:
+
+```json
+{
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update TableTheory TypeScript GitHub Release asset URLs",
+      "managerFilePatterns": ["/(^|/)package\\.json$/", "/(^|/)package-lock\\.json$/", "/(^|/)README\\.md$/", "/(^|/)docs/.+\\.md$/"],
+      "matchStrings": [
+        "https://github\\.com/theory-cloud/[Tt]able[Tt]heory/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/theory-cloud-tabletheory-ts-(?<assetVersion>\\d+\\.\\d+\\.\\d+)\\.tgz"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "theory-cloud/TableTheory",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "autoReplaceStringTemplate": "https://github.com/theory-cloud/TableTheory/releases/download/v{{{newValue}}}/theory-cloud-tabletheory-ts-{{{newValue}}}.tgz"
+    }
+  ]
+}
+```
+
+For combined TypeScript + Python automation, see
+[`docs/guides/consumer-updates.md`](../../docs/guides/consumer-updates.md).
 
 The package exposes both ESM and CommonJS entry points. ESM consumers can keep using `import`, and CommonJS consumers can use `require`:
 
