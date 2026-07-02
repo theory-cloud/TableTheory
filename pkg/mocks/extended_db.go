@@ -86,7 +86,10 @@ func (m *MockExtendedDB) WithLambdaTimeoutBuffer(buffer time.Duration) core.DB {
 	return mustCoreDB(args.Get(0))
 }
 
-// TransactionFunc executes a function within a full transaction context
+// TransactionFunc executes a mocked legacy transaction callback.
+//
+// Deprecated: use Transact() in new code. The production compatibility helper is
+// planned for removal in v2.
 func (m *MockExtendedDB) TransactionFunc(fn func(tx any) error) error {
 	if fn == nil {
 		args := m.Called(fn)

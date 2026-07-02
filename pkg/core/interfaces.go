@@ -17,7 +17,11 @@ type DB interface {
 	// Model returns a new query builder for the given model
 	Model(model any) Query
 
-	// Transaction executes a function within a database transaction
+	// Transaction executes fn with a legacy Tx wrapper. It is not atomic: operations
+	// performed through the Tx are sent as independent DynamoDB requests.
+	//
+	// Deprecated: use Transact() for DynamoDB TransactWriteItems atomicity. This
+	// compatibility helper is planned for removal in v2.
 	Transaction(fn func(tx *Tx) error) error
 
 	// Migrate runs all pending migrations
@@ -66,8 +70,11 @@ type ExtendedDB interface {
 	// WithLambdaTimeoutBuffer sets a custom timeout buffer for Lambda execution
 	WithLambdaTimeoutBuffer(buffer time.Duration) DB
 
-	// TransactionFunc executes a function within a full transaction context
-	// tx should be of type *transaction.Transaction
+	// TransactionFunc executes fn with the legacy transaction context.
+	// tx should be of type *transaction.Transaction.
+	//
+	// Deprecated: use Transact() for DynamoDB TransactWriteItems atomicity. This
+	// compatibility helper is planned for removal in v2.
 	TransactionFunc(fn func(tx any) error) error
 
 	// Transact returns a fluent transaction builder for composing TransactWriteItems
@@ -298,32 +305,37 @@ type PaginatedResult struct {
 	HasMore          bool
 }
 
-// Tx represents a database transaction
+// Tx is the legacy wrapper passed to DB.Transaction. It delegates operations to
+// the underlying DB as independent requests and does not provide DynamoDB
+// transaction atomicity.
+//
+// Deprecated: use Transact() for DynamoDB TransactWriteItems atomicity. Tx is
+// planned for removal in v2 with DB.Transaction.
 type Tx struct {
 	db DB
 }
 
-// SetDB sets the database reference for the transaction
+// SetDB sets the database reference for the legacy wrapper.
 func (tx *Tx) SetDB(db DB) {
 	tx.db = db
 }
 
-// Model returns a new query builder for the given model within the transaction
+// Model returns a new query builder for the given model through the underlying DB.
 func (tx *Tx) Model(model any) Query {
 	return tx.db.Model(model)
 }
 
-// Create creates a new item within the transaction
+// Create creates a new item as an independent DynamoDB request.
 func (tx *Tx) Create(model any) error {
 	return tx.db.Model(model).Create()
 }
 
-// Update updates an item within the transaction
+// Update updates an item as an independent DynamoDB request.
 func (tx *Tx) Update(model any, fields ...string) error {
 	return tx.db.Model(model).Update(fields...)
 }
 
-// Delete deletes an item within the transaction
+// Delete deletes an item as an independent DynamoDB request.
 func (tx *Tx) Delete(model any) error {
 	return tx.db.Model(model).Delete()
 }

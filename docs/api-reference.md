@@ -150,9 +150,23 @@ Creates a fluent query builder for the given entity.
 
 #### `Transaction(fn func(*Tx) error) error`
 
-Executes a function within a simple transaction scope.
+Executes a function with the legacy `*Tx` wrapper. This helper is **not
+atomic**: writes performed through `*Tx` are sent as independent DynamoDB
+requests.
 
 - **fn**: Closure receiving a `*Tx` handle.
+
+> **Deprecated:** use [`Transact()`](#transact-transactionbuilder) for DynamoDB
+> `TransactWriteItems` atomicity. `Transaction` is a compatibility helper and is
+> planned for removal in v2.
+
+#### `TransactionFunc(fn func(any) error) error`
+
+Executes a function with the legacy transaction context.
+
+> **Deprecated:** use [`Transact()`](#transact-transactionbuilder) for DynamoDB
+> `TransactWriteItems` atomicity. `TransactionFunc` is a compatibility helper
+> and is planned for removal in v2.
 
 #### `Transact() TransactionBuilder`
 

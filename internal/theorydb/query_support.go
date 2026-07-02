@@ -148,7 +148,10 @@ func DefaultBatchGetOptions() *core.BatchGetOptions {
 	return core.DefaultBatchGetOptions()
 }
 
-// TransactionFunc executes a function within a database transaction.
+// TransactionFunc executes fn with the legacy transaction context.
+//
+// Deprecated: use Transact() for DynamoDB TransactWriteItems atomicity. This
+// compatibility helper is planned for removal in v2.
 func (db *DB) TransactionFunc(fn func(tx any) error) error {
 	tx := transaction.NewTransaction(db.session, db.registry, db.converter)
 	tx = tx.WithContext(db.ctx)
