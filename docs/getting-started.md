@@ -15,7 +15,7 @@ For the multi-language monorepo:
 
 **Required:**
 
-- Go 1.25 or higher
+- Go toolchain `go1.26.4` (the pinned toolchain in the root `go.mod`)
 - AWS Credentials configured (or IAM role in Lambda)
 - Basic understanding of DynamoDB (Primary Keys, Tables)
 

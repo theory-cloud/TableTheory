@@ -66,7 +66,7 @@ Unsure where to begin? Look for these labels:
 
 2. **Set Up Your Development Environment**
    ```bash
-   # Install Go 1.21 or later
+   # Install the Go toolchain pinned by go.mod (`go1.26.4`)
    # https://golang.org/doc/install
 
    # Install dependencies

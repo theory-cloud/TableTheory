@@ -47,7 +47,7 @@ type Todo struct {
 
 ### Prerequisites
 ```bash
-# Ensure Go 1.21+
+# Ensure the root-pinned Go toolchain (`go1.26.4`)
 go version
 
 # Ensure Docker for DynamoDB Local
@@ -58,18 +58,13 @@ docker --version
 ```bash
 # Clone and navigate
 git clone https://github.com/theory-cloud/tabletheory
-cd theorydb/examples/basic/todo
+cd tabletheory/examples/basic/todo
 
 # Start DynamoDB Local
 make docker-up
 
-# Run the application
+# Run the interactive CLI application
 make run
-
-# In another terminal, test the API
-curl -X POST http://localhost:8080/todos \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Learn TableTheory"}'
 
 # Run tests
 make test

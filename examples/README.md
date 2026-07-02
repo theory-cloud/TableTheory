@@ -105,7 +105,7 @@ example-name/
 
 ### Prerequisites
 ```bash
-# Install Go 1.21+
+# Install the Go toolchain pinned by the root go.mod (`go1.26.4`)
 go version
 
 # Install Docker for DynamoDB Local
@@ -113,24 +113,24 @@ docker --version
 
 # Clone the repository
 git clone https://github.com/theory-cloud/tabletheory
-cd theorydb/examples
+cd tabletheory/examples
 ```
 
-### Quick Start Any Example
+### Quick Start Any Basic Example
 ```bash
-# Navigate to any example
-cd basic/todo
+# Navigate to a basic example
+cd basic/todo  # or basic/notes, basic/contacts
 
 # Start DynamoDB Local
 make docker-up
 
-# Run the application
+# Run the CLI application
 make run
 
-# Run tests
+# Run compile/unit checks for the example module
 make test
 
-# Clean up
+# Clean up local DynamoDB state
 make docker-down
 ```
 
@@ -237,15 +237,20 @@ func TestTodoService_CreateTodo(t *testing.T) {
 ### Lambda Patterns
 ```go
 // From lambda/ - Proper Lambda initialization
-var db *tabletheory.DB
+var db *tabletheory.LambdaDB
 
 func init() {
-    db = tabletheory.New(tabletheory.WithLambdaOptimizations())
+    var err error
+    db, err = tabletheory.NewLambdaOptimized()
+    if err != nil {
+        panic(err)
+    }
 }
 
 func handler(ctx context.Context, event events.APIGatewayProxyRequest) {
-    // Use pre-initialized connection
-    return handleRequest(db, event)
+    // Derive an invocation-scoped DB that respects the Lambda deadline.
+    lambdaDB := db.WithLambdaTimeout(ctx)
+    return handleRequest(lambdaDB, event)
 }
 ```
 
