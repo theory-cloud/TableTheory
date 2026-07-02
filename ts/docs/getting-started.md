@@ -56,7 +56,12 @@ To keep pinned GitHub Release asset URLs current, copy this Renovate regex manag
     {
       "customType": "regex",
       "description": "Update TableTheory TypeScript GitHub Release asset URLs",
-      "managerFilePatterns": ["/(^|/)package\\.json$/", "/(^|/)package-lock\\.json$/", "/(^|/)README\\.md$/", "/(^|/)docs/.+\\.md$/"],
+      "managerFilePatterns": [
+        "/(^|/)package\\.json$/",
+        "/(^|/)package-lock\\.json$/",
+        "/(^|/)README\\.md$/",
+        "/(^|/)docs/.+\\.md$/"
+      ],
       "matchStrings": [
         "https://github\\.com/theory-cloud/[Tt]able[Tt]heory/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/theory-cloud-tabletheory-ts-(?<assetVersion>\\d+\\.\\d+\\.\\d+)\\.tgz"
       ],
