@@ -6,7 +6,7 @@ import types
 from collections.abc import Mapping, Sequence
 from dataclasses import is_dataclass
 from decimal import Decimal
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Union, cast, get_args, get_origin
 
 from .errors import ValidationError
 
@@ -32,7 +32,7 @@ def unwrap_optional(annotation: Any) -> Any:
 def resolve_attribute_storage_type(attr_def: Any) -> str:
     storage_type = getattr(attr_def, "storage_type", None)
     if storage_type is not None:
-        return storage_type
+        return cast(str, storage_type)
     if bool(getattr(attr_def, "json", False)):
         return "S"
     if bool(getattr(attr_def, "binary", False)):
