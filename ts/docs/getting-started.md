@@ -6,7 +6,7 @@
 
 ## Prerequisites
 
-- Node.js **24** (required; matches AWS Lambda Node.js 24 runtime)
+- Node.js **20+** (Node 20 LTS and Node 24 are both exercised in CI)
 - AWS credentials (for AWS) or DynamoDB Local
 - Basic DynamoDB concepts (PK/SK, GSIs, condition expressions)
 
@@ -24,6 +24,12 @@ npm install --save-exact \
 # Prerelease example (replace X.Y.Z-rc.N)
 npm install --save-exact \
   https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/theory-cloud-tabletheory-ts-X.Y.Z-rc.N.tgz
+```
+
+The package exposes both ESM and CommonJS entry points. ESM consumers can keep using `import`, and CommonJS consumers can use `require`:
+
+```js
+const { TheorydbClient, defineModel } = require('@theory-cloud/tabletheory-ts');
 ```
 
 ### Option B: Develop from source (this monorepo)
