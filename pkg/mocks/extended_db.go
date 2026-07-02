@@ -77,13 +77,13 @@ func (m *MockExtendedDB) DescribeTable(model any) (any, error) {
 // WithLambdaTimeout sets a deadline based on Lambda context
 func (m *MockExtendedDB) WithLambdaTimeout(ctx context.Context) core.DB {
 	args := m.Called(ctx)
-	return mustCoreDB(args.Get(0))
+	return mockCoreDB(&m.MockDB.Mock, "WithLambdaTimeout", args.Get(0))
 }
 
 // WithLambdaTimeoutBuffer sets a custom timeout buffer
 func (m *MockExtendedDB) WithLambdaTimeoutBuffer(buffer time.Duration) core.DB {
 	args := m.Called(buffer)
-	return mustCoreDB(args.Get(0))
+	return mockCoreDB(&m.MockDB.Mock, "WithLambdaTimeoutBuffer", args.Get(0))
 }
 
 // TransactionFunc executes a mocked legacy transaction callback.
@@ -124,7 +124,7 @@ func (m *MockExtendedDB) TransactionFunc(fn func(tx any) error) error {
 // Transact returns a transaction builder mock
 func (m *MockExtendedDB) Transact() core.TransactionBuilder {
 	args := m.Called()
-	return mustTransactionBuilder(args.Get(0))
+	return mockTransactionBuilder(&m.MockDB.Mock, "Transact", args.Get(0))
 }
 
 // TransactWrite executes a function with a transaction builder
@@ -228,4 +228,10 @@ func NewMockExtendedDB() *MockExtendedDB {
 // expectations. Use this when you want to explicitly set all expectations.
 func NewMockExtendedDBStrict() *MockExtendedDB {
 	return &MockExtendedDB{}
+}
+
+// AssertExpectations reports return type mismatches recorded by MockExtendedDB
+// in addition to testify/mock expectation failures.
+func (m *MockExtendedDB) AssertExpectations(t mock.TestingT) bool {
+	return assertMockExpectations(t, &m.MockDB.Mock)
 }

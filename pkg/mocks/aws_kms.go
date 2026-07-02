@@ -26,15 +26,18 @@ type MockKMSClient struct {
 	mock.Mock
 }
 
+// AssertExpectations reports return type mismatches recorded by MockKMSClient
+// in addition to testify/mock expectation failures.
+func (m *MockKMSClient) AssertExpectations(t mock.TestingT) bool {
+	return assertMockExpectations(t, &m.Mock)
+}
+
 func (m *MockKMSClient) GenerateDataKey(ctx context.Context, params *kms.GenerateDataKeyInput, optFns ...func(*kms.Options)) (*kms.GenerateDataKeyOutput, error) {
 	args := m.Called(ctx, params, optFns)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*kms.GenerateDataKeyOutput)
-	if !ok {
-		panic("unexpected type: expected *kms.GenerateDataKeyOutput")
-	}
+	output, _ := typedReturn[*kms.GenerateDataKeyOutput](&m.Mock, "GenerateDataKey", 0, "*kms.GenerateDataKeyOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -43,9 +46,6 @@ func (m *MockKMSClient) Decrypt(ctx context.Context, params *kms.DecryptInput, o
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*kms.DecryptOutput)
-	if !ok {
-		panic("unexpected type: expected *kms.DecryptOutput")
-	}
+	output, _ := typedReturn[*kms.DecryptOutput](&m.Mock, "Decrypt", 0, "*kms.DecryptOutput", args.Get(0))
 	return output, args.Error(1)
 }

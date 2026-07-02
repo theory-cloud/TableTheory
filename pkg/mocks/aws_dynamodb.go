@@ -27,6 +27,12 @@ type MockDynamoDBClient struct {
 	mock.Mock
 }
 
+// AssertExpectations reports return type mismatches recorded by
+// MockDynamoDBClient in addition to testify/mock expectation failures.
+func (m *MockDynamoDBClient) AssertExpectations(t mock.TestingT) bool {
+	return assertMockExpectations(t, &m.Mock)
+}
+
 // Table Management Operations
 
 // CreateTable mocks the DynamoDB CreateTable operation
@@ -35,10 +41,7 @@ func (m *MockDynamoDBClient) CreateTable(ctx context.Context, params *dynamodb.C
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.CreateTableOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.CreateTableOutput")
-	}
+	output, _ := typedReturn[*dynamodb.CreateTableOutput](&m.Mock, "CreateTable", 0, "*dynamodb.CreateTableOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -48,10 +51,7 @@ func (m *MockDynamoDBClient) DescribeTable(ctx context.Context, params *dynamodb
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.DescribeTableOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.DescribeTableOutput")
-	}
+	output, _ := typedReturn[*dynamodb.DescribeTableOutput](&m.Mock, "DescribeTable", 0, "*dynamodb.DescribeTableOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -61,10 +61,7 @@ func (m *MockDynamoDBClient) DeleteTable(ctx context.Context, params *dynamodb.D
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.DeleteTableOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.DeleteTableOutput")
-	}
+	output, _ := typedReturn[*dynamodb.DeleteTableOutput](&m.Mock, "DeleteTable", 0, "*dynamodb.DeleteTableOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -74,10 +71,7 @@ func (m *MockDynamoDBClient) UpdateTimeToLive(ctx context.Context, params *dynam
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.UpdateTimeToLiveOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.UpdateTimeToLiveOutput")
-	}
+	output, _ := typedReturn[*dynamodb.UpdateTimeToLiveOutput](&m.Mock, "UpdateTimeToLive", 0, "*dynamodb.UpdateTimeToLiveOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -89,10 +83,7 @@ func (m *MockDynamoDBClient) GetItem(ctx context.Context, params *dynamodb.GetIt
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.GetItemOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.GetItemOutput")
-	}
+	output, _ := typedReturn[*dynamodb.GetItemOutput](&m.Mock, "GetItem", 0, "*dynamodb.GetItemOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -102,10 +93,7 @@ func (m *MockDynamoDBClient) PutItem(ctx context.Context, params *dynamodb.PutIt
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.PutItemOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.PutItemOutput")
-	}
+	output, _ := typedReturn[*dynamodb.PutItemOutput](&m.Mock, "PutItem", 0, "*dynamodb.PutItemOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -115,10 +103,7 @@ func (m *MockDynamoDBClient) DeleteItem(ctx context.Context, params *dynamodb.De
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.DeleteItemOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.DeleteItemOutput")
-	}
+	output, _ := typedReturn[*dynamodb.DeleteItemOutput](&m.Mock, "DeleteItem", 0, "*dynamodb.DeleteItemOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -128,10 +113,7 @@ func (m *MockDynamoDBClient) Query(ctx context.Context, params *dynamodb.QueryIn
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.QueryOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.QueryOutput")
-	}
+	output, _ := typedReturn[*dynamodb.QueryOutput](&m.Mock, "Query", 0, "*dynamodb.QueryOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -141,10 +123,7 @@ func (m *MockDynamoDBClient) Scan(ctx context.Context, params *dynamodb.ScanInpu
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.ScanOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.ScanOutput")
-	}
+	output, _ := typedReturn[*dynamodb.ScanOutput](&m.Mock, "Scan", 0, "*dynamodb.ScanOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -154,10 +133,7 @@ func (m *MockDynamoDBClient) UpdateItem(ctx context.Context, params *dynamodb.Up
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.UpdateItemOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.UpdateItemOutput")
-	}
+	output, _ := typedReturn[*dynamodb.UpdateItemOutput](&m.Mock, "UpdateItem", 0, "*dynamodb.UpdateItemOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -167,10 +143,7 @@ func (m *MockDynamoDBClient) BatchGetItem(ctx context.Context, params *dynamodb.
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.BatchGetItemOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.BatchGetItemOutput")
-	}
+	output, _ := typedReturn[*dynamodb.BatchGetItemOutput](&m.Mock, "BatchGetItem", 0, "*dynamodb.BatchGetItemOutput", args.Get(0))
 	return output, args.Error(1)
 }
 
@@ -180,10 +153,7 @@ func (m *MockDynamoDBClient) BatchWriteItem(ctx context.Context, params *dynamod
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	output, ok := args.Get(0).(*dynamodb.BatchWriteItemOutput)
-	if !ok {
-		panic("unexpected type: expected *dynamodb.BatchWriteItemOutput")
-	}
+	output, _ := typedReturn[*dynamodb.BatchWriteItemOutput](&m.Mock, "BatchWriteItem", 0, "*dynamodb.BatchWriteItemOutput", args.Get(0))
 	return output, args.Error(1)
 }
 

@@ -25,7 +25,7 @@ type MockDB struct {
 // Model returns a new query builder for the given model
 func (m *MockDB) Model(model any) core.Query {
 	args := m.Called(model)
-	return mustCoreQuery(args.Get(0))
+	return mockCoreQuery(&m.Mock, "Model", args.Get(0))
 }
 
 // Transaction executes a mocked legacy transaction callback.
@@ -87,5 +87,11 @@ func (m *MockDB) Close() error {
 // WithContext returns a new DB instance with the given context
 func (m *MockDB) WithContext(ctx context.Context) core.DB {
 	args := m.Called(ctx)
-	return mustCoreDB(args.Get(0))
+	return mockCoreDB(&m.Mock, "WithContext", args.Get(0))
+}
+
+// AssertExpectations reports return type mismatches recorded by MockDB in
+// addition to testify/mock expectation failures.
+func (m *MockDB) AssertExpectations(t mock.TestingT) bool {
+	return assertMockExpectations(t, &m.Mock)
 }
