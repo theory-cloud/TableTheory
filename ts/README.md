@@ -6,14 +6,12 @@ This folder contains the TypeScript implementation of TableTheory in the multi-l
 
 **Official documentation:** [TypeScript SDK docs](./docs/README.md) and [repo docs index](../docs/README.md).
 
-Status: **Phase 1 complete (TS-0 → TS-7)**.
-
 Runtime: **Node.js 24** (AWS Lambda runtime).
 
 ## Goals
 
-- Provide a typed, testable DynamoDB access layer aligned with the Go implementation.
-- Prevent drift via shared fixtures + cursor compatibility.
+- Provide an explicit, testable DynamoDB access layer aligned with the Go and Python contracts.
+- Keep shipped behavior visible through shared fixtures, cursor compatibility, and strict unit tests.
 
 ## Quickstart (Local DynamoDB)
 
@@ -156,10 +154,10 @@ import {
 
 const provider: EncryptionProvider = {
   encrypt: async () => {
-    throw new Error('not implemented');
+    throw new Error('wire your KMS-backed encrypt implementation here');
   },
   decrypt: async () => {
-    throw new Error('not implemented');
+    throw new Error('wire your KMS-backed decrypt implementation here');
   },
 };
 const db = new TheorydbClient(ddb, { encryption: provider }).register(User);
@@ -196,8 +194,8 @@ to the attribute name.
 ## Parity Statement
 
 - Implemented parity tiers: `P0` (CRUD/lifecycle/omitempty/version/ttl), `P1` (query + cursor), `P2` (batch + tx)
-- Additional: streams image unmarshalling (`TS-5`), encrypted envelope semantics (`TS-6`)
-- Not yet implemented: filter expressions, full update builder, DMS codegen, full DynamoDB type surface
+- Additional shipped surface: filter expressions and nested filter groups, the `UpdateBuilder` DSL, streams image unmarshalling, encrypted envelope semantics, write policies, release-state helpers, Lambda timeout helpers, and strict testkit utilities
+- Type boundary: models are explicit runtime descriptors; `TheorydbClient` item payloads remain `Record<string, unknown>` rather than schema-inferred TypeScript item types
 
 ## Development
 

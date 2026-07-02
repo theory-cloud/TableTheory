@@ -82,11 +82,12 @@ await db.create(
   { ifNotExists: true },
 );
 const item = await db.get('Note', { PK: 'NOTE#1', SK: 'v1' });
+console.log(item.value);
 await db.delete('Note', { PK: 'NOTE#1', SK: 'v1' });
 ```
 
 ## Next Steps
 
+- Use [API Reference](./api-reference.md) for exact signatures; for example, `db.update` requires a `version` role and the current version value, while `db.get` has no options parameter.
 - Read [Core Patterns](./core-patterns.md) for cursor pagination, batch, transactions, streams, and encryption.
 - Use [Testing Guide](./testing-guide.md) for strict mocks and deterministic encryption tests.
-- Use [API Reference](./api-reference.md) when you need signature-level detail.
