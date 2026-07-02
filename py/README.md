@@ -10,7 +10,7 @@ are the source of truth for versions (no PyPI publishing).
 
 ## Requirements
 
-- Python `>=3.14`
+- Python `>=3.12`
 - AWS credentials (or DynamoDB Local) for integration tests/examples
 
 ## Install (from this monorepo)

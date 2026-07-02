@@ -5,7 +5,7 @@
 
 ## Prerequisites
 
-- Python **3.14+**
+- Python **3.12+**
 - AWS credentials (for AWS) or DynamoDB Local
 - Basic DynamoDB concepts (PK/SK, GSIs, condition expressions)
 

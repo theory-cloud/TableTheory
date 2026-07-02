@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "tabletheory-py"
 description = "TableTheory Python implementation for DynamoDB"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 classifiers = [
     "License :: OSI Approved :: Apache Software License",
@@ -43,7 +43,7 @@ theorydb_py = ["py.typed", "version.json"]
 version = { attr = "theorydb_py.__version__" }
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
@@ -54,7 +54,7 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 110
-target-version = "py314"
+target-version = "py312"
 
 [tool.ruff.format]
 quote-style = "double"

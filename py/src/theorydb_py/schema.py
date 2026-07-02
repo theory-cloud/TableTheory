@@ -4,6 +4,7 @@ import time
 from collections.abc import Callable
 from dataclasses import is_dataclass
 from decimal import Decimal
+from types import UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
 import boto3
@@ -388,7 +389,7 @@ def _key_scalar_type_for_attribute(model: ModelDefinition[Any], attribute_name: 
 
 def _unwrap_optional(annotation: Any) -> Any:
     origin = get_origin(annotation)
-    if origin is not Union:
+    if origin not in {Union, UnionType}:
         return annotation
     args = get_args(annotation)
     if not args:
