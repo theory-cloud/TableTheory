@@ -309,6 +309,8 @@ func (ldb *LambdaDB) OptimizeForMemory() {
 	}
 
 	if ldb.db != nil {
+		ldb.db.mu.Lock()
+		defer ldb.db.mu.Unlock()
 		ldb.db.lambdaTimeoutBuffer = buffer
 	}
 }

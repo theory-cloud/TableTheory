@@ -290,6 +290,48 @@ func TestLambdaDB_WithLambdaTimeoutConfig_AppliesConfiguredBufferOnce_COV6(t *te
 	require.Error(t, (&queryExecutor{db: soonTimed.db}).checkLambdaTimeout())
 }
 
+func TestLambdaDB_OptimizeForMemorySynchronizesTimeoutBufferWithLambdaTimeout_COV6(t *testing.T) {
+	db := &DB{}
+	ldb := &LambdaDB{
+		ExtendedDB:     db,
+		db:             db,
+		modelCache:     &sync.Map{},
+		lambdaMemoryMB: 1024,
+	}
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(5*time.Second))
+	t.Cleanup(cancel)
+
+	const workers = 8
+	const iterations = 100
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				ldb.OptimizeForMemory()
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				if got := ldb.WithLambdaTimeout(ctx); got == nil {
+					t.Errorf("WithLambdaTimeout returned nil")
+				}
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+}
+
 func TestLambdaDB_WithLambdaTimeoutConfig_NonPositiveBufferUsesDefault_COV6(t *testing.T) {
 	db := &DB{}
 	ldb := &LambdaDB{ExtendedDB: db, db: db, modelCache: &sync.Map{}}
