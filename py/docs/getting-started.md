@@ -83,7 +83,7 @@ table.delete("NOTE#1", "v1")
 
 ## Next Steps
 
+- Use [API Reference](./api-reference.md) for exact signatures; for example, `put` uses condition-expression kwargs rather than `if_not_exists`, and `transact_write` takes an `actions` sequence.
 - Read [Core Patterns](./core-patterns.md) for cursor pagination, batch, transactions, streams, and encryption.
 - Use [Testing Guide](./testing-guide.md) for strict fakes and deterministic encryption tests.
-- Use [API Reference](./api-reference.md) when you need signature-level detail.
 
