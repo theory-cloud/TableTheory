@@ -11,7 +11,7 @@
 
 ## Installation
 
-This repo does **not** publish to PyPI. GitHub Releases are the source of truth.
+This repo does **not** publish to PyPI. GitHub Releases are the source of truth. The canonical import package is `tabletheory_py`. The legacy `theorydb_py` import path remains supported for existing consumers.
 
 ### Option A: Install from GitHub Release assets (recommended for consumers)
 
@@ -55,7 +55,7 @@ import os
 
 import boto3
 
-from theorydb_py import ModelDefinition, Table, theorydb_field
+from tabletheory_py import ModelDefinition, Table, theorydb_field
 
 
 @dataclass(frozen=True)

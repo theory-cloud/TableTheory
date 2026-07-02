@@ -7,7 +7,7 @@ This document provides copy-pasteable patterns for the TableTheory Python SDK.
 ```python
 from dataclasses import dataclass
 
-from theorydb_py import ModelDefinition, theorydb_field
+from tabletheory_py import ModelDefinition, theorydb_field
 
 
 @dataclass(frozen=True)
@@ -23,7 +23,7 @@ model = ModelDefinition.from_dataclass(Note, table_name="notes_contract")
 ## Pattern: CRUD with a Table
 
 ```python
-from theorydb_py import Table
+from tabletheory_py import Table
 
 table = Table(model, client=client)
 table.put(Note(pk="A", sk="1", value=123))
@@ -34,7 +34,7 @@ table.delete("A", "1")
 ## Pattern: Query + pagination
 
 ```python
-from theorydb_py import SortKeyCondition
+from tabletheory_py import SortKeyCondition
 
 page1 = table.query("A", sort=SortKeyCondition.begins_with("1"), limit=25)
 page2 = table.query("A", cursor=page1.next_cursor) if page1.next_cursor else None
@@ -56,7 +56,7 @@ planned native `count()` API lands, prefer it for count-only paths.
 ## Pattern: Streams unmarshalling
 
 ```python
-from theorydb_py import unmarshal_stream_record
+from tabletheory_py import unmarshal_stream_record
 
 note = unmarshal_stream_record(model, record, image="NewImage")
 ```
@@ -64,7 +64,7 @@ note = unmarshal_stream_record(model, record, image="NewImage")
 ## Pattern: Deterministic unit tests (strict fakes)
 
 ```python
-from theorydb_py.mocks import ANY, FakeDynamoDBClient
+from tabletheory_py.mocks import ANY, FakeDynamoDBClient
 
 fake = FakeDynamoDBClient()
 fake.expect("put_item", {"TableName": "notes", "Item": {"PK": ANY, "SK": ANY}})

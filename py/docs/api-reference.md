@@ -1,24 +1,24 @@
 # API Reference (Python)
 
 <!-- AI Training: This is the API reference for the TableTheory Python SDK -->
-**This document describes the public API surface of `theorydb_py` at a signature-and-shape level.**
+**This document describes the public API surface of `tabletheory_py` at a signature-and-shape level.**
 
 ## Imports
 
 ```python
-from theorydb_py import ModelDefinition, Table, theorydb_field
-from theorydb_py import SortKeyCondition
-from theorydb_py import unmarshal_stream_record
-from theorydb_py import (
+from tabletheory_py import ModelDefinition, Table, theorydb_field
+from tabletheory_py import SortKeyCondition
+from tabletheory_py import unmarshal_stream_record
+from tabletheory_py import (
     DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS,
     LambdaTimeoutConfig,
     check_lambda_timeout,
     with_lambda_timeout,
 )
-from theorydb_py import TransactConditionCheck, TransactDelete, TransactPut, TransactUpdate
-from theorydb_py import UpdateAdd, UpdateSetIfNotExists
-from theorydb_py import aggregate_field, average_field, count_distinct, group_by, max_field, min_field, sum_field
-from theorydb_py.mocks import FakeDynamoDBClient, FakeKmsClient
+from tabletheory_py import TransactConditionCheck, TransactDelete, TransactPut, TransactUpdate
+from tabletheory_py import UpdateAdd, UpdateSetIfNotExists
+from tabletheory_py import aggregate_field, average_field, count_distinct, group_by, max_field, min_field, sum_field
+from tabletheory_py.mocks import FakeDynamoDBClient, FakeKmsClient
 ```
 
 ## Model Definition

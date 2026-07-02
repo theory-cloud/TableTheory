@@ -38,6 +38,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 theorydb_py = ["py.typed", "version.json"]
+tabletheory_py = ["py.typed"]
 
 [tool.setuptools.dynamic]
 version = { attr = "theorydb_py.__version__" }

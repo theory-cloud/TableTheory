@@ -8,7 +8,7 @@ patterns:
     solution: "Use dataclasses + `theorydb_field(...)` with explicit roles"
     correct_example: |
       from dataclasses import dataclass
-      from theorydb_py import theorydb_field
+      from tabletheory_py import theorydb_field
 
       @dataclass(frozen=True)
       class Note:
@@ -29,9 +29,9 @@ patterns:
   testing:
     name: "Strict Unit Tests With Fakes"
     problem: "Loose mocks allow missing calls and hidden contract breaks"
-    solution: "Use `theorydb_py.mocks` strict fakes and explicit expectations"
+    solution: "Use `tabletheory_py.mocks` strict fakes and explicit expectations"
     correct_example: |
-      from theorydb_py.mocks import ANY, FakeDynamoDBClient
+      from tabletheory_py.mocks import ANY, FakeDynamoDBClient
 
       fake = FakeDynamoDBClient()
       fake.expect("put_item", {"TableName": "notes", "Item": {"PK": ANY, "SK": ANY}})

@@ -5,7 +5,7 @@ description: TableTheory for Python — installation, ModelDefinition + Table + 
 
 # Python runtime
 
-The Python runtime lives under [`py/`](https://github.com/theory-cloud/tabletheory/tree/main/py) and is published as the wheel `tabletheory_py-X.Y.Z-py3-none-any.whl`. The importable module inside that wheel is **`theorydb_py`** — the wheel asset name and the importable package name differ. It targets **Python 3.12+** and the AWS SDK for Python (`boto3`).
+The Python runtime lives under [`py/`](https://github.com/theory-cloud/tabletheory/tree/main/py) and is published as the wheel `tabletheory_py-X.Y.Z-py3-none-any.whl`. The canonical importable module inside that wheel is **`tabletheory_py`**. It targets **Python 3.12+** and the AWS SDK for Python (`boto3`).
 
 The Python runtime is a **peer** implementation of the TableTheory contract — not a port. It passes the same P0 contract scenarios as Go and TypeScript independently.
 
@@ -23,7 +23,7 @@ pip install \
   https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/tabletheory_py-X.Y.ZrcN-py3-none-any.whl
 ```
 
-The **release wheel asset** is `tabletheory_py-X.Y.Z-py3-none-any.whl`; the **importable module** inside that wheel is `theorydb_py`. Use `from theorydb_py import …` in your application code.
+The **release wheel asset** is `tabletheory_py-X.Y.Z-py3-none-any.whl`; the **canonical importable module** inside that wheel is `tabletheory_py`. Use `from tabletheory_py import …` in your application code. The legacy `theorydb_py` import path remains available for existing consumers.
 
 ## ModelDefinition + Table
 
@@ -33,7 +33,7 @@ The Python public surface declares models as plain dataclasses with `theorydb_fi
 from dataclasses import dataclass
 
 import boto3
-from theorydb_py import ModelDefinition, Table, theorydb_field
+from tabletheory_py import ModelDefinition, Table, theorydb_field
 
 
 @dataclass(frozen=True)

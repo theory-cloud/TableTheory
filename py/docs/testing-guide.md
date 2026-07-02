@@ -1,13 +1,13 @@
 # Testing Guide (Python)
 
-This guide documents how to test Python services that use `theorydb_py`.
+This guide documents how to test Python services that use `tabletheory_py`.
 
 ## Unit testing (recommended default)
 
-Use strict fakes from `theorydb_py.mocks` to avoid real AWS calls and to keep tests deterministic.
+Use strict fakes from `tabletheory_py.mocks` to avoid real AWS calls and to keep tests deterministic.
 
 ```python
-from theorydb_py.mocks import ANY, FakeDynamoDBClient, FakeKmsClient
+from tabletheory_py.mocks import ANY, FakeDynamoDBClient, FakeKmsClient
 
 fake_ddb = FakeDynamoDBClient()
 fake_kms = FakeKmsClient(plaintext_key=b"\x00" * 32, ciphertext_blob=b"edk")
