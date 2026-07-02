@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import types
 from collections.abc import Mapping, Sequence
 from dataclasses import is_dataclass
 from decimal import Decimal
@@ -12,9 +13,12 @@ from .errors import ValidationError
 JSON_STORAGE_TYPES = {"S", "N", "BOOL", "NULL", "L", "M"}
 
 
+def _is_union_annotation(annotation: Any) -> bool:
+    return get_origin(annotation) in {Union, types.UnionType}
+
+
 def unwrap_optional(annotation: Any) -> Any:
-    origin = get_origin(annotation)
-    if origin is not Union:
+    if not _is_union_annotation(annotation):
         return annotation
     args = get_args(annotation)
     if not args:
@@ -22,7 +26,20 @@ def unwrap_optional(annotation: Any) -> Any:
     non_none = [a for a in args if a is not type(None)]  # noqa: E721
     if len(args) == 2 and len(non_none) == 1:
         return non_none[0]
-    return annotation
+    raise ValidationError(f"unsupported union annotation: {annotation!r}; only Optional[T] is supported")
+
+
+def resolve_attribute_storage_type(attr_def: Any) -> str:
+    storage_type = getattr(attr_def, "storage_type", None)
+    if storage_type is not None:
+        return storage_type
+    if bool(getattr(attr_def, "json", False)):
+        return "S"
+    if bool(getattr(attr_def, "binary", False)):
+        return "B"
+    if bool(getattr(attr_def, "set", False)):
+        return "SS"
+    return "S"
 
 
 def infer_storage_type(annotation: Any, *, is_set: bool, is_json: bool, is_binary: bool) -> str:

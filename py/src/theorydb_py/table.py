@@ -12,7 +12,11 @@ import boto3
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 
-from .attr_types import decode_json_field_from_storage, normalize_json_field_for_storage
+from .attr_types import (
+    decode_json_field_from_storage,
+    normalize_json_field_for_storage,
+    resolve_attribute_storage_type,
+)
 from .aws_errors import map_client_error as _map_client_error
 from .aws_errors import map_transaction_error as _map_transaction_error
 from .errors import (
@@ -157,15 +161,7 @@ class Table[T]:
         )
 
     def _attribute_storage_type(self, attr_def: AttributeDefinition) -> str:
-        if attr_def.storage_type is not None:
-            return attr_def.storage_type
-        if attr_def.json:
-            return "S"
-        if attr_def.binary:
-            return "B"
-        if attr_def.set:
-            return "SS"
-        return "S"
+        return resolve_attribute_storage_type(attr_def)
 
     def query(
         self,

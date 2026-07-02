@@ -7,7 +7,7 @@ from typing import Any, cast, get_args, get_origin
 
 from boto3.dynamodb.types import TypeDeserializer
 
-from .attr_types import decode_json_field_from_storage
+from .attr_types import decode_json_field_from_storage, resolve_attribute_storage_type
 from .errors import ValidationError
 from .model import ModelDefinition
 
@@ -115,7 +115,7 @@ def unmarshal_stream_image[T](model: ModelDefinition[T], stream_image: Any) -> T
         if attr_def.json:
             raw = decode_json_field_from_storage(
                 raw,
-                storage_type=attr_def.storage_type or "S",
+                storage_type=resolve_attribute_storage_type(attr_def),
                 field_name=attr_def.attribute_name,
             )
 

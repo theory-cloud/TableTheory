@@ -108,6 +108,16 @@ def test_model_definition_rejects_json_set_and_json_binary() -> None:
         ModelDefinition.from_dataclass(JsonBinary)
 
 
+def test_model_definition_rejects_unsupported_union_annotations() -> None:
+    @dataclass(frozen=True)
+    class BadUnion:
+        pk: str = theorydb_field(roles=["pk"])
+        value: int | str | None = theorydb_field(default=None)
+
+    with pytest.raises(ModelDefinitionError, match="unsupported union annotation"):
+        ModelDefinition.from_dataclass(BadUnion)
+
+
 def test_model_definition_normalizes_write_policy() -> None:
     model = ModelDefinition.from_dataclass(
         User,
