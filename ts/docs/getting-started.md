@@ -75,8 +75,8 @@ To keep pinned GitHub Release asset URLs current, copy this Renovate regex manag
 }
 ```
 
-For combined TypeScript + Python automation, see
-[`docs/guides/consumer-updates.md`](../../docs/guides/consumer-updates.md).
+For combined TypeScript + Python automation, see the published
+[Consumer update automation](https://tabletheory.theorycloud.ai/guides/consumer-updates/) guide.
 
 The package exposes both ESM and CommonJS entry points. ESM consumers can keep using `import`, and CommonJS consumers can use `require`:
 

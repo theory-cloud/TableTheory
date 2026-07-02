@@ -65,8 +65,8 @@ To keep pinned GitHub Release wheel URLs current, copy this Renovate regex manag
 }
 ```
 
-For combined TypeScript + Python automation, see
-[`docs/guides/consumer-updates.md`](../../docs/guides/consumer-updates.md).
+For combined TypeScript + Python automation, see the published
+[Consumer update automation](https://tabletheory.theorycloud.ai/guides/consumer-updates/) guide.
 
 ### Option B: Install from the pip find-links index
 
