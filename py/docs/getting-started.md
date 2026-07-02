@@ -68,7 +68,27 @@ To keep pinned GitHub Release wheel URLs current, copy this Renovate regex manag
 For combined TypeScript + Python automation, see
 [`docs/guides/consumer-updates.md`](../../docs/guides/consumer-updates.md).
 
-### Option B: Develop from source (this monorepo)
+### Option B: Install from the pip find-links index
+
+The documentation site publishes a static pip find-links index generated from the Python wheel assets attached to
+TableTheory GitHub Releases:
+
+```bash
+# Latest stable version visible to pip.
+pip install --find-links https://tabletheory.theorycloud.ai/python/find-links/ tabletheory-py
+
+# Exact stable version selection.
+pip install --find-links https://tabletheory.theorycloud.ai/python/find-links/ "tabletheory-py==X.Y.Z"
+
+# Exact release-candidate selection. Python versions use PEP 440 form.
+pip install --pre --find-links https://tabletheory.theorycloud.ai/python/find-links/ "tabletheory-py==X.Y.ZrcN"
+```
+
+`--find-links` supplements your normal package indexes so `boto3` and other transitive dependencies still resolve from
+your configured Python index. If you also use `--no-index`, mirror those transitive dependencies alongside the
+TableTheory wheel.
+
+### Option C: Develop from source (this monorepo)
 
 ```bash
 # from repo root
