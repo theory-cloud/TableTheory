@@ -48,16 +48,24 @@ func (qe *queryExecutor) ctxOrBackground() context.Context {
 }
 
 func (qe *queryExecutor) checkLambdaTimeout() error {
-	if qe == nil || qe.db == nil || qe.db.lambdaDeadline.IsZero() {
+	if qe == nil || qe.db == nil {
 		return nil
 	}
 
-	remaining := time.Until(qe.db.lambdaDeadline)
+	qe.db.mu.RLock()
+	deadline := qe.db.lambdaDeadline
+	buffer := qe.db.lambdaTimeoutBuffer
+	qe.db.mu.RUnlock()
+
+	if deadline.IsZero() {
+		return nil
+	}
+
+	remaining := time.Until(deadline)
 	if remaining <= 0 {
 		return fmt.Errorf("lambda timeout exceeded")
 	}
 
-	buffer := qe.db.lambdaTimeoutBuffer
 	if buffer == 0 {
 		buffer = 100 * time.Millisecond
 	}

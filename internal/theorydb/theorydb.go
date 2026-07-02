@@ -450,6 +450,9 @@ func (db *DB) WithLambdaTimeout(ctx context.Context) core.DB {
 		return db
 	}
 
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
 	// Leave a buffer for Lambda cleanup. Store the hard Lambda deadline and
 	// the effective buffer separately so query execution applies the stop
 	// window exactly once.
@@ -457,9 +460,6 @@ func (db *DB) WithLambdaTimeout(ctx context.Context) core.DB {
 	if buffer == 0 {
 		buffer = 500 * time.Millisecond // Default buffer
 	}
-
-	db.mu.RLock()
-	defer db.mu.RUnlock()
 
 	newDB := &DB{
 		session:             db.session,
