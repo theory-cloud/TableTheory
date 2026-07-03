@@ -89,7 +89,10 @@ lint:
 # Clean build artifacts
 clean:
 	@echo "Cleaning..."
-	@rm -f coverage.out
+	@rm -f coverage*.out coverage.html gosec.sarif
+	@rm -f py/coverage.xml py/coverage-*.txt py/coverage-*.json py/.coverage
+	@rm -f gov-infra/evidence/*-output.log gov-infra/evidence/DOC-5-parity.log
+	@rm -rf ts/coverage ts/dist py/build py/dist build/lambda
 	@go clean -cache
 
 # Start DynamoDB Local
