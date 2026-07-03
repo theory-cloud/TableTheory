@@ -164,6 +164,23 @@ async function runStep(opts: {
     return;
   }
 
+  if (step.op === "count") {
+    assert.ok(step.count, "count request is required");
+    const res = step.count.query
+      ? await captureResult(() =>
+          driver.countQuery(modelName, step.count!.query!),
+        )
+      : await captureResult(() =>
+          driver.countScan(modelName, step.count!.scan!),
+        );
+    assertReadExpectation(step.expect, {
+      err: res.err,
+      result: res.value,
+      model,
+    });
+    return;
+  }
+
   if (step.op === "transition_append_event") {
     assert.ok(step.actual, "transition_append_event actual is required");
     assert.ok(step.event, "transition_append_event event is required");
@@ -202,7 +219,11 @@ function assertReadExpectation(
   expect: Step["expect"] | undefined,
   ctx: {
     err?: unknown;
-    result?: { items: Array<Record<string, unknown>>; cursor?: string };
+    result?: {
+      items: Array<Record<string, unknown>>;
+      cursor?: string;
+      count?: number;
+    };
     model: DmsModel;
   },
 ): void {
@@ -210,6 +231,7 @@ function assertReadExpectation(
   const { err, result, model } = ctx;
   const hasReadAssertion = expectationHasAnyKey(expect, [
     "item_count",
+    "count",
     "items_contains",
     "items_missing_fields",
     "cursor_equals",
@@ -255,6 +277,10 @@ function assertReadExpectation(
 
   if (expect.item_count !== undefined) {
     assert.equal(result.items.length, expect.item_count);
+  }
+
+  if (expect.count !== undefined) {
+    assert.equal(result.count, expect.count);
   }
 
   if (expect.items_contains) {

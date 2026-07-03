@@ -166,6 +166,19 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		r.assertReadResult(t, step.Expect, result, err, model)
 		return
 
+	case "count":
+		require.NotNil(t, step.Count, "count request is required")
+		var result driver.ReadResult
+		var err error
+		if step.Count.Query != nil {
+			result, err = r.driver.CountQuery(ctx, modelName, readRequestFromScenario(step.Count.Query))
+		} else {
+			require.NotNil(t, step.Count.Scan, "count.scan request is required")
+			result, err = r.driver.CountScan(ctx, modelName, readRequestFromScenario(step.Count.Scan))
+		}
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
 	case "transition_append_event":
 		require.NotNil(t, step.Actual, "transition_append_event actual is required")
 		require.NotNil(t, step.Event, "transition_append_event event is required")
@@ -361,6 +374,11 @@ func (r *Runner) assertReadResult(t require.TestingT, expect scenario.Expectatio
 		require.Len(t, result.Items, *expect.ItemCount)
 	}
 
+	if expect.Count != nil {
+		require.NotNil(t, result.Count, "expected count result")
+		require.Equal(t, int64(*expect.Count), *result.Count)
+	}
+
 	if len(expect.ItemsContains) > 0 {
 		require.GreaterOrEqual(t, len(result.Items), len(expect.ItemsContains), "not enough result items")
 		for i, wantItem := range expect.ItemsContains {
@@ -447,6 +465,7 @@ func expectationHasRawItemAssertion(expect scenario.Expectation) bool {
 
 func expectationHasReadAssertion(expect scenario.Expectation) bool {
 	return expect.ItemCount != nil ||
+		expect.Count != nil ||
 		len(expect.ItemsContains) > 0 ||
 		len(expect.ItemsMissingFields) > 0 ||
 		expect.CursorEquals != nil

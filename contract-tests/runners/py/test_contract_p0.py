@@ -358,6 +358,14 @@ class _TheorydbPyDriver:
         )
         return {"items": [_contract_item(item) for item in page.items], "cursor": page.next_cursor}
 
+    def count_query(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
+        del model, request
+        raise ValidationError("native count is not advertised")
+
+    def count_scan(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
+        del model, request
+        raise ValidationError("native count is not advertised")
+
     def transition_append_event(self, actual: dict[str, Any], event: dict[str, Any]) -> None:
         transition_release_state(
             self._table(actual["model"]),
@@ -711,6 +719,15 @@ def _run_step(
         _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
         return
 
+    if step["op"] == "count":
+        count_request = step["count"]
+        if "query" in count_request:
+            result, error = _capture_result(lambda: driver.count_query(model_name, count_request["query"]))
+        else:
+            result, error = _capture_result(lambda: driver.count_scan(model_name, count_request["scan"]))
+        _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
+        return
+
     if step["op"] == "transition_append_event":
         error = _capture_error(lambda: driver.transition_append_event(step["actual"], step["event"]))
         _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
@@ -846,7 +863,7 @@ def _assert_read_expectation(
     model: dict[str, Any],
 ) -> None:
     has_read_assertion = _expectation_has_any_key(
-        expect, {"item_count", "items_contains", "items_missing_fields", "cursor_equals"}
+        expect, {"item_count", "count", "items_contains", "items_missing_fields", "cursor_equals"}
     )
 
     if "error" in expect:
@@ -876,6 +893,9 @@ def _assert_read_expectation(
 
     if "item_count" in expect:
         assert len(items) == expect["item_count"]
+
+    if "count" in expect:
+        assert result.get("count") == expect["count"]
 
     if "items_contains" in expect:
         assert len(items) >= len(expect["items_contains"])

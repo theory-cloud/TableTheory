@@ -51,6 +51,8 @@ type Driver interface {
 	Delete(ctx context.Context, model string, key map[string]any) error
 	Query(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
 	Scan(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
+	CountQuery(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
+	CountScan(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
 	TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error
 	ValidateProvenance(ctx context.Context, model string, item map[string]any) error
 }
@@ -77,6 +79,7 @@ type ReadCondition struct {
 type ReadResult struct {
 	Items  []map[string]any
 	Cursor string
+	Count  *int64
 }
 
 type TransitionActual struct {
@@ -471,6 +474,14 @@ func conditionValue(cond ReadCondition) any {
 		return append([]any(nil), cond.Values...)
 	}
 	return cond.Value
+}
+
+func (d *TheorydbDriver) CountQuery(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
+	return ReadResult{}, fmt.Errorf("%w: native count is not advertised", theorydbErrors.ErrInvalidOperator)
+}
+
+func (d *TheorydbDriver) CountScan(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
+	return ReadResult{}, fmt.Errorf("%w: native count is not advertised", theorydbErrors.ErrInvalidOperator)
 }
 
 func (d *TheorydbDriver) TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error {

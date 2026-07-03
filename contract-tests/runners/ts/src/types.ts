@@ -1,16 +1,7 @@
 export type DmsVersion = "0.1";
 
 export type ScalarType =
-  | "S"
-  | "N"
-  | "B"
-  | "BOOL"
-  | "NULL"
-  | "M"
-  | "L"
-  | "SS"
-  | "NS"
-  | "BS";
+  "S" | "N" | "B" | "BOOL" | "NULL" | "M" | "L" | "SS" | "NS" | "BS";
 
 export interface DmsDocument {
   dms_version: DmsVersion;
@@ -77,6 +68,7 @@ export interface Step {
     | "delete"
     | "query"
     | "scan"
+    | "count"
     | "sleep"
     | "save"
     | "transition_append_event"
@@ -89,11 +81,17 @@ export interface Step {
   key?: Record<string, unknown>;
   query?: ReadRequest;
   scan?: ReadRequest;
+  count?: CountRequest;
   actual?: TransitionActual;
   event?: TransitionEvent;
   ms?: number;
   save?: Record<string, string>;
   expect?: Expectation;
+}
+
+export interface CountRequest {
+  query?: ReadRequest;
+  scan?: ReadRequest;
 }
 
 export interface ReadRequest {
@@ -137,6 +135,7 @@ export interface Expectation {
   items_contains?: Array<Record<string, unknown>>;
   items_missing_fields?: string[];
   item_count?: number;
+  count?: number;
   cursor_equals?: string;
   item_has_fields?: string[];
   item_missing_fields?: string[];

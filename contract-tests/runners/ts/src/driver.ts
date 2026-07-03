@@ -46,6 +46,8 @@ export interface Driver {
   delete(model: string, key: Record<string, unknown>): Promise<void>;
   query(model: string, req: ReadRequest): Promise<ReadResult>;
   scan(model: string, req: ReadRequest): Promise<ReadResult>;
+  countQuery(model: string, req: ReadRequest): Promise<ReadResult>;
+  countScan(model: string, req: ReadRequest): Promise<ReadResult>;
   transitionAppendEvent(
     actual: TransitionActual,
     event: TransitionEvent,
@@ -59,6 +61,7 @@ export interface Driver {
 export interface ReadResult {
   items: Array<Record<string, unknown>>;
   cursor?: string;
+  count?: number;
 }
 
 export interface TransitionActual {
@@ -193,6 +196,24 @@ export class TheorydbDriver implements Driver {
     }
     const page = await builder.page();
     return { items: page.items, cursor: page.cursor };
+  }
+
+  async countQuery(model: string, req: ReadRequest): Promise<ReadResult> {
+    void model;
+    void req;
+    throw new TheorydbError(
+      "ErrInvalidOperator",
+      "native count is not advertised",
+    );
+  }
+
+  async countScan(model: string, req: ReadRequest): Promise<ReadResult> {
+    void model;
+    void req;
+    throw new TheorydbError(
+      "ErrInvalidOperator",
+      "native count is not advertised",
+    );
   }
 
   async transitionAppendEvent(

@@ -40,11 +40,17 @@ type Step struct {
 	Key                 map[string]any    `yaml:"key"`
 	Query               *ReadRequest      `yaml:"query"`
 	Scan                *ReadRequest      `yaml:"scan"`
+	Count               *CountRequest     `yaml:"count"`
 	Actual              *TransitionActual `yaml:"actual"`
 	Event               *TransitionEvent  `yaml:"event"`
 	Ms                  int               `yaml:"ms"`
 	Save                map[string]string `yaml:"save"`
 	Expect              Expectation       `yaml:"expect"`
+}
+
+type CountRequest struct {
+	Query *ReadRequest `yaml:"query"`
+	Scan  *ReadRequest `yaml:"scan"`
 }
 
 type ReadRequest struct {
@@ -88,6 +94,7 @@ type Expectation struct {
 	ItemsContains         []map[string]any  `yaml:"items_contains"`
 	ItemsMissingFields    []string          `yaml:"items_missing_fields"`
 	ItemCount             *int              `yaml:"item_count"`
+	Count                 *int              `yaml:"count"`
 	CursorEquals          *string           `yaml:"cursor_equals"`
 	ItemHasFields         []string          `yaml:"item_has_fields"`
 	ItemMissingFields     []string          `yaml:"item_missing_fields"`
@@ -163,34 +170,22 @@ func validateStep(label string, i int, step Step) error {
 			return fmt.Errorf("%s %s: key is required", prefix, step.Op)
 		}
 	case "query":
-		if step.Query == nil {
-			return fmt.Errorf("%s query: query is required", prefix)
-		}
-		if step.Query.Partition == nil {
-			return fmt.Errorf("%s query: query.partition is required", prefix)
-		}
-		if err := validateReadCondition(step.Query.Partition, fmt.Sprintf("%s query.partition", prefix)); err != nil {
-			return err
-		}
-		if step.Query.Sort != nil {
-			if err := validateReadCondition(step.Query.Sort, fmt.Sprintf("%s query.sort", prefix)); err != nil {
-				return err
-			}
-		}
-		for j := range step.Query.Filter {
-			if err := validateReadCondition(&step.Query.Filter[j], fmt.Sprintf("%s query.filter[%d]", prefix, j)); err != nil {
-				return err
-			}
-		}
+		return validateQueryReadRequest(step.Query, fmt.Sprintf("%s query", prefix))
 	case "scan":
-		if step.Scan == nil {
-			return fmt.Errorf("%s scan: scan is required", prefix)
+		return validateScanReadRequest(step.Scan, fmt.Sprintf("%s scan", prefix))
+	case "count":
+		if step.Count == nil {
+			return fmt.Errorf("%s count: count is required", prefix)
 		}
-		for j := range step.Scan.Filter {
-			if err := validateReadCondition(&step.Scan.Filter[j], fmt.Sprintf("%s scan.filter[%d]", prefix, j)); err != nil {
-				return err
-			}
+		hasQuery := step.Count.Query != nil
+		hasScan := step.Count.Scan != nil
+		if hasQuery == hasScan {
+			return fmt.Errorf("%s count: exactly one of count.query or count.scan is required", prefix)
 		}
+		if hasQuery {
+			return validateQueryReadRequest(step.Count.Query, fmt.Sprintf("%s count.query", prefix))
+		}
+		return validateScanReadRequest(step.Count.Scan, fmt.Sprintf("%s count.scan", prefix))
 	case "transition_append_event":
 		if step.Actual == nil {
 			return fmt.Errorf("%s transition_append_event: actual is required", prefix)
@@ -219,6 +214,41 @@ func validateStep(label string, i int, step Step) error {
 		}
 	default:
 		return fmt.Errorf("%s: unsupported op %q", prefix, step.Op)
+	}
+	return nil
+}
+
+func validateQueryReadRequest(req *ReadRequest, prefix string) error {
+	if req == nil {
+		return fmt.Errorf("%s: query is required", prefix)
+	}
+	if req.Partition == nil {
+		return fmt.Errorf("%s: query.partition is required", prefix)
+	}
+	if err := validateReadCondition(req.Partition, fmt.Sprintf("%s.partition", prefix)); err != nil {
+		return err
+	}
+	if req.Sort != nil {
+		if err := validateReadCondition(req.Sort, fmt.Sprintf("%s.sort", prefix)); err != nil {
+			return err
+		}
+	}
+	for j := range req.Filter {
+		if err := validateReadCondition(&req.Filter[j], fmt.Sprintf("%s.filter[%d]", prefix, j)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateScanReadRequest(req *ReadRequest, prefix string) error {
+	if req == nil {
+		return fmt.Errorf("%s: scan is required", prefix)
+	}
+	for j := range req.Filter {
+		if err := validateReadCondition(&req.Filter[j], fmt.Sprintf("%s.filter[%d]", prefix, j)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
