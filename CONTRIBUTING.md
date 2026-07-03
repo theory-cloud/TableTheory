@@ -1,245 +1,175 @@
 # Contributing to TableTheory
 
-First off, thank you for considering contributing to TableTheory! It's people like you that make TableTheory such a great tool. We welcome contributions from everyone, regardless of their experience level.
+Thank you for helping strengthen TableTheory. This repository is the DynamoDB-first, three-runtime data contract for Go, TypeScript, and Python, so contributor changes are reviewed for contract safety, cross-language parity, and release hygiene.
 
-## Table of Contents
+## Before you start
 
-- [Code of Conduct](#code-of-conduct)
-- [Getting Started](#getting-started)
-- [How Can I Contribute?](#how-can-i-contribute)
-- [Development Setup](#development-setup)
-- [Pull Request Process](#pull-request-process)
-- [Style Guide](#style-guide)
-- [Testing Guidelines](#testing-guidelines)
-- [Documentation](#documentation)
-- [Community](#community)
+- Read the repository instructions in [AGENTS.md](./AGENTS.md).
+- Review the public docs in [docs/](./docs/) and the development guidelines in [docs/development-guidelines.md](./docs/development-guidelines.md).
+- Check existing issues and pull requests in [`theory-cloud/TableTheory`](https://github.com/theory-cloud/TableTheory/issues).
+- Keep changes scoped. Runtime behavior changes usually need contract-test coverage across Go, TypeScript, and Python.
 
 ## Code of Conduct
 
-This project and everyone participating in it is governed by the [TableTheory Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to [conduct@theorydb.io](mailto:conduct@theorydb.io).
+This project and everyone participating in it is governed by the [TableTheory Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code and report unacceptable behavior through the project maintainer channels.
 
-## Getting Started
+## Development setup
 
-Before you begin:
-- Read our [documentation](docs/)
-- Check out the [open issues](https://github.com/theorydb/theorydb/issues)
-- Join our [community discussions](https://github.com/theorydb/theorydb/discussions)
+TableTheory has three independently implemented SDKs that share one contract. Install the toolchain for the runtimes you touch, then run the fast contributor gate before opening a PR.
 
-## How Can I Contribute?
+### Go runtime
 
-### Reporting Bugs
+The root module is `github.com/theory-cloud/tabletheory`.
 
-Before creating bug reports, please check existing issues as you might find out that you don't need to create one. When you are creating a bug report, please include as many details as possible:
+```bash
+# Use the pinned Go toolchain from go.mod.
+export GOTOOLCHAIN="$(awk '/^toolchain /{print $2}' go.mod | head -n1)"
 
-- **Use a clear and descriptive title**
-- **Describe the exact steps to reproduce the problem**
-- **Provide specific examples to demonstrate the steps**
-- **Describe the behavior you observed and expected**
-- **Include logs, stack traces, and code samples**
-- **Include your environment details** (Go version, OS, etc.)
+# One-time tool install for local linting.
+make install-tools
 
-### Suggesting Enhancements
-
-Enhancement suggestions are tracked as GitHub issues. When creating an enhancement suggestion:
-
-- **Use a clear and descriptive title**
-- **Provide a detailed description of the suggested enhancement**
-- **Provide specific examples to demonstrate the enhancement**
-- **Describe the current behavior and expected behavior**
-- **Explain why this enhancement would be useful**
-
-### Your First Code Contribution
-
-Unsure where to begin? Look for these labels:
-
-- `good first issue` - Good for newcomers
-- `help wanted` - Extra attention is needed
-- `documentation` - Documentation improvements
-
-## Development Setup
-
-1. **Fork the Repository**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/theorydb.git
-   cd theorydb
-   ```
-
-2. **Set Up Your Development Environment**
-   ```bash
-   # Install the Go toolchain pinned by go.mod (`go1.26.4`)
-   # https://golang.org/doc/install
-
-   # Install dependencies
-   go mod download
-
-   # Run tests
-   make test
-
-   # Offline unit coverage baseline (skips DynamoDB Local)
-   make unit-cover
-
-   # Run linter
-   make lint
+# Common local checks.
+make fmt
+make lint
+make test-unit
+make unit-cover
 ```
 
-`make unit-cover` runs `go test ./... -short -coverpkg=./... -coverprofile=coverage_unit.out` to establish an offline coverage baseline. Use the regular `make test` or other integration/stress targets when you need DynamoDB Local or AWS parity checks.
+`make test-unit` is the fast Go unit suite with race detection and coverage. It does not require Docker or DynamoDB Local.
 
-3. **Create a Branch**
-   ```bash
-   git checkout -b feature/your-feature-name
-   # or
-   git checkout -b fix/your-bug-fix
-   ```
+### TypeScript runtime
 
-## Pull Request Process
+The TypeScript SDK lives in `ts/`. Development requires Node.js 20 or newer; CI validates the current supported matrix, and Node.js 24 is the preferred local development version.
 
-1. **Ensure your code follows our style guide** (see below)
-2. **Update the documentation** with details of changes
-3. **Add tests** for your changes
-4. **Ensure all tests pass** with `make test`
-5. **Update the CHANGELOG.md** with your changes
-6. **Submit your pull request**
+```bash
+cd ts
+npm ci
+npm run check
+```
 
-### PR Title Format
+`npm run check` runs Prettier, ESLint, typecheck, build, and unit tests for the TypeScript package.
 
-Use conventional commit format:
-- `feat:` New feature
-- `fix:` Bug fix
-- `docs:` Documentation only changes
-- `style:` Code style changes (formatting, etc.)
-- `refactor:` Code refactoring
-- `perf:` Performance improvements
-- `test:` Adding or updating tests
-- `chore:` Maintenance tasks
+### Python runtime
 
-Example: `feat: add support for conditional updates`
+The Python SDK lives in `py/`. Repository dependency verification uses Python 3.14 and `uv`; package metadata supports Python 3.12 and newer.
 
-**Release automation note:** this repo uses `release-please`; PRs that update **dependencies** or other release artifacts should use a release-eligible type (recommended: `fix(deps): ...`) so a new rc/release is generated.
+```bash
+uv --directory py sync --frozen --all-extras
+uv --directory py run ruff format .
+uv --directory py run ruff check .
+uv --directory py run pytest -q tests/unit
+bash scripts/verify-python-build.sh
+```
 
-### PR Description Template
+The Python tests are pytest-based. Do not use `python -m unittest` as the primary Python validation command for this repo.
+
+## Contributor validation gates
+
+### Fast local loop
+
+```bash
+make rubric-fast
+```
+
+`make rubric-fast` is the recommended contributor loop. It runs formatting, lint, unit, and documentation gates across Go, TypeScript, and Python with `SKIP_INTEGRATION=true`. It does not start Docker and does not run the full security, release, integration, or subtree checks.
+
+### Full repository rubric
+
+```bash
+make rubric
+```
+
+`make rubric` is the full CI-quality gate. It may install pinned verifier tools, start or require DynamoDB Local for integration coverage, run security and release checks, and stage/verify the Theory Cloud subtree. Run it before asking for final review when your change touches rubric-visible code, CI, release tooling, docs, or contract behavior.
+
+### Contract tests
+
+```bash
+make contract-tests
+```
+
+The contract test target runs the shared Go, TypeScript, and Python contract suite against DynamoDB Local. Use it for changes that affect observable model, marshaling, lifecycle, locking, TTL, DMS, or runner behavior.
+
+## Pull request process
+
+1. Branch from the intended target branch; most feature work lands through `staging`, while project branches may have their own explicit target.
+2. Make the smallest coherent change. Public API changes must be additive unless a major-version migration has been explicitly planned.
+3. Keep cross-language parity. A behavior visible in one runtime must be pinned for all three runtimes or must remain internal.
+4. Add or update tests and docs with the behavior change.
+5. Run the relevant validation gates and include the command output summary in the PR body.
+6. Use Conventional Commit subjects and include issue references such as `Closes THE-1234` where appropriate.
+7. Do not publish releases, retag, overwrite release assets, or mutate branch-protection settings from a contribution PR.
+
+### PR title format
+
+Use Conventional Commit format:
+
+- `feat:` new feature
+- `fix:` bug fix
+- `docs:` documentation-only change
+- `test:` tests only
+- `chore:` maintenance and CI/tooling
+- `refactor:` internal refactor without behavior change
+
+Use `feat!:` or `fix!:` only for planned breaking changes, and include a `BREAKING CHANGE:` footer with migration notes.
+
+### PR description checklist
 
 ```markdown
-## Description
-Brief description of what this PR does.
+## Summary
+- <summary>
 
-## Type of Change
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Breaking change
-- [ ] Documentation update
+## Contract impact
+- none / docs-only / tooling-only / scenario-visible / DMS-visible
 
-## Testing
-- [ ] Unit tests pass
-- [ ] Integration tests pass
-- [ ] Manual testing completed
+## Validation
+- [ ] make rubric-fast
+- [ ] make contract-tests (if contract-visible)
+- [ ] make rubric (for final review or rubric-visible changes)
 
-## Checklist
-- [ ] My code follows the style guidelines
-- [ ] I have performed a self-review
-- [ ] I have commented my code where necessary
-- [ ] I have updated the documentation
-- [ ] My changes generate no new warnings
-- [ ] I have added tests
-- [ ] All tests pass locally
+## Release impact
+- none / release-eligible / breaking-major
 ```
 
-## Style Guide
+## Style guide
 
-### Go Code Style
+### Go
 
-We follow the standard Go style guidelines:
+- Run `make fmt` before committing.
+- Use standard Go naming and table-driven tests.
+- Public exported identifiers need useful comments.
+- Model structs with `theorydb` tags must also carry matching `json` tags.
 
-- Run `gofmt` on your code
-- Follow [Effective Go](https://golang.org/doc/effective_go)
-- Use meaningful variable and function names
-- Keep functions focused and small
-- Comment exported functions and types
-- Handle errors appropriately
+### TypeScript
 
-### Code Examples
+- Keep `ts/src/` and generated/package outputs consistent with the existing package policy.
+- Run `npm --prefix ts run check` for TypeScript changes.
+- Do not add runtime dependencies casually; this package is consumed downstream.
 
-```go
-// Good: Clear function name and documentation
-// CreateUser creates a new user in the database with the given attributes.
-// It returns the created user with generated ID or an error if creation fails.
-func CreateUser(ctx context.Context, name, email string) (*User, error) {
-    // Implementation
-}
+### Python
 
-// Bad: Unclear naming and no documentation
-func cu(n, e string) (*User, error) {
-    // Implementation
-}
-```
+- Use `ruff format` and `ruff check` through `uv --directory py run ...`.
+- Keep typing strict; run the Python build verifier for public API changes.
+- Preserve compatibility with the supported Python version floor unless a coordinated release plan says otherwise.
 
-### Commit Messages
+### Commit messages
 
-- Use the present tense ("Add feature" not "Added feature")
-- Use the imperative mood ("Move cursor to..." not "Moves cursor to...")
-- Limit the first line to 72 characters
-- Reference issues and pull requests liberally after the first line
+- Keep the first line at or under 72 characters.
+- Use imperative, present-tense subjects.
+- Put issue references in the body when the subject would become too long.
+- Never hide a breaking change behind a non-breaking commit type.
 
-## Testing Guidelines
+## Testing guidelines
 
-### Unit Tests
-
-- Write tests for all new functionality
-- Maintain test coverage above 80%
-- Use table-driven tests where appropriate
-- Mock external dependencies
-
-### Integration Tests
-
-- Test real DynamoDB interactions
-- Use Docker for local DynamoDB
-- Cover edge cases and error scenarios
-
-### Example Test
-
-```go
-func TestCreateUser(t *testing.T) {
-    tests := []struct {
-        name    string
-        input   User
-        want    *User
-        wantErr bool
-    }{
-        {
-            name: "valid user",
-            input: User{Name: "John", Email: "john@example.com"},
-            want: &User{ID: "123", Name: "John", Email: "john@example.com"},
-            wantErr: false,
-        },
-        // More test cases...
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            got, err := CreateUser(context.Background(), tt.input)
-            if (err != nil) != tt.wantErr {
-                t.Errorf("CreateUser() error = %v, wantErr %v", err, tt.wantErr)
-                return
-            }
-            // More assertions...
-        })
-    }
-}
-```
+- Prefer unit tests that do not require Docker.
+- Use DynamoDB Local for integration and contract tests; do not point CI at a real AWS account.
+- For cross-runtime behavior, update or add contract scenarios and verify Go, TypeScript, and Python together.
+- Do not skip or weaken a rubric gate to make a PR pass.
 
 ## Documentation
 
-- Update README.md if needed
-- Add/update package documentation
-- Include examples in documentation
-- Update API documentation
-- Add guides for new features
-
-### Documentation Style
-
-- Use clear, simple language
-- Include code examples
-- Explain the "why" not just the "how"
-- Keep it up to date
+- Update README or public docs when user-facing behavior changes.
+- Keep examples runnable and avoid APIs that do not exist in the current runtime.
+- Distribution docs must point to immutable GitHub Releases, not npm or PyPI registries.
 
 ### Authoring documentation
 
@@ -288,26 +218,8 @@ A page can opt into the MCP / Auth surface tint by adding `surface: mcp` (or `au
 **What never to do**
 
 - Don't add internal planning, decisions, or clarification docs to the public nav — those live under `docs/development/` and are excluded from the site by `_config.yml`.
-- Don't author content that would only work with a specific runtime registry (npm / PyPI). Distribution is GitHub Releases only — see the [Release discipline](./AGENTS.md) doc.
+- Don't author content that would only work with a specific runtime registry (npm / PyPI). Distribution is GitHub Releases only — see the [release discipline](./AGENTS.md) doc.
 
-## Community
+## Questions
 
-- **Discussions**: [GitHub Discussions](https://github.com/theorydb/theorydb/discussions)
-- **Discord**: [Join our Discord](https://discord.gg/theorydb)
-- **Twitter**: [@theorydb](https://twitter.com/theorydb)
-
-## Recognition
-
-Contributors will be recognized in:
-- The CONTRIBUTORS file
-- The project README
-- Release notes
-
-## Questions?
-
-Feel free to:
-- Open an issue with your question
-- Start a discussion
-- Reach out on Discord
-
-Thank you for contributing to TableTheory! 🎉 
+Open a GitHub issue or discussion in [`theory-cloud/TableTheory`](https://github.com/theory-cloud/TableTheory) with the smallest reproducible context you can provide.
