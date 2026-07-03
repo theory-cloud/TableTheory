@@ -460,7 +460,11 @@ func (e *MainExecutor) ExecuteUpdateItemWithResult(input *core.CompiledQuery, ke
 		return nil, fmt.Errorf("key cannot be empty")
 	}
 
-	req := newUpdateItemRequest(&input.TableName).(*updateItemRequest)
+	req := &updateItemRequest{
+		input: &dynamodb.UpdateItemInput{
+			TableName: &input.TableName,
+		},
+	}
 	req.setAttributes(key)
 	req.applyCompiledQuery(input)
 	if input.ReturnValues == "" {
