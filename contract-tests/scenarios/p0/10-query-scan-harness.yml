@@ -3,7 +3,7 @@ dms_version: "0.1"
 requires_capabilities: ["query.basic", "scan.basic"]
 model: "User"
 table:
-  name: "users_query_scan_contract"
+  name: "users_contract"
 steps:
   - op: create
     item:
