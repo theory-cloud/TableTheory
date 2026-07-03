@@ -11,6 +11,16 @@ permissions:
 jobs:
   rubric:
     runs-on: ubuntu-latest
+    services:
+      dynamodb-local:
+        image: amazon/dynamodb-local:3.1.0
+        ports:
+          - 8000:8000
+        options: >-
+          --health-cmd "curl -s http://localhost:8000 >/dev/null || exit 1"
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 24
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

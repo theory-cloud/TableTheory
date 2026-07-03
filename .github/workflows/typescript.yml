@@ -14,6 +14,16 @@ permissions:
 jobs:
   ts:
     runs-on: ubuntu-latest
+    services:
+      dynamodb-local:
+        image: amazon/dynamodb-local:3.1.0
+        ports:
+          - 8000:8000
+        options: >-
+          --health-cmd "curl -s http://localhost:8000 >/dev/null || exit 1"
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 24
     strategy:
       fail-fast: false
       matrix:
@@ -50,9 +60,6 @@ jobs:
       - name: Coverage (unit)
         run: bash scripts/coverage-ts.sh unit
 
-      - name: Start DynamoDB Local (pinned)
-        run: make docker-up
-
       - name: Integration test
         env:
           AWS_REGION: us-east-1
@@ -61,10 +68,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: dummy
           DYNAMODB_ENDPOINT: http://localhost:8000
         run: npm --prefix ts run test:integration
-
-      - name: Stop DynamoDB Local
-        if: always()
-        run: make docker-down
 
       - name: Upload coverage artifacts
         if: always()
