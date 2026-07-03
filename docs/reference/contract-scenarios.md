@@ -80,17 +80,16 @@ they pass cross-runtime in three consecutive releases.
 ## How a scenario is run
 
 ```bash
-# Bring DynamoDB Local up
-cd contract-tests
-docker compose up -d
-
-# Run scenarios across all supported runners
-make contract-tests          # or: bash contract-tests/run-all.sh
+# From the repository root. Starts DynamoDB Local when needed.
+make contract-tests
 ```
 
-Locally and in CI, the runners share the same DynamoDB Local instance, ensuring
-that "the Go runtime wrote it" and "another runtime read it" are exercised
-against literally the same persisted items when the scenario requires that shape.
+The target runs `scripts/verify-contract-tests.sh`, which executes the generated
+TypeScript key-contract drift check and then the Go, TypeScript, and Python
+contract runners against the same DynamoDB Local endpoint. Locally and in CI,
+that shared endpoint ensures that "the Go runtime wrote it" and "another runtime
+read it" are exercised against literally the same persisted items when the
+scenario requires that shape.
 
 ## Why this is the arbiter
 

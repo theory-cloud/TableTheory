@@ -2,7 +2,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory
@@ -48,6 +48,10 @@ verify-coverage:
 integration: docker-up
 	@echo "Running integration tests..."
 	@go test -v $(INTEGRATION_PACKAGES)
+
+# Run the shared Go/TypeScript/Python contract suite (requires DynamoDB Local)
+contract-tests: docker-up
+	@bash scripts/verify-contract-tests.sh
 
 # Run benchmarks
 benchmark:
@@ -247,6 +251,7 @@ help:
 	@echo "  make test        - Run ALL tests (unit + integration) [STARTS DynamoDB Local]"
 	@echo "  make test-unit   - Run only unit tests (fast, no Docker required)"
 	@echo "  make integration - Run integration tests only (requires Docker)"
+	@echo "  make contract-tests - Run Go/TypeScript/Python contract suite (requires Docker)"
 	@echo "  make test-all    - Run all tests including benchmarks and stress tests"
 	@echo "  make benchmark   - Run performance benchmarks"
 	@echo "  make stress      - Run stress tests"
