@@ -581,3 +581,60 @@ const User = defineModel({
     (e) => e instanceof TheorydbError && e.code === 'ErrInvalidOperator',
   );
 }
+
+{
+  const ddb = new StubDdb((cmd, call) => {
+    if (cmd instanceof QueryCommand) {
+      assert.equal(cmd.input.Select, 'COUNT');
+      assert.equal(cmd.input.Limit, undefined);
+      assert.equal(cmd.input.ProjectionExpression, undefined);
+      return call === 1
+        ? {
+            Count: 1,
+            LastEvaluatedKey: { PK: { S: 'A' }, SK: { S: '1' } },
+          }
+        : { Count: 2 };
+    }
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+
+  const count = await client
+    .query('User')
+    .partitionKey('A')
+    .sortKey('begins_with', 'ITEM#')
+    .filter('emailHash', '=', 'hash')
+    .limit(1)
+    .projection(['PK'])
+    .count();
+
+  assert.equal(count, 3);
+  assert.equal(ddb.calls, 2);
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof ScanCommand) {
+      assert.equal(cmd.input.Select, 'COUNT');
+      assert.equal(cmd.input.Limit, undefined);
+      assert.equal(cmd.input.ProjectionExpression, undefined);
+      return { Count: 4 };
+    }
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+
+  const count = await client
+    .scan('User')
+    .filter('emailHash', '=', 'hash')
+    .limit(1)
+    .projection(['PK'])
+    .count();
+
+  assert.equal(count, 4);
+  assert.equal(ddb.calls, 1);
+}

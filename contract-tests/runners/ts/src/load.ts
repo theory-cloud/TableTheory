@@ -110,6 +110,9 @@ function validateStep(
     case "scan":
       requireReadRequest(step.scan, `${prefix}: scan`);
       break;
+    case "count":
+      requireCountRequest(step.count, `${prefix}: count`);
+      break;
     case "transition_append_event":
       requireTransitionActual(step.actual, `${prefix}: actual`);
       requireTransitionEvent(step.event, `${prefix}: event`);
@@ -121,6 +124,25 @@ function validateStep(
       throw new Error(
         `${filePath} ${label}[${index}]: unsupported op ${String(step.op)}`,
       );
+  }
+}
+
+function requireCountRequest(value: unknown, prefix: string): void {
+  requirePlainObject(value, `${prefix} is required`);
+  const request = value as { query?: unknown; scan?: unknown };
+  const hasQuery = request.query !== undefined;
+  const hasScan = request.scan !== undefined;
+  if (hasQuery === hasScan) {
+    throw new Error(`${prefix} requires exactly one of query or scan`);
+  }
+  if (hasQuery) {
+    requireReadRequest(request.query, `${prefix}.query`);
+    requireReadCondition(
+      (request.query as { partition?: unknown }).partition,
+      `${prefix}.query.partition`,
+    );
+  } else {
+    requireReadRequest(request.scan, `${prefix}.scan`);
   }
 }
 

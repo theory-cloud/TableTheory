@@ -104,6 +104,7 @@ export class TheorydbDriver implements Driver {
       "type.matrix",
       "query.basic",
       "scan.basic",
+      "count.native",
       "release_state.write_policy",
       "release_state.transactional_transition",
       "release_state.provenance_confidence",
@@ -199,21 +200,44 @@ export class TheorydbDriver implements Driver {
   }
 
   async countQuery(model: string, req: ReadRequest): Promise<ReadResult> {
-    void model;
-    void req;
-    throw new TheorydbError(
-      "ErrInvalidOperator",
-      "native count is not advertised",
-    );
+    let builder = this.client.query(model);
+    if (req.index) builder = builder.usingIndex(req.index);
+    if (!req.partition) {
+      throw new TheorydbError(
+        "ErrMissingPrimaryKey",
+        "query partition is required",
+      );
+    }
+    builder = builder.partitionKey(conditionValue(req.partition));
+    if (req.sort) {
+      builder = builder.sortKey(
+        normalizeSortOperator(req.sort.operator),
+        ...conditionValues(req.sort),
+      );
+    }
+    builder = applyReadOptions(builder, req);
+    for (const filter of req.filter ?? []) {
+      builder = builder.filter(
+        filter.attribute,
+        filter.operator,
+        ...conditionValues(filter),
+      );
+    }
+    return { items: [], count: await builder.count() };
   }
 
   async countScan(model: string, req: ReadRequest): Promise<ReadResult> {
-    void model;
-    void req;
-    throw new TheorydbError(
-      "ErrInvalidOperator",
-      "native count is not advertised",
-    );
+    let builder = this.client.scan(model);
+    if (req.index) builder = builder.usingIndex(req.index);
+    builder = applyReadOptions(builder, req);
+    for (const filter of req.filter ?? []) {
+      builder = builder.filter(
+        filter.attribute,
+        filter.operator,
+        ...conditionValues(filter),
+      );
+    }
+    return { items: [], count: await builder.count() };
   }
 
   async transitionAppendEvent(

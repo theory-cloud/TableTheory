@@ -548,6 +548,163 @@ export class QueryBuilder {
     return page;
   }
 
+  async count(): Promise<number> {
+    const original = this.cursorToken;
+    try {
+      let total = 0;
+      let cursor = original;
+
+      for (;;) {
+        this.cursorToken = cursor;
+        const page = await this.countPage();
+        total += page.count;
+        if (!page.cursor) break;
+        cursor = page.cursor;
+      }
+
+      return total;
+    } finally {
+      this.cursorToken = original;
+    }
+  }
+
+  private async countPage(): Promise<{ count: number; cursor?: string }> {
+    const { pkName, pkSchema, skName, skSchema, index } =
+      this.resolveKeySchema();
+    if (this.pkValue === undefined)
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'partitionKey() is required',
+      );
+
+    if (index?.type === 'GSI' && this.consistentReadEnabled) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'Consistent reads are not supported on GSIs',
+      );
+    }
+    if (modelHasEncryptedAttributes(this.model) && !this.encryption) {
+      throw new TheorydbError(
+        'ErrEncryptionNotConfigured',
+        `Encryption is required for model: ${this.model.name}`,
+      );
+    }
+
+    const names: Record<string, string> = { '#pk': pkName };
+    const values: Record<string, AttributeValue> = {
+      ':pk': marshalScalar(pkSchema, this.pkValue),
+    };
+
+    let keyExpr = '#pk = :pk';
+    if (this.skCondition) {
+      if (!skName || !skSchema)
+        throw new TheorydbError(
+          'ErrInvalidOperator',
+          'sortKey() requires a sort key',
+        );
+      names['#sk'] = skName;
+
+      const { op, values: skValues } = this.skCondition;
+      switch (op) {
+        case 'begins_with': {
+          if (skValues.length !== 1)
+            throw new TheorydbError(
+              'ErrInvalidOperator',
+              'begins_with requires one value',
+            );
+          values[':sk'] = marshalScalar(skSchema, skValues[0]);
+          keyExpr += ' AND begins_with(#sk, :sk)';
+          break;
+        }
+        case 'between': {
+          if (skValues.length !== 2)
+            throw new TheorydbError(
+              'ErrInvalidOperator',
+              'between requires two values',
+            );
+          values[':sk0'] = marshalScalar(skSchema, skValues[0]);
+          values[':sk1'] = marshalScalar(skSchema, skValues[1]);
+          keyExpr += ' AND #sk BETWEEN :sk0 AND :sk1';
+          break;
+        }
+        default: {
+          if (skValues.length !== 1)
+            throw new TheorydbError(
+              'ErrInvalidOperator',
+              'sort operator requires one value',
+            );
+          values[':sk'] = marshalScalar(skSchema, skValues[0]);
+          keyExpr += ` AND #sk ${op} :sk`;
+          break;
+        }
+      }
+    }
+
+    const filter = this.filters.build();
+    if (filter.expression) {
+      for (const [k, v] of Object.entries(filter.names)) {
+        if (k in names) {
+          throw new TheorydbError(
+            'ErrInvalidOperator',
+            `ExpressionAttributeNames collision: ${k}`,
+          );
+        }
+        names[k] = v;
+      }
+      for (const [k, v] of Object.entries(filter.values)) {
+        if (k in values) {
+          throw new TheorydbError(
+            'ErrInvalidOperator',
+            `ExpressionAttributeValues collision: ${k}`,
+          );
+        }
+        values[k] = v;
+      }
+    }
+
+    let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+    if (this.cursorToken) {
+      const c = decodeCursor(this.cursorToken);
+      if (c.index && (this.indexName ?? undefined) !== c.index) {
+        throw new TheorydbError(
+          'ErrInvalidOperator',
+          'Cursor index does not match query',
+        );
+      }
+      if (c.sort && c.sort !== this.sortDir) {
+        throw new TheorydbError(
+          'ErrInvalidOperator',
+          'Cursor sort does not match query',
+        );
+      }
+      exclusiveStartKey = c.lastKey;
+    }
+
+    const resp = await this.ddb.send(
+      new QueryCommand({
+        TableName: this.model.tableName,
+        IndexName: index?.name,
+        KeyConditionExpression: keyExpr,
+        FilterExpression: filter.expression,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ConsistentRead: this.consistentReadEnabled || undefined,
+        ExclusiveStartKey: exclusiveStartKey,
+        ScanIndexForward: this.sortDir === 'ASC',
+        Select: 'COUNT',
+      }),
+      this.sendOptions,
+    );
+
+    const out: { count: number; cursor?: string } = { count: resp.Count ?? 0 };
+    if (resp.LastEvaluatedKey) {
+      const c: Cursor = { lastKey: resp.LastEvaluatedKey, sort: this.sortDir };
+      if (index) c.index = index.name;
+      out.cursor = encodeCursor(c);
+    }
+    return out;
+  }
+
   async all(): Promise<Array<Record<string, unknown>>> {
     const original = this.cursorToken;
     try {
@@ -570,7 +727,7 @@ export class QueryBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before summing.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async sum(field: string): Promise<number> {
     return sumField(await this.all(), field);
@@ -578,7 +735,7 @@ export class QueryBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before averaging.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async average(field: string): Promise<number> {
     return averageField(await this.all(), field);
@@ -586,7 +743,7 @@ export class QueryBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before selecting the minimum.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async min(field: string): Promise<unknown> {
     return minField(await this.all(), field);
@@ -594,7 +751,7 @@ export class QueryBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before selecting the maximum.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async max(field: string): Promise<unknown> {
     return maxField(await this.all(), field);
@@ -602,7 +759,7 @@ export class QueryBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before computing the aggregate.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async aggregate(...fields: string[]): Promise<AggregateResult> {
     return aggregateField(await this.all(), fields[0]);
@@ -610,7 +767,7 @@ export class QueryBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before counting distinct values.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async countDistinct(field: string): Promise<number> {
     return countDistinct(await this.all(), field);
@@ -618,7 +775,7 @@ export class QueryBuilder {
 
   /**
    * Client-side aggregation: the returned group query calls `all()` during `execute()` and keeps groups in memory.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   groupBy(field: string): GroupByQuery<Record<string, unknown>> {
     return new GroupByQuery(() => this.all(), field);
@@ -967,6 +1124,112 @@ export class ScanBuilder {
     return out;
   }
 
+  async count(): Promise<number> {
+    const original = this.cursorToken;
+    try {
+      let total = 0;
+      let cursor = original;
+
+      for (;;) {
+        this.cursorToken = cursor;
+        const page = await this.countPage();
+        total += page.count;
+        if (!page.cursor) break;
+        cursor = page.cursor;
+      }
+
+      return total;
+    } finally {
+      this.cursorToken = original;
+    }
+  }
+
+  private async countPage(): Promise<{ count: number; cursor?: string }> {
+    const index = this.indexName
+      ? this.model.indexes.get(this.indexName)
+      : undefined;
+    if (index?.type === 'GSI' && this.consistentReadEnabled) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'Consistent reads are not supported on GSIs',
+      );
+    }
+    if (modelHasEncryptedAttributes(this.model) && !this.encryption) {
+      throw new TheorydbError(
+        'ErrEncryptionNotConfigured',
+        `Encryption is required for model: ${this.model.name}`,
+      );
+    }
+
+    const names: Record<string, string> = {};
+    let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+    if (this.cursorToken) {
+      const c = decodeCursor(this.cursorToken);
+      if (c.index && (this.indexName ?? undefined) !== c.index) {
+        throw new TheorydbError(
+          'ErrInvalidOperator',
+          'Cursor index does not match scan',
+        );
+      }
+      exclusiveStartKey = c.lastKey;
+    }
+
+    const filter = this.filters.build();
+    if (filter.expression) {
+      for (const [k, v] of Object.entries(filter.names)) {
+        if (k in names) {
+          throw new TheorydbError(
+            'ErrInvalidOperator',
+            `ExpressionAttributeNames collision: ${k}`,
+          );
+        }
+        names[k] = v;
+      }
+    }
+
+    if ((this.segment === undefined) !== (this.totalSegments === undefined)) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'parallelScan requires both segment and totalSegments',
+      );
+    }
+    if (
+      this.segment !== undefined &&
+      this.totalSegments !== undefined &&
+      (this.segment < 0 || this.segment >= this.totalSegments)
+    ) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'parallelScan segment must be < totalSegments',
+      );
+    }
+
+    const resp = await this.ddb.send(
+      new ScanCommand({
+        TableName: this.model.tableName,
+        IndexName: this.indexName,
+        FilterExpression: filter.expression,
+        ExpressionAttributeNames: Object.keys(names).length ? names : undefined,
+        ExpressionAttributeValues:
+          Object.keys(filter.values).length > 0 ? filter.values : undefined,
+        ConsistentRead: this.consistentReadEnabled || undefined,
+        ExclusiveStartKey: exclusiveStartKey,
+        Segment: this.segment,
+        TotalSegments: this.totalSegments,
+        Select: 'COUNT',
+      }),
+      this.sendOptions,
+    );
+
+    const out: { count: number; cursor?: string } = { count: resp.Count ?? 0 };
+    if (resp.LastEvaluatedKey) {
+      const c: Cursor = { lastKey: resp.LastEvaluatedKey };
+      if (this.indexName) c.index = this.indexName;
+      out.cursor = encodeCursor(c);
+    }
+    return out;
+  }
+
   async all(): Promise<Array<Record<string, unknown>>> {
     const original = this.cursorToken;
     try {
@@ -989,7 +1252,7 @@ export class ScanBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before summing.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async sum(field: string): Promise<number> {
     return sumField(await this.all(), field);
@@ -997,7 +1260,7 @@ export class ScanBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before averaging.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async average(field: string): Promise<number> {
     return averageField(await this.all(), field);
@@ -1005,7 +1268,7 @@ export class ScanBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before selecting the minimum.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async min(field: string): Promise<unknown> {
     return minField(await this.all(), field);
@@ -1013,7 +1276,7 @@ export class ScanBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before selecting the maximum.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async max(field: string): Promise<unknown> {
     return maxField(await this.all(), field);
@@ -1021,7 +1284,7 @@ export class ScanBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before computing the aggregate.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async aggregate(...fields: string[]): Promise<AggregateResult> {
     return aggregateField(await this.all(), fields[0]);
@@ -1029,7 +1292,7 @@ export class ScanBuilder {
 
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before counting distinct values.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   async countDistinct(field: string): Promise<number> {
     return countDistinct(await this.all(), field);
@@ -1037,7 +1300,7 @@ export class ScanBuilder {
 
   /**
    * Client-side aggregation: the returned group query calls `all()` during `execute()` and keeps groups in memory.
-   * Use only for bounded result sets. Prefer the planned native `count()`/server-side paths when they exist.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
    */
   groupBy(field: string): GroupByQuery<Record<string, unknown>> {
     return new GroupByQuery(() => this.all(), field);
