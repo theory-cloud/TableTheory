@@ -363,7 +363,7 @@ export class TheorydbClient {
     try {
       await this.ddb.send(cmd, this.sendOptions);
     } catch (err) {
-      throw mapDynamoError(err);
+      throw mapDynamoError(err, { versionConflict: true });
     }
   }
 

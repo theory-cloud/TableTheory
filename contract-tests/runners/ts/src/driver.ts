@@ -95,6 +95,7 @@ export class TheorydbDriver implements Driver {
       "omitempty",
       "lifecycle.timestamps",
       "optimistic_lock.version",
+      "error.version_conflict",
       "ttl.epoch_seconds",
       ...(this.exactNumbers ? ["number.precision.exact"] : []),
       "type.matrix",

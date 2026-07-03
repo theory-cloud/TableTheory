@@ -281,6 +281,7 @@ export class UpdateBuilder {
   private readonly updateOps: UpdateOp[] = [];
   private readonly conditionOps: ConditionOp[] = [];
   private returnValuesOpt: ReturnValuesOption = 'NONE';
+  private hasVersionCondition = false;
 
   constructor(
     private readonly ddb: DynamoDBClient,
@@ -370,6 +371,7 @@ export class UpdateBuilder {
         `Model ${this.model.name} does not define a version field`,
       );
     }
+    this.hasVersionCondition = true;
     return this.condition(versionAttr, '=', currentVersion);
   }
 
@@ -454,7 +456,9 @@ export class UpdateBuilder {
         : resp.Attributes;
       return unmarshalItem(this.model, attrs, this.unmarshalOptions);
     } catch (err) {
-      throw mapDynamoError(err);
+      throw mapDynamoError(err, {
+        versionConflict: this.hasVersionCondition,
+      });
     }
   }
 

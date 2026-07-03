@@ -15,7 +15,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 
 import { TheorydbClient } from '../../src/client.js';
-import { TheorydbError } from '../../src/errors.js';
+import { hasTheorydbErrorCode, TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
 import { createDeterministicEncryptionProvider } from '../../src/testkit/index.js';
 import type { TransactAction } from '../../src/transaction.js';
@@ -167,7 +167,34 @@ class StubDdb {
   );
   await assert.rejects(
     () => client.create('User', { PK: 'A', SK: 'B' }, { ifNotExists: true }),
-    (e) => e instanceof TheorydbError && e.code === 'ErrConditionFailed',
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrConditionFailed' &&
+      !hasTheorydbErrorCode(e, 'ErrVersionConflict'),
+  );
+}
+
+{
+  const err = new ConditionalCheckFailedException({
+    $metadata: {},
+    message: 'stale',
+  });
+  const ddb = new StubDdb(() => {
+    throw err;
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  await assert.rejects(
+    () =>
+      client.update('User', { PK: 'A', SK: 'B', nickname: 'x', version: 0 }, [
+        'nickname',
+      ]),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrConditionFailed' &&
+      hasTheorydbErrorCode(e, 'ErrConditionFailed') &&
+      hasTheorydbErrorCode(e, 'ErrVersionConflict'),
   );
 }
 

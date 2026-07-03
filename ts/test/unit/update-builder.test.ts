@@ -7,7 +7,7 @@ import {
 
 import { TheorydbClient } from '../../src/client.js';
 import { encryptAttributeValue } from '../../src/encryption.js';
-import { TheorydbError } from '../../src/errors.js';
+import { hasTheorydbErrorCode, TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
 import {
   createDeterministicEncryptionProvider,
@@ -821,7 +821,42 @@ import {
   const client = new TheorydbClient(mock.client).register(model);
   await assert.rejects(
     () => client.updateBuilder('T', { PK: 'A' }).set('name', 'x').execute(),
-    (e) => e instanceof TheorydbError && e.code === 'ErrConditionFailed',
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrConditionFailed' &&
+      !hasTheorydbErrorCode(e, 'ErrVersionConflict'),
+  );
+}
+
+{
+  const mock = createMockDynamoDBClient();
+  mock.when(UpdateItemCommand, async () => {
+    throw { name: 'ConditionalCheckFailedException' };
+  });
+
+  const model = defineModel({
+    name: 'T',
+    table: { name: 't' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'name', type: 'S', optional: true },
+      { attribute: 'version', type: 'N', roles: ['version'] },
+    ],
+  });
+
+  const client = new TheorydbClient(mock.client).register(model);
+  await assert.rejects(
+    () =>
+      client
+        .updateBuilder('T', { PK: 'A' })
+        .set('name', 'x')
+        .conditionVersion(1)
+        .execute(),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrConditionFailed' &&
+      hasTheorydbErrorCode(e, 'ErrVersionConflict'),
   );
 }
 
