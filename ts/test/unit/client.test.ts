@@ -229,6 +229,47 @@ class StubDdb {
 
 {
   const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof GetItemCommand) {
+      return { Item: { PK: { S: 'A' }, SK: { S: 'B' }, version: { N: '1' } } };
+    }
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  const got = await client.getOrNull('User', { PK: 'A', SK: 'B' });
+  assert.ok(got);
+  assert.equal(got.PK, 'A');
+  assert.equal(got.version, 1);
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof GetItemCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  const got = await client.getOrNull('User', { PK: 'A', SK: 'B' });
+  assert.equal(got, null);
+}
+
+{
+  const ddb = new StubDdb(() => {
+    throw new TheorydbError('ErrInvalidModel', 'boom');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  await assert.rejects(
+    () => client.getOrNull('User', { PK: 'A', SK: 'B' }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
     if (cmd instanceof PutItemCommand) return {};
     throw new Error('unexpected');
   });

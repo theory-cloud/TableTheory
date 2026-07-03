@@ -109,6 +109,7 @@ export class TheorydbDriver implements Driver {
       "query.basic",
       "scan.basic",
       "count.native",
+      "get.optional",
       "release_state.write_policy",
       "release_state.transactional_transition",
       "release_state.provenance_confidence",
@@ -139,12 +140,7 @@ export class TheorydbDriver implements Driver {
     model: string,
     key: Record<string, unknown>,
   ): Promise<Record<string, unknown> | undefined> {
-    void model;
-    void key;
-    throw new TheorydbError(
-      "ErrInvalidOperator",
-      "optional get is not advertised",
-    );
+    return (await this.client.getOrNull(model, key)) ?? undefined;
   }
 
   async update(

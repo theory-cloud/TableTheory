@@ -24,7 +24,7 @@ import {
   type RetryOptions,
 } from './batch.js';
 import { mapDynamoError } from './dynamo-error.js';
-import { TheorydbError } from './errors.js';
+import { hasTheorydbErrorCode, TheorydbError } from './errors.js';
 import type { Model } from './model.js';
 import type { SendOptions } from './send-options.js';
 import {
@@ -232,6 +232,18 @@ export class TheorydbClient {
       return unmarshalItem(model, item, this.unmarshalOptions);
     } catch (err) {
       throw mapDynamoError(err);
+    }
+  }
+
+  async getOrNull(
+    modelName: string,
+    key: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null> {
+    try {
+      return await this.get(modelName, key);
+    } catch (err) {
+      if (hasTheorydbErrorCode(err, 'ErrItemNotFound')) return null;
+      throw err;
     }
   }
 
