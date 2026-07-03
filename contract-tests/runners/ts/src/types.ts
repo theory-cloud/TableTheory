@@ -130,6 +130,7 @@ export interface TransitionEvent {
 export interface Expectation {
   ok?: boolean;
   error?: string;
+  errors?: string[];
   item_contains?: Record<string, unknown>;
   item_equals?: Record<string, unknown>;
   raw_item_contains?: Record<string, unknown>;

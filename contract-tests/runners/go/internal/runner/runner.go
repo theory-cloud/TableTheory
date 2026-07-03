@@ -243,6 +243,12 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 		require.False(t, hasItemAssertion, "item assertions cannot be combined with error expectations")
 		return
 	}
+	if len(expect.Errors) > 0 {
+		require.Error(t, err)
+		require.ElementsMatch(t, errorCodesFromExpectation(expect.Errors), driver.MapErrors(err))
+		require.False(t, hasItemAssertion, "item assertions cannot be combined with error expectations")
+		return
+	}
 	if hasItemAssertion {
 		require.NoError(t, err, "expected successful operation for item assertions")
 		require.NotNil(t, item, "expected item for item assertions")
@@ -328,6 +334,12 @@ func (r *Runner) assertReadResult(t require.TestingT, expect scenario.Expectatio
 	if expect.Error != "" {
 		require.Error(t, err)
 		require.Equal(t, driver.ErrorCode(expect.Error), driver.MapError(err))
+		require.False(t, hasReadAssertion, "read assertions cannot be combined with error expectations")
+		return
+	}
+	if len(expect.Errors) > 0 {
+		require.Error(t, err)
+		require.ElementsMatch(t, errorCodesFromExpectation(expect.Errors), driver.MapErrors(err))
 		require.False(t, hasReadAssertion, "read assertions cannot be combined with error expectations")
 		return
 	}
@@ -438,6 +450,14 @@ func expectationHasReadAssertion(expect scenario.Expectation) bool {
 		len(expect.ItemsContains) > 0 ||
 		len(expect.ItemsMissingFields) > 0 ||
 		expect.CursorEquals != nil
+}
+
+func errorCodesFromExpectation(values []string) []driver.ErrorCode {
+	out := make([]driver.ErrorCode, 0, len(values))
+	for _, value := range values {
+		out = append(out, driver.ErrorCode(value))
+	}
+	return out
 }
 
 func assertItemEquals(t require.TestingT, want map[string]any, item map[string]any, raw map[string]types.AttributeValue, model spec.Model) {

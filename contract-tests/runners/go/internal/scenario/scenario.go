@@ -81,6 +81,7 @@ type TransitionEvent struct {
 type Expectation struct {
 	Ok                    *bool             `yaml:"ok"`
 	Error                 string            `yaml:"error"`
+	Errors                []string          `yaml:"errors"`
 	ItemContains          map[string]any    `yaml:"item_contains"`
 	ItemEquals            map[string]any    `yaml:"item_equals"`
 	RawItemContains       map[string]any    `yaml:"raw_item_contains"`

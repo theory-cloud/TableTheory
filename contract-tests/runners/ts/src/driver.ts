@@ -14,6 +14,7 @@ import type { EncryptionScenarioConfig } from "./types.js";
 export type ErrorCode =
   | "ErrItemNotFound"
   | "ErrConditionFailed"
+  | "ErrVersionConflict"
   | "ErrInvalidModel"
   | "ErrMissingPrimaryKey"
   | "ErrInvalidOperator"

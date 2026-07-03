@@ -28,6 +28,7 @@ type ErrorCode string
 const (
 	ErrItemNotFound      ErrorCode = "ErrItemNotFound"
 	ErrConditionFailed   ErrorCode = "ErrConditionFailed"
+	ErrVersionConflict   ErrorCode = "ErrVersionConflict"
 	ErrInvalidModel      ErrorCode = "ErrInvalidModel"
 	ErrMissingPrimaryKey ErrorCode = "ErrMissingPrimaryKey"
 	ErrInvalidOperator   ErrorCode = "ErrInvalidOperator"
@@ -91,31 +92,39 @@ type TransitionEvent struct {
 }
 
 func MapError(err error) ErrorCode {
+	codes := MapErrors(err)
+	if len(codes) == 0 {
+		return ""
+	}
+	return codes[0]
+}
+
+func MapErrors(err error) []ErrorCode {
 	switch {
 	case errors.Is(err, theorydbErrors.ErrItemNotFound):
-		return ErrItemNotFound
+		return []ErrorCode{ErrItemNotFound}
 	case errors.Is(err, theorydbErrors.ErrConditionFailed):
-		return ErrConditionFailed
+		return []ErrorCode{ErrConditionFailed}
 	case errors.Is(err, theorydbErrors.ErrInvalidModel):
-		return ErrInvalidModel
+		return []ErrorCode{ErrInvalidModel}
 	case errors.Is(err, theorydbErrors.ErrMissingPrimaryKey):
-		return ErrMissingPrimaryKey
+		return []ErrorCode{ErrMissingPrimaryKey}
 	case errors.Is(err, theorydbErrors.ErrInvalidOperator):
-		return ErrInvalidOperator
+		return []ErrorCode{ErrInvalidOperator}
 	case errors.Is(err, theorydbErrors.ErrEncryptionNotConfigured):
-		return ErrEncryptionNotConfigured
+		return []ErrorCode{ErrEncryptionNotConfigured}
 	case errors.Is(err, theorydbErrors.ErrEncryptedFieldNotQueryable):
-		return ErrEncryptedFieldNotQueryable
+		return []ErrorCode{ErrEncryptedFieldNotQueryable}
 	case errors.Is(err, theorydbErrors.ErrInvalidEncryptedEnvelope):
-		return ErrInvalidEncryptedEnvelope
+		return []ErrorCode{ErrInvalidEncryptedEnvelope}
 	case errors.Is(err, theorydbErrors.ErrImmutableModelMutation):
-		return ErrImmutableModelMutation
+		return []ErrorCode{ErrImmutableModelMutation}
 	case errors.Is(err, theorydbErrors.ErrProtectedFieldMutation):
-		return ErrProtectedFieldMutation
+		return []ErrorCode{ErrProtectedFieldMutation}
 	case errors.Is(err, theorydbErrors.ErrRejectedDeployAuthorityEvidence):
-		return ErrRejectedDeployAuthorityEvidence
+		return []ErrorCode{ErrRejectedDeployAuthorityEvidence}
 	default:
-		return ""
+		return nil
 	}
 }
 

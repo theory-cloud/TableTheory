@@ -225,6 +225,16 @@ function assertReadExpectation(
     );
     return;
   }
+  if (expect.errors?.length) {
+    assert.ok(err, "expected error");
+    assert.deepEqual(mapErrors(err).sort(), expect.errors.slice().sort());
+    assert.equal(
+      hasReadAssertion,
+      false,
+      "read assertions cannot be combined with error expectations",
+    );
+    return;
+  }
 
   if (hasReadAssertion) {
     assert.equal(
@@ -333,6 +343,16 @@ function assertExpectation(
   if (expect.error) {
     assert.ok(err, "expected error");
     assert.equal(mapError(err), expect.error);
+    assert.equal(
+      hasItemAssertion,
+      false,
+      "item assertions cannot be combined with error expectations",
+    );
+    return;
+  }
+  if (expect.errors?.length) {
+    assert.ok(err, "expected error");
+    assert.deepEqual(mapErrors(err).sort(), expect.errors.slice().sort());
     assert.equal(
       hasItemAssertion,
       false,
@@ -657,8 +677,19 @@ function asStringArray(value: unknown): string[] {
 }
 
 function mapError(err: unknown): ErrorCode | "" {
-  if (isTheorydbError(err)) return err.code;
-  return "";
+  const codes = mapErrors(err);
+  return codes[0] ?? "";
+}
+
+function mapErrors(err: unknown): ErrorCode[] {
+  if (isTheorydbError(err)) {
+    const maybeCodes = (err as { codes?: unknown }).codes;
+    if (Array.isArray(maybeCodes)) {
+      return maybeCodes.map((code) => String(code) as ErrorCode);
+    }
+    return [err.code];
+  }
+  return [];
 }
 
 function attributeValueTypeName(av: AttributeValue): string {

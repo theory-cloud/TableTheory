@@ -768,6 +768,11 @@ def _assert_expectation(
         assert _map_error(error) == expect["error"]
         assert not has_item_assertion, "item assertions cannot be combined with error expectations"
         return
+    if "errors" in expect:
+        assert error is not None
+        assert sorted(_map_errors(error)) == sorted(expect["errors"])
+        assert not has_item_assertion, "item assertions cannot be combined with error expectations"
+        return
 
     if has_item_assertion:
         assert error is None, "expected successful operation for item assertions"
@@ -845,6 +850,11 @@ def _assert_read_expectation(
     if "error" in expect:
         assert error is not None
         assert _map_error(error) == expect["error"]
+        assert not has_read_assertion, "read assertions cannot be combined with error expectations"
+        return
+    if "errors" in expect:
+        assert error is not None
+        assert sorted(_map_errors(error)) == sorted(expect["errors"])
         assert not has_read_assertion, "read assertions cannot be combined with error expectations"
         return
 
@@ -963,27 +973,32 @@ def _assert_item_equals(
 
 
 def _map_error(error: Exception) -> str:
+    errors = _map_errors(error)
+    return errors[0] if errors else ""
+
+
+def _map_errors(error: Exception) -> list[str]:
     if isinstance(error, NotFoundError):
-        return "ErrItemNotFound"
+        return ["ErrItemNotFound"]
     if isinstance(error, EncryptionNotConfiguredError):
-        return "ErrEncryptionNotConfigured"
+        return ["ErrEncryptionNotConfigured"]
     if isinstance(error, ConditionFailedError):
-        return "ErrConditionFailed"
+        return ["ErrConditionFailed"]
     if isinstance(error, ImmutableModelMutationError):
-        return "ErrImmutableModelMutation"
+        return ["ErrImmutableModelMutation"]
     if isinstance(error, ProtectedFieldMutationError):
-        return "ErrProtectedFieldMutation"
+        return ["ErrProtectedFieldMutation"]
     if isinstance(error, RejectedDeployAuthorityEvidenceError):
-        return "ErrRejectedDeployAuthorityEvidence"
+        return ["ErrRejectedDeployAuthorityEvidence"]
     if isinstance(error, ValidationError):
         if (
             "consistent_read" in str(error)
             or "unsupported sort operator" in str(error)
             or "unsupported filter operator" in str(error)
         ):
-            return "ErrInvalidOperator"
-        return "ErrInvalidModel"
-    return ""
+            return ["ErrInvalidOperator"]
+        return ["ErrInvalidModel"]
+    return []
 
 
 def _expected_version(table: Table[Any], item: dict[str, Any]) -> int | None:
