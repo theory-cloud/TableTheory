@@ -42,6 +42,36 @@ func TestMarshalerFactory_WithConverter_UsesProvidedConverter(t *testing.T) {
 	require.Same(t, converter, unsafeMarshaler.converter)
 }
 
+func TestMarshalerFactory_SafeConverterAndNilNow(t *testing.T) {
+	cfg := DefaultConfig()
+	converter := pkgTypes.NewConverter()
+
+	factory := NewMarshalerFactory(cfg).WithConverter(converter).WithNowFunc(nil)
+	marshaler, err := factory.NewMarshaler()
+	require.NoError(t, err)
+
+	safeMarshaler, ok := marshaler.(*SafeMarshaler)
+	require.True(t, ok, "expected safe marshaler implementation, got %T", marshaler)
+	require.Same(t, converter, safeMarshaler.converter)
+	require.NotNil(t, safeMarshaler.now)
+}
+
+func TestMarshalerFactory_UnsafeAckMissingSignature(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.MarshalerType = UnsafeMarshalerType
+	cfg.AllowUnsafeMarshaler = true
+	cfg.RequireExplicitUnsafeAck = true
+	cfg.WarnOnUnsafeUsage = false
+
+	ack := &SecurityAcknowledgment{
+		AcknowledgeMemoryCorruptionRisk: true,
+		AcknowledgeSecurityVulnerable:   true,
+		AcknowledgeDeprecationWarning:   true,
+	}
+	_, err := NewMarshalerFactory(cfg).NewMarshalerWithAcknowledgment(ack)
+	require.ErrorContains(t, err, "developer signature required")
+}
+
 func TestMarshalerFactory_ForceSafeOverride(t *testing.T) {
 	t.Setenv("DYNAMORM_FORCE_SAFE_MARSHALER", "true")
 
