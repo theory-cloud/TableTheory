@@ -37,13 +37,13 @@ func runContractScenarios(t *testing.T, scenarioRelDir string) {
 
 	ctx := context.Background()
 
-	drv, err := driver.NewTheorydbDriver()
+	probe, err := driver.NewTheorydbDriver()
 	require.NoError(t, err)
 
-	r, err := runner.New(drv)
+	probeRunner, err := runner.New(probe)
 	require.NoError(t, err)
 
-	if err := r.Ping(ctx); err != nil {
+	if err := probeRunner.Ping(ctx); err != nil {
 		t.Skipf("DynamoDB Local not reachable (set DYNAMODB_ENDPOINT or start docker compose): %v", err)
 	}
 
@@ -62,6 +62,17 @@ func runContractScenarios(t *testing.T, scenarioRelDir string) {
 		path := path
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			s, err := scenario.LoadFile(path)
+			require.NoError(t, err)
+
+			drv, err := driver.NewTheorydbDriver(driver.Options{
+				Encryption: driver.EncryptionOptions{
+					Provider: s.Encryption.Provider,
+					Seed:     s.Encryption.Seed,
+				},
+			})
+			require.NoError(t, err)
+
+			r, err := runner.New(drv)
 			require.NoError(t, err)
 
 			if missing := scenario.MissingCapabilities(s.RequiresCapabilities, drv.Capabilities()); len(missing) > 0 {

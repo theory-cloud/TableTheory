@@ -120,11 +120,12 @@ func MapError(err error) ErrorCode {
 }
 
 type TheorydbDriver struct {
-	db core.ExtendedDB
+	db                      core.ExtendedDB
+	deterministicEncryption bool
 }
 
 func (d *TheorydbDriver) Capabilities() []string {
-	return []string{
+	capabilities := []string{
 		"crud",
 		"omitempty",
 		"lifecycle.timestamps",
@@ -137,10 +138,24 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"release_state.write_policy",
 		"release_state.transactional_transition",
 		"release_state.provenance_confidence",
+		"encryption.fail_closed",
 	}
+	if d.deterministicEncryption {
+		capabilities = append(capabilities, "encryption.deterministic_interop")
+	}
+	return capabilities
 }
 
-func NewTheorydbDriver() (*TheorydbDriver, error) {
+type Options struct {
+	Encryption EncryptionOptions
+}
+
+type EncryptionOptions struct {
+	Provider string
+	Seed     string
+}
+
+func NewTheorydbDriver(options ...Options) (*TheorydbDriver, error) {
 	endpoint := os.Getenv("DYNAMODB_ENDPOINT")
 	if endpoint == "" {
 		endpoint = "http://localhost:8000"
@@ -153,14 +168,27 @@ func NewTheorydbDriver() (*TheorydbDriver, error) {
 		region = "us-east-1"
 	}
 
-	db, err := tabletheory.New(session.Config{
+	cfg := session.Config{
 		Region:   region,
 		Endpoint: endpoint,
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 			config.WithRegion(region),
 		},
-	})
+	}
+	deterministicEncryption := false
+	if len(options) > 0 && options[0].Encryption.Provider != "" {
+		kmsClient, rng, err := deterministicEncryptionForOptions(options[0].Encryption)
+		if err != nil {
+			return nil, err
+		}
+		cfg.KMSKeyARN = "arn:aws:kms:us-east-1:111111111111:key/contract-deterministic"
+		cfg.KMSClient = kmsClient
+		cfg.EncryptionRand = rng
+		deterministicEncryption = true
+	}
+
+	db, err := tabletheory.New(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +197,7 @@ func NewTheorydbDriver() (*TheorydbDriver, error) {
 		return nil, err
 	}
 
-	return &TheorydbDriver{db: db}, nil
+	return &TheorydbDriver{db: db, deterministicEncryption: deterministicEncryption}, nil
 }
 
 func (d *TheorydbDriver) Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error {
@@ -223,6 +251,20 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 			return nil, err
 		}
 		return normalizeTypeMatrix(out), nil
+	case "SnakeCaseRecord":
+		var out SnakeCaseRecord
+		err := d.db.WithContext(ctx).Model(&SnakeCaseRecord{}).Where("pk", "=", pk).Where("sk", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeSnakeCaseRecord(out), nil
+	case "EncryptedRecord":
+		var out EncryptedRecord
+		err := d.db.WithContext(ctx).Model(&EncryptedRecord{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeEncryptedRecord(out), nil
 	case "ReleaseStateActual":
 		var out ReleaseStateActual
 		err := d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
@@ -279,6 +321,10 @@ func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[strin
 		return d.db.WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "TypeMatrix":
 		return d.db.WithContext(ctx).Model(&TypeMatrix{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+	case "SnakeCaseRecord":
+		return d.db.WithContext(ctx).Model(&SnakeCaseRecord{}).Where("pk", "=", pk).Where("sk", "=", sk).Delete()
+	case "EncryptedRecord":
+		return d.db.WithContext(ctx).Model(&EncryptedRecord{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateActual":
 		return d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateEvent":
@@ -375,6 +421,20 @@ func (d *TheorydbDriver) executeRead(model string, q core.Query) (ReadResult, er
 			return ReadResult{}, err
 		}
 		return ReadResult{Items: normalizeTypeMatrices(out), Cursor: page.NextCursor}, nil
+	case "SnakeCaseRecord":
+		var out []SnakeCaseRecord
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeSnakeCaseRecords(out), Cursor: page.NextCursor}, nil
+	case "EncryptedRecord":
+		var out []EncryptedRecord
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeEncryptedRecords(out), Cursor: page.NextCursor}, nil
 	case "ReleaseStateActual":
 		var out []ReleaseStateActual
 		page, err := q.AllPaginated(&out)
@@ -450,9 +510,15 @@ func validateReleaseStateMetadataIfPresent(model string, item map[string]any) er
 func keyValues(key map[string]any) (string, string, error) {
 	pkVal, ok := key["PK"]
 	if !ok {
+		pkVal, ok = key["pk"]
+	}
+	if !ok {
 		return "", "", fmt.Errorf("%w: PK is required", theorydbErrors.ErrMissingPrimaryKey)
 	}
 	skVal, ok := key["SK"]
+	if !ok {
+		skVal, ok = key["sk"]
+	}
 	if !ok {
 		return "", "", fmt.Errorf("%w: SK is required", theorydbErrors.ErrMissingPrimaryKey)
 	}
@@ -469,6 +535,10 @@ func modelFromMap(model string, item map[string]any) (any, error) {
 		return numberPrecisionFromMap(item)
 	case "TypeMatrix":
 		return typeMatrixFromMap(item)
+	case "SnakeCaseRecord":
+		return snakeCaseRecordFromMap(item)
+	case "EncryptedRecord":
+		return encryptedRecordFromMap(item)
 	case "ReleaseStateActual":
 		return releaseStateActualFromMap(item)
 	case "ReleaseStateEvent":
@@ -488,6 +558,10 @@ func emptyModel(model string) (any, error) {
 		return &NumberPrecision{}, nil
 	case "TypeMatrix":
 		return &TypeMatrix{}, nil
+	case "SnakeCaseRecord":
+		return &SnakeCaseRecord{}, nil
+	case "EncryptedRecord":
+		return &EncryptedRecord{}, nil
 	case "ReleaseStateActual":
 		return &ReleaseStateActual{}, nil
 	case "ReleaseStateEvent":
@@ -753,6 +827,27 @@ type TypeMatrix struct {
 
 func (TypeMatrix) TableName() string { return "type_matrix_contract" }
 
+// SnakeCaseRecord matches the v0.1 DMS fixture that pins snake_case naming.
+type SnakeCaseRecord struct {
+	_ struct{} `theorydb:"naming:snake_case"`
+
+	PK          string `theorydb:"pk"`
+	SK          string `theorydb:"sk"`
+	DisplayName string
+	EmailHash   string
+}
+
+func (SnakeCaseRecord) TableName() string { return "snake_case_contract" }
+
+// EncryptedRecord matches the v0.1 DMS fixture that pins encryption interop.
+type EncryptedRecord struct {
+	PK     string `theorydb:"pk"`
+	SK     string `theorydb:"sk"`
+	Secret string `theorydb:"encrypted,attr:secret"`
+}
+
+func (EncryptedRecord) TableName() string { return "encrypted_records_contract" }
+
 // ReleaseStateActual matches the v0.1 release-state actual-row DMS fixture.
 type ReleaseStateActual struct {
 	PK                string         `theorydb:"pk"`
@@ -962,6 +1057,37 @@ func typeMatrixFromMap(item map[string]any) (*TypeMatrix, error) {
 	return tm, nil
 }
 
+func snakeCaseRecordFromMap(item map[string]any) (*SnakeCaseRecord, error) {
+	record := &SnakeCaseRecord{}
+	if v, ok := item["pk"]; ok {
+		record.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["sk"]; ok {
+		record.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["display_name"]; ok {
+		record.DisplayName = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["email_hash"]; ok {
+		record.EmailHash = fmt.Sprintf("%v", v)
+	}
+	return record, nil
+}
+
+func encryptedRecordFromMap(item map[string]any) (*EncryptedRecord, error) {
+	record := &EncryptedRecord{}
+	if v, ok := item["PK"]; ok {
+		record.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["SK"]; ok {
+		record.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["secret"]; ok {
+		record.Secret = fmt.Sprintf("%v", v)
+	}
+	return record, nil
+}
+
 func releaseStateActualFromMap(item map[string]any) (*ReleaseStateActual, error) {
 	actual := &ReleaseStateActual{}
 	if v, ok := item["PK"]; ok {
@@ -1105,6 +1231,39 @@ func normalizeTypeMatrices(items []TypeMatrix) []map[string]any {
 	out := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		out = append(out, normalizeTypeMatrix(item))
+	}
+	return out
+}
+
+func normalizeSnakeCaseRecord(record SnakeCaseRecord) map[string]any {
+	return map[string]any{
+		"pk":           record.PK,
+		"sk":           record.SK,
+		"display_name": record.DisplayName,
+		"email_hash":   record.EmailHash,
+	}
+}
+
+func normalizeSnakeCaseRecords(items []SnakeCaseRecord) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeSnakeCaseRecord(item))
+	}
+	return out
+}
+
+func normalizeEncryptedRecord(record EncryptedRecord) map[string]any {
+	return map[string]any{
+		"PK":     record.PK,
+		"SK":     record.SK,
+		"secret": record.Secret,
+	}
+}
+
+func normalizeEncryptedRecords(items []EncryptedRecord) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeEncryptedRecord(item))
 	}
 	return out
 }

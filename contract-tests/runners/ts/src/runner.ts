@@ -327,6 +327,7 @@ function assertExpectation(
   const hasRawAssertion = expectationHasAnyKey(expect, [
     "item_missing_fields",
     "raw_attribute_types",
+    "raw_item_contains",
   ]);
 
   if (expect.error) {
@@ -365,12 +366,26 @@ function assertExpectation(
       assert.ok(attr in item, `missing attr ${attr}`);
       const attrDef = attributeByName(model, attr);
       assert.ok(attrDef, `unknown attr ${attr}`);
-      assertValueMatches(attrDef.type, want, have, raw?.[attr]);
+      const rawValue =
+        attrDef.encryption !== undefined ? undefined : raw?.[attr];
+      assertValueMatches(attrDef.type, want, have, rawValue);
     }
   }
 
   if (expect.item_equals && item) {
     assertItemEquals(expect.item_equals, item, raw, model);
+  }
+
+  if (expect.raw_item_contains && raw) {
+    for (const [attr, want] of Object.entries(expect.raw_item_contains)) {
+      const rawValue = raw[attr];
+      assert.ok(rawValue, `missing raw attr ${attr}`);
+      assert.deepEqual(
+        attributeValueToComparable(rawValue),
+        normalizeDocument(want),
+        `raw attr ${attr}`,
+      );
+    }
   }
 
   if (expect.item_has_fields && item) {
@@ -433,7 +448,9 @@ function assertItemEquals(
       assert.ok(rawValue, `missing raw attr ${attr}`);
       const attrDef = attributeByName(model, attr);
       assert.ok(attrDef, `unknown attr ${attr}`);
-      assertValueMatches(attrDef.type, wantValue, item[attr], rawValue);
+      const rawForValue =
+        attrDef.encryption !== undefined ? undefined : rawValue;
+      assertValueMatches(attrDef.type, wantValue, item[attr], rawForValue);
     }
     return;
   }

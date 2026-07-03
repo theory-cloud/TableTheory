@@ -1,7 +1,16 @@
 export type DmsVersion = "0.1";
 
 export type ScalarType =
-  "S" | "N" | "B" | "BOOL" | "NULL" | "M" | "L" | "SS" | "NS" | "BS";
+  | "S"
+  | "N"
+  | "B"
+  | "BOOL"
+  | "NULL"
+  | "M"
+  | "L"
+  | "SS"
+  | "NS"
+  | "BS";
 
 export interface DmsDocument {
   dms_version: DmsVersion;
@@ -31,6 +40,7 @@ export interface DmsModel {
     binary?: boolean;
     format?: string;
     roles?: string[];
+    encryption?: unknown;
   }>;
   indexes?: Array<{
     name: string;
@@ -48,9 +58,15 @@ export interface Scenario {
   model: string;
   table?: { name?: string };
   steps: Step[];
+  encryption?: EncryptionScenarioConfig;
   seed_runtime?: "go" | "ts" | "py" | string;
   seed_steps?: Step[];
   read_steps?: Step[];
+}
+
+export interface EncryptionScenarioConfig {
+  provider?: "deterministic" | string;
+  seed?: string;
 }
 
 export interface Step {
@@ -116,6 +132,7 @@ export interface Expectation {
   error?: string;
   item_contains?: Record<string, unknown>;
   item_equals?: Record<string, unknown>;
+  raw_item_contains?: Record<string, unknown>;
   items_contains?: Array<Record<string, unknown>>;
   items_missing_fields?: string[];
   item_count?: number;

@@ -248,6 +248,7 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 		require.NotNil(t, item, "expected item for item assertions")
 	}
 	if hasRawAssertion {
+		require.NoError(t, err, "expected successful operation for raw-item assertions")
 		require.NotNil(t, raw, "expected raw item for raw assertions")
 	}
 	if expect.Ok != nil {
@@ -267,12 +268,24 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 			require.True(t, ok, "missing attr %s in item", attr)
 			attrDef := model.AttributeByName(attr)
 			require.NotNil(t, attrDef, "unknown attr %s in model %s", attr, model.Name)
-			assertValueMatches(t, *attrDef, want, have, raw[attr])
+			rawValue := raw[attr]
+			if attrDef.Encryption != nil {
+				rawValue = nil
+			}
+			assertValueMatches(t, *attrDef, want, have, rawValue)
 		}
 	}
 
 	if len(expect.ItemEquals) > 0 {
 		assertItemEquals(t, expect.ItemEquals, item, raw, model)
+	}
+
+	if len(expect.RawItemContains) > 0 {
+		for attr, want := range expect.RawItemContains {
+			rawValue, ok := raw[attr]
+			require.True(t, ok, "missing raw attr %s", attr)
+			require.Equal(t, normalizeComparableDocument(want), attributeValueToComparable(rawValue), "raw attr %s", attr)
+		}
 	}
 
 	if len(expect.ItemHasFields) > 0 {
@@ -415,7 +428,9 @@ func expectationHasItemAssertion(expect scenario.Expectation) bool {
 }
 
 func expectationHasRawItemAssertion(expect scenario.Expectation) bool {
-	return len(expect.ItemMissingFields) > 0 || len(expect.RawAttributeTypes) > 0
+	return len(expect.ItemMissingFields) > 0 ||
+		len(expect.RawAttributeTypes) > 0 ||
+		len(expect.RawItemContains) > 0
 }
 
 func expectationHasReadAssertion(expect scenario.Expectation) bool {

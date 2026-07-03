@@ -1,0 +1,33 @@
+name: "p0.encryption.deterministic_envelope"
+dms_version: "0.1"
+requires_capabilities: ["encryption.deterministic_interop"]
+model: "EncryptedRecord"
+table:
+  name: "encrypted_records_contract"
+encryption:
+  provider: "deterministic"
+  seed: "tabletheory-contract-deterministic-v1"
+steps:
+  - op: create
+    item:
+      PK: "ENC#deterministic"
+      SK: "PROFILE"
+      secret: "swordfish"
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "ENC#deterministic"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        PK: "ENC#deterministic"
+        SK: "PROFILE"
+        secret: "swordfish"
+      raw_item_contains:
+        secret:
+          v: "1"
+          edk: "XONOrWSZhjrF/MJWtfYCHo3ZYuo06RpuWg58Zzp/0fA="
+          nonce: "9XnmH4+kMtNp9ww0"
+          ct: "87D9/CLvoSycrYqbnc14gtwxznqdQGswoY3be4pyvHAOA2H0wiyK6vQ="

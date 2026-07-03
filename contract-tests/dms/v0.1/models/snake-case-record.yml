@@ -1,0 +1,26 @@
+dms_version: "0.1"
+namespace: "theorydb.contract"
+models:
+  - name: "SnakeCaseRecord"
+    table:
+      name: "snake_case_contract"
+    naming:
+      convention: "snake_case"
+    keys:
+      partition: { attribute: "pk", type: "S" }
+      sort: { attribute: "sk", type: "S" }
+    attributes:
+      - attribute: "pk"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "sk"
+        type: "S"
+        required: true
+        roles: ["sk"]
+      - attribute: "display_name"
+        type: "S"
+        optional: true
+      - attribute: "email_hash"
+        type: "S"
+        optional: true

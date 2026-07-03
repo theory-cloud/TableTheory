@@ -9,19 +9,25 @@ import (
 )
 
 type Scenario struct {
-	Name                 string   `yaml:"name"`
-	DMSVersion           string   `yaml:"dms_version"`
-	RequiresCapabilities []string `yaml:"requires_capabilities"`
-	Model                string   `yaml:"model"`
-	Table                Table    `yaml:"table"`
-	Steps                []Step   `yaml:"steps"`
-	SeedRuntime          string   `yaml:"seed_runtime"`
-	SeedSteps            []Step   `yaml:"seed_steps"`
-	ReadSteps            []Step   `yaml:"read_steps"`
+	Name                 string           `yaml:"name"`
+	DMSVersion           string           `yaml:"dms_version"`
+	RequiresCapabilities []string         `yaml:"requires_capabilities"`
+	Model                string           `yaml:"model"`
+	Table                Table            `yaml:"table"`
+	Encryption           EncryptionConfig `yaml:"encryption"`
+	Steps                []Step           `yaml:"steps"`
+	SeedRuntime          string           `yaml:"seed_runtime"`
+	SeedSteps            []Step           `yaml:"seed_steps"`
+	ReadSteps            []Step           `yaml:"read_steps"`
 }
 
 type Table struct {
 	Name string `yaml:"name"`
+}
+
+type EncryptionConfig struct {
+	Provider string `yaml:"provider"`
+	Seed     string `yaml:"seed"`
 }
 
 type Step struct {
@@ -77,6 +83,7 @@ type Expectation struct {
 	Error                 string            `yaml:"error"`
 	ItemContains          map[string]any    `yaml:"item_contains"`
 	ItemEquals            map[string]any    `yaml:"item_equals"`
+	RawItemContains       map[string]any    `yaml:"raw_item_contains"`
 	ItemsContains         []map[string]any  `yaml:"items_contains"`
 	ItemsMissingFields    []string          `yaml:"items_missing_fields"`
 	ItemCount             *int              `yaml:"item_count"`

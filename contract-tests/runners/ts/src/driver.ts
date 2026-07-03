@@ -1,12 +1,15 @@
 import type { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { TheorydbClient } from "../../../../ts/src/client.js";
+import type { EncryptionProvider } from "../../../../ts/src/encryption.js";
 import { TheorydbError } from "../../../../ts/src/errors.js";
 import type { Model } from "../../../../ts/src/model.js";
 import {
   transitionReleaseState,
   validateDeployAuthorityMetadata,
 } from "../../../../ts/src/release-state.js";
+import { createDeterministicEncryptionProvider } from "../../../../ts/src/testkit/index.js";
 import type { ReadCondition, ReadRequest } from "./types.js";
+import type { EncryptionScenarioConfig } from "./types.js";
 
 export type ErrorCode =
   | "ErrItemNotFound"
@@ -76,13 +79,13 @@ export class TheorydbDriver implements Driver {
   constructor(
     ddb: DynamoDBClient,
     models: Model[],
-    opts: { exactNumbers?: boolean } = {},
+    opts: { exactNumbers?: boolean; encryption?: EncryptionProvider } = {},
   ) {
     this.exactNumbers = opts.exactNumbers ?? false;
-    this.client = new TheorydbClient(
-      ddb,
-      this.exactNumbers ? { numberUnmarshalMode: "string" } : {},
-    ).register(...models);
+    this.client = new TheorydbClient(ddb, {
+      ...(this.exactNumbers ? { numberUnmarshalMode: "string" } : {}),
+      ...(opts.encryption ? { encryption: opts.encryption } : {}),
+    }).register(...models);
   }
 
   capabilities(): readonly string[] {
@@ -99,6 +102,8 @@ export class TheorydbDriver implements Driver {
       "release_state.write_policy",
       "release_state.transactional_transition",
       "release_state.provenance_confidence",
+      "encryption.fail_closed",
+      "encryption.deterministic_interop",
     ];
   }
 
@@ -214,6 +219,25 @@ export class TheorydbDriver implements Driver {
     }
     validateDeployAuthorityMetadata(item);
   }
+}
+
+export function encryptionProviderForScenario(
+  config: EncryptionScenarioConfig | undefined,
+): EncryptionProvider | undefined {
+  if (!config) return undefined;
+  if (config.provider !== "deterministic") {
+    throw new TheorydbError(
+      "ErrInvalidModel",
+      `unsupported scenario encryption provider: ${String(config.provider ?? "")}`,
+    );
+  }
+  if (!config.seed) {
+    throw new TheorydbError(
+      "ErrInvalidModel",
+      "deterministic scenario encryption requires seed",
+    );
+  }
+  return createDeterministicEncryptionProvider(config.seed);
 }
 
 function contractItemForModel(

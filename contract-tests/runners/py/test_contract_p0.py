@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import os
 import time
 from dataclasses import asdict, dataclass, is_dataclass
@@ -16,6 +18,7 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 
 from theorydb_py import (
     ConditionFailedError,
+    EncryptionNotConfiguredError,
     FilterCondition,
     FilterGroup,
     ImmutableModelMutationError,
@@ -119,6 +122,21 @@ class _TypeMatrix:
 
 
 @dataclass(frozen=True)
+class _SnakeCaseRecord:
+    pk: str = theorydb_field(roles=["pk"])
+    sk: str = theorydb_field(roles=["sk"])
+    display_name: str | None = None
+    email_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class _EncryptedRecord:
+    PK: str = theorydb_field(name="PK", roles=["pk"])
+    SK: str = theorydb_field(name="SK", roles=["sk"])
+    secret: str | None = theorydb_field(encrypted=True, default=None)
+
+
+@dataclass(frozen=True)
 class _ReleaseStateActual:
     PK: str = theorydb_field(name="PK", roles=["pk"])
     SK: str = theorydb_field(name="SK", roles=["sk"])
@@ -143,9 +161,51 @@ class _ReleaseStateEvent:
     ttl: int | None = theorydb_field(roles=["ttl"], omitempty=True, default=None)
 
 
+class _DeterministicEncryptionMaterial:
+    def __init__(self, seed: str, *, model: str, attribute: str) -> None:
+        self._master = hashlib.sha256(seed.encode("utf-8")).digest()
+        self._model = model
+        self._attribute = attribute
+        self._counter = 0
+
+    def next_bytes(self, label: str, n: int) -> bytes:
+        self._counter += 1
+        digest = hmac.new(self._master, f"{label}|{self._counter}".encode("utf-8"), hashlib.sha256).digest()
+        return digest[:n]
+
+    def data_key(self, edk: bytes) -> bytes:
+        return hmac.new(self._master, edk, hashlib.sha256).digest()
+
+    def generate_data_key(self, *, KeyId: str, KeySpec: str) -> dict[str, bytes | str]:
+        del KeyId, KeySpec
+        edk = self.next_bytes(f"edk|{self._model}|{self._attribute}", 32)
+        return {"Plaintext": self.data_key(edk), "CiphertextBlob": edk}
+
+    def decrypt(self, *, CiphertextBlob: bytes, KeyId: str | None = None) -> dict[str, bytes]:
+        del KeyId
+        return {"Plaintext": self.data_key(bytes(CiphertextBlob))}
+
+    def rand_bytes(self, n: int) -> bytes:
+        return self.next_bytes(f"nonce|{self._model}|{self._attribute}", n)
+
+
+def _deterministic_encryption_material(
+    config: dict[str, Any] | None,
+) -> _DeterministicEncryptionMaterial | None:
+    if not config:
+        return None
+    if config.get("provider") != "deterministic":
+        raise ValidationError(f"unsupported scenario encryption provider: {config.get('provider')!r}")
+    seed = config.get("seed")
+    if not isinstance(seed, str) or not seed:
+        raise ValidationError("deterministic scenario encryption requires seed")
+    return _DeterministicEncryptionMaterial(seed, model="EncryptedRecord", attribute="secret")
+
+
 class _TheorydbPyDriver:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, *, encryption: dict[str, Any] | None = None) -> None:
         self.client = client
+        self.encryption = _deterministic_encryption_material(encryption)
         self.tables: dict[str, Table[Any]] = {
             "User": Table(
                 ModelDefinition.from_dataclass(
@@ -160,7 +220,12 @@ class _TheorydbPyDriver:
                     _Order,
                     table_name="orders_contract",
                     indexes=[
-                        gsi("gsi-status", partition="status", sort="createdAt", projection=Projection.include("amount"))
+                        gsi(
+                            "gsi-status",
+                            partition="status",
+                            sort="createdAt",
+                            projection=Projection.include("amount"),
+                        )
                     ],
                 ),
                 client=client,
@@ -176,6 +241,13 @@ class _TheorydbPyDriver:
                 ModelDefinition.from_dataclass(
                     _TypeMatrix,
                     table_name="type_matrix_contract",
+                ),
+                client=client,
+            ),
+            "SnakeCaseRecord": Table(
+                ModelDefinition.from_dataclass(
+                    _SnakeCaseRecord,
+                    table_name="snake_case_contract",
                 ),
                 client=client,
             ),
@@ -197,9 +269,28 @@ class _TheorydbPyDriver:
             ),
         }
 
+    def _table(self, model: str) -> Table[Any]:
+        if model == "EncryptedRecord":
+            kwargs: dict[str, Any] = {}
+            if self.encryption is not None:
+                kwargs = {
+                    "kms_key_arn": "arn:aws:kms:us-east-1:111111111111:key/contract-deterministic",
+                    "kms_client": self.encryption,
+                    "rand_bytes": self.encryption.rand_bytes,
+                }
+            return Table(
+                ModelDefinition.from_dataclass(
+                    _EncryptedRecord,
+                    table_name="encrypted_records_contract",
+                ),
+                client=self.client,
+                **kwargs,
+            )
+        return self.tables[model]
+
     def create(self, model: str, item: dict[str, Any], *, if_not_exists: bool = False) -> None:
         self._validate_release_state_metadata_if_present(model, item)
-        table = self.tables[model]
+        table = self._table(model)
         kwargs: dict[str, Any] = {}
         if if_not_exists:
             kwargs = {
@@ -209,8 +300,8 @@ class _TheorydbPyDriver:
         table.put(self._item(model, item), **kwargs)
 
     def get(self, model: str, key: dict[str, Any]) -> dict[str, Any]:
-        table = self.tables[model]
-        return _contract_item(table.get(key["PK"], key["SK"], consistent_read=True))
+        table = self._table(model)
+        return _contract_item(table.get(_pk_value(key), _sk_value(key), consistent_read=True))
 
     def update(
         self,
@@ -220,12 +311,12 @@ class _TheorydbPyDriver:
         *,
         protected_attributes: list[str] | None = None,
     ) -> None:
-        table = self.tables[model]
+        table = self._table(model)
         updates = {field: item[field] for field in fields if field in item}
         expected_version = _expected_version(table, item)
         table.update(
-            item["PK"],
-            item["SK"],
+            _pk_value(item),
+            _sk_value(item),
             updates,
             expected_version=expected_version,
             protected_attributes=protected_attributes or [],
@@ -233,16 +324,16 @@ class _TheorydbPyDriver:
 
     def save(self, model: str, item: dict[str, Any]) -> None:
         self._validate_release_state_metadata_if_present(model, item)
-        self.tables[model].save(self._item(model, item))
+        self._table(model).save(self._item(model, item))
 
     def delete(self, model: str, key: dict[str, Any]) -> None:
-        self.tables[model].delete(key["PK"], key["SK"])
+        self._table(model).delete(_pk_value(key), _sk_value(key))
 
     def query(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
         partition = request.get("partition")
         if partition is None:
             raise ValidationError("query partition is required")
-        page = self.tables[model].query(
+        page = self._table(model).query(
             _condition_value(partition),
             sort=_sort_condition(request.get("sort")),
             index_name=request.get("index"),
@@ -256,7 +347,7 @@ class _TheorydbPyDriver:
         return {"items": [_contract_item(item) for item in page.items], "cursor": page.next_cursor}
 
     def scan(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
-        page = self.tables[model].scan(
+        page = self._table(model).scan(
             index_name=request.get("index"),
             limit=request.get("limit"),
             cursor=request.get("cursor"),
@@ -268,8 +359,8 @@ class _TheorydbPyDriver:
 
     def transition_append_event(self, actual: dict[str, Any], event: dict[str, Any]) -> None:
         transition_release_state(
-            self.tables[actual["model"]],
-            self.tables[event["model"]],
+            self._table(actual["model"]),
+            self._table(event["model"]),
             actual_key=actual["key"],
             expected_version=actual.get("expected_version"),
             set_values=actual["set"],
@@ -309,12 +400,22 @@ class _TheorydbPyDriver:
             if "binaryBlob" in kwargs and kwargs["binaryBlob"] is not None:
                 kwargs["binaryBlob"] = base64.b64decode(cast(str, kwargs["binaryBlob"]))
             if "binarySet" in kwargs and kwargs["binarySet"] is not None:
-                kwargs["binarySet"] = {base64.b64decode(cast(str, item)) for item in cast(list[Any], kwargs["binarySet"])}
+                kwargs["binarySet"] = {
+                    base64.b64decode(cast(str, item)) for item in cast(list[Any], kwargs["binarySet"])
+                }
             if "emptyNumberSet" in kwargs and kwargs["emptyNumberSet"] is not None:
-                kwargs["emptyNumberSet"] = {Decimal(str(item)) for item in cast(list[Any], kwargs["emptyNumberSet"])}
+                kwargs["emptyNumberSet"] = {
+                    Decimal(str(item)) for item in cast(list[Any], kwargs["emptyNumberSet"])
+                }
             if "emptyBinarySet" in kwargs and kwargs["emptyBinarySet"] is not None:
-                kwargs["emptyBinarySet"] = {base64.b64decode(cast(str, item)) for item in cast(list[Any], kwargs["emptyBinarySet"])}
+                kwargs["emptyBinarySet"] = {
+                    base64.b64decode(cast(str, item)) for item in cast(list[Any], kwargs["emptyBinarySet"])
+                }
             return _TypeMatrix(**kwargs)
+        if model == "SnakeCaseRecord":
+            return _SnakeCaseRecord(**kwargs)
+        if model == "EncryptedRecord":
+            return _EncryptedRecord(**kwargs)
         if model == "ReleaseStateActual":
             return _ReleaseStateActual(**kwargs)
         if model == "ReleaseStateEvent":
@@ -337,7 +438,7 @@ def test_p0_contract_scenarios_execute_for_python(scenario: dict[str, Any]) -> N
             pytest.skip("DynamoDB Local not reachable and SKIP_INTEGRATION is set")
         raise
 
-    driver = _TheorydbPyDriver(client)
+    driver = _TheorydbPyDriver(client, encryption=scenario.get("encryption"))
     _run_scenario(client, driver, scenario, models)
 
 
@@ -356,7 +457,7 @@ def test_p1_contract_scenarios_execute_for_python(scenario: dict[str, Any]) -> N
             pytest.skip("DynamoDB Local not reachable and SKIP_INTEGRATION is set")
         raise
 
-    driver = _TheorydbPyDriver(client)
+    driver = _TheorydbPyDriver(client, encryption=scenario.get("encryption"))
     _run_scenario(client, driver, scenario, models)
 
 
@@ -377,7 +478,7 @@ def test_cross_runtime_interop_scenarios_execute_for_python(scenario: dict[str, 
     client = _dynamodb_client()
     client.list_tables(Limit=1)
 
-    driver = _TheorydbPyDriver(client)
+    driver = _TheorydbPyDriver(client, encryption=scenario.get("encryption"))
     _run_scenario(client, driver, scenario, models)
 
 
@@ -395,6 +496,8 @@ def _supported_capabilities() -> list[str]:
         "release_state.write_policy",
         "release_state.transactional_transition",
         "release_state.provenance_confidence",
+        "encryption.fail_closed",
+        "encryption.deterministic_interop",
     ]
 
 
@@ -411,6 +514,18 @@ def _condition_value(condition: dict[str, Any]) -> Any:
     if "values" in condition:
         return condition["values"]
     return condition.get("value")
+
+
+def _pk_value(values: dict[str, Any]) -> Any:
+    if "PK" in values:
+        return values["PK"]
+    return values["pk"]
+
+
+def _sk_value(values: dict[str, Any]) -> Any:
+    if "SK" in values:
+        return values["SK"]
+    return values["sk"]
 
 
 def _condition_values(condition: dict[str, Any]) -> tuple[Any, ...]:
@@ -639,11 +754,14 @@ def _assert_expectation(
             "item_has_fields",
             "item_missing_fields",
             "raw_attribute_types",
+            "raw_item_contains",
             "item_field_equals_var",
             "item_field_not_equals_var",
         },
     )
-    has_raw_assertion = _expectation_has_any_key(expect, {"item_missing_fields", "raw_attribute_types"})
+    has_raw_assertion = _expectation_has_any_key(
+        expect, {"item_missing_fields", "raw_attribute_types", "raw_item_contains"}
+    )
 
     if "error" in expect:
         assert error is not None
@@ -672,11 +790,19 @@ def _assert_expectation(
             attr_def = _attribute_by_name(model, attr)
             assert attr_def is not None
             raw_value = None if raw is None else raw.get(attr)
+            if attr_def.get("encryption") is not None:
+                raw_value = None
             _assert_value_matches(attr_def["type"], want, item[attr], raw_value)
 
     if "item_equals" in expect:
         assert item is not None
         _assert_item_equals(expect["item_equals"], item, raw, model)
+
+    if "raw_item_contains" in expect:
+        assert raw is not None
+        for attr, want in expect["raw_item_contains"].items():
+            assert attr in raw
+            assert _attribute_value_to_contract(raw[attr]) == _normalize_document(want)
 
     if "item_has_fields" in expect:
         assert item is not None
@@ -824,7 +950,8 @@ def _assert_item_equals(
             assert attr in raw
             attr_def = _attribute_by_name(model, attr)
             assert attr_def is not None
-            _assert_value_matches(attr_def["type"], want_value, item.get(attr), raw[attr])
+            raw_value = None if attr_def.get("encryption") is not None else raw[attr]
+            _assert_value_matches(attr_def["type"], want_value, item.get(attr), raw_value)
         return
 
     assert sorted(item.keys()) == sorted(want.keys())
@@ -838,6 +965,8 @@ def _assert_item_equals(
 def _map_error(error: Exception) -> str:
     if isinstance(error, NotFoundError):
         return "ErrItemNotFound"
+    if isinstance(error, EncryptionNotConfiguredError):
+        return "ErrEncryptionNotConfigured"
     if isinstance(error, ConditionFailedError):
         return "ErrConditionFailed"
     if isinstance(error, ImmutableModelMutationError):
@@ -847,7 +976,11 @@ def _map_error(error: Exception) -> str:
     if isinstance(error, RejectedDeployAuthorityEvidenceError):
         return "ErrRejectedDeployAuthorityEvidence"
     if isinstance(error, ValidationError):
-        if "consistent_read" in str(error) or "unsupported sort operator" in str(error) or "unsupported filter operator" in str(error):
+        if (
+            "consistent_read" in str(error)
+            or "unsupported sort operator" in str(error)
+            or "unsupported filter operator" in str(error)
+        ):
             return "ErrInvalidOperator"
         return "ErrInvalidModel"
     return ""
@@ -1003,7 +1136,10 @@ def _attribute_value_to_contract(value: dict[str, Any]) -> Any:
     if "L" in value:
         return [_attribute_value_to_contract(cast(dict[str, Any], item)) for item in value["L"]]
     if "M" in value:
-        return {str(key): _attribute_value_to_contract(cast(dict[str, Any], item)) for key, item in value["M"].items()}
+        return {
+            str(key): _attribute_value_to_contract(cast(dict[str, Any], item))
+            for key, item in value["M"].items()
+        }
     raise AssertionError(f"unsupported AttributeValue: {value}")
 
 
