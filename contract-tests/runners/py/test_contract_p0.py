@@ -94,6 +94,14 @@ class _Order:
 
 
 @dataclass(frozen=True)
+class _NumberPrecision:
+    PK: str = theorydb_field(name="PK", roles=["pk"])
+    SK: str = theorydb_field(name="SK", roles=["sk"])
+    largeInteger: Decimal = Decimal(0)
+    preciseDecimal: Decimal = Decimal(0)
+
+
+@dataclass(frozen=True)
 class _ReleaseStateActual:
     PK: str = theorydb_field(name="PK", roles=["pk"])
     SK: str = theorydb_field(name="SK", roles=["sk"])
@@ -137,6 +145,13 @@ class _TheorydbPyDriver:
                     indexes=[
                         gsi("gsi-status", partition="status", sort="createdAt", projection=Projection.all())
                     ],
+                ),
+                client=client,
+            ),
+            "NumberPrecision": Table(
+                ModelDefinition.from_dataclass(
+                    _NumberPrecision,
+                    table_name="number_precision_contract",
                 ),
                 client=client,
             ),
@@ -258,6 +273,12 @@ class _TheorydbPyDriver:
             return _User(**kwargs)
         if model == "Order":
             return _Order(**kwargs)
+        if model == "NumberPrecision":
+            if "largeInteger" in kwargs and kwargs["largeInteger"] is not None:
+                kwargs["largeInteger"] = Decimal(str(kwargs["largeInteger"]))
+            if "preciseDecimal" in kwargs and kwargs["preciseDecimal"] is not None:
+                kwargs["preciseDecimal"] = Decimal(str(kwargs["preciseDecimal"]))
+            return _NumberPrecision(**kwargs)
         if model == "ReleaseStateActual":
             return _ReleaseStateActual(**kwargs)
         if model == "ReleaseStateEvent":
@@ -312,6 +333,7 @@ def _supported_capabilities() -> list[str]:
         "lifecycle.timestamps",
         "optimistic_lock.version",
         "ttl.epoch_seconds",
+        "number.precision.exact",
         "query.basic",
         "scan.basic",
         "release_state.write_policy",

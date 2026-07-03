@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory"
 	"github.com/theory-cloud/tabletheory/pkg/core"
@@ -126,6 +128,7 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"lifecycle.timestamps",
 		"optimistic_lock.version",
 		"ttl.epoch_seconds",
+		"number.precision.exact",
 		"query.basic",
 		"scan.basic",
 		"release_state.write_policy",
@@ -156,6 +159,10 @@ func NewTheorydbDriver() (*TheorydbDriver, error) {
 		},
 	})
 	if err != nil {
+		return nil, err
+	}
+
+	if err := db.RegisterTypeConverter(reflect.TypeOf(DecimalString("")), decimalStringConverter{}); err != nil {
 		return nil, err
 	}
 
@@ -199,6 +206,13 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 			return nil, err
 		}
 		return normalizeOrder(out), nil
+	case "NumberPrecision":
+		var out NumberPrecision
+		err := d.db.WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeNumberPrecision(out), nil
 	case "ReleaseStateActual":
 		var out ReleaseStateActual
 		err := d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
@@ -251,6 +265,8 @@ func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[strin
 		return d.db.WithContext(ctx).Model(&User{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "Order":
 		return d.db.WithContext(ctx).Model(&Order{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+	case "NumberPrecision":
+		return d.db.WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateActual":
 		return d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateEvent":
@@ -333,6 +349,13 @@ func (d *TheorydbDriver) executeRead(model string, q core.Query) (ReadResult, er
 			return ReadResult{}, err
 		}
 		return ReadResult{Items: normalizeOrders(out), Cursor: page.NextCursor}, nil
+	case "NumberPrecision":
+		var out []NumberPrecision
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeNumberPrecisions(out), Cursor: page.NextCursor}, nil
 	case "ReleaseStateActual":
 		var out []ReleaseStateActual
 		page, err := q.AllPaginated(&out)
@@ -423,6 +446,8 @@ func modelFromMap(model string, item map[string]any) (any, error) {
 		return userFromMap(item)
 	case "Order":
 		return orderFromMap(item)
+	case "NumberPrecision":
+		return numberPrecisionFromMap(item)
 	case "ReleaseStateActual":
 		return releaseStateActualFromMap(item)
 	case "ReleaseStateEvent":
@@ -438,6 +463,8 @@ func emptyModel(model string) (any, error) {
 		return &User{}, nil
 	case "Order":
 		return &Order{}, nil
+	case "NumberPrecision":
+		return &NumberPrecision{}, nil
 	case "ReleaseStateActual":
 		return &ReleaseStateActual{}, nil
 	case "ReleaseStateEvent":
@@ -564,6 +591,43 @@ type Order struct {
 
 func (Order) TableName() string { return "orders_contract" }
 
+// DecimalString stores an exact DynamoDB N decimal string through TableTheory's custom converter hook.
+type DecimalString string
+
+type decimalStringConverter struct{}
+
+func (decimalStringConverter) ToAttributeValue(value any) (ddbtypes.AttributeValue, error) {
+	decimal, ok := value.(DecimalString)
+	if !ok {
+		return nil, fmt.Errorf("expected DecimalString, got %T", value)
+	}
+	return &ddbtypes.AttributeValueMemberN{Value: string(decimal)}, nil
+}
+
+func (decimalStringConverter) FromAttributeValue(av ddbtypes.AttributeValue, target any) error {
+	number, ok := av.(*ddbtypes.AttributeValueMemberN)
+	if !ok {
+		return fmt.Errorf("expected DynamoDB N for DecimalString, got %T", av)
+	}
+	switch out := target.(type) {
+	case *DecimalString:
+		*out = DecimalString(number.Value)
+		return nil
+	default:
+		return fmt.Errorf("expected *DecimalString, got %T", target)
+	}
+}
+
+// NumberPrecision matches the v0.1 DMS fixture for exact numeric round-trips.
+type NumberPrecision struct {
+	PK             string        `theorydb:"pk"`
+	SK             string        `theorydb:"sk"`
+	LargeInteger   int64         `theorydb:"attr:largeInteger"`
+	PreciseDecimal DecimalString `theorydb:"attr:preciseDecimal"`
+}
+
+func (NumberPrecision) TableName() string { return "number_precision_contract" }
+
 // ReleaseStateActual matches the v0.1 release-state actual-row DMS fixture.
 type ReleaseStateActual struct {
 	PK                string         `theorydb:"pk"`
@@ -678,6 +742,27 @@ func orderFromMap(item map[string]any) (*Order, error) {
 	return o, nil
 }
 
+func numberPrecisionFromMap(item map[string]any) (*NumberPrecision, error) {
+	n := &NumberPrecision{}
+	if v, ok := item["PK"]; ok {
+		n.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["SK"]; ok {
+		n.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["largeInteger"]; ok {
+		parsed, err := asInt64(v)
+		if err != nil {
+			return nil, err
+		}
+		n.LargeInteger = parsed
+	}
+	if v, ok := item["preciseDecimal"]; ok {
+		n.PreciseDecimal = DecimalString(fmt.Sprintf("%v", v))
+	}
+	return n, nil
+}
+
 func releaseStateActualFromMap(item map[string]any) (*ReleaseStateActual, error) {
 	actual := &ReleaseStateActual{}
 	if v, ok := item["PK"]; ok {
@@ -779,6 +864,23 @@ func normalizeUsers(items []User) []map[string]any {
 	out := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		out = append(out, normalizeUser(item))
+	}
+	return out
+}
+
+func normalizeNumberPrecision(n NumberPrecision) map[string]any {
+	return map[string]any{
+		"PK":             n.PK,
+		"SK":             n.SK,
+		"largeInteger":   n.LargeInteger,
+		"preciseDecimal": string(n.PreciseDecimal),
+	}
+}
+
+func normalizeNumberPrecisions(items []NumberPrecision) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeNumberPrecision(item))
 	}
 	return out
 }
