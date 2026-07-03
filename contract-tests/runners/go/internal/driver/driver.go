@@ -46,6 +46,7 @@ type Driver interface {
 	Capabilities() []string
 	Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error
 	Get(ctx context.Context, model string, key map[string]any) (map[string]any, error)
+	GetOptional(ctx context.Context, model string, key map[string]any) (map[string]any, bool, error)
 	Update(ctx context.Context, model string, item map[string]any, fields []string, protectedAttributes []string) error
 	Save(ctx context.Context, model string, item map[string]any) error
 	Delete(ctx context.Context, model string, key map[string]any) error
@@ -298,6 +299,10 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 	default:
 		return nil, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
+}
+
+func (d *TheorydbDriver) GetOptional(ctx context.Context, model string, key map[string]any) (map[string]any, bool, error) {
+	return nil, false, fmt.Errorf("%w: optional get is not advertised", theorydbErrors.ErrInvalidOperator)
 }
 
 func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[string]any, fields []string, protectedAttributes []string) error {

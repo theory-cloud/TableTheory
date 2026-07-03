@@ -64,6 +64,7 @@ export interface Step {
   op:
     | "create"
     | "get"
+    | "get_optional"
     | "update"
     | "delete"
     | "query"
@@ -136,6 +137,7 @@ export interface Expectation {
   items_missing_fields?: string[];
   item_count?: number;
   count?: number;
+  item_absent?: boolean;
   cursor_equals?: string;
   item_has_fields?: string[];
   item_missing_fields?: string[];

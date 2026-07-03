@@ -95,6 +95,7 @@ type Expectation struct {
 	ItemsMissingFields    []string          `yaml:"items_missing_fields"`
 	ItemCount             *int              `yaml:"item_count"`
 	Count                 *int              `yaml:"count"`
+	ItemAbsent            *bool             `yaml:"item_absent"`
 	CursorEquals          *string           `yaml:"cursor_equals"`
 	ItemHasFields         []string          `yaml:"item_has_fields"`
 	ItemMissingFields     []string          `yaml:"item_missing_fields"`
@@ -165,7 +166,7 @@ func validateStep(label string, i int, step Step) error {
 		if len(step.Item) == 0 {
 			return fmt.Errorf("%s %s: item is required", prefix, step.Op)
 		}
-	case "get", "delete":
+	case "get", "get_optional", "delete":
 		if len(step.Key) == 0 {
 			return fmt.Errorf("%s %s: key is required", prefix, step.Op)
 		}

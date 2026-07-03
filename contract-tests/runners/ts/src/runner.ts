@@ -142,6 +142,30 @@ async function runStep(opts: {
     return;
   }
 
+  if (step.op === "get_optional") {
+    const key = step.key ?? {};
+    const res = await captureResult(() => driver.getOptional(modelName, key));
+
+    let raw: Record<string, AttributeValue> | undefined;
+    if (!res.err && res.value) {
+      raw = await getRawItem(ddb, tableName, model, key);
+      if (step.save) {
+        for (const [varName, attr] of Object.entries(step.save)) {
+          vars.set(varName, res.value[attr]);
+        }
+      }
+    }
+
+    assertExpectation(step.expect, {
+      err: res.err,
+      item: res.value,
+      raw,
+      model,
+      vars,
+    });
+    return;
+  }
+
   if (step.op === "query") {
     assert.ok(step.query, "query request is required");
     const res = await captureResult(() => driver.query(modelName, step.query!));
@@ -354,6 +378,7 @@ function assertExpectation(
   const hasItemAssertion = expectationHasAnyKey(expect, [
     "item_contains",
     "item_equals",
+    "item_absent",
     "item_has_fields",
     "item_missing_fields",
     "raw_attribute_types",
@@ -405,6 +430,11 @@ function assertExpectation(
   }
 
   if (err) return;
+
+  if (expect.item_absent !== undefined) {
+    if (expect.item_absent) assert.equal(item, undefined);
+    else assert.ok(item, "expected present item");
+  }
 
   if (expect.item_contains && item) {
     for (const [attr, want] of Object.entries(expect.item_contains)) {

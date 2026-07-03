@@ -100,6 +100,7 @@ function validateStep(
       requirePlainObject(step.item, `${prefix}: item is required`);
       break;
     case "get":
+    case "get_optional":
     case "delete":
       requirePlainObject(step.key, `${prefix}: key is required`);
       break;

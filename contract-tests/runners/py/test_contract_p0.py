@@ -304,6 +304,10 @@ class _TheorydbPyDriver:
         table = self._table(model)
         return _contract_item(table.get(_pk_value(key), _sk_value(key), consistent_read=True))
 
+    def get_optional(self, model: str, key: dict[str, Any]) -> dict[str, Any] | None:
+        del model, key
+        raise ValidationError("optional get is not advertised")
+
     def update(
         self,
         model: str,
@@ -730,6 +734,21 @@ def _run_step(
         )
         return
 
+    if step["op"] == "get_optional":
+        item, error = _capture_result(lambda: driver.get_optional(model_name, step["key"]))
+        raw = (
+            None
+            if error is not None or item is None
+            else _get_raw_item(client, table_name, model, step["key"])
+        )
+        if error is None and item is not None:
+            for variable_name, attr in step.get("save", {}).items():
+                variables[variable_name] = item[attr]
+        _assert_expectation(
+            step.get("expect", {}), error=error, item=item, raw=raw, model=model, variables=variables
+        )
+        return
+
     if step["op"] == "query":
         result, error = _capture_result(lambda: driver.query(model_name, step["query"]))
         _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
@@ -791,6 +810,7 @@ def _assert_expectation(
         {
             "item_contains",
             "item_equals",
+            "item_absent",
             "item_has_fields",
             "item_missing_fields",
             "raw_attribute_types",
@@ -827,6 +847,12 @@ def _assert_expectation(
             assert error is not None
     if error is not None:
         return
+
+    if "item_absent" in expect:
+        if expect["item_absent"]:
+            assert item is None
+        else:
+            assert item is not None
 
     if "item_contains" in expect:
         assert item is not None

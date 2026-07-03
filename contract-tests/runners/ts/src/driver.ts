@@ -36,6 +36,10 @@ export interface Driver {
     model: string,
     key: Record<string, unknown>,
   ): Promise<Record<string, unknown>>;
+  getOptional(
+    model: string,
+    key: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | undefined>;
   update(
     model: string,
     item: Record<string, unknown>,
@@ -129,6 +133,18 @@ export class TheorydbDriver implements Driver {
     key: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return await this.client.get(model, key);
+  }
+
+  async getOptional(
+    model: string,
+    key: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | undefined> {
+    void model;
+    void key;
+    throw new TheorydbError(
+      "ErrInvalidOperator",
+      "optional get is not advertised",
+    );
   }
 
   async update(

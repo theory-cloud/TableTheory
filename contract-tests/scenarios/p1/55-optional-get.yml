@@ -1,0 +1,36 @@
+name: "p1.optional_get"
+dms_version: "0.1"
+requires_capabilities: ["get.optional"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#OPTIONAL"
+      SK: "PROFILE#1"
+      emailHash: "optional@example"
+      nickname: "present"
+    expect:
+      ok: true
+
+  - op: get_optional
+    key: { PK: "USER#OPTIONAL", SK: "PROFILE#1" }
+    expect:
+      ok: true
+      item_absent: false
+      item_contains:
+        PK: "USER#OPTIONAL"
+        SK: "PROFILE#1"
+        nickname: "present"
+
+  - op: get
+    key: { PK: "USER#OPTIONAL", SK: "PROFILE#missing" }
+    expect:
+      error: "ErrItemNotFound"
+
+  - op: get_optional
+    key: { PK: "USER#OPTIONAL", SK: "PROFILE#missing" }
+    expect:
+      ok: true
+      item_absent: true

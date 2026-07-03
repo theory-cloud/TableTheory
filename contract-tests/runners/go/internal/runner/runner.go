@@ -154,6 +154,26 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		r.assertStepResult(t, step.Expect, item, err, raw, model)
 		return
 
+	case "get_optional":
+		item, found, err := r.driver.GetOptional(ctx, modelName, step.Key)
+		var raw map[string]types.AttributeValue
+		if err == nil && found {
+			var rawErr error
+			raw, rawErr = r.getRawItem(ctx, tableName, model, step.Key)
+			if rawErr != nil {
+				err = rawErr
+			}
+		}
+
+		if err == nil && found && len(step.Save) > 0 {
+			for varName, attrName := range step.Save {
+				r.vars[varName] = item[attrName]
+			}
+		}
+
+		r.assertStepResult(t, step.Expect, item, err, raw, model)
+		return
+
 	case "query":
 		require.NotNil(t, step.Query, "query request is required")
 		result, err := r.driver.Query(ctx, modelName, readRequestFromScenario(step.Query))
@@ -279,6 +299,13 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 	}
 	if err != nil {
 		return
+	}
+	if expect.ItemAbsent != nil {
+		if *expect.ItemAbsent {
+			require.Nil(t, item, "expected absent item")
+		} else {
+			require.NotNil(t, item, "expected present item")
+		}
 	}
 
 	if len(expect.ItemContains) > 0 {
@@ -450,6 +477,7 @@ func semanticallyMissingReadField(value any, ok bool) bool {
 func expectationHasItemAssertion(expect scenario.Expectation) bool {
 	return len(expect.ItemContains) > 0 ||
 		len(expect.ItemEquals) > 0 ||
+		expect.ItemAbsent != nil ||
 		len(expect.ItemHasFields) > 0 ||
 		len(expect.ItemMissingFields) > 0 ||
 		len(expect.RawAttributeTypes) > 0 ||
