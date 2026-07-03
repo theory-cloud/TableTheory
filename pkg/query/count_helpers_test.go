@@ -16,23 +16,25 @@ type covCountPage struct {
 
 type covCountPaginator struct {
 	pages []covCountPage
-	err   error
 	idx   int
+	fail  bool
 }
 
 func (p *covCountPaginator) HasMorePages() bool {
-	return p.idx < len(p.pages) || (p.err != nil && p.idx == 0)
+	return p.idx < len(p.pages) || (p.fail && p.idx == 0)
 }
 
 func (p *covCountPaginator) NextPage(context.Context, ...func(*dynamodb.Options)) (*covCountPage, error) {
-	if p.err != nil {
+	if p.fail {
 		p.idx++
-		return nil, p.err
+		return nil, errCovCountBoom
 	}
 	page := p.pages[p.idx]
 	p.idx++
 	return &page, nil
 }
+
+var errCovCountBoom = errors.New("boom")
 
 func TestCountDynamoPagesAndWriteCountResult_COV5(t *testing.T) {
 	paginator := &covCountPaginator{
@@ -64,12 +66,11 @@ func TestCountDynamoPagesAndWriteCountResult_COV5(t *testing.T) {
 	require.Error(t, writeCountResult(uintCount, count, scanned))
 	require.Error(t, writeCountResult(&uintCount, -1, scanned))
 
-	boom := errors.New("boom")
 	_, _, err = countDynamoPages(
 		context.Background(),
 		"fixture",
-		&covCountPaginator{err: boom},
+		&covCountPaginator{fail: true},
 		func(page *covCountPage) (int32, int32) { return page.count, page.scanned },
 	)
-	require.ErrorIs(t, err, boom)
+	require.ErrorIs(t, err, errCovCountBoom)
 }
