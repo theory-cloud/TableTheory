@@ -51,4 +51,4 @@ models:
         type: "GSI"
         partition: { attribute: "status", type: "S" }
         sort: { attribute: "createdAt", type: "S" }
-        projection: { type: "ALL" }
+        projection: { type: "INCLUDE", fields: ["amount"] }

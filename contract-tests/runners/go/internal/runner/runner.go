@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strconv"
@@ -347,9 +348,59 @@ func (r *Runner) assertReadResult(t require.TestingT, expect scenario.Expectatio
 			}
 		}
 	}
+	if len(expect.ItemsMissingFields) > 0 {
+		for i, item := range result.Items {
+			for _, attr := range expect.ItemsMissingFields {
+				have, ok := item[attr]
+				require.True(t, semanticallyMissingReadField(have, ok), "expected missing attr %s in result item %d", attr, i)
+			}
+		}
+	}
 	if expect.CursorEquals != nil {
 		require.Equal(t, *expect.CursorEquals, result.Cursor)
 	}
+}
+
+func semanticallyMissingReadField(value any, ok bool) bool {
+	if !ok || value == nil {
+		return true
+	}
+	switch v := value.(type) {
+	case string:
+		return v == ""
+	case int:
+		return v == 0
+	case int8:
+		return v == 0
+	case int16:
+		return v == 0
+	case int32:
+		return v == 0
+	case int64:
+		return v == 0
+	case uint:
+		return v == 0
+	case uint8:
+		return v == 0
+	case uint16:
+		return v == 0
+	case uint32:
+		return v == 0
+	case uint64:
+		return v == 0
+	case float32:
+		return v == 0
+	case float64:
+		return v == 0
+	case bool:
+		return !v
+	}
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Map:
+		return rv.Len() == 0
+	}
+	return false
 }
 
 func expectationHasItemAssertion(expect scenario.Expectation) bool {
@@ -369,6 +420,7 @@ func expectationHasRawItemAssertion(expect scenario.Expectation) bool {
 func expectationHasReadAssertion(expect scenario.Expectation) bool {
 	return expect.ItemCount != nil ||
 		len(expect.ItemsContains) > 0 ||
+		len(expect.ItemsMissingFields) > 0 ||
 		expect.CursorEquals != nil
 }
 

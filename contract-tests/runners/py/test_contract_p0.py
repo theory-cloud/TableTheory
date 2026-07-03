@@ -134,7 +134,7 @@ class _TheorydbPyDriver:
                 ModelDefinition.from_dataclass(
                     _User,
                     table_name="users_contract",
-                    indexes=[gsi("gsi-email", partition="emailHash", projection=Projection.all())],
+                    indexes=[gsi("gsi-email", partition="emailHash", projection=Projection.keys_only())],
                 ),
                 client=client,
             ),
@@ -143,7 +143,7 @@ class _TheorydbPyDriver:
                     _Order,
                     table_name="orders_contract",
                     indexes=[
-                        gsi("gsi-status", partition="status", sort="createdAt", projection=Projection.all())
+                        gsi("gsi-status", partition="status", sort="createdAt", projection=Projection.include("amount"))
                     ],
                 ),
                 client=client,
@@ -675,7 +675,9 @@ def _assert_read_expectation(
     result: dict[str, Any],
     model: dict[str, Any],
 ) -> None:
-    has_read_assertion = _expectation_has_any_key(expect, {"item_count", "items_contains", "cursor_equals"})
+    has_read_assertion = _expectation_has_any_key(
+        expect, {"item_count", "items_contains", "items_missing_fields", "cursor_equals"}
+    )
 
     if "error" in expect:
         assert error is not None
@@ -710,8 +712,31 @@ def _assert_read_expectation(
                 assert attr_def is not None
                 _assert_value_matches(attr_def["type"], want, have_item[attr])
 
+    if "items_missing_fields" in expect:
+        for index, item in enumerate(items):
+            for attr in expect["items_missing_fields"]:
+                assert _semantically_missing_read_field(item.get(attr), attr in item), (
+                    f"expected missing attr {attr} in result {index}"
+                )
+
     if "cursor_equals" in expect:
         assert (result.get("cursor") or "") == expect["cursor_equals"]
+
+
+def _semantically_missing_read_field(value: Any, present: bool) -> bool:
+    if not present or value is None:
+        return True
+    if isinstance(value, str):
+        return value == ""
+    if isinstance(value, bool):
+        return value is False
+    if isinstance(value, int | float | Decimal):
+        return value == 0
+    if isinstance(value, bytes):
+        return len(value) == 0
+    if isinstance(value, (list, dict, set, tuple)):
+        return len(value) == 0
+    return False
 
 
 def _expectation_has_any_key(expect: dict[str, Any], keys: set[str]) -> bool:
@@ -785,6 +810,8 @@ def _map_error(error: Exception) -> str:
     if isinstance(error, RejectedDeployAuthorityEvidenceError):
         return "ErrRejectedDeployAuthorityEvidence"
     if isinstance(error, ValidationError):
+        if "consistent_read" in str(error) or "unsupported sort operator" in str(error) or "unsupported filter operator" in str(error):
+            return "ErrInvalidOperator"
         return "ErrInvalidModel"
     return ""
 

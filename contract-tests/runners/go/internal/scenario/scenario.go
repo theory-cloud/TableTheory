@@ -78,6 +78,7 @@ type Expectation struct {
 	ItemContains          map[string]any    `yaml:"item_contains"`
 	ItemEquals            map[string]any    `yaml:"item_equals"`
 	ItemsContains         []map[string]any  `yaml:"items_contains"`
+	ItemsMissingFields    []string          `yaml:"items_missing_fields"`
 	ItemCount             *int              `yaml:"item_count"`
 	CursorEquals          *string           `yaml:"cursor_equals"`
 	ItemHasFields         []string          `yaml:"item_has_fields"`

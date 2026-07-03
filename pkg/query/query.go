@@ -1420,6 +1420,9 @@ func (q *Query) Compile() (*core.CompiledQuery, error) {
 	if err := q.compileOperation(builder, compiled); err != nil {
 		return nil, err
 	}
+	if q.consistentRead && q.usesGlobalSecondaryIndex(compiled.IndexName) {
+		return nil, fmt.Errorf("%w: consistent reads are not supported on GSIs", theorydbErrors.ErrInvalidOperator)
+	}
 
 	q.applyProjections(builder)
 	q.applyExpressionComponents(compiled, builder)
@@ -1465,6 +1468,14 @@ func (q *Query) compileWithBestIndex(builder *expr.Builder, compiled *core.Compi
 
 	compiled.Operation = operationScan
 	return q.applyScanConditions(builder)
+}
+
+func (q *Query) usesGlobalSecondaryIndex(name string) bool {
+	if name == "" {
+		return false
+	}
+	idx := q.indexSchemaByName(name)
+	return idx != nil && strings.EqualFold(idx.Type, "GSI")
 }
 
 func (q *Query) indexSchemaByName(name string) *core.IndexSchema {

@@ -62,4 +62,4 @@ models:
       - name: "gsi-email"
         type: "GSI"
         partition: { attribute: "emailHash", type: "S" }
-        projection: { type: "ALL" }
+        projection: { type: "KEYS_ONLY" }

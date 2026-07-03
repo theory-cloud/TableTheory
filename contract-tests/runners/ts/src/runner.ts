@@ -211,6 +211,7 @@ function assertReadExpectation(
   const hasReadAssertion = expectationHasAnyKey(expect, [
     "item_count",
     "items_contains",
+    "items_missing_fields",
     "cursor_equals",
   ]);
 
@@ -262,9 +263,32 @@ function assertReadExpectation(
     }
   }
 
+  if (expect.items_missing_fields) {
+    for (const [index, item] of result.items.entries()) {
+      for (const attr of expect.items_missing_fields) {
+        assert.ok(
+          semanticallyMissingReadField(item[attr], attr in item),
+          `expected missing attr ${attr} in result ${index}`,
+        );
+      }
+    }
+  }
+
   if (expect.cursor_equals !== undefined) {
     assert.equal(result.cursor ?? "", expect.cursor_equals);
   }
+}
+
+function semanticallyMissingReadField(value: unknown, present: boolean): boolean {
+  if (!present || value === null || value === undefined) return true;
+  if (typeof value === "string") return value === "";
+  if (typeof value === "number") return value === 0;
+  if (typeof value === "bigint") return value === 0n;
+  if (typeof value === "boolean") return value === false;
+  if (Array.isArray(value)) return value.length === 0;
+  if (value instanceof Uint8Array) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value).length === 0;
+  return false;
 }
 
 function modelByName(
