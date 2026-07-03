@@ -806,6 +806,9 @@ func TestMarshalers_BinaryAndNumberSetSlices(t *testing.T) {
 		ID            string
 		Blob          []byte
 		Numbers       []int64
+		UintNumbers   []uint64
+		Float32Nums   []float32
+		Float64Nums   []float64
 		Binaries      [][]byte
 		EmptyNumbers  []int64
 		EmptyBinaries [][]byte
@@ -815,6 +818,9 @@ func TestMarshalers_BinaryAndNumberSetSlices(t *testing.T) {
 		ID:            "id-1",
 		Blob:          []byte{1, 2, 3},
 		Numbers:       []int64{9007199254740993, 42},
+		UintNumbers:   []uint64{9007199254740994, 7},
+		Float32Nums:   []float32{1.5, 2.25},
+		Float64Nums:   []float64{3.5, 4.75},
 		Binaries:      [][]byte{{4, 5}, {6, 7}},
 		EmptyNumbers:  []int64{},
 		EmptyBinaries: [][]byte{},
@@ -824,6 +830,9 @@ func TestMarshalers_BinaryAndNumberSetSlices(t *testing.T) {
 		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "ID", "id", reflect.TypeOf("")),
 		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Blob", "blob", reflect.TypeOf([]byte{})),
 		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Numbers", "numbers", reflect.TypeOf([]int64{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "UintNumbers", "uint_numbers", reflect.TypeOf([]uint64{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Float32Nums", "float32_nums", reflect.TypeOf([]float32{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Float64Nums", "float64_nums", reflect.TypeOf([]float64{}), withSet()),
 		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Binaries", "binaries", reflect.TypeOf([][]byte{}), withSet()),
 		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "EmptyNumbers", "empty_numbers", reflect.TypeOf([]int64{}), withSet()),
 		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "EmptyBinaries", "empty_binaries", reflect.TypeOf([][]byte{}), withSet()),
@@ -846,7 +855,33 @@ func assertBinaryAndSetAttributes(t testing.TB, out map[string]types.AttributeVa
 	t.Helper()
 	require.Equal(t, []byte{1, 2, 3}, requireAVB(t, out["blob"]).Value)
 	require.ElementsMatch(t, []string{"9007199254740993", "42"}, requireAVNS(t, out["numbers"]).Value)
+	require.ElementsMatch(t, []string{"9007199254740994", "7"}, requireAVNS(t, out["uint_numbers"]).Value)
+	require.ElementsMatch(t, []string{"1.5", "2.25"}, requireAVNS(t, out["float32_nums"]).Value)
+	require.ElementsMatch(t, []string{"3.5", "4.75"}, requireAVNS(t, out["float64_nums"]).Value)
 	require.ElementsMatch(t, [][]byte{{4, 5}, {6, 7}}, requireAVBS(t, out["binaries"]).Value)
 	require.True(t, requireAVNULL(t, out["empty_numbers"]).Value)
 	require.True(t, requireAVNULL(t, out["empty_binaries"]).Value)
+}
+
+func TestMarshalers_UnsupportedSetSliceType(t *testing.T) {
+	type unsupportedSetItem struct {
+		ID    string
+		Flags []bool
+	}
+
+	input := unsupportedSetItem{ID: "id-1", Flags: []bool{true}}
+	metadata := createMetadata(
+		createFieldMetadata(reflect.TypeOf(unsupportedSetItem{}), "ID", "id", reflect.TypeOf("")),
+		createFieldMetadata(reflect.TypeOf(unsupportedSetItem{}), "Flags", "flags", reflect.TypeOf([]bool{}), withSet()),
+	)
+
+	t.Run("unsafe marshaler", func(t *testing.T) {
+		_, err := New(nil).MarshalItem(input, metadata)
+		require.ErrorContains(t, err, "unsupported set element type: bool")
+	})
+
+	t.Run("safe marshaler", func(t *testing.T) {
+		_, err := NewSafeMarshaler().MarshalItem(input, metadata)
+		require.ErrorContains(t, err, "unsupported set element type: bool")
+	})
 }
