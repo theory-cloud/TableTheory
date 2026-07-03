@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -189,7 +190,7 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 			require.True(t, ok, "missing attr %s in item", attr)
 			attrDef := model.AttributeByName(attr)
 			require.NotNil(t, attrDef, "unknown attr %s in model %s", attr, model.Name)
-			assertValueMatches(t, *attrDef, want, have)
+			assertValueMatches(t, *attrDef, want, have, raw[attr])
 		}
 	}
 
@@ -227,14 +228,20 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 	}
 }
 
-func assertValueMatches(t require.TestingT, attr spec.Attribute, want any, have any) {
+func assertValueMatches(t require.TestingT, attr spec.Attribute, want any, have any, raw types.AttributeValue) {
 	switch attr.Type {
 	case "S":
 		require.Equal(t, fmt.Sprintf("%v", want), fmt.Sprintf("%v", have))
 	case "N":
-		wantN, err := asInt64(want)
+		wantN, err := canonicalDecimalString(want)
 		require.NoError(t, err)
-		haveN, err := asInt64(have)
+		if raw != nil {
+			rawN, ok := raw.(*types.AttributeValueMemberN)
+			require.True(t, ok, "expected raw N for %s, got %T", attr.Attribute, raw)
+			require.Equal(t, wantN, rawN.Value)
+			return
+		}
+		haveN, err := canonicalDecimalString(have)
 		require.NoError(t, err)
 		require.Equal(t, wantN, haveN)
 	case "SS":
@@ -248,21 +255,46 @@ func assertValueMatches(t require.TestingT, attr spec.Attribute, want any, have 
 	}
 }
 
-func asInt64(v any) (int64, error) {
+func canonicalDecimalString(v any) (string, error) {
 	if v == nil {
-		return 0, nil
+		return "0", nil
 	}
 	switch n := v.(type) {
 	case int:
-		return int64(n), nil
+		return strconv.FormatInt(int64(n), 10), nil
+	case int8:
+		return strconv.FormatInt(int64(n), 10), nil
+	case int16:
+		return strconv.FormatInt(int64(n), 10), nil
+	case int32:
+		return strconv.FormatInt(int64(n), 10), nil
 	case int64:
-		return n, nil
+		return strconv.FormatInt(n, 10), nil
+	case uint:
+		return strconv.FormatUint(uint64(n), 10), nil
+	case uint8:
+		return strconv.FormatUint(uint64(n), 10), nil
+	case uint16:
+		return strconv.FormatUint(uint64(n), 10), nil
+	case uint32:
+		return strconv.FormatUint(uint64(n), 10), nil
+	case uint64:
+		return strconv.FormatUint(n, 10), nil
 	case float64:
-		return int64(n), nil
+		if math.IsInf(n, 0) || math.IsNaN(n) {
+			return "", fmt.Errorf("non-finite number %v", n)
+		}
+		return strconv.FormatFloat(n, 'f', -1, 64), nil
+	case float32:
+		f := float64(n)
+		if math.IsInf(f, 0) || math.IsNaN(f) {
+			return "", fmt.Errorf("non-finite number %v", n)
+		}
+		return strconv.FormatFloat(f, 'f', -1, 32), nil
 	case string:
-		return strconv.ParseInt(n, 10, 64)
+		return n, nil
 	default:
-		return 0, fmt.Errorf("expected number, got %T", v)
+		return "", fmt.Errorf("expected DynamoDB decimal string, got %T", v)
 	}
 }
 

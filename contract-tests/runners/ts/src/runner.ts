@@ -200,7 +200,7 @@ function assertExpectation(
       assert.ok(attr in item, `missing attr ${attr}`);
       const attrDef = attributeByName(model, attr);
       assert.ok(attrDef, `unknown attr ${attr}`);
-      assertValueMatches(attrDef.type, want, have);
+      assertValueMatches(attrDef.type, want, have, raw?.[attr]);
     }
   }
 
@@ -247,13 +247,23 @@ function attributeByName(
   return model.attributes.find((a) => a.attribute === name);
 }
 
-function assertValueMatches(type: string, want: unknown, have: unknown): void {
+function assertValueMatches(
+  type: string,
+  want: unknown,
+  have: unknown,
+  raw?: AttributeValue,
+): void {
   switch (type) {
     case "S":
       assert.equal(String(have), String(want));
       return;
     case "N":
-      assert.equal(Number(have), Number(want));
+      if (raw) {
+        assert.ok("N" in raw && raw.N !== undefined, "expected raw N value");
+        assert.equal(raw.N, canonicalDecimalString(want));
+        return;
+      }
+      assert.equal(canonicalDecimalString(have), canonicalDecimalString(want));
       return;
     case "SS": {
       const wantArr = asStringArray(want);
@@ -266,6 +276,29 @@ function assertValueMatches(type: string, want: unknown, have: unknown): void {
     default:
       assert.deepEqual(have, want);
   }
+}
+
+function canonicalDecimalString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "number") {
+    assert.ok(Number.isFinite(value), "DynamoDB N expectation must be finite");
+    if (Number.isInteger(value)) {
+      assert.ok(
+        Number.isSafeInteger(value),
+        "DynamoDB N integer expectations outside JS safe-integer range must be quoted decimal strings",
+      );
+    }
+    const text = String(value);
+    assert.ok(
+      !/[eE]/.test(text),
+      "DynamoDB N expectations using exponent notation must be quoted canonical decimal strings",
+    );
+    return text;
+  }
+  throw new Error(
+    `expected DynamoDB canonical decimal string, got ${typeof value}`,
+  );
 }
 
 function asStringArray(value: unknown): string[] {

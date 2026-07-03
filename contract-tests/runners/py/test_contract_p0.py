@@ -409,7 +409,8 @@ def _assert_expectation(
             assert attr in item
             attr_def = _attribute_by_name(model, attr)
             assert attr_def is not None
-            _assert_value_matches(attr_def["type"], want, item[attr])
+            raw_value = None if raw is None else raw.get(attr)
+            _assert_value_matches(attr_def["type"], want, item[attr], raw_value)
 
     if "item_has_fields" in expect:
         assert item is not None
@@ -481,17 +482,40 @@ def _normalize_contract_value(value: Any) -> Any:
     return value
 
 
-def _assert_value_matches(attr_type: str, want: Any, have: Any) -> None:
+def _assert_value_matches(attr_type: str, want: Any, have: Any, raw: dict[str, Any] | None = None) -> None:
     if attr_type == "S":
         assert str(have) == str(want)
         return
     if attr_type == "N":
-        assert Decimal(str(have)) == Decimal(str(want))
+        if raw is not None:
+            assert "N" in raw
+            assert raw["N"] == _canonical_decimal_string(want)
+            return
+        assert _canonical_decimal_string(have) == _canonical_decimal_string(want)
         return
     if attr_type == "SS":
         assert sorted(str(item) for item in have) == sorted(str(item) for item in want)
         return
     assert have == want
+
+
+def _canonical_decimal_string(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        raise AssertionError("DynamoDB N expectations must not be boolean")
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, float):
+        if not Decimal(str(value)).is_finite():
+            raise AssertionError("DynamoDB N expectations must be finite")
+        text = format(Decimal(str(value)), "f")
+        if "E" in text or "e" in text:
+            raise AssertionError("DynamoDB N expectations must use canonical decimal strings")
+        return text
+    raise AssertionError(f"expected DynamoDB canonical decimal string, got {type(value).__name__}")
 
 
 def _attribute_by_name(model: dict[str, Any], name: str) -> dict[str, Any] | None:

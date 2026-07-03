@@ -217,6 +217,9 @@ Value encoding in scenario files is “logical” (strings/numbers/bools/arrays/
 attribute `type`.
 
 Comparison rules:
+- DynamoDB `N` values MUST be asserted as their canonical decimal strings. Runners compare the DynamoDB wire string
+  exactly and must not coerce through `int64`, JavaScript `number`, Python `float`, or any other lossy numeric type.
+  Quote non-integer values and integers outside JavaScript's safe-integer range in YAML.
 - DynamoDB set types (`SS`/`NS`/`BS`) MUST be compared **order-insensitively**.
 
 ## Driver interface (what each implementation must provide)
