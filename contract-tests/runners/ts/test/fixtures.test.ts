@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { loadModelsDir, loadScenariosDir } from "../src/load.js";
 import { runScenario } from "../src/runner.js";
 import { decodeCursor, encodeCursor } from "../../../../ts/src/cursor.js";
+import { fromDynamoJson } from "../../../../ts/src/dynamo-json.js";
 import type { Driver } from "../src/driver.js";
 import type { DmsModel, Scenario, Step } from "../src/types.js";
 
@@ -21,26 +22,57 @@ test("loads DMS models + P0 scenarios", async () => {
   assert.ok(models.has("User"));
   assert.ok(models.has("Order"));
   assert.equal(models.get("ReleaseStateActual")?.write_policy?.mode, "mutable");
-  assert.deepEqual(models.get("ReleaseStateActual")?.write_policy?.protected_attributes, [
-    "pinnedReleaseId",
-  ]);
-  assert.equal(models.get("ReleaseStateEvent")?.write_policy?.mode, "write_once");
+  assert.deepEqual(
+    models.get("ReleaseStateActual")?.write_policy?.protected_attributes,
+    ["pinnedReleaseId"],
+  );
+  assert.equal(
+    models.get("ReleaseStateEvent")?.write_policy?.mode,
+    "write_once",
+  );
 
   const scenarios = await loadScenariosDir(path.join(root, "scenarios", "p0"));
   assert.ok(scenarios.length >= 1);
   assert.ok(scenarios.some((s) => s.name === "p0.release_state.write_policy"));
 });
 
-test("golden cursor decodes to expected JSON", async () => {
+test("golden cursor corpus decodes to expected JSON", async () => {
   const root = contractRoot();
-  const cursor = (await fs.readFile(path.join(root, "golden", "cursor", "cursor_v0.1_basic.cursor"), "utf8")).trim();
-  const expectedJSON = (await fs.readFile(path.join(root, "golden", "cursor", "cursor_v0.1_basic.json"), "utf8")).trim();
+  const cursorDir = path.join(root, "golden", "cursor");
+  const jsonFiles = (await fs.readdir(cursorDir))
+    .filter((name) => name.startsWith("cursor_v0.1_") && name.endsWith(".json"))
+    .sort();
+  assert.ok(jsonFiles.length > 0);
 
-  const decoded = Buffer.from(cursor, "base64url").toString("utf8");
-  assert.equal(decoded, expectedJSON);
+  for (const jsonFile of jsonFiles) {
+    const stem = jsonFile.replace(/\.json$/, "");
+    const cursor = (
+      await fs.readFile(path.join(cursorDir, `${stem}.cursor`), "utf8")
+    ).trim();
+    const expectedJSON = (
+      await fs.readFile(path.join(cursorDir, jsonFile), "utf8")
+    ).trim();
+    const expected = JSON.parse(expectedJSON) as {
+      lastKey: Record<string, unknown>;
+      index?: string;
+      sort?: "ASC" | "DESC";
+    };
 
-  const parsed = decodeCursor(cursor);
-  assert.equal(encodeCursor(parsed), cursor);
+    const lastKey = Object.fromEntries(
+      Object.entries(expected.lastKey).map(([key, value]) => [
+        key,
+        fromDynamoJson(value),
+      ]),
+    );
+    assert.equal(encodeCursor({ ...expected, lastKey }), cursor);
+    if (cursor === "") continue;
+
+    const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+    assert.equal(decoded, expectedJSON);
+
+    const parsed = decodeCursor(cursor);
+    assert.equal(encodeCursor(parsed), cursor);
+  }
 });
 
 test("interop item assertions fail closed on get errors without ok", async () => {

@@ -16,8 +16,11 @@ export function encodeCursor(cursor: Cursor): string {
     throw new TheorydbError('ErrInvalidModel', 'Cursor lastKey is required');
   }
 
+  const lastKeyKeys = Object.keys(cursor.lastKey).sort();
+  if (lastKeyKeys.length === 0) return '';
+
   const lastKeyJson: Record<string, unknown> = {};
-  for (const key of Object.keys(cursor.lastKey).sort()) {
+  for (const key of lastKeyKeys) {
     const av = cursor.lastKey[key];
     if (!av)
       throw new TheorydbError(
