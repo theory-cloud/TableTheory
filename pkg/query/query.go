@@ -615,13 +615,18 @@ func (q *Query) Count() (int64, error) {
 	if err := q.checkBuilderError(); err != nil {
 		return 0, err
 	}
-	compiled, err := q.Compile()
+	// Projection and limit are item-materialization controls; they do not
+	// change the matching item count. Compile a projection-free clone so
+	// Select=COUNT cannot leave unused projection expression names behind.
+	clone := *q
+	clone.projection = nil
+	compiled, err := clone.Compile()
 	if err != nil {
 		return 0, err
 	}
 
-	// Set select to COUNT for efficiency
 	compiled.Select = "COUNT"
+	compiled.Limit = nil
 
 	var result struct {
 		Count        int64

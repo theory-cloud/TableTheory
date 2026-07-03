@@ -101,6 +101,11 @@ func buildDynamoQueryInput(input *core.CompiledQuery) *dynamodb.QueryInput {
 		queryInput.KeyConditionExpression = &input.KeyConditionExpression
 	}
 
+	// Set select mode
+	if input.Select != "" {
+		queryInput.Select = types.Select(input.Select)
+	}
+
 	// Set scan index forward
 	if input.ScanIndexForward != nil {
 		queryInput.ScanIndexForward = input.ScanIndexForward
@@ -125,6 +130,11 @@ func buildDynamoScanInput(input *core.CompiledQuery) *dynamodb.ScanInput {
 		&scanInput.ExclusiveStartKey,
 		&scanInput.ConsistentRead,
 	)
+
+	// Set select mode
+	if input.Select != "" {
+		scanInput.Select = types.Select(input.Select)
+	}
 
 	// Set segment and total segments for parallel scan
 	if input.Segment != nil {
@@ -198,6 +208,98 @@ func executePagedItems(limit *int32, pager pagedReadExecutor) ([]map[string]type
 	return allItems, nil
 }
 
+func executorContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func isCountSelect(selectValue string) bool {
+	return strings.EqualFold(selectValue, "COUNT")
+}
+
+func writeCountResult(dest any, count int64, scannedCount int64) error {
+	if dest == nil {
+		return fmt.Errorf("destination must be a pointer")
+	}
+
+	value := reflect.ValueOf(dest)
+	if value.Kind() != reflect.Ptr || value.IsNil() {
+		return fmt.Errorf("destination must be a pointer")
+	}
+
+	elem := value.Elem()
+	switch elem.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		elem.SetInt(count)
+		return nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if count < 0 {
+			return fmt.Errorf("count is negative")
+		}
+		elem.SetUint(uint64(count))
+		return nil
+	case reflect.Struct:
+		if field := elem.FieldByName("Count"); field.IsValid() && field.CanSet() {
+			setCountField(field, count)
+		}
+		if field := elem.FieldByName("ScannedCount"); field.IsValid() && field.CanSet() {
+			setCountField(field, scannedCount)
+		}
+		return nil
+	default:
+		return fmt.Errorf("destination must be a pointer to an integer or struct")
+	}
+}
+
+func setCountField(field reflect.Value, value int64) {
+	switch field.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		field.SetInt(value)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if value >= 0 {
+			field.SetUint(uint64(value))
+		}
+	}
+}
+
+func countQueryPages(ctx context.Context, client DynamoDBAPI, input *dynamodb.QueryInput) (int64, int64, error) {
+	input.Select = types.SelectCount
+	input.Limit = nil
+	input.ProjectionExpression = nil
+	paginator := dynamodb.NewQueryPaginator(client, input)
+	var totalCount int64
+	var totalScanned int64
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to count query items: %w", err)
+		}
+		totalCount += int64(page.Count)
+		totalScanned += int64(page.ScannedCount)
+	}
+	return totalCount, totalScanned, nil
+}
+
+func countScanPages(ctx context.Context, client DynamoDBAPI, input *dynamodb.ScanInput) (int64, int64, error) {
+	input.Select = types.SelectCount
+	input.Limit = nil
+	input.ProjectionExpression = nil
+	paginator := dynamodb.NewScanPaginator(client, input)
+	var totalCount int64
+	var totalScanned int64
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to count scan items: %w", err)
+		}
+		totalCount += int64(page.Count)
+		totalScanned += int64(page.ScannedCount)
+	}
+	return totalCount, totalScanned, nil
+}
+
 // NewExecutor creates a new MainExecutor instance
 func NewExecutor(client DynamoDBAPI, ctx context.Context) *MainExecutor { //nolint:revive // context-as-argument: keep signature for compatibility
 	return &MainExecutor{
@@ -220,10 +322,19 @@ func (e *MainExecutor) ExecuteQuery(input *core.CompiledQuery, dest any) error {
 		return fmt.Errorf("compiled query cannot be nil")
 	}
 
+	queryInput := buildDynamoQueryInput(input)
+	if isCountSelect(input.Select) {
+		count, scannedCount, err := countQueryPages(executorContext(e.ctx), e.client, queryInput)
+		if err != nil {
+			return err
+		}
+		return writeCountResult(dest, count, scannedCount)
+	}
+
 	pager := queryPager{
 		client: e.client,
 		ctx:    e.ctx,
-		input:  buildDynamoQueryInput(input),
+		input:  queryInput,
 	}
 	allItems, err := executePagedItems(input.Limit, pager)
 	if err != nil {
@@ -240,10 +351,19 @@ func (e *MainExecutor) ExecuteScan(input *core.CompiledQuery, dest any) error {
 		return fmt.Errorf("compiled query cannot be nil")
 	}
 
+	scanInput := buildDynamoScanInput(input)
+	if isCountSelect(input.Select) {
+		count, scannedCount, err := countScanPages(executorContext(e.ctx), e.client, scanInput)
+		if err != nil {
+			return err
+		}
+		return writeCountResult(dest, count, scannedCount)
+	}
+
 	pager := scanPager{
 		client: e.client,
 		ctx:    e.ctx,
-		input:  buildDynamoScanInput(input),
+		input:  scanInput,
 	}
 	allItems, err := executePagedItems(input.Limit, pager)
 	if err != nil {
@@ -678,6 +798,11 @@ func (e *MainExecutor) ExecuteScanWithPagination(input *core.CompiledQuery, dest
 	// Set exclusive start key
 	if len(input.ExclusiveStartKey) > 0 {
 		scanInput.ExclusiveStartKey = input.ExclusiveStartKey
+	}
+
+	// Set select mode
+	if input.Select != "" {
+		scanInput.Select = types.Select(input.Select)
 	}
 
 	// Set segment and total segments for parallel scan

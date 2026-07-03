@@ -150,6 +150,7 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"type.matrix",
 		"query.basic",
 		"scan.basic",
+		"count.native",
 		"release_state.write_policy",
 		"release_state.transactional_transition",
 		"release_state.provenance_confidence",
@@ -477,11 +478,34 @@ func conditionValue(cond ReadCondition) any {
 }
 
 func (d *TheorydbDriver) CountQuery(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
-	return ReadResult{}, fmt.Errorf("%w: native count is not advertised", theorydbErrors.ErrInvalidOperator)
+	q, err := d.buildReadQuery(ctx, model, req)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	if req.Partition == nil {
+		return ReadResult{}, fmt.Errorf("%w: query partition is required", theorydbErrors.ErrMissingPrimaryKey)
+	}
+	q = q.Where(req.Partition.Attribute, req.Partition.Operator, conditionValue(*req.Partition))
+	if req.Sort != nil {
+		q = q.Where(req.Sort.Attribute, req.Sort.Operator, conditionValue(*req.Sort))
+	}
+	return countResult(q)
 }
 
 func (d *TheorydbDriver) CountScan(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
-	return ReadResult{}, fmt.Errorf("%w: native count is not advertised", theorydbErrors.ErrInvalidOperator)
+	q, err := d.buildReadQuery(ctx, model, req)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	return countResult(q)
+}
+
+func countResult(q core.Query) (ReadResult, error) {
+	count, err := q.Count()
+	if err != nil {
+		return ReadResult{}, err
+	}
+	return ReadResult{Items: []map[string]any{}, Count: &count}, nil
 }
 
 func (d *TheorydbDriver) TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error {

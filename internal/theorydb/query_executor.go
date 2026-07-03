@@ -525,11 +525,13 @@ func executeReadWithPaginationConverted[T any](
 func configureQueryCountInput(queryInput *dynamodb.QueryInput) {
 	queryInput.Select = types.SelectCount
 	queryInput.Limit = nil
+	queryInput.ProjectionExpression = nil
 }
 
 func configureScanCountInput(scanInput *dynamodb.ScanInput) {
 	scanInput.Select = types.SelectCount
 	scanInput.Limit = nil
+	scanInput.ProjectionExpression = nil
 }
 
 func newQueryPaginator(client *dynamodb.Client, queryInput *dynamodb.QueryInput) *dynamodb.QueryPaginator {

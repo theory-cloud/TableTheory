@@ -442,3 +442,71 @@ func TestExecuteBatchGetHonorsNilRetryPolicy(t *testing.T) {
 	require.Len(t, items, 1)
 	assert.Equal(t, 1, callCount, "should not retry when retry policy is nil")
 }
+
+func TestMainExecutorExecuteQueryNativeCount(t *testing.T) {
+	ctx := context.Background()
+	limit := int32(10)
+	var captured *dynamodb.QueryInput
+	mockClient := &MockDynamoDBClient{
+		QueryFunc: func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+			captured = params
+			return &dynamodb.QueryOutput{Count: 2, ScannedCount: 5}, nil
+		},
+	}
+	executor := NewExecutor(mockClient, ctx)
+
+	var result struct {
+		Count        int64
+		ScannedCount int64
+	}
+	err := executor.ExecuteQuery(&core.CompiledQuery{
+		TableName:              "tbl",
+		KeyConditionExpression: "#pk = :pk",
+		ExpressionAttributeNames: map[string]string{
+			"#pk": "PK",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: "USER#1"},
+		},
+		ProjectionExpression: "#pk",
+		Limit:                &limit,
+		Select:               "COUNT",
+	}, &result)
+
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.Equal(t, types.SelectCount, captured.Select)
+	require.Nil(t, captured.ProjectionExpression)
+	require.Nil(t, captured.Limit)
+	require.Equal(t, int64(2), result.Count)
+	require.Equal(t, int64(5), result.ScannedCount)
+}
+
+func TestMainExecutorExecuteScanNativeCount(t *testing.T) {
+	ctx := context.Background()
+	limit := int32(10)
+	var captured *dynamodb.ScanInput
+	mockClient := &MockDynamoDBClient{
+		ScanFunc: func(ctx context.Context, params *dynamodb.ScanInput, optFns ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
+			captured = params
+			return &dynamodb.ScanOutput{Count: 3, ScannedCount: 8}, nil
+		},
+	}
+	executor := NewExecutor(mockClient, ctx)
+
+	var count int64
+	err := executor.ExecuteScan(&core.CompiledQuery{
+		TableName:            "tbl",
+		FilterExpression:     "#status = :status",
+		ProjectionExpression: "#status",
+		Limit:                &limit,
+		Select:               "COUNT",
+	}, &count)
+
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.Equal(t, types.SelectCount, captured.Select)
+	require.Nil(t, captured.ProjectionExpression)
+	require.Nil(t, captured.Limit)
+	require.Equal(t, int64(3), count)
+}
