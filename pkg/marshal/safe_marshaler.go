@@ -349,10 +349,6 @@ func isByteSliceType(typ reflect.Type) bool {
 	return typ.Kind() == reflect.Slice && typ.Elem().Kind() == reflect.Uint8
 }
 
-func isBinarySetSliceType(typ reflect.Type) bool {
-	return typ.Kind() == reflect.Slice && typ.Elem().Kind() == reflect.Slice && typ.Elem().Elem().Kind() == reflect.Uint8
-}
-
 func marshalSetSliceReflect(v reflect.Value) (types.AttributeValue, error) {
 	if v.IsNil() || v.Len() == 0 {
 		return &types.AttributeValueMemberNULL{Value: true}, nil

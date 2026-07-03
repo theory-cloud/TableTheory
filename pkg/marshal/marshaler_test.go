@@ -779,3 +779,74 @@ func TestMarshalItem_DeepNestedStructures(t *testing.T) {
 	_, err := marshaler.MarshalItem(input, metadata)
 	require.NoError(t, err)
 }
+
+func requireAVB(t testing.TB, av types.AttributeValue) *types.AttributeValueMemberB {
+	t.Helper()
+	member, ok := av.(*types.AttributeValueMemberB)
+	require.True(t, ok, "expected *types.AttributeValueMemberB, got %T", av)
+	return member
+}
+
+func requireAVNS(t testing.TB, av types.AttributeValue) *types.AttributeValueMemberNS {
+	t.Helper()
+	member, ok := av.(*types.AttributeValueMemberNS)
+	require.True(t, ok, "expected *types.AttributeValueMemberNS, got %T", av)
+	return member
+}
+
+func requireAVBS(t testing.TB, av types.AttributeValue) *types.AttributeValueMemberBS {
+	t.Helper()
+	member, ok := av.(*types.AttributeValueMemberBS)
+	require.True(t, ok, "expected *types.AttributeValueMemberBS, got %T", av)
+	return member
+}
+
+func TestMarshalers_BinaryAndNumberSetSlices(t *testing.T) {
+	type binarySetItem struct {
+		ID            string
+		Blob          []byte
+		Numbers       []int64
+		Binaries      [][]byte
+		EmptyNumbers  []int64
+		EmptyBinaries [][]byte
+	}
+
+	input := binarySetItem{
+		ID:            "id-1",
+		Blob:          []byte{1, 2, 3},
+		Numbers:       []int64{9007199254740993, 42},
+		Binaries:      [][]byte{{4, 5}, {6, 7}},
+		EmptyNumbers:  []int64{},
+		EmptyBinaries: [][]byte{},
+	}
+
+	metadata := createMetadata(
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "ID", "id", reflect.TypeOf("")),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Blob", "blob", reflect.TypeOf([]byte{})),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Numbers", "numbers", reflect.TypeOf([]int64{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Binaries", "binaries", reflect.TypeOf([][]byte{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "EmptyNumbers", "empty_numbers", reflect.TypeOf([]int64{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "EmptyBinaries", "empty_binaries", reflect.TypeOf([][]byte{}), withSet()),
+	)
+
+	t.Run("unsafe marshaler", func(t *testing.T) {
+		out, err := New(nil).MarshalItem(input, metadata)
+		require.NoError(t, err)
+		assertBinaryAndSetAttributes(t, out)
+	})
+
+	t.Run("safe marshaler", func(t *testing.T) {
+		out, err := NewSafeMarshaler().MarshalItem(input, metadata)
+		require.NoError(t, err)
+		assertBinaryAndSetAttributes(t, out)
+	})
+}
+
+func assertBinaryAndSetAttributes(t testing.TB, out map[string]types.AttributeValue) {
+	t.Helper()
+	require.Equal(t, []byte{1, 2, 3}, requireAVB(t, out["blob"]).Value)
+	require.ElementsMatch(t, []string{"9007199254740993", "42"}, requireAVNS(t, out["numbers"]).Value)
+	require.ElementsMatch(t, [][]byte{{4, 5}, {6, 7}}, requireAVBS(t, out["binaries"]).Value)
+	require.True(t, requireAVNULL(t, out["empty_numbers"]).Value)
+	require.True(t, requireAVNULL(t, out["empty_binaries"]).Value)
+}

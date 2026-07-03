@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/theory-cloud/tabletheory/pkg/consistency"
+	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
 )
 
 // TestModel for consistency tests
@@ -66,17 +68,16 @@ func TestConsistentRead(t *testing.T) {
 		}
 	})
 
-	t.Run("ConsistentRead ignored on GSI", func(t *testing.T) {
-		// ConsistentRead should be ignored when using GSI
+	t.Run("ConsistentRead rejected on GSI", func(t *testing.T) {
 		var result ConsistencyTestModel
 		err := db.Model(&ConsistencyTestModel{}).
 			Index("email-index").
 			Where("Email", "=", item.Email).
-			ConsistentRead(). // This should be ignored
+			ConsistentRead().
 			First(&result)
 
-		if err != nil {
-			t.Errorf("Failed to read from GSI: %v", err)
+		if !errors.Is(err, theorydbErrors.ErrInvalidOperator) {
+			t.Fatalf("expected ErrInvalidOperator for GSI ConsistentRead, got %v", err)
 		}
 	})
 }
