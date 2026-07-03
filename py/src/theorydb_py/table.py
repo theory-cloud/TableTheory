@@ -998,6 +998,18 @@ class Table[T]:
             raise NotFoundError("item not found")
         return self._from_item(item)
 
+    def get_or_none(self, pk: Any, sk: Any | None = None, *, consistent_read: bool = False) -> T | None:
+        key = self._to_key(pk, sk)
+        try:
+            resp = self._client.get_item(TableName=self._table_name, Key=key, ConsistentRead=consistent_read)
+        except ClientError as err:  # pragma: no cover
+            raise _map_client_error(err) from err
+
+        item = resp.get("Item")
+        if not item:
+            return None
+        return self._from_item(item)
+
     def delete(
         self,
         pk: Any,

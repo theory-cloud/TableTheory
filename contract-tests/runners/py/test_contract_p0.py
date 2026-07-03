@@ -305,8 +305,11 @@ class _TheorydbPyDriver:
         return _contract_item(table.get(_pk_value(key), _sk_value(key), consistent_read=True))
 
     def get_optional(self, model: str, key: dict[str, Any]) -> dict[str, Any] | None:
-        del model, key
-        raise ValidationError("optional get is not advertised")
+        table = self._table(model)
+        item = table.get_or_none(_pk_value(key), _sk_value(key), consistent_read=True)
+        if item is None:
+            return None
+        return _contract_item(item)
 
     def update(
         self,
@@ -528,6 +531,7 @@ def _supported_capabilities() -> list[str]:
         "query.basic",
         "scan.basic",
         "count.native",
+        "get.optional",
         "release_state.write_policy",
         "release_state.transactional_transition",
         "release_state.provenance_confidence",

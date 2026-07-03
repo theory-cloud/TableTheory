@@ -52,9 +52,13 @@ class _StubClient:
         self._last_key: dict | None = None
         self._count = 0
         self._scanned_count = 0
+        self._get_error: Exception | None = None
 
     def set_get_item(self, item: dict | None) -> None:
         self._get_item = item
+
+    def set_get_error(self, err: Exception | None) -> None:
+        self._get_error = err
 
     def set_update_attrs(self, attrs: dict | None) -> None:
         self._update_attrs = attrs
@@ -78,6 +82,8 @@ class _StubClient:
 
     def get_item(self, **req):  # noqa: ANN001
         self.get_reqs.append(req)
+        if self._get_error is not None:
+            raise self._get_error
         return {"Item": self._get_item} if self._get_item is not None else {}
 
     def delete_item(self, **req):  # noqa: ANN001
@@ -147,6 +153,25 @@ def test_table_put_get_delete_update_happy_path_and_validation() -> None:
     stub.set_get_item(None)
     with pytest.raises(NotFoundError):
         table.get("A", "1")
+
+    stub.set_get_item(table._to_item(Item(pk="A", sk="1", value=1)))
+    assert table.get_or_none("A", "1") == Item(pk="A", sk="1", value=1, note="")
+
+    stub.set_get_item(None)
+    assert table.get_or_none("A", "1") is None
+
+    stub.set_get_error(
+        ClientError({"Error": {"Code": "ValidationException", "Message": "real error"}}, "GetItem")
+    )
+    with pytest.raises(ValidationError, match="real error"):
+        table.get_or_none("A", "1")
+
+    stub.set_get_error(
+        ClientError({"Error": {"Code": "ResourceNotFoundException", "Message": "missing table"}}, "GetItem")
+    )
+    with pytest.raises(NotFoundError, match="missing table"):
+        table.get_or_none("A", "1")
+    stub.set_get_error(None)
 
     table.delete("A", "1", condition_expression="attribute_exists(PK)")
     assert stub.delete_reqs[0]["ConditionExpression"] == "attribute_exists(PK)"
