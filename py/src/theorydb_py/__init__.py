@@ -129,6 +129,16 @@ def __getattr__(name: str) -> Any:
 
         return getattr(dms, name)
     if name in {
+        "evaluate_derived_key",
+        "evaluate_derived_key_definition",
+        "load_key_contract_file",
+        "parse_derived_key_contract",
+        "verify_derived_key_fixtures",
+    }:
+        from . import key_contract
+
+        return getattr(key_contract, name)
+    if name in {
         "build_create_table_request",
         "create_table",
         "delete_table",
@@ -253,6 +263,8 @@ __all__ = [
     "GroupByQuery",
     "GroupedResult",
     "EncryptionNotConfiguredError",
+    "evaluate_derived_key",
+    "evaluate_derived_key_definition",
     "ensure_table",
     "resolve_ttl_attribute",
     "get_dms_model",
@@ -273,6 +285,7 @@ __all__ = [
     "Lease",
     "LeaseKey",
     "LeaseManager",
+    "load_key_contract_file",
     "MaxExpressionLength",
     "MaxFieldNameLength",
     "MaxNestedDepth",
@@ -313,6 +326,7 @@ __all__ = [
     "gsi",
     "lsi",
     "parse_dms_document",
+    "parse_derived_key_contract",
     "unmarshal_stream_image",
     "unmarshal_stream_record",
     "update_time_to_live",
@@ -322,4 +336,5 @@ __all__ = [
     "validate_operator",
     "validate_table_name",
     "validate_value",
+    "verify_derived_key_fixtures",
 ]

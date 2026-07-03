@@ -1,38 +1,47 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-fixture="contract-tests/key-contracts/v0.1/theorymcp-derived-keys.yml"
-artifact="contract-tests/generated/key-contracts/v0.1/theorymcp-derived-keys.generated.ts"
-runtime_import="../../../../ts/src/key-contract.js"
+fixtures=(
+  "contract-tests/key-contracts/v0.1/theorymcp-derived-keys.yml|contract-tests/generated/key-contracts/v0.1/theorymcp-derived-keys.generated.ts|../../../../ts/src/key-contract.js"
+  "contract-tests/key-contracts/v0.2/derived-key-transforms.yml|contract-tests/generated/key-contracts/v0.2/derived-key-transforms.generated.ts|../../../../ts/src/key-contract.js"
+)
 
-if [[ ! -f "${fixture}" ]]; then
-  echo "generated-ts: FAIL (missing ${fixture})" >&2
-  exit 1
-fi
 if [[ ! -d "ts/node_modules" ]]; then
   bash scripts/verify-typescript-deps.sh
 fi
 
-echo "generated-ts: generate"
-go run ./cmd/tabletheory-contract generate-ts \
-  --contract "${fixture}" \
-  --out "${artifact}" \
-  --runtime-import "${runtime_import}"
+generated_artifacts=()
+for entry in "${fixtures[@]}"; do
+  IFS='|' read -r fixture artifact runtime_import <<<"${entry}"
+  if [[ ! -f "${fixture}" ]]; then
+    echo "generated-ts: FAIL (missing ${fixture})" >&2
+    exit 1
+  fi
+
+  echo "generated-ts: generate ${fixture}"
+  go run ./cmd/tabletheory-contract generate-ts \
+    --contract "${fixture}" \
+    --out "${artifact}" \
+    --runtime-import "${runtime_import}"
+  generated_artifacts+=("${artifact}")
+done
 
 echo "generated-ts: drift"
-git diff --exit-code -- "${artifact}"
+git diff --exit-code -- "${generated_artifacts[@]}"
 
 echo "generated-ts: tsc"
-(cd ts && npx tsc --noEmit \
-  --target ES2022 \
-  --module NodeNext \
-  --moduleResolution NodeNext \
-  --strict \
-  --noUncheckedIndexedAccess \
-  --exactOptionalPropertyTypes \
-  --skipLibCheck \
-  --types node \
-  "../${artifact}")
+for artifact in "${generated_artifacts[@]}"; do
+  (cd ts && npx tsc --noEmit \
+    --target ES2022 \
+    --module NodeNext \
+    --moduleResolution NodeNext \
+    --strict \
+    --noUncheckedIndexedAccess \
+    --exactOptionalPropertyTypes \
+    --skipLibCheck \
+    --types node \
+    "../${artifact}")
+done
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
@@ -90,7 +99,11 @@ func main() {
 }
 EOF
 
-go run "${tmpdir}/emit-go-fixtures.go" "${fixture}" > "${go_matrix}"
+for entry in "${fixtures[@]}"; do
+  IFS='|' read -r fixture artifact _runtime_import <<<"${entry}"
+  go_matrix="${tmpdir}/$(basename "${artifact}").go-fixtures.json"
+  go run "${tmpdir}/emit-go-fixtures.go" "${fixture}" > "${go_matrix}"
 
-echo "generated-ts: helper parity"
-npx --prefix ts tsx scripts/verify-generated-ts-key-contract.ts "${artifact}" "${go_matrix}"
+  echo "generated-ts: helper parity ${artifact}"
+  npx --prefix ts tsx scripts/verify-generated-ts-key-contract.ts "${artifact}" "${go_matrix}"
+done

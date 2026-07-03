@@ -70,11 +70,12 @@ func evaluateSegment(keyName string, index int, segment Segment, input map[strin
 		return "", true, nil
 	}
 
-	value, generatedWildcard, err := applyTransforms(resolved.value, segment.Transforms)
+	transformed, err := applyTransforms(resolved.value, segment.Transforms)
 	if err != nil {
 		return "", false, fmt.Errorf("derived key %s segment %s: %w", keyName, label, err)
 	}
-	if resolved.fromInput && !generatedWildcard {
+	value = transformed.value
+	if resolved.fromInput && !transformed.generatedWildcard && !transformed.percentEncoded {
 		value = escapeDerivedKeyInputValue(value)
 	}
 	value = applyDefault(value, segment)
@@ -107,22 +108,33 @@ func applyDefault(value string, segment Segment) string {
 	return value
 }
 
-func applyTransforms(value string, transforms []string) (string, bool, error) {
-	generatedWildcard := false
+type transformResult struct {
+	value             string
+	generatedWildcard bool
+	percentEncoded    bool
+}
+
+func applyTransforms(value string, transforms []string) (transformResult, error) {
+	out := transformResult{value: value}
 	for _, transform := range transforms {
 		switch transform {
 		case TransformTrim:
-			value = trimContractWhitespace(value)
+			out.value = trimContractWhitespace(out.value)
 		case TransformWildcardEmpty:
-			if value == "" {
-				value = "*"
-				generatedWildcard = true
+			if out.value == "" {
+				out.value = "*"
+				out.generatedWildcard = true
 			}
+		case TransformLowercase:
+			out.value = asciiLowercase(out.value)
+		case TransformURLEncode:
+			out.value = escapeDerivedKeyInputValue(out.value)
+			out.percentEncoded = true
 		default:
-			return "", false, fmt.Errorf("unsupported transform %q", transform)
+			return transformResult{}, fmt.Errorf("unsupported transform %q", transform)
 		}
 	}
-	return value, generatedWildcard, nil
+	return out, nil
 }
 
 type resolvedSegmentValue struct {
@@ -211,6 +223,19 @@ func isDerivedKeyUnreservedByte(b byte) bool {
 		b >= 'a' && b <= 'z' ||
 		b >= '0' && b <= '9' ||
 		b == '-' || b == '.' || b == '_' || b == '~'
+}
+
+func asciiLowercase(value string) string {
+	var out strings.Builder
+	out.Grow(len(value))
+	for i := 0; i < len(value); i++ {
+		b := value[i]
+		if b >= 'A' && b <= 'Z' {
+			b += 'a' - 'A'
+		}
+		out.WriteByte(b)
+	}
+	return out.String()
 }
 
 func integerScalarToString(value any) (string, bool) {
