@@ -28,6 +28,10 @@ const (
 	ErrMissingPrimaryKey ErrorCode = "ErrMissingPrimaryKey"
 	ErrInvalidOperator   ErrorCode = "ErrInvalidOperator"
 
+	ErrEncryptionNotConfigured    ErrorCode = "ErrEncryptionNotConfigured"
+	ErrEncryptedFieldNotQueryable ErrorCode = "ErrEncryptedFieldNotQueryable"
+	ErrInvalidEncryptedEnvelope   ErrorCode = "ErrInvalidEncryptedEnvelope"
+
 	ErrImmutableModelMutation          ErrorCode = "ErrImmutableModelMutation"
 	ErrProtectedFieldMutation          ErrorCode = "ErrProtectedFieldMutation"
 	ErrRejectedDeployAuthorityEvidence ErrorCode = "ErrRejectedDeployAuthorityEvidence"
@@ -94,6 +98,12 @@ func MapError(err error) ErrorCode {
 		return ErrMissingPrimaryKey
 	case errors.Is(err, theorydbErrors.ErrInvalidOperator):
 		return ErrInvalidOperator
+	case errors.Is(err, theorydbErrors.ErrEncryptionNotConfigured):
+		return ErrEncryptionNotConfigured
+	case errors.Is(err, theorydbErrors.ErrEncryptedFieldNotQueryable):
+		return ErrEncryptedFieldNotQueryable
+	case errors.Is(err, theorydbErrors.ErrInvalidEncryptedEnvelope):
+		return ErrInvalidEncryptedEnvelope
 	case errors.Is(err, theorydbErrors.ErrImmutableModelMutation):
 		return ErrImmutableModelMutation
 	case errors.Is(err, theorydbErrors.ErrProtectedFieldMutation):
