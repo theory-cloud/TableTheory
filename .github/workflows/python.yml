@@ -4,7 +4,8 @@ on:
   push:
     branches: ["staging", "premain", "main"]
   pull_request:
-    branches: ["staging", "premain", "main"]
+    # Staging PRs run Python through Quality Gates to avoid duplicate suites.
+    branches: ["premain", "main"]
   workflow_dispatch: {}
 
 permissions:
