@@ -274,6 +274,28 @@ scan steps use this shape:
 Supported basic operators are `=`, `<`, `<=`, `>`, `>=`, `between`, and `begins_with` for sort-key conditions, plus
 those and `!=`/`<>`, `contains`, `in`, `exists`/`attribute_exists`, and `not_exists`/`attribute_not_exists` for filters.
 
+### Cross-runtime interop scenarios
+
+Interop scenarios live under `contract-tests/scenarios/interop/` and declare a seed/read manifest:
+
+```yaml
+seed_runtime: "go"
+seed_steps:
+  - op: create
+    item: { ... }
+read_steps:
+  - op: get
+    key: { ... }
+    expect:
+      item_equals: { ... }
+```
+
+The seed runtime recreates the table, runs `seed_steps`, then runs `read_steps` against the same DynamoDB Local instance.
+The non-seed runtimes do **not** recreate the table for that scenario; they run only `read_steps`, so they assert the
+physical items written by the seed runtime. The repository validation script runs the normal per-runtime P0 suites first,
+then runs the interop seed/read sequence in order (`go` seed/read, TypeScript read, Python read) with
+`CONTRACT_RUN_INTEROP=1`.
+
 ### P2 driver operations
 
 - `batchGet(modelName, keys)`

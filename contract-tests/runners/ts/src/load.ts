@@ -56,45 +56,71 @@ export async function loadScenariosDir(dir: string): Promise<Scenario[]> {
 }
 
 function validateScenario(scenario: Scenario, filePath: string): void {
-  if (!Array.isArray(scenario.steps) || scenario.steps.length === 0) {
+  if (scenario.seed_runtime) {
+    if (
+      !Array.isArray(scenario.seed_steps) ||
+      scenario.seed_steps.length === 0
+    ) {
+      throw new Error(`Scenario missing seed_steps: ${filePath}`);
+    }
+    if (
+      !Array.isArray(scenario.read_steps) ||
+      scenario.read_steps.length === 0
+    ) {
+      throw new Error(`Scenario missing read_steps: ${filePath}`);
+    }
+  } else if (!Array.isArray(scenario.steps) || scenario.steps.length === 0) {
     throw new Error(`Scenario missing steps: ${filePath}`);
   }
-  for (const [index, step] of scenario.steps.entries()) {
-    const prefix = `${filePath} step ${index} ${step.op}`;
-    switch (step.op) {
-      case "sleep":
-        break;
-      case "create":
-      case "update":
-      case "save":
-        requirePlainObject(step.item, `${prefix}: item is required`);
-        break;
-      case "get":
-      case "delete":
-        requirePlainObject(step.key, `${prefix}: key is required`);
-        break;
-      case "query":
-        requireReadRequest(step.query, `${prefix}: query`);
-        requireReadCondition(
-          step.query?.partition,
-          `${prefix}: query.partition`,
-        );
-        break;
-      case "scan":
-        requireReadRequest(step.scan, `${prefix}: scan`);
-        break;
-      case "transition_append_event":
-        requireTransitionActual(step.actual, `${prefix}: actual`);
-        requireTransitionEvent(step.event, `${prefix}: event`);
-        break;
-      case "validate_provenance":
-        requirePlainObject(step.item, `${prefix}: item is required`);
-        break;
-      default:
-        throw new Error(
-          `${filePath} step ${index}: unsupported op ${String(step.op)}`,
-        );
+
+  for (const [label, steps] of [
+    ["steps", scenario.steps ?? []],
+    ["seed_steps", scenario.seed_steps ?? []],
+    ["read_steps", scenario.read_steps ?? []],
+  ] as const) {
+    for (const [index, step] of steps.entries()) {
+      validateStep(filePath, label, index, step);
     }
+  }
+}
+
+function validateStep(
+  filePath: string,
+  label: string,
+  index: number,
+  step: Scenario["steps"][number],
+): void {
+  const prefix = `${filePath} ${label}[${index}] ${step.op}`;
+  switch (step.op) {
+    case "sleep":
+      break;
+    case "create":
+    case "update":
+    case "save":
+      requirePlainObject(step.item, `${prefix}: item is required`);
+      break;
+    case "get":
+    case "delete":
+      requirePlainObject(step.key, `${prefix}: key is required`);
+      break;
+    case "query":
+      requireReadRequest(step.query, `${prefix}: query`);
+      requireReadCondition(step.query?.partition, `${prefix}: query.partition`);
+      break;
+    case "scan":
+      requireReadRequest(step.scan, `${prefix}: scan`);
+      break;
+    case "transition_append_event":
+      requireTransitionActual(step.actual, `${prefix}: actual`);
+      requireTransitionEvent(step.event, `${prefix}: event`);
+      break;
+    case "validate_provenance":
+      requirePlainObject(step.item, `${prefix}: item is required`);
+      break;
+    default:
+      throw new Error(
+        `${filePath} ${label}[${index}]: unsupported op ${String(step.op)}`,
+      );
   }
 }
 

@@ -15,6 +15,9 @@ type Scenario struct {
 	Model                string   `yaml:"model"`
 	Table                Table    `yaml:"table"`
 	Steps                []Step   `yaml:"steps"`
+	SeedRuntime          string   `yaml:"seed_runtime"`
+	SeedSteps            []Step   `yaml:"seed_steps"`
+	ReadSteps            []Step   `yaml:"read_steps"`
 }
 
 type Table struct {
@@ -108,79 +111,105 @@ func LoadFile(path string) (*Scenario, error) {
 }
 
 func validateSteps(s *Scenario) error {
-	for i, step := range s.Steps {
-		if step.Op == "" {
-			return fmt.Errorf("step %d: op is required", i)
+	if s.SeedRuntime != "" {
+		if len(s.SeedSteps) == 0 {
+			return fmt.Errorf("seed_steps are required when seed_runtime is set")
 		}
-		switch step.Op {
-		case "sleep":
-			continue
-		case "create", "update", "save":
-			if len(step.Item) == 0 {
-				return fmt.Errorf("step %d %s: item is required", i, step.Op)
-			}
-		case "get", "delete":
-			if len(step.Key) == 0 {
-				return fmt.Errorf("step %d %s: key is required", i, step.Op)
-			}
-		case "query":
-			if step.Query == nil {
-				return fmt.Errorf("step %d query: query is required", i)
-			}
-			if step.Query.Partition == nil {
-				return fmt.Errorf("step %d query: query.partition is required", i)
-			}
-			if err := validateReadCondition(step.Query.Partition, fmt.Sprintf("step %d query.partition", i)); err != nil {
+		if len(s.ReadSteps) == 0 {
+			return fmt.Errorf("read_steps are required when seed_runtime is set")
+		}
+	}
+	if s.SeedRuntime == "" && len(s.Steps) == 0 {
+		return fmt.Errorf("scenario steps are required")
+	}
+
+	for label, steps := range map[string][]Step{
+		"steps":      s.Steps,
+		"seed_steps": s.SeedSteps,
+		"read_steps": s.ReadSteps,
+	} {
+		for i, step := range steps {
+			if err := validateStep(label, i, step); err != nil {
 				return err
 			}
-			if step.Query.Sort != nil {
-				if err := validateReadCondition(step.Query.Sort, fmt.Sprintf("step %d query.sort", i)); err != nil {
-					return err
-				}
-			}
-			for j := range step.Query.Filter {
-				if err := validateReadCondition(&step.Query.Filter[j], fmt.Sprintf("step %d query.filter[%d]", i, j)); err != nil {
-					return err
-				}
-			}
-		case "scan":
-			if step.Scan == nil {
-				return fmt.Errorf("step %d scan: scan is required", i)
-			}
-			for j := range step.Scan.Filter {
-				if err := validateReadCondition(&step.Scan.Filter[j], fmt.Sprintf("step %d scan.filter[%d]", i, j)); err != nil {
-					return err
-				}
-			}
-		case "transition_append_event":
-			if step.Actual == nil {
-				return fmt.Errorf("step %d transition_append_event: actual is required", i)
-			}
-			if step.Actual.Model == "" {
-				return fmt.Errorf("step %d transition_append_event: actual.model is required", i)
-			}
-			if len(step.Actual.Key) == 0 {
-				return fmt.Errorf("step %d transition_append_event: actual.key is required", i)
-			}
-			if len(step.Actual.Set) == 0 {
-				return fmt.Errorf("step %d transition_append_event: actual.set is required", i)
-			}
-			if step.Event == nil {
-				return fmt.Errorf("step %d transition_append_event: event is required", i)
-			}
-			if step.Event.Model == "" {
-				return fmt.Errorf("step %d transition_append_event: event.model is required", i)
-			}
-			if len(step.Event.Item) == 0 {
-				return fmt.Errorf("step %d transition_append_event: event.item is required", i)
-			}
-		case "validate_provenance":
-			if len(step.Item) == 0 {
-				return fmt.Errorf("step %d validate_provenance: item is required", i)
-			}
-		default:
-			return fmt.Errorf("step %d: unsupported op %q", i, step.Op)
 		}
+	}
+	return nil
+}
+
+func validateStep(label string, i int, step Step) error {
+	prefix := fmt.Sprintf("%s[%d]", label, i)
+	if step.Op == "" {
+		return fmt.Errorf("%s: op is required", prefix)
+	}
+	switch step.Op {
+	case "sleep":
+		return nil
+	case "create", "update", "save":
+		if len(step.Item) == 0 {
+			return fmt.Errorf("%s %s: item is required", prefix, step.Op)
+		}
+	case "get", "delete":
+		if len(step.Key) == 0 {
+			return fmt.Errorf("%s %s: key is required", prefix, step.Op)
+		}
+	case "query":
+		if step.Query == nil {
+			return fmt.Errorf("%s query: query is required", prefix)
+		}
+		if step.Query.Partition == nil {
+			return fmt.Errorf("%s query: query.partition is required", prefix)
+		}
+		if err := validateReadCondition(step.Query.Partition, fmt.Sprintf("%s query.partition", prefix)); err != nil {
+			return err
+		}
+		if step.Query.Sort != nil {
+			if err := validateReadCondition(step.Query.Sort, fmt.Sprintf("%s query.sort", prefix)); err != nil {
+				return err
+			}
+		}
+		for j := range step.Query.Filter {
+			if err := validateReadCondition(&step.Query.Filter[j], fmt.Sprintf("%s query.filter[%d]", prefix, j)); err != nil {
+				return err
+			}
+		}
+	case "scan":
+		if step.Scan == nil {
+			return fmt.Errorf("%s scan: scan is required", prefix)
+		}
+		for j := range step.Scan.Filter {
+			if err := validateReadCondition(&step.Scan.Filter[j], fmt.Sprintf("%s scan.filter[%d]", prefix, j)); err != nil {
+				return err
+			}
+		}
+	case "transition_append_event":
+		if step.Actual == nil {
+			return fmt.Errorf("%s transition_append_event: actual is required", prefix)
+		}
+		if step.Actual.Model == "" {
+			return fmt.Errorf("%s transition_append_event: actual.model is required", prefix)
+		}
+		if len(step.Actual.Key) == 0 {
+			return fmt.Errorf("%s transition_append_event: actual.key is required", prefix)
+		}
+		if len(step.Actual.Set) == 0 {
+			return fmt.Errorf("%s transition_append_event: actual.set is required", prefix)
+		}
+		if step.Event == nil {
+			return fmt.Errorf("%s transition_append_event: event is required", prefix)
+		}
+		if step.Event.Model == "" {
+			return fmt.Errorf("%s transition_append_event: event.model is required", prefix)
+		}
+		if len(step.Event.Item) == 0 {
+			return fmt.Errorf("%s transition_append_event: event.item is required", prefix)
+		}
+	case "validate_provenance":
+		if len(step.Item) == 0 {
+			return fmt.Errorf("%s validate_provenance: item is required", prefix)
+		}
+	default:
+		return fmt.Errorf("%s: unsupported op %q", prefix, step.Op)
 	}
 	return nil
 }

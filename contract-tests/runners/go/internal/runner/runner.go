@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -79,12 +80,28 @@ func (r *Runner) RunScenario(t require.TestingT, ctx context.Context, s *scenari
 
 	require.NotEmpty(t, tableName, "table name required")
 
-	require.NoError(t, r.recreateTable(ctx, tableName, model))
+	steps, recreate := stepsForRuntime(s, "go")
+	if recreate {
+		require.NoError(t, r.recreateTable(ctx, tableName, model))
+	}
 
-	for i := range s.Steps {
-		step := s.Steps[i]
+	for i := range steps {
+		step := steps[i]
 		r.runStep(t, ctx, s, models, tableName, step)
 	}
+}
+
+func stepsForRuntime(s *scenario.Scenario, runtimeName string) ([]scenario.Step, bool) {
+	if s.SeedRuntime == "" {
+		return s.Steps, true
+	}
+	if strings.EqualFold(s.SeedRuntime, runtimeName) {
+		steps := make([]scenario.Step, 0, len(s.SeedSteps)+len(s.ReadSteps))
+		steps = append(steps, s.SeedSteps...)
+		steps = append(steps, s.ReadSteps...)
+		return steps, true
+	}
+	return s.ReadSteps, false
 }
 
 func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Scenario, models map[string]spec.Model, tableName string, step scenario.Step) {

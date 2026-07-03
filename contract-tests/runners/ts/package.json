@@ -12,6 +12,7 @@
     "test:update-builder": "tsx test/update-builder.contract.test.ts",
     "test:reserved-words": "tsx test/reserved-words.contract.test.ts",
     "test:contract:p0": "tsx test/contract.p0.test.ts",
+    "test:contract:interop": "tsx test/contract.interop.test.ts",
     "test:key-contract": "tsx test/key-contract.contract.test.ts"
   },
   "dependencies": {

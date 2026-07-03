@@ -1,0 +1,28 @@
+name: "interop.release_state_event.seeded_by_go"
+dms_version: "0.1"
+requires_capabilities: ["release_state.write_policy"]
+model: "ReleaseStateEvent"
+table:
+  name: "release_state_contract"
+seed_runtime: "go"
+seed_steps:
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "INTEROP#release-state"
+      SK: "EVENT#2026-07-03T01:30:00Z"
+      releaseId: "rel_interop_go_seed"
+      eventType: "seeded"
+    expect:
+      ok: true
+read_steps:
+  - op: get
+    key:
+      PK: "INTEROP#release-state"
+      SK: "EVENT#2026-07-03T01:30:00Z"
+    expect:
+      item_equals:
+        PK: "INTEROP#release-state"
+        SK: "EVENT#2026-07-03T01:30:00Z"
+        releaseId: "rel_interop_go_seed"
+        eventType: "seeded"

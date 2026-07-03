@@ -56,9 +56,15 @@ def _load_models() -> dict[str, dict[str, Any]]:
 
 
 def _load_scenarios() -> list[dict[str, Any]]:
-    scenario_dir = _repo_root() / "contract-tests" / "scenarios" / "p0"
-    scenarios = [_load_yaml(path) for path in sorted(scenario_dir.glob("*.yml"))]
+    scenarios = _load_scenarios_from("p0")
     assert len(scenarios) >= 9
+    return scenarios
+
+
+def _load_scenarios_from(name: str) -> list[dict[str, Any]]:
+    scenario_dir = _repo_root() / "contract-tests" / "scenarios" / name
+    scenarios = [_load_yaml(path) for path in sorted(scenario_dir.glob("*.yml"))]
+    assert scenarios
     return scenarios
 
 
@@ -278,6 +284,27 @@ def test_p0_contract_scenarios_execute_for_python(scenario: dict[str, Any]) -> N
     _run_scenario(client, driver, scenario, models)
 
 
+@pytest.mark.parametrize(
+    "scenario",
+    _load_scenarios_from("interop"),
+    ids=lambda scenario: str(scenario["name"]),
+)
+def test_cross_runtime_interop_scenarios_execute_for_python(scenario: dict[str, Any]) -> None:
+    if os.environ.get("CONTRACT_RUN_INTEROP") != "1":
+        pytest.skip("set CONTRACT_RUN_INTEROP=1 to run cross-runtime interop scenarios")
+
+    models = _load_models()
+    missing = _missing_capabilities(scenario, _supported_capabilities())
+    if missing:
+        pytest.skip(f"scenario requires unsupported capabilities: {', '.join(missing)}")
+
+    client = _dynamodb_client()
+    client.list_tables(Limit=1)
+
+    driver = _TheorydbPyDriver(client)
+    _run_scenario(client, driver, scenario, models)
+
+
 def _supported_capabilities() -> list[str]:
     return [
         "crud",
@@ -400,11 +427,26 @@ def _run_scenario(
 ) -> None:
     model = models[scenario["model"]]
     table_name = scenario.get("table", {}).get("name") or model["table"]["name"]
-    _recreate_table(client, table_name, model)
+    steps, recreate = _steps_for_runtime(scenario, "py")
+    if recreate:
+        _recreate_table(client, table_name, model)
     variables: dict[str, Any] = {}
 
-    for step in scenario["steps"]:
+    for step in steps:
         _run_step(client, driver, step, scenario, models, table_name, variables)
+
+
+def _steps_for_runtime(scenario: dict[str, Any], runtime_name: str) -> tuple[list[dict[str, Any]], bool]:
+    seed_runtime = scenario.get("seed_runtime")
+    if not seed_runtime:
+        return cast(list[dict[str, Any]], scenario["steps"]), True
+    if str(seed_runtime).lower() == runtime_name:
+        return (
+            cast(list[dict[str, Any]], scenario.get("seed_steps", []))
+            + cast(list[dict[str, Any]], scenario.get("read_steps", [])),
+            True,
+        )
+    return cast(list[dict[str, Any]], scenario.get("read_steps", [])), False
 
 
 def _run_step(

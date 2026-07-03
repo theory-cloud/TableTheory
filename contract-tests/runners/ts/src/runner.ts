@@ -37,13 +37,30 @@ export async function runScenario(opts: {
   const tableName = scenario.table?.name ?? model.table.name;
   assert.ok(tableName, "table name required");
 
-  await recreateTable(ddb, tableName, model);
+  const { steps, recreate } = stepsForRuntime(scenario, "ts");
+  if (recreate) {
+    await recreateTable(ddb, tableName, model);
+  }
 
   const vars = new Map<string, unknown>();
 
-  for (const step of scenario.steps) {
+  for (const step of steps) {
     await runStep({ ddb, driver, step, scenario, models, tableName, vars });
   }
+}
+
+function stepsForRuntime(
+  scenario: Scenario,
+  runtimeName: "go" | "ts" | "py",
+): { steps: Step[]; recreate: boolean } {
+  if (!scenario.seed_runtime) return { steps: scenario.steps, recreate: true };
+  if (scenario.seed_runtime.toLowerCase() === runtimeName) {
+    return {
+      steps: [...(scenario.seed_steps ?? []), ...(scenario.read_steps ?? [])],
+      recreate: true,
+    };
+  }
+  return { steps: scenario.read_steps ?? [], recreate: false };
 }
 
 async function runStep(opts: {

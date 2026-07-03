@@ -2,6 +2,7 @@ package contracttests
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,6 +15,19 @@ import (
 )
 
 func TestContract_P0(t *testing.T) {
+	t.Helper()
+	runContractScenarios(t, filepath.Join("contract-tests", "scenarios", "p0"))
+}
+
+func TestContract_Interop(t *testing.T) {
+	t.Helper()
+	if os.Getenv("CONTRACT_RUN_INTEROP") != "1" {
+		t.Skip("set CONTRACT_RUN_INTEROP=1 to run cross-runtime interop scenarios")
+	}
+	runContractScenarios(t, filepath.Join("contract-tests", "scenarios", "interop"))
+}
+
+func runContractScenarios(t *testing.T, scenarioRelDir string) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -34,7 +48,7 @@ func TestContract_P0(t *testing.T) {
 	models, err := spec.LoadModelsDir(filepath.Join(root, "contract-tests", "dms", "v0.1", "models"))
 	require.NoError(t, err)
 
-	scenarioDir := filepath.Join(root, "contract-tests", "scenarios", "p0")
+	scenarioDir := filepath.Join(root, scenarioRelDir)
 	files, err := filepath.Glob(filepath.Join(scenarioDir, "*.yml"))
 	require.NoError(t, err)
 	require.NotEmpty(t, files)

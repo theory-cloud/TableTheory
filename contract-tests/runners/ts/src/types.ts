@@ -48,6 +48,9 @@ export interface Scenario {
   model: string;
   table?: { name?: string };
   steps: Step[];
+  seed_runtime?: "go" | "ts" | "py" | string;
+  seed_steps?: Step[];
+  read_steps?: Step[];
 }
 
 export interface Step {
