@@ -14,6 +14,13 @@ import (
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
+const (
+	namingConventionCamelCase  = "camelCase"
+	namingConventionSnakeCase  = "snake_case"
+	namingConventionPascalCase = "pascalCase"
+	namingConventionDynamORM   = "dynamorm"
+)
+
 type Document struct {
 	DMSVersion string  `yaml:"dms_version" json:"dms_version"`
 	Namespace  string  `yaml:"namespace" json:"namespace"`
@@ -144,12 +151,17 @@ func FromMetadata(meta *model.Metadata) (Model, error) {
 		return Model{}, fmt.Errorf("metadata missing primary key")
 	}
 
+	namingConvention, err := namingConventionString(meta.NamingConvention)
+	if err != nil {
+		return Model{}, err
+	}
+
 	out := Model{
 		Name: meta.Type.Name(),
 		Table: Table{
 			Name: meta.TableName,
 		},
-		Naming: Naming{Convention: namingConventionString(meta.NamingConvention)},
+		Naming: Naming{Convention: namingConvention},
 		Keys: Keys{
 			Partition: KeyAttribute{
 				Attribute: meta.PrimaryKey.PartitionKey.DBName,
@@ -299,7 +311,7 @@ type normalizedIndex struct {
 func normalizeForCompare(m Model, opts CompareOptions) normalizedModel {
 	convention := m.Naming.Convention
 	if convention == "" {
-		convention = "camelCase"
+		convention = namingConventionCamelCase
 	}
 
 	out := normalizedModel{
@@ -371,18 +383,18 @@ func rolesFromField(f *model.FieldMetadata) []string {
 	return roles
 }
 
-func namingConventionString(c naming.Convention) string {
+func namingConventionString(c naming.Convention) (string, error) {
 	switch c {
 	case naming.SnakeCase:
-		return "snake_case"
+		return namingConventionSnakeCase, nil
 	case naming.PascalCase:
-		return "pascalCase"
+		return "", fmt.Errorf("unsupported DMS naming convention: %s", namingConventionPascalCase)
 	case naming.DynamORM:
-		return "dynamorm"
+		return namingConventionDynamORM, nil
 	case naming.CamelCase:
 		fallthrough
 	default:
-		return "camelCase"
+		return namingConventionCamelCase, nil
 	}
 }
 
@@ -522,6 +534,9 @@ func validateModel(m Model) error {
 	if isBlank(m.Table.Name) {
 		return fmt.Errorf("DMS model %s: missing table.name", m.Name)
 	}
+	if err := validateModelNaming(m); err != nil {
+		return err
+	}
 	if err := validateModelKeys(m); err != nil {
 		return err
 	}
@@ -536,6 +551,15 @@ func validateModel(m Model) error {
 		return err
 	}
 	return validateModelKeyAttributesPresent(m, seen)
+}
+
+func validateModelNaming(m Model) error {
+	switch m.Naming.Convention {
+	case "", namingConventionCamelCase, namingConventionSnakeCase, namingConventionDynamORM:
+		return nil
+	default:
+		return fmt.Errorf("DMS model %s: unsupported naming.convention %q", m.Name, m.Naming.Convention)
+	}
 }
 
 func normalizeWritePolicy(policy WritePolicy) WritePolicy {

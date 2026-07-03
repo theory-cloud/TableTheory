@@ -63,6 +63,33 @@ models: []
   const raw = `
 dms_version: "0.1"
 models:
+  - name: "BadNaming"
+    table: { name: "tbl" }
+    naming: { convention: "pascalCase" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+`;
+
+  assert.throws(
+    () => parseDmsDocument(raw),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(err.message, /unsupported naming\.convention/);
+      return true;
+    },
+  );
+}
+
+{
+  const raw = `
+dms_version: "0.1"
+models:
   - name: "Demo"
     table: { name: "tbl" }
     keys:

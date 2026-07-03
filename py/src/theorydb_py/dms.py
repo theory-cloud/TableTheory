@@ -92,6 +92,8 @@ def _normalize_dms_model(model: Mapping[str, Any], *, ignore_table_name: bool) -
     if not isinstance(name, str) or not name:
         raise ValidationError("DMS model missing name")
 
+    _validate_naming_convention(model, name=name)
+
     keys = model.get("keys")
     if not isinstance(keys, dict):
         raise ValidationError(f"DMS model {name}: missing keys")
@@ -234,6 +236,18 @@ def _normalize_dms_model(model: Mapping[str, Any], *, ignore_table_name: bool) -
     indexes.sort(key=lambda i: cast(str, i["name"]))
     out["indexes"] = indexes
     return out
+
+
+def _validate_naming_convention(model: Mapping[str, Any], *, name: str) -> None:
+    naming = model.get("naming")
+    if naming is None:
+        return
+    if not isinstance(naming, Mapping):
+        raise ValidationError(f"DMS model {name}: naming must be a map/object")
+    convention = naming.get("convention")
+    if convention in {None, "camelCase", "snake_case", "dynamorm"}:
+        return
+    raise ValidationError(f"DMS model {name}: unsupported naming.convention: {convention!r}")
 
 
 def _normalize_write_policy(raw: Any, *, name: str, attributes: set[str]) -> dict[str, Any]:

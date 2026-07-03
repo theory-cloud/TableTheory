@@ -41,6 +41,7 @@ export function parseDmsDocument(raw: string): DmsDocument {
     );
   }
   for (const model of doc.models) {
+    validateDmsNamingConvention(model);
     defineModel(model);
   }
 
@@ -52,6 +53,34 @@ export function getDmsModel(doc: DmsDocument, name: string): ModelSchema {
     if (model?.name === name) return model;
   }
   throw new TheorydbError('ErrInvalidModel', `DMS model not found: ${name}`);
+}
+
+function validateDmsNamingConvention(model: unknown): void {
+  if (!isPlainObject(model)) {
+    throw new TheorydbError('ErrInvalidModel', 'DMS model must be an object');
+  }
+  const name = typeof model.name === 'string' ? model.name : '<unknown>';
+  const naming = model.naming;
+  if (naming === undefined) return;
+  if (!isPlainObject(naming)) {
+    throw new TheorydbError(
+      'ErrInvalidModel',
+      `DMS model ${name}: naming must be an object`,
+    );
+  }
+  const convention = naming.convention;
+  if (
+    convention === undefined ||
+    convention === 'camelCase' ||
+    convention === 'snake_case' ||
+    convention === 'dynamorm'
+  ) {
+    return;
+  }
+  throw new TheorydbError(
+    'ErrInvalidModel',
+    `DMS model ${name}: unsupported naming.convention ${String(convention)}`,
+  );
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

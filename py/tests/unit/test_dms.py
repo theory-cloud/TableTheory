@@ -83,6 +83,25 @@ def test_parse_dms_document_rejects_unsupported_version() -> None:
         parse_dms_document('dms_version: "9.9"\nmodels: []\n')
 
 
+def test_parse_dms_document_rejects_unsupported_naming_convention() -> None:
+    raw = """
+dms_version: "0.1"
+models:
+  - name: "BadNaming"
+    table: { name: "tbl" }
+    naming: { convention: "pascalCase" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+"""
+    with pytest.raises(ValidationError, match="unsupported naming\\.convention"):
+        parse_dms_document(raw)
+
+
 def test_parse_dms_document_rejects_invalid_yaml() -> None:
     with pytest.raises(ValidationError):
         parse_dms_document("dms_version: [")
