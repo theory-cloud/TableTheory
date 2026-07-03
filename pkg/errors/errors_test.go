@@ -42,6 +42,21 @@ func TestErrorTypes(t *testing.T) {
 			expected: "condition check failed",
 		},
 		{
+			name:     "ErrVersionConflict",
+			err:      ErrVersionConflict,
+			expected: "version conflict",
+		},
+		{
+			name:     "ErrThrottled",
+			err:      ErrThrottled,
+			expected: "throttled",
+		},
+		{
+			name:     "ErrTransactionConflict",
+			err:      ErrTransactionConflict,
+			expected: "transaction conflict",
+		},
+		{
 			name:     "ErrIndexNotFound",
 			err:      ErrIndexNotFound,
 			expected: "index not found",
@@ -109,6 +124,14 @@ func TestErrorTypes(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.err.Error())
 		})
 	}
+}
+
+func TestErrorTaxonomySubtypeCompatibility(t *testing.T) {
+	require.ErrorIs(t, ErrVersionConflict, ErrConditionFailed)
+	require.NotErrorIs(t, ErrConditionFailed, ErrVersionConflict)
+	require.ErrorIs(t, fmt.Errorf("wrapped: %w", ErrVersionConflict), ErrConditionFailed)
+	require.ErrorIs(t, ErrTransactionConflict, ErrTransactionFailed)
+	require.NotErrorIs(t, ErrTransactionFailed, ErrTransactionConflict)
 }
 
 // TestTheorydbError_Error tests the Error method of TheorydbError

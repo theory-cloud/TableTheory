@@ -204,6 +204,64 @@ func TestExecuteUpdateItem(t *testing.T) {
 		assert.Equal(t, "test-table", *capturedInput.TableName)
 		assert.Equal(t, key, capturedInput.Key)
 	})
+
+	t.Run("conditional version failure returns version conflict sentinel", func(t *testing.T) {
+		mockClient := &MockDynamoDBClient{
+			UpdateItemFunc: func(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				return nil, &types.ConditionalCheckFailedException{Message: aws.String("version mismatch")}
+			},
+		}
+
+		executor := NewExecutor(mockClient, ctx)
+		input := &core.CompiledQuery{
+			TableName:           "test-table",
+			UpdateExpression:    "SET #name = :name",
+			ConditionExpression: "#ver = :expected",
+			ExpressionAttributeNames: map[string]string{
+				"#name": "name",
+				"#ver":  "version",
+			},
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":name":     &types.AttributeValueMemberS{Value: "Updated Name"},
+				":expected": &types.AttributeValueMemberN{Value: "1"},
+			},
+		}
+		key := map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "123"}}
+
+		err := executor.ExecuteUpdateItem(input, key)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, customerrors.ErrVersionConflict)
+		assert.ErrorIs(t, err, customerrors.ErrConditionFailed)
+	})
+
+	t.Run("conditional non-version failure remains condition failed", func(t *testing.T) {
+		mockClient := &MockDynamoDBClient{
+			UpdateItemFunc: func(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+				return nil, &types.ConditionalCheckFailedException{Message: aws.String("status mismatch")}
+			},
+		}
+
+		executor := NewExecutor(mockClient, ctx)
+		input := &core.CompiledQuery{
+			TableName:           "test-table",
+			UpdateExpression:    "SET #name = :name",
+			ConditionExpression: "#status = :active",
+			ExpressionAttributeNames: map[string]string{
+				"#name":   "name",
+				"#status": "status",
+			},
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":name":   &types.AttributeValueMemberS{Value: "Updated Name"},
+				":active": &types.AttributeValueMemberS{Value: "active"},
+			},
+		}
+		key := map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "123"}}
+
+		err := executor.ExecuteUpdateItem(input, key)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, customerrors.ErrConditionFailed)
+		assert.NotErrorIs(t, err, customerrors.ErrVersionConflict)
+	})
 }
 
 func TestExecuteDeleteItem(t *testing.T) {

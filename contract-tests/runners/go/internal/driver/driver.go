@@ -103,6 +103,8 @@ func MapErrors(err error) []ErrorCode {
 	switch {
 	case errors.Is(err, theorydbErrors.ErrItemNotFound):
 		return []ErrorCode{ErrItemNotFound}
+	case errors.Is(err, theorydbErrors.ErrVersionConflict):
+		return []ErrorCode{ErrConditionFailed, ErrVersionConflict}
 	case errors.Is(err, theorydbErrors.ErrConditionFailed):
 		return []ErrorCode{ErrConditionFailed}
 	case errors.Is(err, theorydbErrors.ErrInvalidModel):
@@ -139,6 +141,7 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"omitempty",
 		"lifecycle.timestamps",
 		"optimistic_lock.version",
+		"error.version_conflict",
 		"ttl.epoch_seconds",
 		"number.precision.exact",
 		"type.matrix",

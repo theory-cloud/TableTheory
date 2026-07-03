@@ -367,6 +367,39 @@ func (r *deleteItemRequest) execute(ctx context.Context, client DynamoDBAPI) err
 	return err
 }
 
+type updateItemRequest struct {
+	input *dynamodb.UpdateItemInput
+}
+
+func newUpdateItemRequest(tableName *string) conditionalWriteRequest {
+	return &updateItemRequest{
+		input: &dynamodb.UpdateItemInput{
+			TableName: tableName,
+		},
+	}
+}
+
+func (r *updateItemRequest) applyCompiledQuery(input *core.CompiledQuery) {
+	if input.UpdateExpression != "" {
+		r.input.UpdateExpression = aws.String(input.UpdateExpression)
+	}
+	applyCompiledQueryWriteConditions(input, &r.input.ConditionExpression, &r.input.ExpressionAttributeNames, &r.input.ExpressionAttributeValues)
+	if input.ReturnValues != "" {
+		r.input.ReturnValues = types.ReturnValue(input.ReturnValues)
+	} else {
+		r.input.ReturnValues = types.ReturnValueNone
+	}
+}
+
+func (r *updateItemRequest) setAttributes(attributes map[string]types.AttributeValue) {
+	r.input.Key = attributes
+}
+
+func (r *updateItemRequest) execute(ctx context.Context, client DynamoDBAPI) error {
+	_, err := client.UpdateItem(ctx, r.input)
+	return err
+}
+
 func (e *MainExecutor) executeConditionalWrite(
 	input *core.CompiledQuery,
 	attributes map[string]types.AttributeValue,
@@ -388,7 +421,7 @@ func (e *MainExecutor) executeConditionalWrite(
 	}
 
 	if isConditionalCheckFailed(err) {
-		return fmt.Errorf("%w: %v", customerrors.ErrConditionFailed, err)
+		return fmt.Errorf("%w: %v", conditionFailedErrorForCompiled(input, ""), err)
 	}
 	return fmt.Errorf("failed to %s item: %w", operation, err)
 }
@@ -415,16 +448,34 @@ func (e *MainExecutor) ExecutePutItem(input *core.CompiledQuery, item map[string
 
 // ExecuteUpdateItem implements UpdateItemExecutor.ExecuteUpdateItem
 func (e *MainExecutor) ExecuteUpdateItem(input *core.CompiledQuery, key map[string]types.AttributeValue) error {
-	// Use the UpdateExecutor from core package
-	updateExecutor := core.NewUpdateExecutor(e.client, e.ctx)
-	return updateExecutor.ExecuteUpdateItem(input, key)
+	return e.executeConditionalWriteRequest(input, key, "key", "update", newUpdateItemRequest)
 }
 
 // ExecuteUpdateItemWithResult implements UpdateItemWithResultExecutor.ExecuteUpdateItemWithResult
 func (e *MainExecutor) ExecuteUpdateItemWithResult(input *core.CompiledQuery, key map[string]types.AttributeValue) (*core.UpdateResult, error) {
-	// Use the UpdateExecutor from core package
-	updateExecutor := core.NewUpdateExecutor(e.client, e.ctx)
-	return updateExecutor.ExecuteUpdateItemWithResult(input, key)
+	if input == nil {
+		return nil, fmt.Errorf("compiled query cannot be nil")
+	}
+	if len(key) == 0 {
+		return nil, fmt.Errorf("key cannot be empty")
+	}
+
+	req := newUpdateItemRequest(&input.TableName).(*updateItemRequest)
+	req.setAttributes(key)
+	req.applyCompiledQuery(input)
+	if input.ReturnValues == "" {
+		req.input.ReturnValues = types.ReturnValueAllNew
+	}
+
+	output, err := e.client.UpdateItem(e.ctx, req.input)
+	if err != nil {
+		if isConditionalCheckFailed(err) {
+			return nil, fmt.Errorf("%w: %v", conditionFailedErrorForCompiled(input, ""), err)
+		}
+		return nil, fmt.Errorf("failed to update item: %w", err)
+	}
+
+	return &core.UpdateResult{Attributes: output.Attributes}, nil
 }
 
 // ExecuteDeleteItem implements DeleteItemExecutor.ExecuteDeleteItem
@@ -518,10 +569,65 @@ func isConditionalCheckFailed(err error) bool {
 		return false
 	}
 	var condErr *types.ConditionalCheckFailedException
-	if errors.As(err, &condErr) {
-		return true
+	return errors.As(err, &condErr)
+}
+
+func conditionFailedErrorForCompiled(input *core.CompiledQuery, versionAttr string) error {
+	if compiledConditionReferencesVersion(input, versionAttr) {
+		return customerrors.ErrVersionConflict
 	}
-	return strings.Contains(err.Error(), "ConditionalCheckFailed")
+	return customerrors.ErrConditionFailed
+}
+
+func compiledConditionReferencesVersion(input *core.CompiledQuery, versionAttr string) bool {
+	if input == nil || input.ConditionExpression == "" {
+		return false
+	}
+
+	candidates := map[string]struct{}{}
+	if versionAttr != "" {
+		candidates[strings.ToLower(versionAttr)] = struct{}{}
+	} else {
+		candidates["version"] = struct{}{}
+	}
+
+	for placeholder, attr := range input.ExpressionAttributeNames {
+		if _, ok := candidates[strings.ToLower(attr)]; ok && strings.Contains(input.ConditionExpression, placeholder) {
+			return true
+		}
+	}
+
+	for attr := range candidates {
+		if containsExpressionToken(input.ConditionExpression, attr) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsExpressionToken(expr string, token string) bool {
+	if token == "" {
+		return false
+	}
+	expr = strings.ToLower(expr)
+	token = strings.ToLower(token)
+	for {
+		idx := strings.Index(expr, token)
+		if idx < 0 {
+			return false
+		}
+		beforeOK := idx == 0 || !isExpressionIdentifierRune(rune(expr[idx-1]))
+		afterIdx := idx + len(token)
+		afterOK := afterIdx == len(expr) || !isExpressionIdentifierRune(rune(expr[afterIdx]))
+		if beforeOK && afterOK {
+			return true
+		}
+		expr = expr[afterIdx:]
+	}
+}
+
+func isExpressionIdentifierRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_'
 }
 
 // ExecuteScanWithPagination implements PaginatedQueryExecutor.ExecuteScanWithPagination

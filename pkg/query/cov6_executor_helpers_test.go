@@ -241,7 +241,8 @@ func TestUnmarshalItems_PointerSliceAndErrorBranches_COV6(t *testing.T) {
 
 func TestIsConditionalCheckFailed_COV6(t *testing.T) {
 	require.False(t, isConditionalCheckFailed(nil))
-	require.True(t, isConditionalCheckFailed(errors.New("prefix ConditionalCheckFailed suffix")))
+	require.True(t, isConditionalCheckFailed(&types.ConditionalCheckFailedException{}))
+	require.False(t, isConditionalCheckFailed(errors.New("prefix ConditionalCheckFailed suffix")))
 	require.False(t, isConditionalCheckFailed(errors.New("something else")))
 }
 

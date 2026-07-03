@@ -9,6 +9,7 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -828,7 +829,7 @@ func (qe *queryExecutor) ExecutePutItem(input *core.CompiledQuery, item map[stri
 	_, err = client.PutItem(qe.ctxOrBackground(), putInput)
 	if err != nil {
 		if isConditionalCheckFailedException(err) {
-			return customerrors.ErrConditionFailed
+			return qe.conditionFailedError(input)
 		}
 		return fmt.Errorf("failed to put item: %w", err)
 	}
@@ -905,7 +906,7 @@ func (qe *queryExecutor) ExecuteUpdateItem(input *core.CompiledQuery, key map[st
 	_, err = client.UpdateItem(qe.ctxOrBackground(), updateInput)
 	if err != nil {
 		if isConditionalCheckFailedException(err) {
-			return customerrors.ErrConditionFailed
+			return qe.conditionFailedError(input)
 		}
 		return fmt.Errorf("failed to update item: %w", err)
 	}
@@ -940,7 +941,7 @@ func (qe *queryExecutor) ExecuteUpdateItemWithResult(input *core.CompiledQuery, 
 	output, err := client.UpdateItem(qe.ctxOrBackground(), updateInput)
 	if err != nil {
 		if isConditionalCheckFailedException(err) {
-			return nil, customerrors.ErrConditionFailed
+			return nil, qe.conditionFailedError(input)
 		}
 		return nil, fmt.Errorf("failed to update item: %w", err)
 	}
@@ -991,7 +992,7 @@ func (qe *queryExecutor) ExecuteDeleteItem(input *core.CompiledQuery, key map[st
 	_, err = client.DeleteItem(qe.ctxOrBackground(), deleteInput)
 	if err != nil {
 		if isConditionalCheckFailedException(err) {
-			return customerrors.ErrConditionFailed
+			return qe.conditionFailedError(input)
 		}
 		return fmt.Errorf("failed to delete item: %w", err)
 	}
@@ -1420,6 +1421,57 @@ func setIntLike(field reflect.Value, value int64) {
 func isConditionalCheckFailedException(err error) bool {
 	var ccfe *types.ConditionalCheckFailedException
 	return errors.As(err, &ccfe)
+}
+
+func (qe *queryExecutor) conditionFailedError(input *core.CompiledQuery) error {
+	versionAttr := ""
+	if qe != nil && qe.metadata != nil && qe.metadata.VersionField != nil {
+		versionAttr = qe.metadata.VersionField.DBName
+	}
+	if compiledConditionReferencesVersion(input, versionAttr) {
+		return customerrors.ErrVersionConflict
+	}
+	return customerrors.ErrConditionFailed
+}
+
+func compiledConditionReferencesVersion(input *core.CompiledQuery, versionAttr string) bool {
+	if input == nil || input.ConditionExpression == "" || versionAttr == "" {
+		return false
+	}
+
+	versionAttr = strings.ToLower(versionAttr)
+	for placeholder, attr := range input.ExpressionAttributeNames {
+		if strings.ToLower(attr) == versionAttr && strings.Contains(input.ConditionExpression, placeholder) {
+			return true
+		}
+	}
+
+	return containsExpressionToken(input.ConditionExpression, versionAttr)
+}
+
+func containsExpressionToken(expr string, token string) bool {
+	if token == "" {
+		return false
+	}
+	expr = strings.ToLower(expr)
+	token = strings.ToLower(token)
+	for {
+		idx := strings.Index(expr, token)
+		if idx < 0 {
+			return false
+		}
+		beforeOK := idx == 0 || !isExpressionIdentifierRune(rune(expr[idx-1]))
+		afterIdx := idx + len(token)
+		afterOK := afterIdx == len(expr) || !isExpressionIdentifierRune(rune(expr[afterIdx]))
+		if beforeOK && afterOK {
+			return true
+		}
+		expr = expr[afterIdx:]
+	}
+}
+
+func isExpressionIdentifierRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_'
 }
 
 func buildKeysAndAttributes(input *query.CompiledBatchGet) types.KeysAndAttributes {
