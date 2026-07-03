@@ -986,22 +986,18 @@ func TestSafeMarshaler_NestedHelperEdges(t *testing.T) {
 		_ struct{} `theorydb:"naming:legacyDynamORM"`
 	}
 
-	for _, tc := range []struct {
-		name string
-		typ  reflect.Type
-		want naming.Convention
-	}{
-		{name: "snake", typ: reflect.TypeOf(snakeNaming{}), want: naming.SnakeCase},
-		{name: "camel", typ: reflect.TypeOf(camelNaming{}), want: naming.CamelCase},
-		{name: "pascal", typ: reflect.TypeOf(pascalNaming{}), want: naming.PascalCase},
-		{name: "dynamorm", typ: reflect.TypeOf(dynamormNaming{}), want: naming.DynamORM},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := explicitNestedNamingConvention(tc.typ)
+	assertNestedNaming := func(name string, typ reflect.Type, want naming.Convention) {
+		t.Helper()
+		t.Run(name, func(t *testing.T) {
+			got, ok := explicitNestedNamingConvention(typ)
 			require.True(t, ok)
-			require.Equal(t, tc.want, got)
+			require.Equal(t, want, got)
 		})
 	}
+	assertNestedNaming("snake", reflect.TypeOf(snakeNaming{}), naming.SnakeCase)
+	assertNestedNaming("camel", reflect.TypeOf(camelNaming{}), naming.CamelCase)
+	assertNestedNaming("pascal", reflect.TypeOf(pascalNaming{}), naming.PascalCase)
+	assertNestedNaming("dynamorm", reflect.TypeOf(dynamormNaming{}), naming.DynamORM)
 }
 
 func TestMarshalers_UnsupportedSetSliceType(t *testing.T) {
