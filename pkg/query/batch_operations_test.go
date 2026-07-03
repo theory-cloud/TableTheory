@@ -12,8 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/aws/smithy-go"
+
 	"github.com/theory-cloud/tabletheory/pkg/core"
 )
+
+func batchAPIError(code string) error {
+	return &smithy.GenericAPIError{Code: code, Message: "test"}
+}
 
 // Mock types for testing
 type TestItem struct {
@@ -485,7 +491,7 @@ func TestExecuteWithRetry(t *testing.T) {
 		fn := func() error {
 			callCount++
 			if callCount < 3 {
-				return errors.New("ProvisionedThroughputExceededException")
+				return batchAPIError("ProvisionedThroughputExceededException")
 			}
 			return nil
 		}
@@ -512,7 +518,7 @@ func TestExecuteWithRetry(t *testing.T) {
 		callCount := 0
 		fn := func() error {
 			callCount++
-			return errors.New("ThrottlingException")
+			return batchAPIError("ThrottlingException")
 		}
 
 		q := &Query{}
@@ -533,7 +539,7 @@ func TestExecuteWithRetry(t *testing.T) {
 		callCount := 0
 		fn := func() error {
 			callCount++
-			return errors.New("ValidationException")
+			return batchAPIError("ValidationException")
 		}
 
 		q := &Query{}
@@ -571,37 +577,37 @@ func TestIsRetryableError(t *testing.T) {
 	}{
 		{
 			name:      "ProvisionedThroughputExceededException",
-			err:       errors.New("ProvisionedThroughputExceededException: Request rate exceeded"),
+			err:       batchAPIError("ProvisionedThroughputExceededException"),
 			wantRetry: true,
 		},
 		{
 			name:      "ThrottlingException",
-			err:       errors.New("ThrottlingException: Rate exceeded"),
+			err:       batchAPIError("ThrottlingException"),
 			wantRetry: true,
 		},
 		{
 			name:      "InternalServerError",
-			err:       errors.New("InternalServerError: Something went wrong"),
+			err:       batchAPIError("InternalServerError"),
 			wantRetry: true,
 		},
 		{
 			name:      "ServiceUnavailable",
-			err:       errors.New("ServiceUnavailable: Service is down"),
+			err:       batchAPIError("ServiceUnavailable"),
 			wantRetry: true,
 		},
 		{
 			name:      "RequestLimitExceeded",
-			err:       errors.New("RequestLimitExceeded: Too many requests"),
+			err:       batchAPIError("RequestLimitExceeded"),
 			wantRetry: true,
 		},
 		{
 			name:      "ValidationException",
-			err:       errors.New("ValidationException: Invalid input"),
+			err:       batchAPIError("ValidationException"),
 			wantRetry: false,
 		},
 		{
 			name:      "ResourceNotFoundException",
-			err:       errors.New("ResourceNotFoundException: Table not found"),
+			err:       batchAPIError("ResourceNotFoundException"),
 			wantRetry: false,
 		},
 		{
@@ -615,77 +621,6 @@ func TestIsRetryableError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := isRetryableError(tt.err)
 			assert.Equal(t, tt.wantRetry, got)
-		})
-	}
-}
-
-func TestContains(t *testing.T) {
-	tests := []struct {
-		name   string
-		s      string
-		substr string
-		want   bool
-	}{
-		{
-			name:   "exact match",
-			s:      "hello",
-			substr: "hello",
-			want:   true,
-		},
-		{
-			name:   "substring at start",
-			s:      "hello world",
-			substr: "hello",
-			want:   true,
-		},
-		{
-			name:   "substring in middle",
-			s:      "hello world",
-			substr: "lo wo",
-			want:   true,
-		},
-		{
-			name:   "substring at end",
-			s:      "hello world",
-			substr: "world",
-			want:   true,
-		},
-		{
-			name:   "no match",
-			s:      "hello world",
-			substr: "xyz",
-			want:   false,
-		},
-		{
-			name:   "empty substring",
-			s:      "hello",
-			substr: "",
-			want:   false,
-		},
-		{
-			name:   "empty string",
-			s:      "",
-			substr: "hello",
-			want:   false,
-		},
-		{
-			name:   "both empty",
-			s:      "",
-			substr: "",
-			want:   false,
-		},
-		{
-			name:   "substring longer than string",
-			s:      "hi",
-			substr: "hello",
-			want:   false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := contains(tt.s, tt.substr)
-			assert.Equal(t, tt.want, got)
 		})
 	}
 }

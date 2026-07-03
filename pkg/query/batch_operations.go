@@ -3,15 +3,18 @@ package query
 
 import (
 	"context"
+	stderrs "errors"
 	"fmt"
 	"reflect"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/theory-cloud/tabletheory/internal/expr"
 	"github.com/theory-cloud/tabletheory/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
 )
 
 // BatchUpdateOptions configures batch update operations
@@ -486,32 +489,23 @@ func isRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
-
-	// Check for common retryable DynamoDB errors
-	errStr := err.Error()
-	retryableErrors := []string{
-		"ProvisionedThroughputExceededException",
-		"ThrottlingException",
-		"InternalServerError",
-		"ServiceUnavailable",
-		"RequestLimitExceeded",
+	if stderrs.Is(err, theorydbErrors.ErrThrottled) {
+		return true
 	}
 
-	for _, retryable := range retryableErrors {
-		if contains(errStr, retryable) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// contains checks if a string contains a substring
-func contains(s, substr string) bool {
-	if substr == "" {
+	var apiErr smithy.APIError
+	if !stderrs.As(err, &apiErr) {
 		return false
 	}
-	return len(s) >= len(substr) && s != "" && (s == substr || contains(s[1:], substr) || (len(s) >= len(substr) && s[:len(substr)] == substr))
+
+	switch apiErr.ErrorCode() {
+	case "ProvisionedThroughputExceededException", "ProvisionedThroughputExceeded",
+		"ThrottlingException", "ThrottlingError", "RequestLimitExceeded",
+		"InternalServerError", "ServiceUnavailable":
+		return true
+	default:
+		return false
+	}
 }
 
 // BatchResult represents the result of a batch operation
