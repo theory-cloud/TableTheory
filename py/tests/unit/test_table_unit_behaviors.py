@@ -7,6 +7,7 @@ from botocore.exceptions import ClientError
 
 from theorydb_py import (
     EncryptionNotConfiguredError,
+    FilterCondition,
     ModelDefinition,
     NotFoundError,
     SortKeyCondition,
@@ -49,6 +50,8 @@ class _StubClient:
         self._update_attrs: dict | None = None
         self._items: list[dict] = []
         self._last_key: dict | None = None
+        self._count = 0
+        self._scanned_count = 0
 
     def set_get_item(self, item: dict | None) -> None:
         self._get_item = item
@@ -56,9 +59,18 @@ class _StubClient:
     def set_update_attrs(self, attrs: dict | None) -> None:
         self._update_attrs = attrs
 
-    def set_query_items(self, items: list[dict], *, last_key: dict | None = None) -> None:
+    def set_query_items(
+        self,
+        items: list[dict],
+        *,
+        last_key: dict | None = None,
+        count: int | None = None,
+        scanned_count: int | None = None,
+    ) -> None:
         self._items = items
         self._last_key = last_key
+        self._count = len(items) if count is None else count
+        self._scanned_count = self._count if scanned_count is None else scanned_count
 
     def put_item(self, **req):  # noqa: ANN001
         self.put_reqs.append(req)
@@ -78,16 +90,18 @@ class _StubClient:
 
     def query(self, **req):  # noqa: ANN001
         self.query_reqs.append(req)
-        out: dict = {"Items": self._items}
+        out: dict = {"Items": self._items, "Count": self._count, "ScannedCount": self._scanned_count}
         if self._last_key is not None:
             out["LastEvaluatedKey"] = self._last_key
+            self._last_key = None
         return out
 
     def scan(self, **req):  # noqa: ANN001
         self.scan_reqs.append(req)
-        out: dict = {"Items": self._items}
+        out: dict = {"Items": self._items, "Count": self._count, "ScannedCount": self._scanned_count}
         if self._last_key is not None:
             out["LastEvaluatedKey"] = self._last_key
+            self._last_key = None
         return out
 
 
@@ -145,6 +159,39 @@ def test_table_put_get_delete_update_happy_path_and_validation() -> None:
     stub.set_update_attrs(None)
     with pytest.raises(ValidationError, match="did not return Attributes"):
         table.update("A", "1", {"value": 3})
+
+
+def test_table_query_count_and_scan_count_use_select_count_without_materialization_controls() -> None:
+    model = ModelDefinition.from_dataclass(Item, table_name="tbl")
+    stub = _StubClient()
+    table: Table[Item] = Table(model, client=stub)
+    last_key = {"PK": {"S": "A"}, "SK": {"S": "1"}}
+    stub.set_query_items(
+        [table._to_item(Item(pk="A", sk="1", value=1))], last_key=last_key, count=2, scanned_count=5
+    )
+
+    query_count = table.query_count(
+        "A",
+        sort=SortKeyCondition.begins_with("ITEM#"),
+        limit=1,
+        projection=["PK"],
+        filter=FilterCondition.eq("value", 1),
+    )
+
+    assert query_count == 4
+    assert len(stub.query_reqs) == 2
+    assert stub.query_reqs[0]["Select"] == "COUNT"
+    assert "Limit" not in stub.query_reqs[0]
+    assert "ProjectionExpression" not in stub.query_reqs[0]
+    assert stub.query_reqs[1]["ExclusiveStartKey"] == last_key
+
+    stub.set_query_items([table._to_item(Item(pk="A", sk="1", value=1))], count=3, scanned_count=7)
+    scan_count = table.scan_count(limit=1, projection=["PK"], filter=FilterCondition.eq("value", 1))
+
+    assert scan_count == 3
+    assert stub.scan_reqs[0]["Select"] == "COUNT"
+    assert "Limit" not in stub.scan_reqs[0]
+    assert "ProjectionExpression" not in stub.scan_reqs[0]
 
 
 def test_table_populates_lifecycle_fields_and_initial_version() -> None:

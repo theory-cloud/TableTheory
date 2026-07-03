@@ -359,12 +359,32 @@ class _TheorydbPyDriver:
         return {"items": [_contract_item(item) for item in page.items], "cursor": page.next_cursor}
 
     def count_query(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
-        del model, request
-        raise ValidationError("native count is not advertised")
+        partition = request.get("partition")
+        if partition is None:
+            raise ValidationError("query partition is required")
+        count = self._table(model).query_count(
+            _condition_value(partition),
+            sort=_sort_condition(request.get("sort")),
+            index_name=request.get("index"),
+            limit=request.get("limit"),
+            cursor=request.get("cursor"),
+            scan_forward=_scan_forward(request.get("sort_direction")),
+            consistent_read=bool(request.get("consistent_read", False)),
+            projection=request.get("projection"),
+            filter=_filter_expression(request.get("filter", [])),
+        )
+        return {"items": [], "count": count}
 
     def count_scan(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
-        del model, request
-        raise ValidationError("native count is not advertised")
+        count = self._table(model).scan_count(
+            index_name=request.get("index"),
+            limit=request.get("limit"),
+            cursor=request.get("cursor"),
+            consistent_read=bool(request.get("consistent_read", False)),
+            projection=request.get("projection"),
+            filter=_filter_expression(request.get("filter", [])),
+        )
+        return {"items": [], "count": count}
 
     def transition_append_event(self, actual: dict[str, Any], event: dict[str, Any]) -> None:
         transition_release_state(
@@ -503,6 +523,7 @@ def _supported_capabilities() -> list[str]:
         "type.matrix",
         "query.basic",
         "scan.basic",
+        "count.native",
         "release_state.write_policy",
         "release_state.transactional_transition",
         "release_state.provenance_confidence",
