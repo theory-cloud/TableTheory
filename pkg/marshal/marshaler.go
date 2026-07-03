@@ -393,17 +393,24 @@ func (m *Marshaler) buildStructMarshalFunc(typ reflect.Type, fieldMeta *model.Fi
 }
 
 func (m *Marshaler) buildSliceMarshalFunc(typ reflect.Type, fieldMeta *model.FieldMetadata) func(unsafe.Pointer) (types.AttributeValue, error) {
-	if typ.Elem().Kind() == reflect.String {
-		if fieldMeta.IsSet {
-			return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
-				slice := (*[]string)(ptr)
-				if len(*slice) == 0 {
-					return &types.AttributeValueMemberNULL{Value: true}, nil
-				}
-				return &types.AttributeValueMemberSS{Value: *slice}, nil
-			}
+	if fieldMeta.IsSet {
+		return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
+			v := reflect.NewAt(typ, ptr).Elem()
+			return marshalSetSliceReflect(v)
 		}
+	}
 
+	if isByteSliceType(typ) {
+		return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
+			v := reflect.NewAt(typ, ptr).Elem()
+			if v.IsNil() {
+				return &types.AttributeValueMemberNULL{Value: true}, nil
+			}
+			return &types.AttributeValueMemberB{Value: append([]byte(nil), v.Bytes()...)}, nil
+		}
+	}
+
+	if typ.Elem().Kind() == reflect.String {
 		return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
 			slice := *(*[]string)(ptr)
 			if len(slice) == 0 && fieldMeta.OmitEmpty {

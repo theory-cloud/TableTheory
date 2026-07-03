@@ -93,6 +93,7 @@ export class TheorydbDriver implements Driver {
       "optimistic_lock.version",
       "ttl.epoch_seconds",
       ...(this.exactNumbers ? ["number.precision.exact"] : []),
+      "type.matrix",
       "query.basic",
       "scan.basic",
       "release_state.write_policy",
@@ -107,7 +108,9 @@ export class TheorydbDriver implements Driver {
     opts: { ifNotExists?: boolean },
   ): Promise<void> {
     validateReleaseStateMetadataIfPresent(model, item);
-    await this.client.create(model, item, { ifNotExists: opts.ifNotExists });
+    await this.client.create(model, contractItemForModel(model, item), {
+      ifNotExists: opts.ifNotExists,
+    });
   }
 
   async get(
@@ -125,7 +128,7 @@ export class TheorydbDriver implements Driver {
   ): Promise<void> {
     await this.client.update(
       model,
-      item,
+      contractItemForModel(model, item),
       fields,
       opts?.protectedAttributes
         ? { protectedAttributes: opts.protectedAttributes }
@@ -135,7 +138,7 @@ export class TheorydbDriver implements Driver {
 
   async save(model: string, item: Record<string, unknown>): Promise<void> {
     validateReleaseStateMetadataIfPresent(model, item);
-    await this.client.save(model, item);
+    await this.client.save(model, contractItemForModel(model, item));
   }
 
   async delete(model: string, key: Record<string, unknown>): Promise<void> {
@@ -211,6 +214,29 @@ export class TheorydbDriver implements Driver {
     }
     validateDeployAuthorityMetadata(item);
   }
+}
+
+function contractItemForModel(
+  model: string,
+  item: Record<string, unknown>,
+): Record<string, unknown> {
+  if (model !== "TypeMatrix") return item;
+
+  const out: Record<string, unknown> = { ...item };
+  if (typeof out.binaryBlob === "string") {
+    out.binaryBlob = Buffer.from(out.binaryBlob, "base64");
+  }
+  if (Array.isArray(out.binarySet)) {
+    out.binarySet = out.binarySet.map((value) =>
+      typeof value === "string" ? Buffer.from(value, "base64") : value,
+    );
+  }
+  if (Array.isArray(out.emptyBinarySet)) {
+    out.emptyBinarySet = out.emptyBinarySet.map((value) =>
+      typeof value === "string" ? Buffer.from(value, "base64") : value,
+    );
+  }
+  return out;
 }
 
 function applyReadOptions<

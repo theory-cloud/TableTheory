@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import time
 from dataclasses import asdict, dataclass, is_dataclass
@@ -102,6 +103,22 @@ class _NumberPrecision:
 
 
 @dataclass(frozen=True)
+class _TypeMatrix:
+    PK: str = theorydb_field(name="PK", roles=["pk"])
+    SK: str = theorydb_field(name="SK", roles=["sk"])
+    numberSet: set[Decimal] | None = theorydb_field(set_=True, default=None)
+    binaryBlob: bytes | None = theorydb_field(default=None)
+    binarySet: set[bytes] | None = theorydb_field(set_=True, default=None)
+    flag: bool | None = None
+    nothing: Any = None
+    items: list[Any] | None = None
+    metadata: dict[str, Any] | None = None
+    emptyNumberSet: set[Decimal] | None = theorydb_field(set_=True, default=None)
+    emptyBinarySet: set[bytes] | None = theorydb_field(set_=True, default=None)
+    optionalString: str | None = None
+
+
+@dataclass(frozen=True)
 class _ReleaseStateActual:
     PK: str = theorydb_field(name="PK", roles=["pk"])
     SK: str = theorydb_field(name="SK", roles=["sk"])
@@ -152,6 +169,13 @@ class _TheorydbPyDriver:
                 ModelDefinition.from_dataclass(
                     _NumberPrecision,
                     table_name="number_precision_contract",
+                ),
+                client=client,
+            ),
+            "TypeMatrix": Table(
+                ModelDefinition.from_dataclass(
+                    _TypeMatrix,
+                    table_name="type_matrix_contract",
                 ),
                 client=client,
             ),
@@ -279,6 +303,18 @@ class _TheorydbPyDriver:
             if "preciseDecimal" in kwargs and kwargs["preciseDecimal"] is not None:
                 kwargs["preciseDecimal"] = Decimal(str(kwargs["preciseDecimal"]))
             return _NumberPrecision(**kwargs)
+        if model == "TypeMatrix":
+            if "numberSet" in kwargs and kwargs["numberSet"] is not None:
+                kwargs["numberSet"] = {Decimal(str(item)) for item in cast(list[Any], kwargs["numberSet"])}
+            if "binaryBlob" in kwargs and kwargs["binaryBlob"] is not None:
+                kwargs["binaryBlob"] = base64.b64decode(cast(str, kwargs["binaryBlob"]))
+            if "binarySet" in kwargs and kwargs["binarySet"] is not None:
+                kwargs["binarySet"] = {base64.b64decode(cast(str, item)) for item in cast(list[Any], kwargs["binarySet"])}
+            if "emptyNumberSet" in kwargs and kwargs["emptyNumberSet"] is not None:
+                kwargs["emptyNumberSet"] = {Decimal(str(item)) for item in cast(list[Any], kwargs["emptyNumberSet"])}
+            if "emptyBinarySet" in kwargs and kwargs["emptyBinarySet"] is not None:
+                kwargs["emptyBinarySet"] = {base64.b64decode(cast(str, item)) for item in cast(list[Any], kwargs["emptyBinarySet"])}
+            return _TypeMatrix(**kwargs)
         if model == "ReleaseStateActual":
             return _ReleaseStateActual(**kwargs)
         if model == "ReleaseStateEvent":
@@ -353,6 +389,7 @@ def _supported_capabilities() -> list[str]:
         "optimistic_lock.version",
         "ttl.epoch_seconds",
         "number.precision.exact",
+        "type.matrix",
         "query.basic",
         "scan.basic",
         "release_state.write_policy",
@@ -832,7 +869,11 @@ def _contract_item(value: Any) -> dict[str, Any]:
 
 
 def _normalize_contract_value(value: Any) -> Any:
+    if _is_binary_value(value):
+        return _base64_string(value)
     if isinstance(value, set):
+        if all(_is_binary_value(item) for item in value):
+            return sorted(_base64_string(item) for item in value)
         return sorted(str(item) for item in value)
     if isinstance(value, Decimal):
         return int(value) if value == value.to_integral_value() else float(value)
@@ -858,6 +899,27 @@ def _assert_value_matches(attr_type: str, want: Any, have: Any, raw: dict[str, A
             return
         assert _canonical_decimal_string(have) == _canonical_decimal_string(want)
         return
+    if attr_type == "B":
+        want_b = _base64_string(want)
+        if raw is not None:
+            assert "B" in raw
+            assert _base64_string(raw["B"]) == want_b
+            return
+        assert _base64_string(have) == want_b
+        return
+    if attr_type == "BOOL":
+        if raw is not None:
+            assert "BOOL" in raw
+            assert raw["BOOL"] is want
+            return
+        assert have is want
+        return
+    if attr_type == "NULL":
+        if raw is not None:
+            assert raw.get("NULL") is True
+            return
+        assert have is None
+        return
     if attr_type == "SS":
         if raw is not None:
             assert "SS" in raw
@@ -865,7 +927,84 @@ def _assert_value_matches(attr_type: str, want: Any, have: Any, raw: dict[str, A
             return
         assert sorted(str(item) for item in have) == sorted(str(item) for item in want)
         return
+    if attr_type == "NS":
+        want_ns = sorted(_canonical_decimal_string(item) for item in (want or []))
+        if raw is not None:
+            if raw.get("NULL") is True:
+                assert want_ns == []
+                return
+            assert "NS" in raw
+            assert sorted(str(item) for item in raw["NS"]) == want_ns
+            return
+        assert sorted(_canonical_decimal_string(item) for item in (have or [])) == want_ns
+        return
+    if attr_type == "BS":
+        want_bs = sorted(_base64_string(item) for item in (want or []))
+        if raw is not None:
+            if raw.get("NULL") is True:
+                assert want_bs == []
+                return
+            assert "BS" in raw
+            assert sorted(_base64_string(item) for item in raw["BS"]) == want_bs
+            return
+        assert sorted(_base64_string(item) for item in (have or [])) == want_bs
+        return
+    if attr_type in {"L", "M"}:
+        expected = _normalize_document(want)
+        actual = _attribute_value_to_contract(raw) if raw is not None else _normalize_document(have)
+        assert actual == expected
+        return
     assert have == want
+
+
+def _is_binary_value(value: Any) -> bool:
+    return isinstance(value, bytes) or (hasattr(value, "value") and isinstance(value.value, bytes))
+
+
+def _base64_string(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return base64.b64encode(value).decode("ascii")
+    if hasattr(value, "value") and isinstance(value.value, bytes):
+        return base64.b64encode(value.value).decode("ascii")
+    raise AssertionError(f"expected base64 string or bytes, got {type(value).__name__}")
+
+
+def _normalize_document(value: Any) -> Any:
+    if isinstance(value, bytes):
+        return _base64_string(value)
+    if isinstance(value, Decimal):
+        return _canonical_decimal_string(value)
+    if isinstance(value, dict):
+        return {str(key): _normalize_document(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_normalize_document(item) for item in value]
+    return value
+
+
+def _attribute_value_to_contract(value: dict[str, Any]) -> Any:
+    if "S" in value:
+        return value["S"]
+    if "N" in value:
+        return value["N"]
+    if "B" in value:
+        return _base64_string(value["B"])
+    if "BOOL" in value:
+        return value["BOOL"]
+    if value.get("NULL") is True:
+        return None
+    if "SS" in value:
+        return sorted(str(item) for item in value["SS"])
+    if "NS" in value:
+        return sorted(str(item) for item in value["NS"])
+    if "BS" in value:
+        return sorted(_base64_string(item) for item in value["BS"])
+    if "L" in value:
+        return [_attribute_value_to_contract(cast(dict[str, Any], item)) for item in value["L"]]
+    if "M" in value:
+        return {str(key): _attribute_value_to_contract(cast(dict[str, Any], item)) for key, item in value["M"].items()}
+    raise AssertionError(f"unsupported AttributeValue: {value}")
 
 
 def _canonical_decimal_string(value: Any) -> str:

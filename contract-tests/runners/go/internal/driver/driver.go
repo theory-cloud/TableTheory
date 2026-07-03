@@ -2,10 +2,12 @@ package driver
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strconv"
 	"time"
 
@@ -129,6 +131,7 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"optimistic_lock.version",
 		"ttl.epoch_seconds",
 		"number.precision.exact",
+		"type.matrix",
 		"query.basic",
 		"scan.basic",
 		"release_state.write_policy",
@@ -213,6 +216,13 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 			return nil, err
 		}
 		return normalizeNumberPrecision(out), nil
+	case "TypeMatrix":
+		var out TypeMatrix
+		err := d.db.WithContext(ctx).Model(&TypeMatrix{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeTypeMatrix(out), nil
 	case "ReleaseStateActual":
 		var out ReleaseStateActual
 		err := d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
@@ -267,6 +277,8 @@ func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[strin
 		return d.db.WithContext(ctx).Model(&Order{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "NumberPrecision":
 		return d.db.WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+	case "TypeMatrix":
+		return d.db.WithContext(ctx).Model(&TypeMatrix{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateActual":
 		return d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateEvent":
@@ -356,6 +368,13 @@ func (d *TheorydbDriver) executeRead(model string, q core.Query) (ReadResult, er
 			return ReadResult{}, err
 		}
 		return ReadResult{Items: normalizeNumberPrecisions(out), Cursor: page.NextCursor}, nil
+	case "TypeMatrix":
+		var out []TypeMatrix
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeTypeMatrices(out), Cursor: page.NextCursor}, nil
 	case "ReleaseStateActual":
 		var out []ReleaseStateActual
 		page, err := q.AllPaginated(&out)
@@ -448,6 +467,8 @@ func modelFromMap(model string, item map[string]any) (any, error) {
 		return orderFromMap(item)
 	case "NumberPrecision":
 		return numberPrecisionFromMap(item)
+	case "TypeMatrix":
+		return typeMatrixFromMap(item)
 	case "ReleaseStateActual":
 		return releaseStateActualFromMap(item)
 	case "ReleaseStateEvent":
@@ -465,6 +486,8 @@ func emptyModel(model string) (any, error) {
 		return &Order{}, nil
 	case "NumberPrecision":
 		return &NumberPrecision{}, nil
+	case "TypeMatrix":
+		return &TypeMatrix{}, nil
 	case "ReleaseStateActual":
 		return &ReleaseStateActual{}, nil
 	case "ReleaseStateEvent":
@@ -540,6 +563,90 @@ func asInt64(v any) (int64, error) {
 	default:
 		return 0, fmt.Errorf("expected number, got %T", v)
 	}
+}
+
+func asInt64Slice(v any) ([]int64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch s := v.(type) {
+	case []int64:
+		return append([]int64(nil), s...), nil
+	case []any:
+		out := make([]int64, 0, len(s))
+		for _, item := range s {
+			n, err := asInt64(item)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, n)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("expected []number, got %T", v)
+	}
+}
+
+func asBase64Bytes(v any) ([]byte, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch b := v.(type) {
+	case []byte:
+		return append([]byte(nil), b...), nil
+	case string:
+		return base64.StdEncoding.DecodeString(b)
+	default:
+		return nil, fmt.Errorf("expected base64 string, got %T", v)
+	}
+}
+
+func asBase64ByteSlices(v any) ([][]byte, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch s := v.(type) {
+	case [][]byte:
+		out := make([][]byte, len(s))
+		for i := range s {
+			out[i] = append([]byte(nil), s[i]...)
+		}
+		return out, nil
+	case []any:
+		out := make([][]byte, 0, len(s))
+		for _, item := range s {
+			b, err := asBase64Bytes(item)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, b)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("expected []base64 string, got %T", v)
+	}
+}
+
+func asBool(v any) (bool, error) {
+	if v == nil {
+		return false, nil
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return false, fmt.Errorf("expected bool, got %T", v)
+	}
+	return b, nil
+}
+
+func asAnySlice(v any) ([]any, error) {
+	if v == nil {
+		return nil, nil
+	}
+	s, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("expected []any, got %T", v)
+	}
+	return append([]any(nil), s...), nil
 }
 
 func mutatesProtectedAttribute(fields []string, protectedAttributes []string) bool {
@@ -627,6 +734,24 @@ type NumberPrecision struct {
 }
 
 func (NumberPrecision) TableName() string { return "number_precision_contract" }
+
+// TypeMatrix matches the v0.1 DMS fixture for DynamoDB scalar/container type round-trips.
+type TypeMatrix struct {
+	PK             string         `theorydb:"pk"`
+	SK             string         `theorydb:"sk"`
+	NumberSet      []int64        `theorydb:"attr:numberSet,set"`
+	BinaryBlob     []byte         `theorydb:"attr:binaryBlob"`
+	BinarySet      [][]byte       `theorydb:"attr:binarySet,set"`
+	Flag           bool           `theorydb:"attr:flag"`
+	Nothing        *string        `theorydb:"attr:nothing"`
+	Items          []any          `theorydb:"attr:items"`
+	Metadata       map[string]any `theorydb:"attr:metadata"`
+	EmptyNumberSet []int64        `theorydb:"attr:emptyNumberSet,set"`
+	EmptyBinarySet [][]byte       `theorydb:"attr:emptyBinarySet,set"`
+	OptionalString string         `theorydb:"attr:optionalString"`
+}
+
+func (TypeMatrix) TableName() string { return "type_matrix_contract" }
 
 // ReleaseStateActual matches the v0.1 release-state actual-row DMS fixture.
 type ReleaseStateActual struct {
@@ -763,6 +888,80 @@ func numberPrecisionFromMap(item map[string]any) (*NumberPrecision, error) {
 	return n, nil
 }
 
+func typeMatrixFromMap(item map[string]any) (*TypeMatrix, error) {
+	tm := &TypeMatrix{}
+	if v, ok := item["PK"]; ok {
+		tm.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["SK"]; ok {
+		tm.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["numberSet"]; ok {
+		values, err := asInt64Slice(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.NumberSet = values
+	}
+	if v, ok := item["binaryBlob"]; ok {
+		value, err := asBase64Bytes(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.BinaryBlob = value
+	}
+	if v, ok := item["binarySet"]; ok {
+		values, err := asBase64ByteSlices(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.BinarySet = values
+	}
+	if v, ok := item["flag"]; ok {
+		value, err := asBool(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.Flag = value
+	}
+	if v, ok := item["nothing"]; ok && v != nil {
+		value := fmt.Sprintf("%v", v)
+		tm.Nothing = &value
+	}
+	if v, ok := item["items"]; ok {
+		values, err := asAnySlice(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.Items = values
+	}
+	if v, ok := item["metadata"]; ok {
+		value, err := asStringMap(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.Metadata = value
+	}
+	if v, ok := item["emptyNumberSet"]; ok {
+		values, err := asInt64Slice(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.EmptyNumberSet = values
+	}
+	if v, ok := item["emptyBinarySet"]; ok {
+		values, err := asBase64ByteSlices(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.EmptyBinarySet = values
+	}
+	if v, ok := item["optionalString"]; ok {
+		tm.OptionalString = fmt.Sprintf("%v", v)
+	}
+	return tm, nil
+}
+
 func releaseStateActualFromMap(item map[string]any) (*ReleaseStateActual, error) {
 	actual := &ReleaseStateActual{}
 	if v, ok := item["PK"]; ok {
@@ -883,6 +1082,59 @@ func normalizeNumberPrecisions(items []NumberPrecision) []map[string]any {
 		out = append(out, normalizeNumberPrecision(item))
 	}
 	return out
+}
+
+func normalizeTypeMatrix(tm TypeMatrix) map[string]any {
+	return map[string]any{
+		"PK":             tm.PK,
+		"SK":             tm.SK,
+		"numberSet":      append([]int64(nil), tm.NumberSet...),
+		"binaryBlob":     base64.StdEncoding.EncodeToString(tm.BinaryBlob),
+		"binarySet":      base64Strings(tm.BinarySet),
+		"flag":           tm.Flag,
+		"nothing":        nil,
+		"items":          normalizeDocumentValue(tm.Items),
+		"metadata":       normalizeDocumentValue(tm.Metadata),
+		"emptyNumberSet": append([]int64(nil), tm.EmptyNumberSet...),
+		"emptyBinarySet": base64Strings(tm.EmptyBinarySet),
+		"optionalString": tm.OptionalString,
+	}
+}
+
+func normalizeTypeMatrices(items []TypeMatrix) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeTypeMatrix(item))
+	}
+	return out
+}
+
+func base64Strings(values [][]byte) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, base64.StdEncoding.EncodeToString(value))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeDocumentValue(value any) any {
+	switch v := value.(type) {
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = normalizeDocumentValue(item)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = normalizeDocumentValue(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 func normalizeReleaseStateActual(actual ReleaseStateActual) map[string]any {

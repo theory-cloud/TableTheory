@@ -279,7 +279,10 @@ function assertReadExpectation(
   }
 }
 
-function semanticallyMissingReadField(value: unknown, present: boolean): boolean {
+function semanticallyMissingReadField(
+  value: unknown,
+  present: boolean,
+): boolean {
   if (!present || value === null || value === undefined) return true;
   if (typeof value === "string") return value === "";
   if (typeof value === "number") return value === 0;
@@ -477,6 +480,28 @@ function assertValueMatches(
       }
       assert.equal(canonicalDecimalString(have), canonicalDecimalString(want));
       return;
+    case "B": {
+      const wantB = asBase64String(want);
+      const haveB =
+        raw && "B" in raw && raw.B !== undefined
+          ? Buffer.from(raw.B).toString("base64")
+          : asBase64String(have);
+      assert.equal(haveB, wantB);
+      return;
+    }
+    case "BOOL":
+      assert.equal(raw && "BOOL" in raw ? raw.BOOL : have, want);
+      return;
+    case "NULL":
+      if (raw) {
+        assert.ok(
+          "NULL" in raw && raw.NULL === true,
+          "expected raw NULL value",
+        );
+        return;
+      }
+      assert.equal(have, null);
+      return;
     case "SS": {
       const wantArr = asStringArray(want);
       const haveArr =
@@ -488,9 +513,101 @@ function assertValueMatches(
       assert.deepEqual(haveArr, wantArr);
       return;
     }
+    case "NS": {
+      const wantArr = asNumberArray(want);
+      if (raw && "NULL" in raw && raw.NULL === true) {
+        assert.deepEqual(wantArr, []);
+        return;
+      }
+      const haveArr =
+        raw && "NS" in raw && raw.NS !== undefined
+          ? raw.NS.slice()
+          : asNumberArray(have);
+      wantArr.sort();
+      haveArr.sort();
+      assert.deepEqual(haveArr, wantArr);
+      return;
+    }
+    case "BS": {
+      const wantArr = asBinaryArray(want);
+      if (raw && "NULL" in raw && raw.NULL === true) {
+        assert.deepEqual(wantArr, []);
+        return;
+      }
+      const haveArr =
+        raw && "BS" in raw && raw.BS !== undefined
+          ? raw.BS.map((b) => Buffer.from(b).toString("base64"))
+          : asBinaryArray(have);
+      wantArr.sort();
+      haveArr.sort();
+      assert.deepEqual(haveArr, wantArr);
+      return;
+    }
+    case "L":
+    case "M": {
+      const haveDoc = raw
+        ? attributeValueToComparable(raw)
+        : normalizeDocument(have);
+      assert.deepEqual(haveDoc, normalizeDocument(want));
+      return;
+    }
     default:
       assert.deepEqual(have, want);
   }
+}
+
+function asBase64String(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("base64");
+  throw new Error(`expected base64 string or bytes, got ${typeof value}`);
+}
+
+function asNumberArray(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return [canonicalDecimalString(value)];
+  return value.map((v) => canonicalDecimalString(v));
+}
+
+function asBinaryArray(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return [asBase64String(value)];
+  return value.map((v) => asBase64String(v));
+}
+
+function normalizeDocument(value: unknown): unknown {
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("base64");
+  if (Array.isArray(value)) return value.map((item) => normalizeDocument(item));
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      out[key] = normalizeDocument(child);
+    }
+    return out;
+  }
+  return value;
+}
+
+function attributeValueToComparable(av: AttributeValue): unknown {
+  if ("S" in av && av.S !== undefined) return av.S;
+  if ("N" in av && av.N !== undefined) return av.N;
+  if ("B" in av && av.B !== undefined)
+    return Buffer.from(av.B).toString("base64");
+  if ("BOOL" in av && av.BOOL !== undefined) return av.BOOL;
+  if ("NULL" in av && av.NULL) return null;
+  if ("SS" in av && av.SS !== undefined) return av.SS.slice().sort();
+  if ("NS" in av && av.NS !== undefined) return av.NS.slice().sort();
+  if ("BS" in av && av.BS !== undefined)
+    return av.BS.map((b) => Buffer.from(b).toString("base64")).sort();
+  if ("L" in av && av.L !== undefined)
+    return av.L.map(attributeValueToComparable);
+  if ("M" in av && av.M !== undefined) {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(av.M)) {
+      if (child) out[key] = attributeValueToComparable(child);
+    }
+    return out;
+  }
+  throw new Error("unsupported AttributeValue");
 }
 
 function canonicalDecimalString(value: unknown): string {

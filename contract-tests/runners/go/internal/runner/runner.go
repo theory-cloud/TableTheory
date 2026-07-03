@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"math"
@@ -469,6 +470,38 @@ func assertValueMatches(t require.TestingT, attr spec.Attribute, want any, have 
 		haveN, err := canonicalDecimalString(have)
 		require.NoError(t, err)
 		require.Equal(t, wantN, haveN)
+	case "B":
+		wantB, err := asBase64String(want)
+		require.NoError(t, err)
+		if raw != nil {
+			rawB, ok := raw.(*types.AttributeValueMemberB)
+			require.True(t, ok, "expected raw B for %s, got %T", attr.Attribute, raw)
+			require.Equal(t, wantB, base64.StdEncoding.EncodeToString(rawB.Value))
+			return
+		}
+		haveB, err := asBase64String(have)
+		require.NoError(t, err)
+		require.Equal(t, wantB, haveB)
+	case "BOOL":
+		wantBool, ok := want.(bool)
+		require.True(t, ok, "expected bool expectation for %s", attr.Attribute)
+		if raw != nil {
+			rawBool, ok := raw.(*types.AttributeValueMemberBOOL)
+			require.True(t, ok, "expected raw BOOL for %s, got %T", attr.Attribute, raw)
+			require.Equal(t, wantBool, rawBool.Value)
+			return
+		}
+		haveBool, ok := have.(bool)
+		require.True(t, ok, "expected bool value for %s, got %T", attr.Attribute, have)
+		require.Equal(t, wantBool, haveBool)
+	case "NULL":
+		if raw != nil {
+			rawNull, ok := raw.(*types.AttributeValueMemberNULL)
+			require.True(t, ok, "expected raw NULL for %s, got %T", attr.Attribute, raw)
+			require.True(t, rawNull.Value)
+			return
+		}
+		require.Nil(t, have)
 	case "SS":
 		wantSS, err := asStringSet(want)
 		require.NoError(t, err)
@@ -483,6 +516,48 @@ func assertValueMatches(t require.TestingT, attr spec.Attribute, want any, have 
 		haveSS, err := asStringSet(have)
 		require.NoError(t, err)
 		require.Equal(t, wantSS, haveSS)
+	case "NS":
+		wantNS, err := asNumberSet(want)
+		require.NoError(t, err)
+		if raw != nil {
+			if rawNull, ok := raw.(*types.AttributeValueMemberNULL); ok && rawNull.Value {
+				require.Empty(t, wantNS, "expected empty NS for raw NULL")
+				return
+			}
+			rawNS, ok := raw.(*types.AttributeValueMemberNS)
+			require.True(t, ok, "expected raw NS for %s, got %T", attr.Attribute, raw)
+			haveNS := append([]string(nil), rawNS.Value...)
+			sort.Strings(haveNS)
+			require.Equal(t, wantNS, haveNS)
+			return
+		}
+		haveNS, err := asNumberSet(have)
+		require.NoError(t, err)
+		require.Equal(t, wantNS, haveNS)
+	case "BS":
+		wantBS, err := asBinarySet(want)
+		require.NoError(t, err)
+		if raw != nil {
+			if rawNull, ok := raw.(*types.AttributeValueMemberNULL); ok && rawNull.Value {
+				require.Empty(t, wantBS, "expected empty BS for raw NULL")
+				return
+			}
+			rawBS, ok := raw.(*types.AttributeValueMemberBS)
+			require.True(t, ok, "expected raw BS for %s, got %T", attr.Attribute, raw)
+			haveBS := base64Set(rawBS.Value)
+			require.Equal(t, wantBS, haveBS)
+			return
+		}
+		haveBS, err := asBinarySet(have)
+		require.NoError(t, err)
+		require.Equal(t, wantBS, haveBS)
+	case "L", "M":
+		wantDoc := normalizeComparableDocument(want)
+		if raw != nil {
+			require.Equal(t, wantDoc, attributeValueToComparable(raw))
+			return
+		}
+		require.Equal(t, wantDoc, normalizeComparableDocument(have))
 	default:
 		require.Equal(t, want, have, "unhandled type %s", attr.Type)
 	}
@@ -545,6 +620,150 @@ func asStringSet(v any) ([]string, error) {
 	}
 	sort.Strings(items)
 	return items, nil
+}
+
+func asNumberSet(v any) ([]string, error) {
+	if v == nil {
+		return []string{}, nil
+	}
+	items := []string{}
+	switch s := v.(type) {
+	case []string:
+		items = append(items, s...)
+	case []int64:
+		for _, item := range s {
+			items = append(items, strconv.FormatInt(item, 10))
+		}
+	case []any:
+		for _, item := range s {
+			text, err := canonicalDecimalString(item)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, text)
+		}
+	default:
+		return nil, fmt.Errorf("expected number set slice, got %T", v)
+	}
+	sort.Strings(items)
+	return items, nil
+}
+
+func asBase64String(v any) (string, error) {
+	switch b := v.(type) {
+	case string:
+		return b, nil
+	case []byte:
+		return base64.StdEncoding.EncodeToString(b), nil
+	default:
+		return "", fmt.Errorf("expected base64 string or bytes, got %T", v)
+	}
+}
+
+func asBinarySet(v any) ([]string, error) {
+	if v == nil {
+		return []string{}, nil
+	}
+	switch s := v.(type) {
+	case []string:
+		out := append([]string{}, s...)
+		sort.Strings(out)
+		return out, nil
+	case [][]byte:
+		return base64Set(s), nil
+	case []any:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			encoded, err := asBase64String(item)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, encoded)
+		}
+		sort.Strings(out)
+		return out, nil
+	default:
+		return nil, fmt.Errorf("expected binary set slice, got %T", v)
+	}
+}
+
+func base64Set(values [][]byte) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, base64.StdEncoding.EncodeToString(value))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeComparableDocument(v any) any {
+	switch value := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(value))
+		for key, child := range value {
+			out[key] = normalizeComparableDocument(child)
+		}
+		return out
+	case map[any]any:
+		out := make(map[string]any, len(value))
+		for key, child := range value {
+			out[fmt.Sprintf("%v", key)] = normalizeComparableDocument(child)
+		}
+		return out
+	case []any:
+		out := make([]any, len(value))
+		for i, child := range value {
+			out[i] = normalizeComparableDocument(child)
+		}
+		return out
+	case []string:
+		out := make([]any, len(value))
+		for i, child := range value {
+			out[i] = child
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func attributeValueToComparable(av types.AttributeValue) any {
+	switch v := av.(type) {
+	case *types.AttributeValueMemberS:
+		return v.Value
+	case *types.AttributeValueMemberN:
+		return v.Value
+	case *types.AttributeValueMemberB:
+		return base64.StdEncoding.EncodeToString(v.Value)
+	case *types.AttributeValueMemberBOOL:
+		return v.Value
+	case *types.AttributeValueMemberNULL:
+		return nil
+	case *types.AttributeValueMemberSS:
+		out := append([]string(nil), v.Value...)
+		sort.Strings(out)
+		return out
+	case *types.AttributeValueMemberNS:
+		out := append([]string(nil), v.Value...)
+		sort.Strings(out)
+		return out
+	case *types.AttributeValueMemberBS:
+		return base64Set(v.Value)
+	case *types.AttributeValueMemberL:
+		out := make([]any, len(v.Value))
+		for i, child := range v.Value {
+			out[i] = attributeValueToComparable(child)
+		}
+		return out
+	case *types.AttributeValueMemberM:
+		out := make(map[string]any, len(v.Value))
+		for key, child := range v.Value {
+			out[key] = attributeValueToComparable(child)
+		}
+		return out
+	default:
+		return fmt.Sprintf("%T", av)
+	}
 }
 
 func attributeValueTypeName(av types.AttributeValue) string {
