@@ -34,6 +34,8 @@ import {
   marshalScalar,
   nowRfc3339Nano,
   unmarshalItem,
+  type NumberUnmarshalMode,
+  type UnmarshalOptions,
 } from './marshal.js';
 import { QueryBuilder, ScanBuilder } from './query.js';
 import type { TransactAction } from './transaction.js';
@@ -53,23 +55,37 @@ import {
   type WritePolicyOptions,
 } from './write-policy.js';
 
+export interface TheorydbClientOptions {
+  encryption?: EncryptionProvider;
+  now?: () => string;
+  sendOptions?: SendOptions;
+  /**
+   * Controls how DynamoDB N/NS values are unmarshaled.
+   *
+   * The default, 'number', preserves the historical JavaScript Number behavior and
+   * can be lossy for integers outside the safe range or high-precision decimals.
+   * Use 'string' to receive canonical DynamoDB decimal strings for exact reads.
+   */
+  numberUnmarshalMode?: NumberUnmarshalMode;
+}
+
 export class TheorydbClient {
   private readonly models = new Map<string, Model>();
   private encryption: EncryptionProvider | undefined;
   private readonly now: () => string;
   private readonly sendOptions: SendOptions | undefined;
+  private readonly unmarshalOptions: UnmarshalOptions;
 
   constructor(
     private readonly ddb: DynamoDBClient,
-    opts: {
-      encryption?: EncryptionProvider;
-      now?: () => string;
-      sendOptions?: SendOptions;
-    } = {},
+    opts: TheorydbClientOptions = {},
   ) {
     this.encryption = opts.encryption;
     this.now = opts.now ?? (() => nowRfc3339Nano());
     this.sendOptions = opts.sendOptions;
+    this.unmarshalOptions = {
+      numberMode: opts.numberUnmarshalMode ?? 'number',
+    };
   }
 
   withEncryption(provider: EncryptionProvider): this {
@@ -82,6 +98,7 @@ export class TheorydbClient {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(sendOptions ? { sendOptions } : {}),
+      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'number',
     });
     next.register(...this.models.values());
     return next;
@@ -92,6 +109,7 @@ export class TheorydbClient {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
+      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'number',
     });
     next.register(...this.models.values());
     return next;
@@ -211,7 +229,7 @@ export class TheorydbClient {
       const item = provider
         ? await decryptItemAttributes(model, resp.Item, provider)
         : resp.Item;
-      return unmarshalItem(model, item);
+      return unmarshalItem(model, item, this.unmarshalOptions);
     } catch (err) {
       throw mapDynamoError(err);
     }
@@ -403,9 +421,15 @@ export class TheorydbClient {
           const decrypted = await Promise.all(
             got.map((it) => decryptItemAttributes(model, it, provider)),
           );
-          allItems.push(...decrypted.map((it) => unmarshalItem(model, it)));
+          allItems.push(
+            ...decrypted.map((it) =>
+              unmarshalItem(model, it, this.unmarshalOptions),
+            ),
+          );
         } else {
-          allItems.push(...got.map((it) => unmarshalItem(model, it)));
+          allItems.push(
+            ...got.map((it) => unmarshalItem(model, it, this.unmarshalOptions)),
+          );
         }
 
         const next = resp.UnprocessedKeys?.[model.tableName]?.Keys ?? [];
@@ -623,12 +647,24 @@ export class TheorydbClient {
 
   query(modelName: string): QueryBuilder {
     const model = this.requireModel(modelName);
-    return new QueryBuilder(this.ddb, model, this.encryption, this.sendOptions);
+    return new QueryBuilder(
+      this.ddb,
+      model,
+      this.encryption,
+      this.sendOptions,
+      this.unmarshalOptions,
+    );
   }
 
   scan(modelName: string): ScanBuilder {
     const model = this.requireModel(modelName);
-    return new ScanBuilder(this.ddb, model, this.encryption, this.sendOptions);
+    return new ScanBuilder(
+      this.ddb,
+      model,
+      this.encryption,
+      this.sendOptions,
+      this.unmarshalOptions,
+    );
   }
 
   updateBuilder(

@@ -3,6 +3,12 @@ import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import type { AttributeSchema, Model } from './model.js';
 import { TheorydbError } from './errors.js';
 
+export type NumberUnmarshalMode = 'number' | 'string';
+
+export interface UnmarshalOptions {
+  numberMode?: NumberUnmarshalMode;
+}
+
 export function nowRfc3339Nano(date = new Date()): string {
   const iso = date.toISOString(); // always has milliseconds: YYYY-MM-DDTHH:mm:ss.sssZ
   return iso.replace(/\.(\d{3})Z$/, '.$1000000Z');
@@ -127,6 +133,7 @@ export function marshalPutItem(
 export function unmarshalItem(
   model: Model,
   item: Record<string, AttributeValue>,
+  opts: UnmarshalOptions = {},
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
 
@@ -136,7 +143,7 @@ export function unmarshalItem(
       out[name] = av;
       continue;
     }
-    out[name] = unmarshalScalar(schema, av);
+    out[name] = unmarshalScalar(schema, av, opts);
   }
 
   return out;
@@ -281,6 +288,7 @@ export function marshalScalar(
 export function unmarshalScalar(
   schema: Readonly<AttributeSchema>,
   av: AttributeValue,
+  opts: UnmarshalOptions = {},
 ): unknown {
   const applyConverter = (value: unknown): unknown =>
     schema.converter !== undefined
@@ -288,7 +296,7 @@ export function unmarshalScalar(
       : value;
 
   if (schema.json) {
-    return applyConverter(unmarshalJsonScalar(schema, av));
+    return applyConverter(unmarshalJsonScalar(schema, av, opts));
   }
 
   switch (schema.type) {
@@ -296,7 +304,8 @@ export function unmarshalScalar(
       if ('S' in av && av.S !== undefined) return applyConverter(av.S);
       break;
     case 'N':
-      if ('N' in av && av.N !== undefined) return applyConverter(Number(av.N));
+      if ('N' in av && av.N !== undefined)
+        return applyConverter(unmarshalNumberText(av.N, opts));
       break;
     case 'B':
       if ('B' in av && av.B !== undefined)
@@ -309,7 +318,7 @@ export function unmarshalScalar(
       break;
     case 'NS':
       if ('NS' in av && av.NS !== undefined)
-        return applyConverter(av.NS.map((n) => Number(n)));
+        return applyConverter(av.NS.map((n) => unmarshalNumberText(n, opts)));
       if ('NULL' in av && av.NULL) return applyConverter([]);
       break;
     case 'BS':
@@ -325,7 +334,9 @@ export function unmarshalScalar(
       break;
     case 'L':
       if ('L' in av && av.L !== undefined)
-        return applyConverter(av.L.map(unmarshalDocumentValue));
+        return applyConverter(
+          av.L.map((item) => unmarshalDocumentValue(item, opts)),
+        );
       break;
     case 'M':
       if ('M' in av && av.M !== undefined) {
@@ -336,7 +347,7 @@ export function unmarshalScalar(
               'ErrInvalidModel',
               `Invalid map value for ${schema.attribute}`,
             );
-          out[k] = unmarshalDocumentValue(v);
+          out[k] = unmarshalDocumentValue(v, opts);
         }
         return applyConverter(out);
       }
@@ -352,6 +363,13 @@ export function unmarshalScalar(
     'ErrInvalidModel',
     `Unsupported AttributeValue for ${schema.attribute}`,
   );
+}
+
+function unmarshalNumberText(
+  value: string,
+  opts: UnmarshalOptions,
+): number | string {
+  return opts.numberMode === 'string' ? value : Number(value);
 }
 
 function marshalJsonScalar(
@@ -377,13 +395,14 @@ function marshalJsonScalar(
 function unmarshalJsonScalar(
   schema: Readonly<AttributeSchema>,
   av: AttributeValue,
+  opts: UnmarshalOptions,
 ): unknown {
   if ('NULL' in av && av.NULL) return null;
 
   if (isJsonStringCarrier(schema)) {
     if ('S' in av && av.S !== undefined) return av.S;
     return stableJsonStringify(
-      normalizeJsonValue(unmarshalDocumentValue(av), schema.attribute),
+      normalizeJsonValue(unmarshalDocumentValue(av, opts), schema.attribute),
       schema.attribute,
     );
   }
@@ -391,7 +410,7 @@ function unmarshalJsonScalar(
   const value =
     'S' in av && av.S !== undefined
       ? parseJsonText(av.S, schema.attribute)
-      : normalizeJsonValue(unmarshalDocumentValue(av), schema.attribute);
+      : normalizeJsonValue(unmarshalDocumentValue(av, opts), schema.attribute);
 
   return assertJsonValueMatchesSchema(schema, value);
 }
@@ -551,25 +570,30 @@ export function marshalDocumentValue(value: unknown): AttributeValue {
   );
 }
 
-export function unmarshalDocumentValue(av: AttributeValue): unknown {
+export function unmarshalDocumentValue(
+  av: AttributeValue,
+  opts: UnmarshalOptions = {},
+): unknown {
   if ('S' in av && av.S !== undefined) return av.S;
-  if ('N' in av && av.N !== undefined) return Number(av.N);
+  if ('N' in av && av.N !== undefined) return unmarshalNumberText(av.N, opts);
   if ('B' in av && av.B !== undefined) return Buffer.from(av.B);
   if ('SS' in av && av.SS !== undefined) return av.SS.slice();
-  if ('NS' in av && av.NS !== undefined) return av.NS.map((n) => Number(n));
+  if ('NS' in av && av.NS !== undefined)
+    return av.NS.map((n) => unmarshalNumberText(n, opts));
   if ('BS' in av && av.BS !== undefined)
     return av.BS.map((b) => Buffer.from(b));
   if ('BOOL' in av && av.BOOL !== undefined) return av.BOOL;
   if ('NULL' in av && av.NULL) return null;
 
-  if ('L' in av && av.L !== undefined) return av.L.map(unmarshalDocumentValue);
+  if ('L' in av && av.L !== undefined)
+    return av.L.map((item) => unmarshalDocumentValue(item, opts));
 
   if ('M' in av && av.M !== undefined) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(av.M)) {
       if (!v)
         throw new TheorydbError('ErrInvalidModel', `Invalid map value: ${k}`);
-      out[k] = unmarshalDocumentValue(v);
+      out[k] = unmarshalDocumentValue(v, opts);
     }
     return out;
   }

@@ -28,7 +28,11 @@ import {
   modelHasEncryptedAttributes,
   type EncryptionProvider,
 } from './encryption.js';
-import { marshalScalar, unmarshalItem } from './marshal.js';
+import {
+  marshalScalar,
+  unmarshalItem,
+  type UnmarshalOptions,
+} from './marshal.js';
 import type { AttributeSchema, IndexSchema, Model } from './model.js';
 import type { BuilderShape } from './optimizer.js';
 import type { SendOptions } from './send-options.js';
@@ -311,6 +315,7 @@ export class QueryBuilder {
     private readonly model: Model,
     private readonly encryption?: EncryptionProvider,
     private readonly sendOptions?: SendOptions,
+    private readonly unmarshalOptions: UnmarshalOptions = {},
   ) {
     this.filters = new FilterExpressionBuilder(model);
   }
@@ -527,8 +532,10 @@ export class QueryBuilder {
               decryptItemAttributes(this.model, it, this.encryption!),
             ),
           )
-        ).map((it) => unmarshalItem(this.model, it))
-      : rawItems.map((it) => unmarshalItem(this.model, it));
+        ).map((it) => unmarshalItem(this.model, it, this.unmarshalOptions))
+      : rawItems.map((it) =>
+          unmarshalItem(this.model, it, this.unmarshalOptions),
+        );
     let cursor: string | undefined;
     if (resp.LastEvaluatedKey) {
       const c: Cursor = { lastKey: resp.LastEvaluatedKey, sort: this.sortDir };
@@ -770,6 +777,7 @@ export class ScanBuilder {
     private readonly model: Model,
     private readonly encryption?: EncryptionProvider,
     private readonly sendOptions?: SendOptions,
+    private readonly unmarshalOptions: UnmarshalOptions = {},
   ) {
     this.filters = new FilterExpressionBuilder(model);
   }
@@ -939,8 +947,12 @@ export class ScanBuilder {
                     decryptItemAttributes(this.model, it, this.encryption!),
                   ),
                 )
-              ).map((it) => unmarshalItem(this.model, it))
-            : rawItems.map((it) => unmarshalItem(this.model, it));
+              ).map((it) =>
+                unmarshalItem(this.model, it, this.unmarshalOptions),
+              )
+            : rawItems.map((it) =>
+                unmarshalItem(this.model, it, this.unmarshalOptions),
+              );
           items.push(...chunk);
 
           start = resp.LastEvaluatedKey;
@@ -1153,8 +1165,10 @@ export class ScanBuilder {
               decryptItemAttributes(this.model, it, this.encryption!),
             ),
           )
-        ).map((it) => unmarshalItem(this.model, it))
-      : rawItems.map((it) => unmarshalItem(this.model, it));
+        ).map((it) => unmarshalItem(this.model, it, this.unmarshalOptions))
+      : rawItems.map((it) =>
+          unmarshalItem(this.model, it, this.unmarshalOptions),
+        );
     let cursor: string | undefined;
     if (resp.LastEvaluatedKey) {
       const c: Cursor = { lastKey: resp.LastEvaluatedKey };

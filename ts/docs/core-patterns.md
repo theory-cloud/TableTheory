@@ -63,6 +63,24 @@ const page2 = page1.cursor
 in memory before computing the result. Use them only for bounded result sets. When the planned native `count()` API lands,
 prefer it for count-only paths.
 
+## Pattern: Exact number reads
+
+TypeScript keeps the historical JavaScript `Number` unmarshal behavior by default, which can be lossy for DynamoDB
+`N` values outside the safe-integer range or for high-precision decimals. Opt in to exact decimal strings when precision
+matters:
+
+```ts
+const exactDb = new TheorydbClient(ddb, {
+  numberUnmarshalMode: 'string',
+}).register(LedgerEntry);
+
+const entry = await exactDb.get('LedgerEntry', {
+  PK: 'LEDGER#1',
+  SK: 'ENTRY#1',
+});
+// entry.amount is the canonical DynamoDB decimal string, not a JavaScript Number.
+```
+
 ## Pattern: Batch + Transactions
 
 ```ts

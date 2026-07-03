@@ -128,6 +128,14 @@ assert.throws(() => marshalScalar({ attribute: 'X', type: 'X' as never }, 'x'));
 
 assert.equal(unmarshalScalar({ attribute: 'S', type: 'S' }, { S: 'x' }), 'x');
 assert.equal(unmarshalScalar({ attribute: 'N', type: 'N' }, { N: '1' }), 1);
+assert.equal(
+  unmarshalScalar(
+    { attribute: 'N', type: 'N' },
+    { N: '9007199254740993' },
+    { numberMode: 'string' },
+  ),
+  '9007199254740993',
+);
 assert.deepEqual(
   unmarshalScalar(
     { attribute: 'payload', type: 'S', json: true },
@@ -178,6 +186,14 @@ assert.deepEqual(
 assert.deepEqual(
   unmarshalScalar({ attribute: 'NS', type: 'NS' }, { NS: ['1'] }),
   [1],
+);
+assert.deepEqual(
+  unmarshalScalar(
+    { attribute: 'NS', type: 'NS' },
+    { NS: ['9007199254740993'] },
+    { numberMode: 'string' },
+  ),
+  ['9007199254740993'],
 );
 assert.deepEqual(
   unmarshalScalar({ attribute: 'NS', type: 'NS' }, { NULL: true }),
@@ -257,6 +273,13 @@ assert.throws(() =>
 
 assert.throws(() => marshalDocumentValue(undefined as never));
 assert.deepEqual(unmarshalDocumentValue({ NULL: true }), null);
+assert.deepEqual(
+  unmarshalDocumentValue(
+    { M: { n: { N: '9007199254740993' } } },
+    { numberMode: 'string' },
+  ),
+  { n: '9007199254740993' },
+);
 
 const User = defineModel({
   name: 'User',
@@ -312,4 +335,14 @@ assert.throws(
   assert.equal(item.SK, 'B');
   assert.equal(item.version, 1);
   assert.deepEqual(item.extra, { S: 'raw' });
+}
+
+{
+  const raw = {
+    PK: { S: 'A' },
+    SK: { S: 'B' },
+    version: { N: '9007199254740993' },
+  };
+  const item = unmarshalItem(User, raw, { numberMode: 'string' });
+  assert.equal(item.version, '9007199254740993');
 }

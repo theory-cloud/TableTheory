@@ -50,7 +50,7 @@ test("P0 contract scenarios (ts runner)", async (t) => {
   }
 
   const compiled = Array.from(models.values()).map((m) => defineModel(m));
-  const driver = new TheorydbDriver(ddb, compiled);
+  const driver = new TheorydbDriver(ddb, compiled, { exactNumbers: true });
 
   for (const s of scenarios) {
     await t.test(s.name, async (st) => {

@@ -71,9 +71,18 @@ export interface TransitionEvent {
 
 export class TheorydbDriver implements Driver {
   private readonly client: TheorydbClient;
+  private readonly exactNumbers: boolean;
 
-  constructor(ddb: DynamoDBClient, models: Model[]) {
-    this.client = new TheorydbClient(ddb).register(...models);
+  constructor(
+    ddb: DynamoDBClient,
+    models: Model[],
+    opts: { exactNumbers?: boolean } = {},
+  ) {
+    this.exactNumbers = opts.exactNumbers ?? false;
+    this.client = new TheorydbClient(
+      ddb,
+      this.exactNumbers ? { numberUnmarshalMode: "string" } : {},
+    ).register(...models);
   }
 
   capabilities(): readonly string[] {
@@ -83,6 +92,7 @@ export class TheorydbDriver implements Driver {
       "lifecycle.timestamps",
       "optimistic_lock.version",
       "ttl.epoch_seconds",
+      ...(this.exactNumbers ? ["number.precision.exact"] : []),
       "query.basic",
       "scan.basic",
       "release_state.write_policy",

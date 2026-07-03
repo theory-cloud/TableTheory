@@ -60,12 +60,14 @@ Options:
   encryption?: EncryptionProvider;
   now?: () => string;
   sendOptions?: SendOptions;
+  numberUnmarshalMode?: 'number' | 'string';
 }
 ```
 
 - `encryption`: required when a registered model contains encrypted attributes
 - `now`: injected RFC3339-nano clock for deterministic tests
 - `sendOptions.abortSignal`: optional SDK send option, commonly provided by Lambda timeout helpers
+- `numberUnmarshalMode`: defaults to `'number'` for backward-compatible JavaScript `Number` reads; set to `'string'` to receive exact DynamoDB decimal strings for `N`/`NS` values and avoid lossy reads for integers above `Number.MAX_SAFE_INTEGER` or high-precision decimals
 
 ### `register(...models: Model[]): this`
 
