@@ -42,6 +42,19 @@ FEATURE_OSS_RELEASE="false"
 
 mkdir -p "${EVIDENCE_DIR}"
 
+PREVIOUS_REPORT_PATH=""
+if [[ -f "${REPORT_PATH}" ]]; then
+  PREVIOUS_REPORT_PATH="$(mktemp)"
+  cp "${REPORT_PATH}" "${PREVIOUS_REPORT_PATH}"
+fi
+
+cleanup_previous_report() {
+  if [[ -n "${PREVIOUS_REPORT_PATH}" && -f "${PREVIOUS_REPORT_PATH}" ]]; then
+    rm -f "${PREVIOUS_REPORT_PATH}"
+  fi
+}
+trap cleanup_previous_report EXIT
+
 rm -f \
   "${REPORT_PATH}" \
   "${EVIDENCE_DIR}/"*-output.log \
@@ -49,7 +62,7 @@ rm -f \
 
 REPORT_SCHEMA_URI="theorymcp://namespaces/theorycloud/governance-profiles/theorycloud_governance_profile.v0.1/schemas/gov_rubric_report.v1"
 REPORT_SCHEMA_VERSION="gov_rubric_report.v1"
-REPORT_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+REPORT_TIMESTAMP_CURRENT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 PASS_COUNT=0
 FAIL_COUNT=0
 BLOCKED_COUNT=0
@@ -65,12 +78,31 @@ json_escape() {
   printf '%s' "$s"
 }
 
+repo_relative_path() {
+  local path="$1"
+  if [[ -z "${path}" ]]; then
+    printf '%s' ""
+    return 0
+  fi
+  if [[ "${path}" == "${REPO_ROOT}" ]]; then
+    printf '%s' "."
+    return 0
+  fi
+  if [[ "${path}" == "${REPO_ROOT}/"* ]]; then
+    printf '%s' "${path#"${REPO_ROOT}/"}"
+    return 0
+  fi
+  printf '%s' "${path}"
+}
+
 record_result() {
   local id="$1"
   local category="$2"
   local status="$3"
   local message="$4"
   local evidence_path="$5"
+  local evidence_path_report
+  evidence_path_report="$(repo_relative_path "${evidence_path}")"
 
   case "$status" in
     PASS) ((PASS_COUNT++)) || true ;;
@@ -83,7 +115,7 @@ record_result() {
   esac
 
   RESULTS+=(
-    "{\"id\":\"$(json_escape "$id")\",\"category\":\"$(json_escape "$category")\",\"status\":\"$(json_escape "$status")\",\"message\":\"$(json_escape "$message")\",\"evidencePath\":\"$(json_escape "$evidence_path")\"}"
+    "{\"id\":\"$(json_escape "$id")\",\"category\":\"$(json_escape "$category")\",\"status\":\"$(json_escape "$status")\",\"message\":\"$(json_escape "$message")\",\"evidencePath\":\"$(json_escape "$evidence_path_report")\"}"
   )
 }
 
@@ -613,7 +645,7 @@ check_doc_integrity() {
 
 echo "=== gov-infra Rubric Verifier ==="
 echo "Project: theorydb"
-echo "Timestamp: ${REPORT_TIMESTAMP}"
+echo "Timestamp: ${REPORT_TIMESTAMP_CURRENT}"
 echo ""
 
 # Commands are centralized here so the rubric docs and verifier stay aligned.
@@ -714,11 +746,15 @@ elif [[ ${BLOCKED_COUNT} -gt 0 ]]; then
   OVERALL_STATUS="BLOCKED"
 fi
 
-cat >"${REPORT_PATH}" <<EOF
+write_report() {
+  local output_path="$1"
+  local report_timestamp="$2"
+
+  cat >"${output_path}" <<EOF
 {
   "\$schema": "${REPORT_SCHEMA_URI}",
   "schemaVersion": "${REPORT_SCHEMA_VERSION}",
-  "timestamp": "${REPORT_TIMESTAMP}",
+  "timestamp": "${report_timestamp}",
   "pack": {
     "version": "816465a1618d",
     "digest": "896aed16549928f21626fb4effe9bb6236fc60292a8f50bae8ce77e873ac775b"
@@ -736,6 +772,57 @@ cat >"${REPORT_PATH}" <<EOF
   "results": ${RESULTS_JSON}
 }
 EOF
+}
+
+previous_report_timestamp() {
+  local report_path="$1"
+  python3 - "${report_path}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+
+timestamp = report.get("timestamp")
+if not isinstance(timestamp, str) or not timestamp:
+    raise SystemExit(1)
+print(timestamp)
+PY
+}
+
+reports_match_except_timestamp() {
+  local previous_path="$1"
+  local current_path="$2"
+
+  python3 - "${previous_path}" "${current_path}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+previous = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+current = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+previous["timestamp"] = None
+current["timestamp"] = None
+raise SystemExit(0 if previous == current else 1)
+PY
+}
+
+NEW_REPORT_PATH="$(mktemp)"
+write_report "${NEW_REPORT_PATH}" "${REPORT_TIMESTAMP_CURRENT}"
+
+if [[ -n "${PREVIOUS_REPORT_PATH}" ]] && reports_match_except_timestamp "${PREVIOUS_REPORT_PATH}" "${NEW_REPORT_PATH}"; then
+  if previous_timestamp="$(previous_report_timestamp "${PREVIOUS_REPORT_PATH}")"; then
+    write_report "${REPORT_PATH}" "${previous_timestamp}"
+    rm -f "${NEW_REPORT_PATH}"
+  else
+    mv "${NEW_REPORT_PATH}" "${REPORT_PATH}"
+  fi
+else
+  mv "${NEW_REPORT_PATH}" "${REPORT_PATH}"
+fi
 
 echo "Report written to: ${REPORT_PATH}"
 echo "Status: ${OVERALL_STATUS} (pass=${PASS_COUNT} fail=${FAIL_COUNT} blocked=${BLOCKED_COUNT})"
