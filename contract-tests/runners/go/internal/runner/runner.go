@@ -232,10 +232,21 @@ func stepModelName(s *scenario.Scenario, step scenario.Step) string {
 }
 
 func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectation, item map[string]any, err error, raw map[string]types.AttributeValue, model spec.Model) {
+	hasItemAssertion := expectationHasItemAssertion(expect)
+	hasRawAssertion := expectationHasRawItemAssertion(expect)
+
 	if expect.Error != "" {
 		require.Error(t, err)
 		require.Equal(t, driver.ErrorCode(expect.Error), driver.MapError(err))
+		require.False(t, hasItemAssertion, "item assertions cannot be combined with error expectations")
 		return
+	}
+	if hasItemAssertion {
+		require.NoError(t, err, "expected successful operation for item assertions")
+		require.NotNil(t, item, "expected item for item assertions")
+	}
+	if hasRawAssertion {
+		require.NotNil(t, raw, "expected raw item for raw assertions")
 	}
 	if expect.Ok != nil {
 		if *expect.Ok {
@@ -297,10 +308,16 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 }
 
 func (r *Runner) assertReadResult(t require.TestingT, expect scenario.Expectation, result driver.ReadResult, err error, model spec.Model) {
+	hasReadAssertion := expectationHasReadAssertion(expect)
+
 	if expect.Error != "" {
 		require.Error(t, err)
 		require.Equal(t, driver.ErrorCode(expect.Error), driver.MapError(err))
+		require.False(t, hasReadAssertion, "read assertions cannot be combined with error expectations")
 		return
+	}
+	if hasReadAssertion {
+		require.NoError(t, err, "expected successful read for read assertions")
 	}
 	if expect.Ok != nil {
 		if *expect.Ok {
@@ -333,6 +350,26 @@ func (r *Runner) assertReadResult(t require.TestingT, expect scenario.Expectatio
 	if expect.CursorEquals != nil {
 		require.Equal(t, *expect.CursorEquals, result.Cursor)
 	}
+}
+
+func expectationHasItemAssertion(expect scenario.Expectation) bool {
+	return len(expect.ItemContains) > 0 ||
+		len(expect.ItemEquals) > 0 ||
+		len(expect.ItemHasFields) > 0 ||
+		len(expect.ItemMissingFields) > 0 ||
+		len(expect.RawAttributeTypes) > 0 ||
+		len(expect.ItemFieldEqualsVar) > 0 ||
+		len(expect.ItemFieldNotEqualsVar) > 0
+}
+
+func expectationHasRawItemAssertion(expect scenario.Expectation) bool {
+	return len(expect.ItemMissingFields) > 0 || len(expect.RawAttributeTypes) > 0
+}
+
+func expectationHasReadAssertion(expect scenario.Expectation) bool {
+	return expect.ItemCount != nil ||
+		len(expect.ItemsContains) > 0 ||
+		expect.CursorEquals != nil
 }
 
 func assertItemEquals(t require.TestingT, want map[string]any, item map[string]any, raw map[string]types.AttributeValue, model spec.Model) {

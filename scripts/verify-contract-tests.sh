@@ -45,7 +45,7 @@ fi
 if [[ -d "contract-tests/scenarios/interop" ]]; then
   echo "contract-tests: cross-runtime interop"
   if [[ -f "contract-tests/runners/go/go.mod" ]]; then
-    (cd contract-tests/runners/go && CONTRACT_RUN_INTEROP=1 go test . -run TestContract_Interop -v)
+    (cd contract-tests/runners/go && CONTRACT_RUN_INTEROP=1 go test . -run TestContract_Interop -count=1 -v)
   fi
   if [[ -f "contract-tests/runners/ts/package.json" ]]; then
     CONTRACT_RUN_INTEROP=1 npm --prefix contract-tests/runners/ts run test:contract:interop

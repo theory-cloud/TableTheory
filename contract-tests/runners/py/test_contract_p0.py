@@ -553,10 +553,31 @@ def _assert_expectation(
     item: dict[str, Any] | None = None,
     raw: dict[str, Any] | None = None,
 ) -> None:
+    has_item_assertion = _expectation_has_any_key(
+        expect,
+        {
+            "item_contains",
+            "item_equals",
+            "item_has_fields",
+            "item_missing_fields",
+            "raw_attribute_types",
+            "item_field_equals_var",
+            "item_field_not_equals_var",
+        },
+    )
+    has_raw_assertion = _expectation_has_any_key(expect, {"item_missing_fields", "raw_attribute_types"})
+
     if "error" in expect:
         assert error is not None
         assert _map_error(error) == expect["error"]
+        assert not has_item_assertion, "item assertions cannot be combined with error expectations"
         return
+
+    if has_item_assertion:
+        assert error is None, "expected successful operation for item assertions"
+        assert item is not None, "expected item for item assertions"
+    if has_raw_assertion:
+        assert raw is not None, "expected raw item for raw assertions"
 
     if "ok" in expect:
         if expect["ok"]:
@@ -613,10 +634,17 @@ def _assert_read_expectation(
     result: dict[str, Any],
     model: dict[str, Any],
 ) -> None:
+    has_read_assertion = _expectation_has_any_key(expect, {"item_count", "items_contains", "cursor_equals"})
+
     if "error" in expect:
         assert error is not None
         assert _map_error(error) == expect["error"]
+        assert not has_read_assertion, "read assertions cannot be combined with error expectations"
         return
+
+    if has_read_assertion:
+        assert error is None, "expected successful read for read assertions"
+        assert result is not None, "expected read result for read assertions"
 
     if "ok" in expect:
         if expect["ok"]:
@@ -643,6 +671,42 @@ def _assert_read_expectation(
 
     if "cursor_equals" in expect:
         assert (result.get("cursor") or "") == expect["cursor_equals"]
+
+
+def _expectation_has_any_key(expect: dict[str, Any], keys: set[str]) -> bool:
+    return any(key in expect for key in keys)
+
+
+def test_assert_expectation_fails_closed_on_item_assertion_error_without_ok() -> None:
+    with pytest.raises(AssertionError, match="expected successful operation for item assertions"):
+        _assert_expectation(
+            {"item_equals": {"PK": "USER#fail-closed"}},
+            error=RuntimeError("missing seeded item"),
+            item=None,
+            raw=None,
+            model=_minimal_user_model(),
+            variables={},
+        )
+
+
+def test_assert_read_expectation_fails_closed_on_read_assertion_error_without_ok() -> None:
+    with pytest.raises(AssertionError, match="expected successful read for read assertions"):
+        _assert_read_expectation(
+            {"items_contains": [{"PK": "USER#fail-closed"}]},
+            error=RuntimeError("read failed"),
+            result={},
+            model=_minimal_user_model(),
+        )
+
+
+def _minimal_user_model() -> dict[str, Any]:
+    return {
+        "name": "User",
+        "attributes": [
+            {"attribute": "PK", "type": "S"},
+            {"attribute": "SK", "type": "S"},
+        ],
+    }
 
 
 def _assert_item_equals(

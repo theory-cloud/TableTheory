@@ -208,11 +208,30 @@ function assertReadExpectation(
 ): void {
   if (!expect) return;
   const { err, result, model } = ctx;
+  const hasReadAssertion = expectationHasAnyKey(expect, [
+    "item_count",
+    "items_contains",
+    "cursor_equals",
+  ]);
 
   if (expect.error) {
     assert.ok(err, "expected error");
     assert.equal(mapError(err), expect.error);
+    assert.equal(
+      hasReadAssertion,
+      false,
+      "read assertions cannot be combined with error expectations",
+    );
     return;
+  }
+
+  if (hasReadAssertion) {
+    assert.equal(
+      err,
+      undefined,
+      "expected successful read for read assertions",
+    );
+    assert.ok(result, "expected read result for read assertions");
   }
 
   if (expect.ok !== undefined) {
@@ -269,11 +288,41 @@ function assertExpectation(
 ): void {
   if (!expect) return;
   const { err, item, raw, model, vars } = ctx;
+  const hasItemAssertion = expectationHasAnyKey(expect, [
+    "item_contains",
+    "item_equals",
+    "item_has_fields",
+    "item_missing_fields",
+    "raw_attribute_types",
+    "item_field_equals_var",
+    "item_field_not_equals_var",
+  ]);
+  const hasRawAssertion = expectationHasAnyKey(expect, [
+    "item_missing_fields",
+    "raw_attribute_types",
+  ]);
 
   if (expect.error) {
     assert.ok(err, "expected error");
     assert.equal(mapError(err), expect.error);
+    assert.equal(
+      hasItemAssertion,
+      false,
+      "item assertions cannot be combined with error expectations",
+    );
     return;
+  }
+
+  if (hasItemAssertion) {
+    assert.equal(
+      err,
+      undefined,
+      "expected successful operation for item assertions",
+    );
+    assert.ok(item, "expected item for item assertions");
+  }
+  if (hasRawAssertion) {
+    assert.ok(raw, "expected raw item for raw assertions");
   }
 
   if (expect.ok !== undefined) {
@@ -331,6 +380,13 @@ function assertExpectation(
       assert.notEqual(item[attr], vars.get(varName));
     }
   }
+}
+
+function expectationHasAnyKey(
+  expect: NonNullable<Step["expect"]>,
+  keys: readonly (keyof NonNullable<Step["expect"]>)[],
+): boolean {
+  return keys.some((key) => Object.hasOwn(expect, key));
 }
 
 function assertItemEquals(
