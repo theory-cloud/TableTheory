@@ -19,6 +19,7 @@ from .errors import (
     TheorydbPyError,
     TransactionCanceledError,
     ValidationError,
+    VersionConflictError,
 )
 from .model import (
     AttributeConverter,
@@ -319,6 +320,7 @@ __all__ = [
     "TransactionCanceledError",
     "Table",
     "ValidationError",
+    "VersionConflictError",
     "WritePolicy",
     "__repo_version__",
     "__version__",

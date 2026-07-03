@@ -12,6 +12,7 @@ from theorydb_py import (
     SortKeyCondition,
     Table,
     ValidationError,
+    VersionConflictError,
     theorydb_field,
 )
 from theorydb_py.model import Projection, gsi
@@ -293,6 +294,10 @@ def test_error_mapping_helpers() -> None:
     err = ClientError({"Error": {"Code": "ConditionalCheckFailedException", "Message": "no"}}, "PutItem")
     mapped = _map_client_error(err)
     assert mapped.__class__.__name__ == "ConditionFailedError"
+
+    version_mapped = _map_client_error(err, version_conflict=True)
+    assert isinstance(version_mapped, VersionConflictError)
+    assert version_mapped.__class__.__name__ == "VersionConflictError"
 
     tx_err = ClientError(
         {"Error": {"Code": "TransactionCanceledException", "Message": "ConditionalCheckFailed"}},

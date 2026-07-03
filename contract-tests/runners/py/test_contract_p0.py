@@ -30,6 +30,7 @@ from theorydb_py import (
     SortKeyCondition,
     Table,
     ValidationError,
+    VersionConflictError,
     WritePolicy,
     gsi,
     theorydb_field,
@@ -488,6 +489,7 @@ def _supported_capabilities() -> list[str]:
         "omitempty",
         "lifecycle.timestamps",
         "optimistic_lock.version",
+        "error.version_conflict",
         "ttl.epoch_seconds",
         "number.precision.exact",
         "type.matrix",
@@ -982,6 +984,8 @@ def _map_errors(error: Exception) -> list[str]:
         return ["ErrItemNotFound"]
     if isinstance(error, EncryptionNotConfiguredError):
         return ["ErrEncryptionNotConfigured"]
+    if isinstance(error, VersionConflictError):
+        return ["ErrConditionFailed", "ErrVersionConflict"]
     if isinstance(error, ConditionFailedError):
         return ["ErrConditionFailed"]
     if isinstance(error, ImmutableModelMutationError):

@@ -23,6 +23,7 @@ class UpdateBuilder[T]:
         self._return_values: str = "NONE"
         self._updates: list[tuple[str, tuple[Any, ...]]] = []
         self._conditions: list[tuple[str, str, str, Any]] = []
+        self._has_version_condition = False
 
     def set(self, field: str, value: Any) -> UpdateBuilder[T]:
         self._updates.append(("SET", (field, value)))
@@ -96,6 +97,7 @@ class UpdateBuilder[T]:
                 version_field = "version"
         if version_field is None:
             raise ValidationError("model does not define a version field")
+        self._has_version_condition = True
         return self.condition(version_field, "=", current_version)
 
     def return_values(self, option: str) -> UpdateBuilder[T]:
@@ -111,7 +113,7 @@ class UpdateBuilder[T]:
         try:
             resp = self._table._client.update_item(**req)
         except ClientError as err:  # pragma: no cover
-            raise _map_client_error(err) from err
+            raise _map_client_error(err, version_conflict=self._has_version_condition) from err
 
         attrs = resp.get("Attributes")
         if not attrs:

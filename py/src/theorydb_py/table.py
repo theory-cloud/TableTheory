@@ -905,7 +905,7 @@ class Table[T]:
         try:
             resp = self._client.update_item(**req)
         except ClientError as err:  # pragma: no cover
-            raise _map_client_error(err) from err
+            raise _map_client_error(err, version_conflict=expected_version is not None) from err
 
         attrs = resp.get("Attributes")
         if not attrs:

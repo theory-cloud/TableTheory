@@ -8,14 +8,17 @@ from .errors import (
     NotFoundError,
     TransactionCanceledError,
     ValidationError,
+    VersionConflictError,
 )
 
 
-def map_client_error(err: ClientError) -> Exception:
+def map_client_error(err: ClientError, *, version_conflict: bool = False) -> Exception:
     code = str(err.response.get("Error", {}).get("Code", ""))
     message = str(err.response.get("Error", {}).get("Message", ""))
 
     if code == "ConditionalCheckFailedException":
+        if version_conflict:
+            return VersionConflictError(message)
         return ConditionFailedError(message)
     if code == "ValidationException":
         return ValidationError(message)

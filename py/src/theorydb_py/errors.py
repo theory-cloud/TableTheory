@@ -9,6 +9,10 @@ class ConditionFailedError(TheorydbPyError):
     pass
 
 
+class VersionConflictError(ConditionFailedError):
+    pass
+
+
 class LeaseHeldError(ConditionFailedError):
     pass
 
