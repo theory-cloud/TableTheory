@@ -32,6 +32,9 @@ Contract tests run scenarios against an implementation through a **Driver** inte
   - runs scenario steps through the driver,
   - asserts results (items, errors, cursor strings) using canonical encodings from the spec.
 
+Raw DynamoDB item assertions (`item_missing_fields`, `raw_attribute_types`, and exact raw item comparisons) MUST use
+strongly consistent reads in every runner. Eventual raw reads make the harness itself a source of parity drift.
+
 ## Proposed folder layout (contract repo)
 
 ```text

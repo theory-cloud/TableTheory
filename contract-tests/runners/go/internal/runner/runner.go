@@ -327,8 +327,9 @@ func (r *Runner) getRawItem(ctx context.Context, tableName string, model spec.Mo
 	}
 
 	out, err := r.ddb.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(tableName),
-		Key:       keyAV,
+		TableName:      aws.String(tableName),
+		Key:            keyAV,
+		ConsistentRead: aws.Bool(true),
 	})
 	if err != nil {
 		return nil, err
