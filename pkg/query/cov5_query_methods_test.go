@@ -1,6 +1,7 @@
 package query
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -167,4 +168,40 @@ func TestQuery_FilterGroup_PreservesEarlierFilterPlaceholders_COV5(t *testing.T)
 	statusValue, ok := exec.lastScan.ExpressionAttributeValues[":v2"].(*types.AttributeValueMemberS)
 	require.True(t, ok)
 	require.Equal(t, "public", statusValue.Value)
+}
+
+type cov5OptionalErrorExecutor struct {
+	err error
+}
+
+func (e cov5OptionalErrorExecutor) ExecuteQuery(*core.CompiledQuery, any) error { return e.err }
+func (e cov5OptionalErrorExecutor) ExecuteScan(*core.CompiledQuery, any) error  { return e.err }
+
+func TestQuery_FirstOrNil(t *testing.T) {
+	t.Run("returns false without error for item not found", func(t *testing.T) {
+		q := New(&struct{}{}, cov5Metadata{
+			table:      "tbl",
+			primaryKey: core.KeySchema{PartitionKey: "pk"},
+		}, cov5OptionalErrorExecutor{})
+		q.Where("pk", "=", "p1")
+
+		var out struct{}
+		found, err := q.FirstOrNil(&out)
+		require.NoError(t, err)
+		require.False(t, found)
+	})
+
+	t.Run("returns real errors", func(t *testing.T) {
+		errBoom := errors.New("boom")
+		q := New(&struct{}{}, cov5Metadata{
+			table:      "tbl",
+			primaryKey: core.KeySchema{PartitionKey: "pk"},
+		}, cov5OptionalErrorExecutor{err: errBoom})
+		q.Where("pk", "=", "p1")
+
+		var out struct{}
+		found, err := q.FirstOrNil(&out)
+		require.ErrorIs(t, err, errBoom)
+		require.False(t, found)
+	})
 }

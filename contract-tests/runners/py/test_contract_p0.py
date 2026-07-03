@@ -810,7 +810,6 @@ def _assert_expectation(
         {
             "item_contains",
             "item_equals",
-            "item_absent",
             "item_has_fields",
             "item_missing_fields",
             "raw_attribute_types",

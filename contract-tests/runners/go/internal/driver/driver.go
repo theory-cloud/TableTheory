@@ -152,6 +152,7 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"query.basic",
 		"scan.basic",
 		"count.native",
+		"get.optional",
 		"release_state.write_policy",
 		"release_state.transactional_transition",
 		"release_state.provenance_confidence",
@@ -302,7 +303,14 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 }
 
 func (d *TheorydbDriver) GetOptional(ctx context.Context, model string, key map[string]any) (map[string]any, bool, error) {
-	return nil, false, fmt.Errorf("%w: optional get is not advertised", theorydbErrors.ErrInvalidOperator)
+	item, err := d.Get(ctx, model, key)
+	if err == nil {
+		return item, true, nil
+	}
+	if errors.Is(err, theorydbErrors.ErrItemNotFound) {
+		return nil, false, nil
+	}
+	return nil, false, err
 }
 
 func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[string]any, fields []string, protectedAttributes []string) error {

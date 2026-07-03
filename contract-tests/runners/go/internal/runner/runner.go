@@ -477,7 +477,6 @@ func semanticallyMissingReadField(value any, ok bool) bool {
 func expectationHasItemAssertion(expect scenario.Expectation) bool {
 	return len(expect.ItemContains) > 0 ||
 		len(expect.ItemEquals) > 0 ||
-		expect.ItemAbsent != nil ||
 		len(expect.ItemHasFields) > 0 ||
 		len(expect.ItemMissingFields) > 0 ||
 		len(expect.RawAttributeTypes) > 0 ||

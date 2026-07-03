@@ -599,6 +599,43 @@ func (q *Query) First(dest any) error {
 	return q.firstInternal(dest)
 }
 
+// FirstOrNil executes the query and reports whether an item was found.
+// ErrItemNotFound is translated into (false, nil); all other errors are
+// returned unchanged.
+func (q *Query) FirstOrNil(dest any) (bool, error) {
+	err := q.First(dest)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, theorydbErrors.ErrItemNotFound) {
+		return false, nil
+	}
+	return false, err
+}
+
+// FirstOrNil executes any TableTheory query and reports whether an item was
+// found. Queries that provide their own FirstOrNil implementation use it;
+// otherwise this helper falls back to First while only suppressing
+// ErrItemNotFound.
+func FirstOrNil(q core.Query, dest any) (bool, error) {
+	if q == nil {
+		return false, fmt.Errorf("query cannot be nil")
+	}
+	if optional, ok := q.(interface {
+		FirstOrNil(any) (bool, error)
+	}); ok {
+		return optional.FirstOrNil(dest)
+	}
+	err := q.First(dest)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, theorydbErrors.ErrItemNotFound) {
+		return false, nil
+	}
+	return false, err
+}
+
 // All executes the query and returns all results
 func (q *Query) All(dest any) error {
 	if err := q.checkBuilderError(); err != nil {

@@ -378,7 +378,6 @@ function assertExpectation(
   const hasItemAssertion = expectationHasAnyKey(expect, [
     "item_contains",
     "item_equals",
-    "item_absent",
     "item_has_fields",
     "item_missing_fields",
     "raw_attribute_types",
