@@ -241,6 +241,10 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 		}
 	}
 
+	if len(expect.ItemEquals) > 0 {
+		assertItemEquals(t, expect.ItemEquals, item, raw, model)
+	}
+
 	if len(expect.ItemHasFields) > 0 {
 		for _, attr := range expect.ItemHasFields {
 			_, ok := item[attr]
@@ -309,11 +313,43 @@ func (r *Runner) assertReadResult(t require.TestingT, expect scenario.Expectatio
 			}
 		}
 	}
+	if expect.CursorEquals != nil {
+		require.Equal(t, *expect.CursorEquals, result.Cursor)
+	}
+}
+
+func assertItemEquals(t require.TestingT, want map[string]any, item map[string]any, raw map[string]types.AttributeValue, model spec.Model) {
+	if raw != nil {
+		require.Len(t, raw, len(want), "raw item should contain exactly the expected attributes")
+		for attr, wantValue := range want {
+			rawValue, ok := raw[attr]
+			require.True(t, ok, "missing raw attr %s", attr)
+			attrDef := model.AttributeByName(attr)
+			require.NotNil(t, attrDef, "unknown attr %s in model %s", attr, model.Name)
+			assertValueMatches(t, *attrDef, wantValue, item[attr], rawValue)
+		}
+		return
+	}
+
+	require.Len(t, item, len(want), "item should contain exactly the expected attributes")
+	for attr, wantValue := range want {
+		have, ok := item[attr]
+		require.True(t, ok, "missing attr %s", attr)
+		attrDef := model.AttributeByName(attr)
+		require.NotNil(t, attrDef, "unknown attr %s in model %s", attr, model.Name)
+		assertValueMatches(t, *attrDef, wantValue, have, nil)
+	}
 }
 
 func assertValueMatches(t require.TestingT, attr spec.Attribute, want any, have any, raw types.AttributeValue) {
 	switch attr.Type {
 	case "S":
+		if raw != nil {
+			rawS, ok := raw.(*types.AttributeValueMemberS)
+			require.True(t, ok, "expected raw S for %s, got %T", attr.Attribute, raw)
+			require.Equal(t, fmt.Sprintf("%v", want), rawS.Value)
+			return
+		}
 		require.Equal(t, fmt.Sprintf("%v", want), fmt.Sprintf("%v", have))
 	case "N":
 		wantN, err := canonicalDecimalString(want)
@@ -330,6 +366,14 @@ func assertValueMatches(t require.TestingT, attr spec.Attribute, want any, have 
 	case "SS":
 		wantSS, err := asStringSet(want)
 		require.NoError(t, err)
+		if raw != nil {
+			rawSS, ok := raw.(*types.AttributeValueMemberSS)
+			require.True(t, ok, "expected raw SS for %s, got %T", attr.Attribute, raw)
+			haveSS := append([]string(nil), rawSS.Value...)
+			sort.Strings(haveSS)
+			require.Equal(t, wantSS, haveSS)
+			return
+		}
 		haveSS, err := asStringSet(have)
 		require.NoError(t, err)
 		require.Equal(t, wantSS, haveSS)

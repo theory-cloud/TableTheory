@@ -533,6 +533,10 @@ def _assert_expectation(
             raw_value = None if raw is None else raw.get(attr)
             _assert_value_matches(attr_def["type"], want, item[attr], raw_value)
 
+    if "item_equals" in expect:
+        assert item is not None
+        _assert_item_equals(expect["item_equals"], item, raw, model)
+
     if "item_has_fields" in expect:
         assert item is not None
         for attr in expect["item_has_fields"]:
@@ -595,6 +599,32 @@ def _assert_read_expectation(
                 assert attr_def is not None
                 _assert_value_matches(attr_def["type"], want, have_item[attr])
 
+    if "cursor_equals" in expect:
+        assert (result.get("cursor") or "") == expect["cursor_equals"]
+
+
+def _assert_item_equals(
+    want: dict[str, Any],
+    item: dict[str, Any],
+    raw: dict[str, Any] | None,
+    model: dict[str, Any],
+) -> None:
+    if raw is not None:
+        assert sorted(raw.keys()) == sorted(want.keys())
+        for attr, want_value in want.items():
+            assert attr in raw
+            attr_def = _attribute_by_name(model, attr)
+            assert attr_def is not None
+            _assert_value_matches(attr_def["type"], want_value, item.get(attr), raw[attr])
+        return
+
+    assert sorted(item.keys()) == sorted(want.keys())
+    for attr, want_value in want.items():
+        assert attr in item
+        attr_def = _attribute_by_name(model, attr)
+        assert attr_def is not None
+        _assert_value_matches(attr_def["type"], want_value, item[attr])
+
 
 def _map_error(error: Exception) -> str:
     if isinstance(error, NotFoundError):
@@ -641,6 +671,10 @@ def _normalize_contract_value(value: Any) -> Any:
 
 def _assert_value_matches(attr_type: str, want: Any, have: Any, raw: dict[str, Any] | None = None) -> None:
     if attr_type == "S":
+        if raw is not None:
+            assert "S" in raw
+            assert raw["S"] == str(want)
+            return
         assert str(have) == str(want)
         return
     if attr_type == "N":
@@ -651,6 +685,10 @@ def _assert_value_matches(attr_type: str, want: Any, have: Any, raw: dict[str, A
         assert _canonical_decimal_string(have) == _canonical_decimal_string(want)
         return
     if attr_type == "SS":
+        if raw is not None:
+            assert "SS" in raw
+            assert sorted(str(item) for item in raw["SS"]) == sorted(str(item) for item in want)
+            return
         assert sorted(str(item) for item in have) == sorted(str(item) for item in want)
         return
     assert have == want

@@ -225,6 +225,10 @@ function assertReadExpectation(
       }
     }
   }
+
+  if (expect.cursor_equals !== undefined) {
+    assert.equal(result.cursor ?? "", expect.cursor_equals);
+  }
 }
 
 function modelByName(
@@ -272,6 +276,10 @@ function assertExpectation(
     }
   }
 
+  if (expect.item_equals && item) {
+    assertItemEquals(expect.item_equals, item, raw, model);
+  }
+
   if (expect.item_has_fields && item) {
     for (const attr of expect.item_has_fields) {
       assert.ok(attr in item, `expected field ${attr}`);
@@ -308,6 +316,40 @@ function assertExpectation(
   }
 }
 
+function assertItemEquals(
+  want: Record<string, unknown>,
+  item: Record<string, unknown>,
+  raw: Record<string, AttributeValue> | undefined,
+  model: DmsModel,
+): void {
+  if (raw) {
+    assert.deepEqual(
+      Object.keys(raw).sort(),
+      Object.keys(want).sort(),
+      "raw item should contain exactly the expected attributes",
+    );
+    for (const [attr, wantValue] of Object.entries(want)) {
+      const rawValue = raw[attr];
+      assert.ok(rawValue, `missing raw attr ${attr}`);
+      const attrDef = attributeByName(model, attr);
+      assert.ok(attrDef, `unknown attr ${attr}`);
+      assertValueMatches(attrDef.type, wantValue, item[attr], rawValue);
+    }
+    return;
+  }
+
+  assert.deepEqual(
+    Object.keys(item).sort(),
+    Object.keys(want).sort(),
+    "item should contain exactly the expected attributes",
+  );
+  for (const [attr, wantValue] of Object.entries(want)) {
+    const attrDef = attributeByName(model, attr);
+    assert.ok(attrDef, `unknown attr ${attr}`);
+    assertValueMatches(attrDef.type, wantValue, item[attr]);
+  }
+}
+
 function attributeByName(
   model: DmsModel,
   name: string,
@@ -323,6 +365,11 @@ function assertValueMatches(
 ): void {
   switch (type) {
     case "S":
+      if (raw) {
+        assert.ok("S" in raw && raw.S !== undefined, "expected raw S value");
+        assert.equal(raw.S, String(want));
+        return;
+      }
       assert.equal(String(have), String(want));
       return;
     case "N":
@@ -335,7 +382,10 @@ function assertValueMatches(
       return;
     case "SS": {
       const wantArr = asStringArray(want);
-      const haveArr = asStringArray(have);
+      const haveArr =
+        raw && "SS" in raw && raw.SS !== undefined
+          ? raw.SS.slice()
+          : asStringArray(have);
       wantArr.sort();
       haveArr.sort();
       assert.deepEqual(haveArr, wantArr);

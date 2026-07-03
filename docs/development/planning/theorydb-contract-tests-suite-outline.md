@@ -205,11 +205,12 @@ Minimum assertions required for v0.1:
 - `ok: true`
 - `error: <ErrorCode>`
 - `item_contains: { attr: value }` (subset match)
-- `item_equals: { ... }` (exact match; optional in v0.1)
+- `item_equals: { ... }` (exact match; when a raw DynamoDB item is available, the raw attribute set must contain exactly
+  these attributes and no extras)
 - `item_has_fields: [attr]` (presence)
 - `item_missing_fields: [attr]` (absence in the *raw DynamoDB item*; critical for `omit_empty`)
 - `raw_attribute_types: { attr: "S"|"N"|"B"|... }` (type assertions against the raw DynamoDB item)
-- `cursor_equals: "<cursor>"` (byte-for-byte; for golden cursor tests)
+- `cursor_equals: "<cursor>"` (byte-for-byte read-result cursor equality; use `""` to assert no cursor)
 - `item_field_equals_var: { attr: "varName" }` (value equals previously saved var)
 - `item_field_not_equals_var: { attr: "varName" }` (value differs from previously saved var)
 - `item_count: <n>` (exact query/scan result count)

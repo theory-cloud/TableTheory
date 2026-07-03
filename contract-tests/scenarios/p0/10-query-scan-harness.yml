@@ -37,6 +37,20 @@ steps:
       partition: { attribute: "PK", operator: "=", value: "USER#QS" }
       sort: { attribute: "SK", operator: "begins_with", value: "PROFILE#" }
       sort_direction: "DESC"
+      limit: 1
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      ok: true
+      item_count: 1
+      cursor_equals: "eyJsYXN0S2V5Ijp7IlBLIjp7IlMiOiJVU0VSI1FTIn0sIlNLIjp7IlMiOiJQUk9GSUxFIzAyIn19LCJzb3J0IjoiREVTQyJ9"
+      items_contains:
+        - { PK: "USER#QS", SK: "PROFILE#02", nickname: "two" }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#QS" }
+      sort: { attribute: "SK", operator: "begins_with", value: "PROFILE#" }
+      sort_direction: "DESC"
       limit: 2
       projection: ["PK", "SK", "nickname"]
     expect:

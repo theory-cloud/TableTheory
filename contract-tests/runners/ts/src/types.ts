@@ -112,8 +112,10 @@ export interface Expectation {
   ok?: boolean;
   error?: string;
   item_contains?: Record<string, unknown>;
+  item_equals?: Record<string, unknown>;
   items_contains?: Array<Record<string, unknown>>;
   item_count?: number;
+  cursor_equals?: string;
   item_has_fields?: string[];
   item_missing_fields?: string[];
   raw_attribute_types?: Record<string, string>;
