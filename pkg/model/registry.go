@@ -107,6 +107,7 @@ type Metadata struct {
 	UpdatedAtField   *FieldMetadata
 	TableName        string
 	Indexes          []IndexSchema
+	Warnings         []string
 	WritePolicy      WritePolicy
 	NamingConvention naming.Convention
 }
@@ -354,7 +355,7 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 
 	fieldMeta, err := parseFieldMetadata(field, indexPath, metadata.NamingConvention)
 	if err != nil {
-		return fmt.Errorf("field validation failed: %w", err)
+		return fmt.Errorf("field %s validation failed: %w", field.Name, err)
 	}
 	if fieldMeta == nil {
 		return nil
@@ -362,7 +363,11 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 
 	if fieldMeta.IsEncrypted {
 		if fieldMeta.IsPK || fieldMeta.IsSK || len(fieldMeta.IndexInfo) > 0 {
-			return fmt.Errorf("%w: encrypted fields cannot be used as primary or index keys", errors.ErrInvalidTag)
+			return fmt.Errorf(
+				"%w: field %s: encrypted fields cannot be used as primary or index keys",
+				errors.ErrInvalidTag,
+				fieldMeta.Name,
+			)
 		}
 	}
 
@@ -373,7 +378,19 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 	}
 
 	applySpecialFields(metadata, fieldMeta)
-	return applyFieldIndexes(fieldMeta, indexMap)
+	return applyFieldIndexes(metadata, fieldMeta, indexMap)
+}
+
+func (m *Metadata) addWarning(warning string) {
+	if m == nil || warning == "" {
+		return
+	}
+	for _, existing := range m.Warnings {
+		if existing == warning {
+			return
+		}
+	}
+	m.Warnings = append(m.Warnings, warning)
 }
 
 func isEmbeddedStruct(field reflect.StructField) bool {
@@ -424,8 +441,16 @@ func applySpecialFields(metadata *Metadata, fieldMeta *FieldMetadata) {
 	}
 }
 
-func applyFieldIndexes(fieldMeta *FieldMetadata, indexMap map[string]*IndexSchema) error {
+func applyFieldIndexes(metadata *Metadata, fieldMeta *FieldMetadata, indexMap map[string]*IndexSchema) error {
 	for indexName, role := range fieldMeta.IndexInfo {
+		if _, explicitLSI := fieldMeta.Tags["lsi:"+indexName]; !explicitLSI && determineIndexType(indexName) == LocalSecondaryIndex {
+			metadata.addWarning(fmt.Sprintf(
+				"field %s uses legacy LSI prefix inference for index %q; prefer theorydb:\"lsi:%s\"",
+				fieldMeta.Name,
+				indexName,
+				indexName,
+			))
+		}
 		index := getOrCreateIndexSchema(fieldMeta, indexName, indexMap)
 
 		if role.IsPK {

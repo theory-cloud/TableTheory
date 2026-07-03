@@ -438,12 +438,16 @@ TableTheory exports sentinel errors in `github.com/theory-cloud/tabletheory/pkg/
 
 ### Common Errors
 
-| Error Variable       | Description                                          |
-| -------------------- | ---------------------------------------------------- |
-| `ErrItemNotFound`    | Returned by `First()` when no item matches.          |
-| `ErrConditionFailed` | Returned when a conditional write/transaction fails. |
-| `ErrInvalidModel`    | Returned when a struct lacks `theorydb:"pk"` tags.   |
-| `ErrTableNotFound`   | Returned when the table does not exist in AWS.       |
+| Error Variable           | Description                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `ErrItemNotFound`        | Returned by `First()` when no item matches.                                                      |
+| `ErrConditionFailed`     | Returned when a conditional write/transaction fails.                                             |
+| `ErrVersionConflict`     | Returned when an optimistic-lock version condition fails; still matches `ErrConditionFailed`.    |
+| `ErrThrottled`           | Returned when DynamoDB throttles or returns retryable capacity/service errors.                   |
+| `ErrTransactionConflict` | Returned for DynamoDB transaction conflicts; still matches `ErrTransactionFailed`.               |
+| `ErrInvalidModel`        | Returned when a struct lacks `theorydb:"pk"` tags.                                               |
+| `ErrTableNotFound`       | Returned when the table does not exist in AWS.                                                   |
+| `ErrInvalidTag`          | Returned for invalid `theorydb` tags; tag validation errors include the offending Go field name. |
 
 ### Custom Error Types
 

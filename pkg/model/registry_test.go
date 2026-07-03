@@ -424,6 +424,48 @@ func TestRegisterInvalidTagTypes(t *testing.T) {
 	}
 }
 
+func TestRegisterInvalidTagNamesOffendingField(t *testing.T) {
+	type TypoTagModel struct {
+		ID     string `theorydb:"pk"`
+		Status string `theorydb:"creted_at"`
+	}
+
+	registry := model.NewRegistry()
+	err := registry.Register(&TypoTagModel{})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidTag)
+	require.Contains(t, err.Error(), "Status")
+	require.Contains(t, err.Error(), "unknown tag 'creted_at'")
+}
+
+func TestRegisterLSIPrefixWarning(t *testing.T) {
+	type LegacyLSIPrefixModel struct {
+		PK     string `theorydb:"pk"`
+		SK     string `theorydb:"sk"`
+		Status string `theorydb:"index:lsi-status,sk"`
+	}
+
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&LegacyLSIPrefixModel{}))
+
+	metadata, err := registry.GetMetadata(&LegacyLSIPrefixModel{})
+	require.NoError(t, err)
+	require.NotEmpty(t, metadata.Warnings)
+	require.Contains(t, metadata.Warnings[0], "Status")
+	require.Contains(t, metadata.Warnings[0], `theorydb:"lsi:lsi-status"`)
+
+	type ExplicitLSIModel struct {
+		PK     string `theorydb:"pk"`
+		SK     string `theorydb:"sk"`
+		Status string `theorydb:"lsi:lsi-status"`
+	}
+
+	registry = model.NewRegistry()
+	require.NoError(t, registry.Register(&ExplicitLSIModel{}))
+	metadata, err = registry.GetMetadata(&ExplicitLSIModel{})
+	require.NoError(t, err)
+	require.Empty(t, metadata.Warnings)
+}
+
 func TestGetMetadataByTable(t *testing.T) {
 	registry := model.NewRegistry()
 

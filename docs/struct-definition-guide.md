@@ -27,6 +27,20 @@ type User struct {
 }
 ```
 
+## Table names
+
+If a model does not define `TableName() string`, TableTheory derives a table name with a simple pluralization rule:
+
+- names ending in `s` get `es`
+- names ending in `y` become `ies`
+- all other names get `s`
+
+Production models should steer table names explicitly instead of relying on pluralization:
+
+```go
+func (User) TableName() string { return "users_contract" }
+```
+
 ## Attribute naming
 
 By default, TableTheory uses your field name (or the configured naming convention) as the DynamoDB attribute name.
@@ -95,6 +109,9 @@ type Item struct {
 	Status string `theorydb:"lsi:status-index" json:"status"`
 }
 ```
+
+Legacy `index:lsi-*` / `index:lsi_*` prefix inference is still accepted for compatibility, but registration records a
+metadata warning. Prefer `theorydb:"lsi:<indexName>"` for new or edited models so the index type is explicit.
 
 ## Field-level encryption (`encrypted`)
 
