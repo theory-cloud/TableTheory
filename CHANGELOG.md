@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Breaking Changes
+
+* **go:** align `ConsistentRead()` on GSI queries with the cross-runtime contract by returning
+  `ErrInvalidOperator` instead of silently dropping the flag, including when the Go query optimizer auto-selects a GSI
+  from key conditions. Semver decision: this parity repair is release-major material and must not ship as a patch/minor.
+* **go:** align newly written DynamoDB shapes for binary and set-tagged fields with TypeScript, Python, and the DMS type
+  matrix: `[]byte` writes as `B`, numeric `theorydb:"set"` slices write as `NS`, binary set slices write as `BS`, empty
+  set-tagged slices write as `NULL`, and unsupported set element types fail at write time. Legacy shape-driven reads
+  remain supported, but filters/conditions over mixed old/new data may need migration. Semver decision: this persisted
+  shape convergence is release-major material and must not ship as a patch/minor.
+
 ### Features
 
 * add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
@@ -12,6 +23,7 @@
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 * harden npm audit allowlist handling so audit service errors fail closed
+* **ts:** honor opt-in exact number unmarshalling for update-builder return values and native JSON-number attributes
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures

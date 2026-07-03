@@ -166,6 +166,28 @@ assert.deepEqual(
 );
 assert.equal(
   unmarshalScalar(
+    { attribute: 'payload', type: 'N', json: true },
+    { N: '9007199254740993' },
+    { numberMode: 'string' },
+  ),
+  '9007199254740993',
+);
+assert.equal(
+  unmarshalScalar(
+    { attribute: 'payload', type: 'N', json: true },
+    { N: '9007199254740993' },
+  ),
+  9007199254740992,
+);
+assert.throws(() =>
+  unmarshalScalar(
+    { attribute: 'payload', type: 'N', json: true },
+    { S: '"9007199254740993"' },
+    { numberMode: 'string' },
+  ),
+);
+assert.equal(
+  unmarshalScalar(
     { attribute: 'payload', type: 'S', json: true },
     { NULL: true },
   ),

@@ -417,6 +417,68 @@ import {
 }
 
 {
+  const model = defineModel({
+    name: 'T',
+    table: { name: 't' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'count', type: 'N', optional: true },
+      { attribute: 'nums', type: 'NS', optional: true },
+    ],
+  });
+
+  const exactMock = createMockDynamoDBClient();
+  exactMock.when(UpdateItemCommand, async (cmd) => {
+    assert.equal(cmd.input.ReturnValues, 'ALL_NEW');
+    return {
+      $metadata: {},
+      Attributes: {
+        PK: { S: 'A' },
+        count: { N: '9007199254740993' },
+        nums: { NS: ['9007199254740993'] },
+      },
+    };
+  });
+
+  const exactClient = new TheorydbClient(exactMock.client, {
+    numberUnmarshalMode: 'string',
+  }).register(model);
+  const exactOut = await exactClient
+    .updateBuilder('T', { PK: 'A' })
+    .set('count', 1)
+    .returnValues('ALL_NEW')
+    .execute();
+  assert.deepEqual(exactOut, {
+    PK: 'A',
+    count: '9007199254740993',
+    nums: ['9007199254740993'],
+  });
+
+  const defaultMock = createMockDynamoDBClient();
+  defaultMock.when(UpdateItemCommand, async () => ({
+    $metadata: {},
+    Attributes: {
+      PK: { S: 'A' },
+      count: { N: '9007199254740993' },
+      nums: { NS: ['9007199254740993'] },
+    },
+  }));
+
+  const defaultClient = new TheorydbClient(defaultMock.client).register(model);
+  const defaultOut = await defaultClient
+    .updateBuilder('T', { PK: 'A' })
+    .set('count', 1)
+    .returnValues('ALL_NEW')
+    .execute();
+  assert.deepEqual(defaultOut, {
+    PK: 'A',
+    count: 9007199254740992,
+    nums: [9007199254740992],
+  });
+}
+
+{
   const mock = createMockDynamoDBClient();
 
   mock.when(UpdateItemCommand, async (cmd) => {

@@ -17,6 +17,7 @@ import {
   marshalKey,
   marshalScalar,
   unmarshalItem,
+  type UnmarshalOptions,
 } from './marshal.js';
 import type { AttributeSchema, Model } from './model.js';
 import type { SendOptions } from './send-options.js';
@@ -287,6 +288,7 @@ export class UpdateBuilder {
     private readonly key: Record<string, unknown>,
     private readonly encryption?: EncryptionProvider,
     private readonly sendOptions?: SendOptions,
+    private readonly unmarshalOptions: UnmarshalOptions = {},
   ) {}
 
   set(field: string, value: unknown): this {
@@ -450,7 +452,7 @@ export class UpdateBuilder {
       const attrs = provider
         ? await decryptItemAttributes(this.model, resp.Attributes, provider)
         : resp.Attributes;
-      return unmarshalItem(this.model, attrs);
+      return unmarshalItem(this.model, attrs, this.unmarshalOptions);
     } catch (err) {
       throw mapDynamoError(err);
     }

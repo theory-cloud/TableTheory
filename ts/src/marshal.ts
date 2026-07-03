@@ -407,12 +407,44 @@ function unmarshalJsonScalar(
     );
   }
 
-  const value =
-    'S' in av && av.S !== undefined
-      ? parseJsonText(av.S, schema.attribute)
-      : normalizeJsonValue(unmarshalDocumentValue(av, opts), schema.attribute);
+  if ('S' in av && av.S !== undefined) {
+    return assertJsonValueMatchesSchema(
+      schema,
+      parseJsonText(av.S, schema.attribute),
+    );
+  }
 
-  return assertJsonValueMatchesSchema(schema, value);
+  if (schema.type === 'N' && 'N' in av && av.N !== undefined) {
+    return unmarshalNativeJsonNumber(schema, av.N, opts);
+  }
+
+  return assertJsonValueMatchesSchema(
+    schema,
+    unmarshalNativeJsonValue(schema, av, opts),
+  );
+}
+
+function unmarshalNativeJsonValue(
+  schema: Readonly<AttributeSchema>,
+  av: AttributeValue,
+  opts: UnmarshalOptions,
+): unknown {
+  return normalizeJsonValue(unmarshalDocumentValue(av, opts), schema.attribute);
+}
+
+function unmarshalNativeJsonNumber(
+  schema: Readonly<AttributeSchema>,
+  value: string,
+  opts: UnmarshalOptions,
+): number | string {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new TheorydbError(
+      'ErrInvalidModel',
+      `JSON value does not match type N for ${schema.attribute}`,
+    );
+  }
+  return opts.numberMode === 'string' ? value : numeric;
 }
 
 function isJsonStringCarrier(schema: Readonly<AttributeSchema>): boolean {

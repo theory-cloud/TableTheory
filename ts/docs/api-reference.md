@@ -112,6 +112,9 @@ Creates the shipped update-builder DSL for direct DynamoDB updates. The builder 
 `increment`, `decrement`, `remove`, set `delete`, list append/prepend/index operations, condition chaining, version
 conditions, `returnValues`, `build`, and `execute`.
 
+When `returnValues(...)` returns DynamoDB attributes, `execute()` unmarshals them with the same client
+`numberUnmarshalMode` used by `get`, `query`, `scan`, and batch reads.
+
 ## Lambda runtime helpers
 
 ### `createLambdaDynamoDBClient(options?)`

@@ -678,6 +678,7 @@ export class TheorydbClient {
       key,
       this.encryption,
       this.sendOptions,
+      this.unmarshalOptions,
     );
   }
 }

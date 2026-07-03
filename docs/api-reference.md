@@ -237,7 +237,12 @@ Sets `Limit` parameter.
 
 #### `ConsistentRead() Query`
 
-Enables strong consistency (consumes 2x RCU).
+Enables strong consistency for base-table reads and applicable local-secondary-index reads (consumes 2x RCU).
+
+`ConsistentRead()` is rejected with `ErrInvalidOperator` when the compiled query uses a Global Secondary Index (GSI).
+This includes explicit `.Index("gsi-name")` calls and queries where TableTheory's optimizer auto-selects a GSI from the
+provided key conditions. DynamoDB GSIs are eventually consistent only; use bounded retry/application verification for
+GSI read-after-write paths.
 
 ### Execution
 

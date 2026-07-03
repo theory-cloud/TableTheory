@@ -319,7 +319,9 @@ func init() {
 - **Recommendation:**
   - **Avoid Scans:** Unless absolutely necessary for infrequent analytics on small tables, never use `Scan()` for primary access patterns. Always prefer `Query()` with appropriate Partition and Sort Key conditions.
   - **Batch Operations:** Use `BatchGet`, `BatchCreate`, `BatchDelete` for multiple items to reduce network overhead and potentially consumed capacity compared to individual operations.
-  - **Consistent Reads:** Only enable `ConsistentRead()` when strong consistency is strictly required, as it consumes 2x RCUs.
+  - **Consistent Reads:** Only enable `ConsistentRead()` when strong consistency is strictly required on the base table or
+    an applicable LSI, as it consumes 2x RCUs. Do not use it on GSI access patterns: TableTheory now returns
+    `ErrInvalidOperator` when an explicit or optimizer-selected GSI is combined with `ConsistentRead()`.
   - **GSI Projection:** Use `KEYS_ONLY` or `INCLUDE` projections on GSIs to reduce the size of items read from the index, minimizing RCU consumption.
 
 **Example (Efficient Query vs. Scan):**
