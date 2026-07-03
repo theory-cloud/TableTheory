@@ -125,6 +125,28 @@ async function runStep(opts: {
     return;
   }
 
+  if (step.op === "query") {
+    assert.ok(step.query, "query request is required");
+    const res = await captureResult(() => driver.query(modelName, step.query!));
+    assertReadExpectation(step.expect, {
+      err: res.err,
+      result: res.value,
+      model,
+    });
+    return;
+  }
+
+  if (step.op === "scan") {
+    assert.ok(step.scan, "scan request is required");
+    const res = await captureResult(() => driver.scan(modelName, step.scan!));
+    assertReadExpectation(step.expect, {
+      err: res.err,
+      result: res.value,
+      model,
+    });
+    return;
+  }
+
   if (step.op === "transition_append_event") {
     assert.ok(step.actual, "transition_append_event actual is required");
     assert.ok(step.event, "transition_append_event event is required");
@@ -157,6 +179,52 @@ async function runStep(opts: {
   }
 
   throw new Error(`unsupported op: ${step.op}`);
+}
+
+function assertReadExpectation(
+  expect: Step["expect"] | undefined,
+  ctx: {
+    err?: unknown;
+    result?: { items: Array<Record<string, unknown>>; cursor?: string };
+    model: DmsModel;
+  },
+): void {
+  if (!expect) return;
+  const { err, result, model } = ctx;
+
+  if (expect.error) {
+    assert.ok(err, "expected error");
+    assert.equal(mapError(err), expect.error);
+    return;
+  }
+
+  if (expect.ok !== undefined) {
+    if (expect.ok) assert.equal(err, undefined);
+    else assert.ok(err, "expected failure");
+  }
+
+  if (err) return;
+  assert.ok(result, "expected read result");
+
+  if (expect.item_count !== undefined) {
+    assert.equal(result.items.length, expect.item_count);
+  }
+
+  if (expect.items_contains) {
+    assert.ok(
+      result.items.length >= expect.items_contains.length,
+      "not enough result items",
+    );
+    for (const [index, wantItem] of expect.items_contains.entries()) {
+      const haveItem = result.items[index]!;
+      for (const [attr, want] of Object.entries(wantItem)) {
+        assert.ok(attr in haveItem, `missing attr ${attr} in result ${index}`);
+        const attrDef = attributeByName(model, attr);
+        assert.ok(attrDef, `unknown attr ${attr}`);
+        assertValueMatches(attrDef.type, want, haveItem[attr]);
+      }
+    }
+  }
 }
 
 function modelByName(

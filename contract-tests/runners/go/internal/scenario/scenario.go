@@ -3,6 +3,7 @@ package scenario
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,11 +29,32 @@ type Step struct {
 	ProtectedAttributes []string          `yaml:"protected_attributes"`
 	Item                map[string]any    `yaml:"item"`
 	Key                 map[string]any    `yaml:"key"`
+	Query               *ReadRequest      `yaml:"query"`
+	Scan                *ReadRequest      `yaml:"scan"`
 	Actual              *TransitionActual `yaml:"actual"`
 	Event               *TransitionEvent  `yaml:"event"`
 	Ms                  int               `yaml:"ms"`
 	Save                map[string]string `yaml:"save"`
 	Expect              Expectation       `yaml:"expect"`
+}
+
+type ReadRequest struct {
+	Index          string          `yaml:"index"`
+	Partition      *ReadCondition  `yaml:"partition"`
+	Sort           *ReadCondition  `yaml:"sort"`
+	Filter         []ReadCondition `yaml:"filter"`
+	SortDirection  string          `yaml:"sort_direction"`
+	Limit          int             `yaml:"limit"`
+	Projection     []string        `yaml:"projection"`
+	Cursor         string          `yaml:"cursor"`
+	ConsistentRead *bool           `yaml:"consistent_read"`
+}
+
+type ReadCondition struct {
+	Attribute string `yaml:"attribute"`
+	Operator  string `yaml:"operator"`
+	Value     any    `yaml:"value"`
+	Values    []any  `yaml:"values"`
 }
 
 type TransitionActual struct {
@@ -51,6 +73,8 @@ type Expectation struct {
 	Ok                    *bool             `yaml:"ok"`
 	Error                 string            `yaml:"error"`
 	ItemContains          map[string]any    `yaml:"item_contains"`
+	ItemsContains         []map[string]any  `yaml:"items_contains"`
+	ItemCount             *int              `yaml:"item_count"`
 	ItemHasFields         []string          `yaml:"item_has_fields"`
 	ItemMissingFields     []string          `yaml:"item_missing_fields"`
 	RawAttributeTypes     map[string]string `yaml:"raw_attribute_types"`
@@ -97,6 +121,35 @@ func validateSteps(s *Scenario) error {
 			if len(step.Key) == 0 {
 				return fmt.Errorf("step %d %s: key is required", i, step.Op)
 			}
+		case "query":
+			if step.Query == nil {
+				return fmt.Errorf("step %d query: query is required", i)
+			}
+			if step.Query.Partition == nil {
+				return fmt.Errorf("step %d query: query.partition is required", i)
+			}
+			if err := validateReadCondition(step.Query.Partition, fmt.Sprintf("step %d query.partition", i)); err != nil {
+				return err
+			}
+			if step.Query.Sort != nil {
+				if err := validateReadCondition(step.Query.Sort, fmt.Sprintf("step %d query.sort", i)); err != nil {
+					return err
+				}
+			}
+			for j := range step.Query.Filter {
+				if err := validateReadCondition(&step.Query.Filter[j], fmt.Sprintf("step %d query.filter[%d]", i, j)); err != nil {
+					return err
+				}
+			}
+		case "scan":
+			if step.Scan == nil {
+				return fmt.Errorf("step %d scan: scan is required", i)
+			}
+			for j := range step.Scan.Filter {
+				if err := validateReadCondition(&step.Scan.Filter[j], fmt.Sprintf("step %d scan.filter[%d]", i, j)); err != nil {
+					return err
+				}
+			}
 		case "transition_append_event":
 			if step.Actual == nil {
 				return fmt.Errorf("step %d transition_append_event: actual is required", i)
@@ -128,6 +181,31 @@ func validateSteps(s *Scenario) error {
 		}
 	}
 	return nil
+}
+
+func validateReadCondition(cond *ReadCondition, prefix string) error {
+	if cond == nil {
+		return fmt.Errorf("%s is required", prefix)
+	}
+	if cond.Attribute == "" {
+		return fmt.Errorf("%s.attribute is required", prefix)
+	}
+	if cond.Operator == "" {
+		return fmt.Errorf("%s.operator is required", prefix)
+	}
+	if cond.Value == nil && len(cond.Values) == 0 && !readOperatorAllowsNoValue(cond.Operator) {
+		return fmt.Errorf("%s.value or %s.values is required", prefix, prefix)
+	}
+	return nil
+}
+
+func readOperatorAllowsNoValue(operator string) bool {
+	switch strings.ToLower(operator) {
+	case "exists", "attribute_exists", "not_exists", "attribute_not_exists":
+		return true
+	default:
+		return false
+	}
 }
 
 func MissingCapabilities(required []string, supported []string) []string {

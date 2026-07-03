@@ -15,12 +15,15 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 
 from theorydb_py import (
     ConditionFailedError,
+    FilterCondition,
+    FilterGroup,
     ImmutableModelMutationError,
     ModelDefinition,
     NotFoundError,
     Projection,
     ProtectedFieldMutationError,
     RejectedDeployAuthorityEvidenceError,
+    SortKeyCondition,
     Table,
     ValidationError,
     WritePolicy,
@@ -55,7 +58,7 @@ def _load_models() -> dict[str, dict[str, Any]]:
 def _load_scenarios() -> list[dict[str, Any]]:
     scenario_dir = _repo_root() / "contract-tests" / "scenarios" / "p0"
     scenarios = [_load_yaml(path) for path in sorted(scenario_dir.glob("*.yml"))]
-    assert len(scenarios) == 9
+    assert len(scenarios) >= 9
     return scenarios
 
 
@@ -190,6 +193,34 @@ class _TheorydbPyDriver:
     def delete(self, model: str, key: dict[str, Any]) -> None:
         self.tables[model].delete(key["PK"], key["SK"])
 
+    def query(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
+        partition = request.get("partition")
+        if partition is None:
+            raise ValidationError("query partition is required")
+        page = self.tables[model].query(
+            _condition_value(partition),
+            sort=_sort_condition(request.get("sort")),
+            index_name=request.get("index"),
+            limit=request.get("limit"),
+            cursor=request.get("cursor"),
+            scan_forward=_scan_forward(request.get("sort_direction")),
+            consistent_read=bool(request.get("consistent_read", False)),
+            projection=request.get("projection"),
+            filter=_filter_expression(request.get("filter", [])),
+        )
+        return {"items": [_contract_item(item) for item in page.items], "cursor": page.next_cursor}
+
+    def scan(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
+        page = self.tables[model].scan(
+            index_name=request.get("index"),
+            limit=request.get("limit"),
+            cursor=request.get("cursor"),
+            consistent_read=bool(request.get("consistent_read", False)),
+            projection=request.get("projection"),
+            filter=_filter_expression(request.get("filter", [])),
+        )
+        return {"items": [_contract_item(item) for item in page.items], "cursor": page.next_cursor}
+
     def transition_append_event(self, actual: dict[str, Any], event: dict[str, Any]) -> None:
         transition_release_state(
             self.tables[actual["model"]],
@@ -254,6 +285,8 @@ def _supported_capabilities() -> list[str]:
         "lifecycle.timestamps",
         "optimistic_lock.version",
         "ttl.epoch_seconds",
+        "query.basic",
+        "scan.basic",
         "release_state.write_policy",
         "release_state.transactional_transition",
         "release_state.provenance_confidence",
@@ -267,6 +300,84 @@ def _missing_capabilities(scenario: dict[str, Any], supported: list[str]) -> lis
         for capability in scenario.get("requires_capabilities", [])
         if capability not in supported_set
     ]
+
+
+def _condition_value(condition: dict[str, Any]) -> Any:
+    if "values" in condition:
+        return condition["values"]
+    return condition.get("value")
+
+
+def _condition_values(condition: dict[str, Any]) -> tuple[Any, ...]:
+    if "values" in condition:
+        return tuple(condition["values"])
+    return (condition.get("value"),)
+
+
+def _sort_condition(condition: dict[str, Any] | None) -> SortKeyCondition | None:
+    if condition is None:
+        return None
+    values = _condition_values(condition)
+    op = str(condition["operator"]).lower()
+    if op == "=":
+        return SortKeyCondition.eq(values[0])
+    if op == "<":
+        return SortKeyCondition.lt(values[0])
+    if op == "<=":
+        return SortKeyCondition.lte(values[0])
+    if op == ">":
+        return SortKeyCondition.gt(values[0])
+    if op == ">=":
+        return SortKeyCondition.gte(values[0])
+    if op == "between":
+        return SortKeyCondition.between(values[0], values[1])
+    if op == "begins_with":
+        return SortKeyCondition.begins_with(values[0])
+    raise ValidationError(f"unsupported sort operator: {condition['operator']}")
+
+
+def _filter_expression(conditions: list[dict[str, Any]]) -> Any:
+    filters = [_filter_condition(condition) for condition in conditions]
+    if not filters:
+        return None
+    if len(filters) == 1:
+        return filters[0]
+    return FilterGroup.and_(*filters)
+
+
+def _filter_condition(condition: dict[str, Any]) -> FilterCondition:
+    values = _condition_values(condition)
+    field = condition["attribute"]
+    op = str(condition["operator"]).lower()
+    if op == "=":
+        return FilterCondition.eq(field, values[0])
+    if op in {"!=", "<>"}:
+        return FilterCondition.ne(field, values[0])
+    if op == "<":
+        return FilterCondition.lt(field, values[0])
+    if op == "<=":
+        return FilterCondition.lte(field, values[0])
+    if op == ">":
+        return FilterCondition.gt(field, values[0])
+    if op == ">=":
+        return FilterCondition.gte(field, values[0])
+    if op == "between":
+        return FilterCondition.between(field, values[0], values[1])
+    if op == "begins_with":
+        return FilterCondition.begins_with(field, values[0])
+    if op == "contains":
+        return FilterCondition.contains(field, values[0])
+    if op == "in":
+        return FilterCondition.in_(field, list(values[0]))
+    if op in {"exists", "attribute_exists"}:
+        return FilterCondition.exists(field)
+    if op in {"not_exists", "attribute_not_exists"}:
+        return FilterCondition.not_exists(field)
+    raise ValidationError(f"unsupported filter operator: {condition['operator']}")
+
+
+def _scan_forward(sort_direction: str | None) -> bool:
+    return str(sort_direction or "ASC").upper() != "DESC"
 
 
 def _dynamodb_client() -> Any:
@@ -353,6 +464,16 @@ def _run_step(
         )
         return
 
+    if step["op"] == "query":
+        result, error = _capture_result(lambda: driver.query(model_name, step["query"]))
+        _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
+        return
+
+    if step["op"] == "scan":
+        result, error = _capture_result(lambda: driver.scan(model_name, step["scan"]))
+        _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
+        return
+
     if step["op"] == "transition_append_event":
         error = _capture_error(lambda: driver.transition_append_event(step["actual"], step["event"]))
         _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
@@ -437,6 +558,42 @@ def _assert_expectation(
         assert item is not None
         for attr, variable_name in expect["item_field_not_equals_var"].items():
             assert item[attr] != variables[variable_name]
+
+
+def _assert_read_expectation(
+    expect: dict[str, Any],
+    *,
+    error: Exception | None,
+    result: dict[str, Any],
+    model: dict[str, Any],
+) -> None:
+    if "error" in expect:
+        assert error is not None
+        assert _map_error(error) == expect["error"]
+        return
+
+    if "ok" in expect:
+        if expect["ok"]:
+            assert error is None
+        else:
+            assert error is not None
+    if error is not None:
+        return
+
+    items = result.get("items", [])
+
+    if "item_count" in expect:
+        assert len(items) == expect["item_count"]
+
+    if "items_contains" in expect:
+        assert len(items) >= len(expect["items_contains"])
+        for index, want_item in enumerate(expect["items_contains"]):
+            have_item = items[index]
+            for attr, want in want_item.items():
+                assert attr in have_item
+                attr_def = _attribute_by_name(model, attr)
+                assert attr_def is not None
+                _assert_value_matches(attr_def["type"], want, have_item[attr])
 
 
 def _map_error(error: Exception) -> str:

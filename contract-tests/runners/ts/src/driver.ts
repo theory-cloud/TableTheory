@@ -6,6 +6,7 @@ import {
   transitionReleaseState,
   validateDeployAuthorityMetadata,
 } from "../../../../ts/src/release-state.js";
+import type { ReadCondition, ReadRequest } from "./types.js";
 
 export type ErrorCode =
   | "ErrItemNotFound"
@@ -39,6 +40,8 @@ export interface Driver {
   ): Promise<void>;
   save(model: string, item: Record<string, unknown>): Promise<void>;
   delete(model: string, key: Record<string, unknown>): Promise<void>;
+  query(model: string, req: ReadRequest): Promise<ReadResult>;
+  scan(model: string, req: ReadRequest): Promise<ReadResult>;
   transitionAppendEvent(
     actual: TransitionActual,
     event: TransitionEvent,
@@ -47,6 +50,11 @@ export interface Driver {
     model: string,
     item: Record<string, unknown>,
   ): Promise<void>;
+}
+
+export interface ReadResult {
+  items: Array<Record<string, unknown>>;
+  cursor?: string;
 }
 
 export interface TransitionActual {
@@ -75,6 +83,8 @@ export class TheorydbDriver implements Driver {
       "lifecycle.timestamps",
       "optimistic_lock.version",
       "ttl.epoch_seconds",
+      "query.basic",
+      "scan.basic",
       "release_state.write_policy",
       "release_state.transactional_transition",
       "release_state.provenance_confidence",
@@ -122,6 +132,49 @@ export class TheorydbDriver implements Driver {
     await this.client.delete(model, key);
   }
 
+  async query(model: string, req: ReadRequest): Promise<ReadResult> {
+    let builder = this.client.query(model);
+    if (req.index) builder = builder.usingIndex(req.index);
+    if (!req.partition) {
+      throw new TheorydbError(
+        "ErrMissingPrimaryKey",
+        "query partition is required",
+      );
+    }
+    builder = builder.partitionKey(conditionValue(req.partition));
+    if (req.sort) {
+      builder = builder.sortKey(
+        normalizeSortOperator(req.sort.operator),
+        ...conditionValues(req.sort),
+      );
+    }
+    builder = applyReadOptions(builder, req);
+    for (const filter of req.filter ?? []) {
+      builder = builder.filter(
+        filter.attribute,
+        filter.operator,
+        ...conditionValues(filter),
+      );
+    }
+    const page = await builder.page();
+    return { items: page.items, cursor: page.cursor };
+  }
+
+  async scan(model: string, req: ReadRequest): Promise<ReadResult> {
+    let builder = this.client.scan(model);
+    if (req.index) builder = builder.usingIndex(req.index);
+    builder = applyReadOptions(builder, req);
+    for (const filter of req.filter ?? []) {
+      builder = builder.filter(
+        filter.attribute,
+        filter.operator,
+        ...conditionValues(filter),
+      );
+    }
+    const page = await builder.page();
+    return { items: page.items, cursor: page.cursor };
+  }
+
   async transitionAppendEvent(
     actual: TransitionActual,
     event: TransitionEvent,
@@ -148,6 +201,62 @@ export class TheorydbDriver implements Driver {
     }
     validateDeployAuthorityMetadata(item);
   }
+}
+
+function applyReadOptions<
+  T extends {
+    consistentRead(enabled?: boolean): T;
+    limit(n: number): T;
+    projection(fields: string[]): T;
+    cursor(encoded: string): T;
+  },
+>(builder: T, req: ReadRequest): T {
+  let out = builder;
+  if (req.consistent_read) out = out.consistentRead(true);
+  if (req.limit !== undefined) out = out.limit(req.limit);
+  if (req.projection?.length) out = out.projection(req.projection);
+  if (req.cursor) out = out.cursor(req.cursor);
+  if ("sort" in out && req.sort_direction) {
+    out = (out as T & { sort(direction: "ASC" | "DESC"): T }).sort(
+      normalizeSortDirection(req.sort_direction),
+    );
+  }
+  return out;
+}
+
+function conditionValue(condition: ReadCondition): unknown {
+  return condition.values !== undefined ? condition.values : condition.value;
+}
+
+function conditionValues(condition: ReadCondition): unknown[] {
+  if (condition.values !== undefined) return condition.values;
+  if (condition.value === undefined) return [];
+  return [condition.value];
+}
+
+function normalizeSortOperator(
+  op: string,
+): "=" | "<" | "<=" | ">" | ">=" | "between" | "begins_with" {
+  const normalized = op.toLowerCase();
+  switch (normalized) {
+    case "=":
+    case "<":
+    case "<=":
+    case ">":
+    case ">=":
+    case "between":
+    case "begins_with":
+      return normalized;
+    default:
+      throw new TheorydbError(
+        "ErrInvalidOperator",
+        `unsupported sort operator: ${op}`,
+      );
+  }
+}
+
+function normalizeSortDirection(value: string): "ASC" | "DESC" {
+  return value.toUpperCase() === "DESC" ? "DESC" : "ASC";
 }
 
 function validateReleaseStateMetadataIfPresent(

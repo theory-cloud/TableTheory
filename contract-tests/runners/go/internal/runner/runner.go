@@ -135,6 +135,18 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		r.assertStepResult(t, step.Expect, item, err, raw, model)
 		return
 
+	case "query":
+		require.NotNil(t, step.Query, "query request is required")
+		result, err := r.driver.Query(ctx, modelName, readRequestFromScenario(step.Query))
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
+	case "scan":
+		require.NotNil(t, step.Scan, "scan request is required")
+		result, err := r.driver.Scan(ctx, modelName, readRequestFromScenario(step.Scan))
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
 	case "transition_append_event":
 		require.NotNil(t, step.Actual, "transition_append_event actual is required")
 		require.NotNil(t, step.Event, "transition_append_event event is required")
@@ -157,6 +169,41 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 
 	default:
 		require.FailNow(t, fmt.Sprintf("unsupported op: %s", step.Op))
+	}
+}
+
+func readRequestFromScenario(req *scenario.ReadRequest) driver.ReadRequest {
+	if req == nil {
+		return driver.ReadRequest{}
+	}
+	out := driver.ReadRequest{
+		Index:          req.Index,
+		SortDirection:  req.SortDirection,
+		Limit:          req.Limit,
+		Projection:     append([]string(nil), req.Projection...),
+		Cursor:         req.Cursor,
+		ConsistentRead: req.ConsistentRead,
+	}
+	if req.Partition != nil {
+		partition := readConditionFromScenario(*req.Partition)
+		out.Partition = &partition
+	}
+	if req.Sort != nil {
+		sortCond := readConditionFromScenario(*req.Sort)
+		out.Sort = &sortCond
+	}
+	for _, filter := range req.Filter {
+		out.Filter = append(out.Filter, readConditionFromScenario(filter))
+	}
+	return out
+}
+
+func readConditionFromScenario(cond scenario.ReadCondition) driver.ReadCondition {
+	return driver.ReadCondition{
+		Attribute: cond.Attribute,
+		Operator:  cond.Operator,
+		Value:     cond.Value,
+		Values:    append([]any(nil), cond.Values...),
 	}
 }
 
@@ -224,6 +271,42 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 	if len(expect.ItemFieldNotEqualsVar) > 0 {
 		for attr, varName := range expect.ItemFieldNotEqualsVar {
 			require.NotEqual(t, r.vars[varName], item[attr], "field %s should differ from var %s", attr, varName)
+		}
+	}
+}
+
+func (r *Runner) assertReadResult(t require.TestingT, expect scenario.Expectation, result driver.ReadResult, err error, model spec.Model) {
+	if expect.Error != "" {
+		require.Error(t, err)
+		require.Equal(t, driver.ErrorCode(expect.Error), driver.MapError(err))
+		return
+	}
+	if expect.Ok != nil {
+		if *expect.Ok {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+		}
+	}
+	if err != nil {
+		return
+	}
+
+	if expect.ItemCount != nil {
+		require.Len(t, result.Items, *expect.ItemCount)
+	}
+
+	if len(expect.ItemsContains) > 0 {
+		require.GreaterOrEqual(t, len(result.Items), len(expect.ItemsContains), "not enough result items")
+		for i, wantItem := range expect.ItemsContains {
+			haveItem := result.Items[i]
+			for attr, want := range wantItem {
+				have, ok := haveItem[attr]
+				require.True(t, ok, "missing attr %s in result item %d", attr, i)
+				attrDef := model.AttributeByName(attr)
+				require.NotNil(t, attrDef, "unknown attr %s in model %s", attr, model.Name)
+				assertValueMatches(t, *attrDef, want, have, nil)
+			}
 		}
 	}
 }

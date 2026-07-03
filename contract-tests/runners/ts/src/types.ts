@@ -1,16 +1,7 @@
 export type DmsVersion = "0.1";
 
 export type ScalarType =
-  | "S"
-  | "N"
-  | "B"
-  | "BOOL"
-  | "NULL"
-  | "M"
-  | "L"
-  | "SS"
-  | "NS"
-  | "BS";
+  "S" | "N" | "B" | "BOOL" | "NULL" | "M" | "L" | "SS" | "NS" | "BS";
 
 export interface DmsDocument {
   dms_version: DmsVersion;
@@ -65,6 +56,8 @@ export interface Step {
     | "get"
     | "update"
     | "delete"
+    | "query"
+    | "scan"
     | "sleep"
     | "save"
     | "transition_append_event"
@@ -75,11 +68,32 @@ export interface Step {
   protected_attributes?: string[];
   item?: Record<string, unknown>;
   key?: Record<string, unknown>;
+  query?: ReadRequest;
+  scan?: ReadRequest;
   actual?: TransitionActual;
   event?: TransitionEvent;
   ms?: number;
   save?: Record<string, string>;
   expect?: Expectation;
+}
+
+export interface ReadRequest {
+  index?: string;
+  partition?: ReadCondition;
+  sort?: ReadCondition;
+  filter?: ReadCondition[];
+  sort_direction?: "ASC" | "DESC" | "asc" | "desc";
+  limit?: number;
+  projection?: string[];
+  cursor?: string;
+  consistent_read?: boolean;
+}
+
+export interface ReadCondition {
+  attribute: string;
+  operator: string;
+  value?: unknown;
+  values?: unknown[];
 }
 
 export interface TransitionActual {
@@ -98,6 +112,8 @@ export interface Expectation {
   ok?: boolean;
   error?: string;
   item_contains?: Record<string, unknown>;
+  items_contains?: Array<Record<string, unknown>>;
+  item_count?: number;
   item_has_fields?: string[];
   item_missing_fields?: string[];
   raw_attribute_types?: Record<string, string>;

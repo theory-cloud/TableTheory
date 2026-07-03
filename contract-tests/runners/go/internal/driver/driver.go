@@ -40,8 +40,34 @@ type Driver interface {
 	Update(ctx context.Context, model string, item map[string]any, fields []string, protectedAttributes []string) error
 	Save(ctx context.Context, model string, item map[string]any) error
 	Delete(ctx context.Context, model string, key map[string]any) error
+	Query(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
+	Scan(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
 	TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error
 	ValidateProvenance(ctx context.Context, model string, item map[string]any) error
+}
+
+type ReadRequest struct {
+	Index          string
+	Partition      *ReadCondition
+	Sort           *ReadCondition
+	Filter         []ReadCondition
+	SortDirection  string
+	Limit          int
+	Projection     []string
+	Cursor         string
+	ConsistentRead *bool
+}
+
+type ReadCondition struct {
+	Attribute string
+	Operator  string
+	Value     any
+	Values    []any
+}
+
+type ReadResult struct {
+	Items  []map[string]any
+	Cursor string
 }
 
 type TransitionActual struct {
@@ -90,6 +116,8 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"lifecycle.timestamps",
 		"optimistic_lock.version",
 		"ttl.epoch_seconds",
+		"query.basic",
+		"scan.basic",
 		"release_state.write_policy",
 		"release_state.transactional_transition",
 		"release_state.provenance_confidence",
@@ -222,6 +250,105 @@ func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[strin
 	}
 }
 
+func (d *TheorydbDriver) Query(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
+	q, err := d.buildReadQuery(ctx, model, req)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	if req.Partition == nil {
+		return ReadResult{}, fmt.Errorf("%w: query partition is required", theorydbErrors.ErrMissingPrimaryKey)
+	}
+	q = q.Where(req.Partition.Attribute, req.Partition.Operator, conditionValue(*req.Partition))
+	if req.Sort != nil {
+		q = q.Where(req.Sort.Attribute, req.Sort.Operator, conditionValue(*req.Sort))
+	}
+	return d.executeRead(model, q)
+}
+
+func (d *TheorydbDriver) Scan(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
+	q, err := d.buildReadQuery(ctx, model, req)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	return d.executeRead(model, q)
+}
+
+func (d *TheorydbDriver) buildReadQuery(ctx context.Context, modelName string, req ReadRequest) (core.Query, error) {
+	instance, err := emptyModel(modelName)
+	if err != nil {
+		return nil, err
+	}
+	q := d.db.WithContext(ctx).Model(instance)
+	if req.Index != "" {
+		q = q.Index(req.Index)
+	}
+	for _, filter := range req.Filter {
+		q = q.Filter(filter.Attribute, filter.Operator, conditionValue(filter))
+	}
+	if req.SortDirection != "" {
+		sortAttr := ""
+		if req.Sort != nil {
+			sortAttr = req.Sort.Attribute
+		}
+		q = q.OrderBy(sortAttr, req.SortDirection)
+	}
+	if req.Limit > 0 {
+		q = q.Limit(req.Limit)
+	}
+	if len(req.Projection) > 0 {
+		q = q.Select(req.Projection...)
+	}
+	if req.Cursor != "" {
+		q = q.Cursor(req.Cursor)
+	}
+	if req.ConsistentRead != nil && *req.ConsistentRead {
+		q = q.ConsistentRead()
+	}
+	return q, nil
+}
+
+func (d *TheorydbDriver) executeRead(model string, q core.Query) (ReadResult, error) {
+	switch model {
+	case "User":
+		var out []User
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeUsers(out), Cursor: page.NextCursor}, nil
+	case "Order":
+		var out []Order
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeOrders(out), Cursor: page.NextCursor}, nil
+	case "ReleaseStateActual":
+		var out []ReleaseStateActual
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeReleaseStateActuals(out), Cursor: page.NextCursor}, nil
+	case "ReleaseStateEvent":
+		var out []ReleaseStateEvent
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeReleaseStateEvents(out), Cursor: page.NextCursor}, nil
+	default:
+		return ReadResult{}, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
+	}
+}
+
+func conditionValue(cond ReadCondition) any {
+	if len(cond.Values) > 0 {
+		return append([]any(nil), cond.Values...)
+	}
+	return cond.Value
+}
+
 func (d *TheorydbDriver) TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error {
 	if actual.Model != "ReleaseStateActual" || event.Model != "ReleaseStateEvent" {
 		return fmt.Errorf("%w: unsupported transition models %s/%s", theorydbErrors.ErrInvalidModel, actual.Model, event.Model)
@@ -290,6 +417,21 @@ func modelFromMap(model string, item map[string]any) (any, error) {
 		return releaseStateActualFromMap(item)
 	case "ReleaseStateEvent":
 		return releaseStateEventFromMap(item)
+	default:
+		return nil, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
+	}
+}
+
+func emptyModel(model string) (any, error) {
+	switch model {
+	case "User":
+		return &User{}, nil
+	case "Order":
+		return &Order{}, nil
+	case "ReleaseStateActual":
+		return &ReleaseStateActual{}, nil
+	case "ReleaseStateEvent":
+		return &ReleaseStateEvent{}, nil
 	default:
 		return nil, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
@@ -623,6 +765,14 @@ func normalizeUser(u User) map[string]any {
 	return out
 }
 
+func normalizeUsers(items []User) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeUser(item))
+	}
+	return out
+}
+
 func normalizeReleaseStateActual(actual ReleaseStateActual) map[string]any {
 	return map[string]any{
 		"PK":                actual.PK,
@@ -635,6 +785,14 @@ func normalizeReleaseStateActual(actual ReleaseStateActual) map[string]any {
 		"updatedAt":         actual.UpdatedAt.Format(time.RFC3339Nano),
 		"version":           actual.Version,
 	}
+}
+
+func normalizeReleaseStateActuals(items []ReleaseStateActual) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeReleaseStateActual(item))
+	}
+	return out
 }
 
 func normalizeReleaseStateEvent(event ReleaseStateEvent) map[string]any {
@@ -650,6 +808,14 @@ func normalizeReleaseStateEvent(event ReleaseStateEvent) map[string]any {
 	}
 }
 
+func normalizeReleaseStateEvents(items []ReleaseStateEvent) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeReleaseStateEvent(item))
+	}
+	return out
+}
+
 func normalizeOrder(o Order) map[string]any {
 	out := map[string]any{
 		"PK":        o.PK,
@@ -660,6 +826,14 @@ func normalizeOrder(o Order) map[string]any {
 		"updatedAt": o.UpdatedAt.Format(time.RFC3339Nano),
 		"version":   o.Version,
 		"ttl":       o.TTL,
+	}
+	return out
+}
+
+func normalizeOrders(items []Order) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeOrder(item))
 	}
 	return out
 }

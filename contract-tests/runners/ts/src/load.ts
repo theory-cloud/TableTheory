@@ -73,6 +73,16 @@ function validateScenario(scenario: Scenario, filePath: string): void {
       case "delete":
         requirePlainObject(step.key, `${prefix}: key is required`);
         break;
+      case "query":
+        requireReadRequest(step.query, `${prefix}: query`);
+        requireReadCondition(
+          step.query?.partition,
+          `${prefix}: query.partition`,
+        );
+        break;
+      case "scan":
+        requireReadRequest(step.scan, `${prefix}: scan`);
+        break;
       case "transition_append_event":
         requireTransitionActual(step.actual, `${prefix}: actual`);
         requireTransitionEvent(step.event, `${prefix}: event`);
@@ -86,6 +96,59 @@ function validateScenario(scenario: Scenario, filePath: string): void {
         );
     }
   }
+}
+
+function requireReadRequest(value: unknown, prefix: string): void {
+  requirePlainObject(value, `${prefix} is required`);
+  const request = value as {
+    partition?: unknown;
+    sort?: unknown;
+    filter?: unknown;
+  };
+  if (request.sort !== undefined) {
+    requireReadCondition(request.sort, `${prefix}.sort`);
+  }
+  if (request.filter !== undefined) {
+    if (!Array.isArray(request.filter)) {
+      throw new Error(`${prefix}.filter must be an array`);
+    }
+    for (const [index, cond] of request.filter.entries()) {
+      requireReadCondition(cond, `${prefix}.filter[${index}]`);
+    }
+  }
+}
+
+function requireReadCondition(value: unknown, prefix: string): void {
+  requirePlainObject(value, `${prefix} is required`);
+  const condition = value as {
+    attribute?: unknown;
+    operator?: unknown;
+    value?: unknown;
+    values?: unknown;
+  };
+  if (typeof condition.attribute !== "string" || !condition.attribute) {
+    throw new Error(`${prefix}.attribute is required`);
+  }
+  if (typeof condition.operator !== "string" || !condition.operator) {
+    throw new Error(`${prefix}.operator is required`);
+  }
+  if (
+    condition.value === undefined &&
+    condition.values === undefined &&
+    !readOperatorAllowsNoValue(condition.operator)
+  ) {
+    throw new Error(`${prefix}.value or ${prefix}.values is required`);
+  }
+}
+
+function readOperatorAllowsNoValue(operator: unknown): boolean {
+  if (typeof operator !== "string") return false;
+  return [
+    "exists",
+    "attribute_exists",
+    "not_exists",
+    "attribute_not_exists",
+  ].includes(operator.toLowerCase());
 }
 
 function requireTransitionActual(value: unknown, prefix: string): void {

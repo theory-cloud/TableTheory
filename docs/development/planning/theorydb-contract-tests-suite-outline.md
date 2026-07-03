@@ -212,6 +212,9 @@ Minimum assertions required for v0.1:
 - `cursor_equals: "<cursor>"` (byte-for-byte; for golden cursor tests)
 - `item_field_equals_var: { attr: "varName" }` (value equals previously saved var)
 - `item_field_not_equals_var: { attr: "varName" }` (value differs from previously saved var)
+- `item_count: <n>` (exact query/scan result count)
+- `items_contains: [{ attr: value }]` (ordered subset assertions for query/scan results; each value is checked using
+  the DMS attribute type)
 
 Value encoding in scenario files is “logical” (strings/numbers/bools/arrays/objects); the runner encodes based on DMS
 attribute `type`.
@@ -236,6 +239,39 @@ Comparison rules:
 - `query(modelName, request)` returning `{ items, cursor? }`
 - `scan(modelName, request)` returning `{ items, cursor? }`
 - cursor encode/decode must match `theorydb-spec-dms-v0.1` requirements
+
+The scenario harness advertises `query.basic` and `scan.basic` when a runner supports these read operations. Query and
+scan steps use this shape:
+
+```yaml
+- op: query
+  query:
+    index: "gsi-name"              # optional
+    partition: { attribute: "PK", operator: "=", value: "USER#1" }
+    sort: { attribute: "SK", operator: "begins_with", value: "PROFILE#" } # optional
+    sort_direction: "ASC"          # optional; ASC or DESC
+    limit: 10                      # optional
+    projection: ["PK", "SK"]       # optional
+    cursor: "<opaque-cursor>"      # optional
+    consistent_read: true          # optional; not valid for GSIs
+    filter:
+      - { attribute: "status", operator: "=", value: "active" }
+  expect:
+    item_count: 1
+    items_contains:
+      - { PK: "USER#1", SK: "PROFILE" }
+
+- op: scan
+  scan:
+    index: "gsi-name"              # optional
+    filter:
+      - { attribute: "status", operator: "=", value: "active" }
+    limit: 10
+    projection: ["PK", "SK"]
+```
+
+Supported basic operators are `=`, `<`, `<=`, `>`, `>=`, `between`, and `begins_with` for sort-key conditions, plus
+those and `!=`/`<>`, `contains`, `in`, `exists`/`attribute_exists`, and `not_exists`/`attribute_not_exists` for filters.
 
 ### P2 driver operations
 
