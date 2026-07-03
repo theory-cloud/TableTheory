@@ -35,6 +35,7 @@ import {
 } from './marshal.js';
 import type { AttributeSchema, IndexSchema, Model } from './model.js';
 import type { BuilderShape } from './optimizer.js';
+import { countAllPages } from './query-count.js';
 import type { SendOptions } from './send-options.js';
 
 export interface Page<T = Record<string, unknown>> {
@@ -549,23 +550,11 @@ export class QueryBuilder {
   }
 
   async count(): Promise<number> {
-    const original = this.cursorToken;
-    try {
-      let total = 0;
-      let cursor = original;
-
-      for (;;) {
-        this.cursorToken = cursor;
-        const page = await this.countPage();
-        total += page.count;
-        if (!page.cursor) break;
-        cursor = page.cursor;
-      }
-
-      return total;
-    } finally {
-      this.cursorToken = original;
-    }
+    return countAllPages(
+      this.cursorToken,
+      (cursor) => (this.cursorToken = cursor),
+      () => this.countPage(),
+    );
   }
 
   private async countPage(): Promise<{ count: number; cursor?: string }> {
@@ -1125,23 +1114,11 @@ export class ScanBuilder {
   }
 
   async count(): Promise<number> {
-    const original = this.cursorToken;
-    try {
-      let total = 0;
-      let cursor = original;
-
-      for (;;) {
-        this.cursorToken = cursor;
-        const page = await this.countPage();
-        total += page.count;
-        if (!page.cursor) break;
-        cursor = page.cursor;
-      }
-
-      return total;
-    } finally {
-      this.cursorToken = original;
-    }
+    return countAllPages(
+      this.cursorToken,
+      (cursor) => (this.cursorToken = cursor),
+      () => this.countPage(),
+    );
   }
 
   private async countPage(): Promise<{ count: number; cursor?: string }> {

@@ -264,40 +264,68 @@ func setCountField(field reflect.Value, value int64) {
 	}
 }
 
-func countQueryPages(ctx context.Context, client DynamoDBAPI, input *dynamodb.QueryInput) (int64, int64, error) {
-	input.Select = types.SelectCount
-	input.Limit = nil
-	input.ProjectionExpression = nil
-	paginator := dynamodb.NewQueryPaginator(client, input)
+type countPaginator[O any] interface {
+	HasMorePages() bool
+	NextPage(context.Context, ...func(*dynamodb.Options)) (*O, error)
+}
+
+func countDynamoPages[O any](
+	ctx context.Context,
+	operation string,
+	paginator countPaginator[O],
+	extract func(*O) (int32, int32),
+) (int64, int64, error) {
 	var totalCount int64
 	var totalScanned int64
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to count query items: %w", err)
+			return 0, 0, fmt.Errorf("failed to count %s items: %w", operation, err)
 		}
-		totalCount += int64(page.Count)
-		totalScanned += int64(page.ScannedCount)
+		count, scanned := extract(page)
+		totalCount += int64(count)
+		totalScanned += int64(scanned)
 	}
 	return totalCount, totalScanned, nil
+}
+
+func countQueryPages(ctx context.Context, client DynamoDBAPI, input *dynamodb.QueryInput) (int64, int64, error) {
+	input.Select = types.SelectCount
+	input.Limit = nil
+	input.ProjectionExpression = nil
+	return countDynamoPages(ctx, "query", dynamodb.NewQueryPaginator(client, input), func(page *dynamodb.QueryOutput) (int32, int32) {
+		return page.Count, page.ScannedCount
+	})
 }
 
 func countScanPages(ctx context.Context, client DynamoDBAPI, input *dynamodb.ScanInput) (int64, int64, error) {
 	input.Select = types.SelectCount
 	input.Limit = nil
 	input.ProjectionExpression = nil
-	paginator := dynamodb.NewScanPaginator(client, input)
-	var totalCount int64
-	var totalScanned int64
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
+	return countDynamoPages(ctx, "scan", dynamodb.NewScanPaginator(client, input), func(page *dynamodb.ScanOutput) (int32, int32) {
+		return page.Count, page.ScannedCount
+	})
+}
+
+func executeCompiledRead(
+	input *core.CompiledQuery,
+	dest any,
+	pager pagedReadExecutor,
+	countFn func() (int64, int64, error),
+) error {
+	if isCountSelect(input.Select) {
+		count, scannedCount, err := countFn()
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to count scan items: %w", err)
+			return err
 		}
-		totalCount += int64(page.Count)
-		totalScanned += int64(page.ScannedCount)
+		return writeCountResult(dest, count, scannedCount)
 	}
-	return totalCount, totalScanned, nil
+
+	allItems, err := executePagedItems(input.Limit, pager)
+	if err != nil {
+		return err
+	}
+	return UnmarshalItems(allItems, dest)
 }
 
 // NewExecutor creates a new MainExecutor instance
@@ -323,26 +351,13 @@ func (e *MainExecutor) ExecuteQuery(input *core.CompiledQuery, dest any) error {
 	}
 
 	queryInput := buildDynamoQueryInput(input)
-	if isCountSelect(input.Select) {
-		count, scannedCount, err := countQueryPages(executorContext(e.ctx), e.client, queryInput)
-		if err != nil {
-			return err
-		}
-		return writeCountResult(dest, count, scannedCount)
-	}
-
-	pager := queryPager{
+	return executeCompiledRead(input, dest, queryPager{
 		client: e.client,
 		ctx:    e.ctx,
 		input:  queryInput,
-	}
-	allItems, err := executePagedItems(input.Limit, pager)
-	if err != nil {
-		return err
-	}
-
-	// Unmarshal the results into dest
-	return UnmarshalItems(allItems, dest)
+	}, func() (int64, int64, error) {
+		return countQueryPages(executorContext(e.ctx), e.client, queryInput)
+	})
 }
 
 // ExecuteScan implements QueryExecutor.ExecuteScan
@@ -352,26 +367,13 @@ func (e *MainExecutor) ExecuteScan(input *core.CompiledQuery, dest any) error {
 	}
 
 	scanInput := buildDynamoScanInput(input)
-	if isCountSelect(input.Select) {
-		count, scannedCount, err := countScanPages(executorContext(e.ctx), e.client, scanInput)
-		if err != nil {
-			return err
-		}
-		return writeCountResult(dest, count, scannedCount)
-	}
-
-	pager := scanPager{
+	return executeCompiledRead(input, dest, scanPager{
 		client: e.client,
 		ctx:    e.ctx,
 		input:  scanInput,
-	}
-	allItems, err := executePagedItems(input.Limit, pager)
-	if err != nil {
-		return err
-	}
-
-	// Unmarshal the results into dest
-	return UnmarshalItems(allItems, dest)
+	}, func() (int64, int64, error) {
+		return countScanPages(executorContext(e.ctx), e.client, scanInput)
+	})
 }
 
 // ExecuteGetItem implements GetItemExecutor.ExecuteGetItem.

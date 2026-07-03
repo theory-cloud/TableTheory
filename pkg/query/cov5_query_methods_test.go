@@ -205,3 +205,20 @@ func TestQuery_FirstOrNil(t *testing.T) {
 		require.False(t, found)
 	})
 }
+
+func TestFirstOrNil_PackageHelper_COV5(t *testing.T) {
+	var out struct{}
+	found, err := FirstOrNil(nil, &out)
+	require.Error(t, err)
+	require.False(t, found)
+
+	q := New(&struct{}{}, cov5Metadata{
+		table:      "tbl",
+		primaryKey: core.KeySchema{PartitionKey: "pk"},
+	}, cov5OptionalErrorExecutor{})
+	q.Where("pk", "=", "p1")
+
+	found, err = FirstOrNil(q, &out)
+	require.NoError(t, err)
+	require.False(t, found)
+}
