@@ -2,7 +2,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory
@@ -191,6 +191,9 @@ sec:
 rubric:
 	@./scripts/verify-rubric.sh
 
+rubric-fast:
+	@SKIP_INTEGRATION=true bash ./scripts/verify-rubric-fast.sh
+
 stage-theorycloud-tabletheory-subtree:
 	@bash ./scripts/stage_theorycloud_tabletheory_subtree.sh --output "$${THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR:-/tmp/theorycloud-tabletheory-source}"
 
@@ -258,6 +261,7 @@ help:
 	@echo "  make verify-planning-docs - Verify planning docs exist"
 	@echo "  make sec         - Run security gates (gosec + govulncheck + go mod verify)"
 	@echo "  make rubric      - Run full rubric gate set"
+	@echo "  make rubric-fast - Run fast contributor gates (format/lint/unit/docs; no Docker)"
 	@echo "  make stage-theorycloud-tabletheory-subtree - Stage the theorycloud/tabletheory subtree locally"
 	@echo "  make verify-theorycloud-tabletheory-subtree - Verify the staged theorycloud/tabletheory subtree"
 	@echo "  make sync-theorycloud-tabletheory-subtree - Sync the staged theorycloud/tabletheory subtree to the configured stage prefix"
