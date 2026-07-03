@@ -73,7 +73,11 @@ def scan_count(
     if index_type == "GSI" and consistent_read:
         raise ValidationError("consistent_read is not supported for GSIs")
 
-    req: dict[str, Any] = {"TableName": table._table_name, "ConsistentRead": consistent_read, "Select": "COUNT"}
+    req: dict[str, Any] = {
+        "TableName": table._table_name,
+        "ConsistentRead": consistent_read,
+        "Select": "COUNT",
+    }
     names: dict[str, str] = {}
     values: dict[str, Any] = {}
     if index_name is not None:
