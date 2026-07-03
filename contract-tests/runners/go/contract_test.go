@@ -19,6 +19,11 @@ func TestContract_P0(t *testing.T) {
 	runContractScenarios(t, filepath.Join("contract-tests", "scenarios", "p0"))
 }
 
+func TestContract_P1(t *testing.T) {
+	t.Helper()
+	runContractScenarios(t, filepath.Join("contract-tests", "scenarios", "p1"))
+}
+
 func TestContract_Interop(t *testing.T) {
 	t.Helper()
 	if os.Getenv("CONTRACT_RUN_INTEROP") != "1" {

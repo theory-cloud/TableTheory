@@ -305,6 +305,25 @@ def test_p0_contract_scenarios_execute_for_python(scenario: dict[str, Any]) -> N
     _run_scenario(client, driver, scenario, models)
 
 
+@pytest.mark.parametrize("scenario", _load_scenarios_from("p1"), ids=lambda scenario: str(scenario["name"]))
+def test_p1_contract_scenarios_execute_for_python(scenario: dict[str, Any]) -> None:
+    models = _load_models()
+    missing = _missing_capabilities(scenario, _supported_capabilities())
+    if missing:
+        pytest.skip(f"scenario requires unsupported capabilities: {', '.join(missing)}")
+
+    client = _dynamodb_client()
+    try:
+        client.list_tables(Limit=1)
+    except EndpointConnectionError:
+        if os.environ.get("SKIP_INTEGRATION") in {"1", "true"}:
+            pytest.skip("DynamoDB Local not reachable and SKIP_INTEGRATION is set")
+        raise
+
+    driver = _TheorydbPyDriver(client)
+    _run_scenario(client, driver, scenario, models)
+
+
 @pytest.mark.parametrize(
     "scenario",
     _load_scenarios_from("interop"),
