@@ -393,6 +393,7 @@ func generatePythonModel(out *bytes.Buffer, m Model) error {
 	}
 	fieldNames := map[string]int{}
 	pythonFieldByAttribute := make(map[string]string, len(m.Attributes))
+	fields := make([]pythonGeneratedField, 0, len(m.Attributes))
 	for _, attr := range m.Attributes {
 		name := uniquePyFieldName(snakeIdentifier(attr.Attribute), fieldNames)
 		pythonFieldByAttribute[attr.Attribute] = name
@@ -408,7 +409,15 @@ func generatePythonModel(out *bytes.Buffer, m Model) error {
 				args = append(args, "default="+defaultExpr)
 			}
 		}
-		fmt.Fprintf(out, "    %s: %s = theorydb_field(%s)\n", name, typeExpr, strings.Join(args, ", "))
+		fields = append(fields, pythonGeneratedField{
+			Name:        name,
+			TypeExpr:    typeExpr,
+			DefaultExpr: defaultExpr,
+			Args:        args,
+		})
+	}
+	for _, field := range orderPythonDataclassFields(fields) {
+		fmt.Fprintf(out, "    %s: %s = theorydb_field(%s)\n", field.Name, field.TypeExpr, strings.Join(field.Args, ", "))
 	}
 	fmt.Fprintf(out, "\n\n")
 	fmt.Fprintf(out, "%sDefinition = ModelDefinition.from_dataclass(\n", className)
@@ -427,6 +436,23 @@ func generatePythonModel(out *bytes.Buffer, m Model) error {
 	}
 	fmt.Fprintf(out, ",\n)\n\n")
 	return nil
+}
+
+type pythonGeneratedField struct {
+	Name        string
+	TypeExpr    string
+	DefaultExpr string
+	Args        []string
+}
+
+func orderPythonDataclassFields(fields []pythonGeneratedField) []pythonGeneratedField {
+	ordered := append([]pythonGeneratedField(nil), fields...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		iRequired := ordered[i].DefaultExpr == ""
+		jRequired := ordered[j].DefaultExpr == ""
+		return iRequired && !jRequired
+	})
+	return ordered
 }
 
 func pyTheorydbFieldArgs(attr Attribute) []string {

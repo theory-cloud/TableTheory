@@ -32,6 +32,28 @@ func TestGenerateGoGoldenAndEquivalence(t *testing.T) {
 	require.NoError(t, AssertModelsEquivalent(generatedModel, *wantModel, CompareOptions{}))
 }
 
+func TestGeneratedGoEquivalenceDetectsSpecCodeDrift(t *testing.T) {
+	t.Parallel()
+
+	doc := readCodegenFixture(t)
+	wantModel, ok := FindModel(doc, "DMSNote")
+	require.True(t, ok)
+
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(codegenfixture.DMSNote{}))
+	meta, err := registry.GetMetadata(codegenfixture.DMSNote{})
+	require.NoError(t, err)
+	generatedModel, err := FromMetadata(meta)
+	require.NoError(t, err)
+
+	drifted := generatedModel
+	drifted.WritePolicy.ProtectedAttributes = []string{"count"}
+	err = AssertModelsEquivalent(drifted, *wantModel, CompareOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "models not equivalent")
+	require.Contains(t, err.Error(), "protected_attributes")
+}
+
 func TestGenerateTypeScriptGolden(t *testing.T) {
 	t.Parallel()
 
