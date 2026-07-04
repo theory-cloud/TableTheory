@@ -36,7 +36,12 @@ type DynamoDBAPI interface {
 	BatchWriteItem(ctx context.Context, params *dynamodb.BatchWriteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error)
 }
 
-// MainExecutor is the main executor that implements all executor interfaces
+// MainExecutor is the legacy executor that implements the low-level query executor interfaces.
+//
+// Compatibility deprecation notice: MainExecutor is retained in 1.x as a test and
+// compatibility seam only. Production code should use tabletheory.Model() / DB.Model()
+// so reads and writes flow through the maintained runtime executor path. MainExecutor
+// is scheduled for removal in the next major version after the deprecation window.
 type MainExecutor struct {
 	client DynamoDBAPI
 	ctx    context.Context
@@ -328,7 +333,11 @@ func executeCompiledRead(
 	return UnmarshalItems(allItems, dest)
 }
 
-// NewExecutor creates a new MainExecutor instance
+// NewExecutor creates a legacy MainExecutor instance.
+//
+// Compatibility deprecation notice: NewExecutor is retained for tests and existing
+// compatibility callers only. Production code should use tabletheory.Model() /
+// DB.Model() instead of constructing MainExecutor directly.
 func NewExecutor(client DynamoDBAPI, ctx context.Context) *MainExecutor { //nolint:revive // context-as-argument: keep signature for compatibility
 	return &MainExecutor{
 		client: client,

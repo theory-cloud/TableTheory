@@ -146,6 +146,17 @@ Migration checklist:
 4. Validate against the release candidate before stable promotion; this is an additive migration and should not require a
    data migration.
 
+## Go `MainExecutor` compatibility deprecation
+
+`pkg/query.MainExecutor` and `pkg/query.NewExecutor` are deprecated in the 1.x line as a compatibility and test seam.
+Production callers should construct models through `tabletheory.New(...)`, `tabletheory.LambdaInit(...)`, and
+`DB.Model(...)`/`tabletheory.Model(...)` so operations use the maintained runtime executor path.
+
+The deprecation is additive: no 1.x API is removed, and existing tests or compatibility shims can continue to compile.
+The planned removal belongs to the next major version after the deprecation window. If application code constructs
+`query.NewExecutor(...)` directly, migrate that construction to a normal TableTheory `DB`/model flow before adopting the
+next major release.
+
 ## M6 Go Contract-Parity Compatibility Notes
 
 M6 pins additional cross-runtime contract scenarios for number precision, GSI/projection behavior, pagination, and the
