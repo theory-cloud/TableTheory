@@ -19,7 +19,6 @@ import (
 	"github.com/theory-cloud/tabletheory"
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
-	"github.com/theory-cloud/tabletheory/pkg/model"
 	"github.com/theory-cloud/tabletheory/pkg/releasestate"
 	"github.com/theory-cloud/tabletheory/pkg/session"
 	"github.com/theory-cloud/tabletheory/pkg/testing/fakedb"
@@ -1170,42 +1169,9 @@ func mutatesProtectedAttribute(fields []string, protectedAttributes []string) bo
 	return false
 }
 
-// ---- Models (Go reference) ----
+// ---- Contract model glue ----
 
-// User matches the v0.1 DMS fixture under `contract-tests/dms/v0.1/models/user.yml`.
-type User struct {
-	PK        string   `theorydb:"pk"`
-	SK        string   `theorydb:"sk"`
-	EmailHash string   `theorydb:"index:gsi-email,pk,omitempty"`
-	Nickname  string   `theorydb:"omitempty"`
-	Tags      []string `theorydb:"set,omitempty"`
-
-	CreatedAt time.Time `theorydb:"created_at"`
-	UpdatedAt time.Time `theorydb:"updated_at"`
-	Version   int64     `theorydb:"version"`
-	TTL       int64     `theorydb:"ttl,omitempty"`
-}
-
-func (User) TableName() string { return "users_contract" }
-
-// Order matches the v0.1 DMS fixture under `contract-tests/dms/v0.1/models/order.yml`.
-type Order struct {
-	PK     string `theorydb:"pk"`
-	SK     string `theorydb:"sk"`
-	Status string `theorydb:"index:gsi-status,pk,omitempty"`
-	Amount int64  `theorydb:"omitempty"`
-
-	CreatedAt time.Time `theorydb:"created_at"`
-	UpdatedAt time.Time `theorydb:"updated_at"`
-	Version   int64     `theorydb:"version"`
-	TTL       int64     `theorydb:"ttl,omitempty"`
-}
-
-func (Order) TableName() string { return "orders_contract" }
-
-// DecimalString stores an exact DynamoDB N decimal string through TableTheory's custom converter hook.
-type DecimalString string
-
+// decimalStringConverter stores exact DynamoDB N decimal strings for generated DecimalString fields.
 type decimalStringConverter struct{}
 
 func (decimalStringConverter) ToAttributeValue(value any) (ddbtypes.AttributeValue, error) {
@@ -1228,96 +1194,6 @@ func (decimalStringConverter) FromAttributeValue(av ddbtypes.AttributeValue, tar
 	default:
 		return fmt.Errorf("expected *DecimalString, got %T", target)
 	}
-}
-
-// NumberPrecision matches the v0.1 DMS fixture for exact numeric round-trips.
-type NumberPrecision struct {
-	PK             string        `theorydb:"pk"`
-	SK             string        `theorydb:"sk"`
-	LargeInteger   int64         `theorydb:"attr:largeInteger"`
-	PreciseDecimal DecimalString `theorydb:"attr:preciseDecimal"`
-}
-
-func (NumberPrecision) TableName() string { return "number_precision_contract" }
-
-// TypeMatrix matches the v0.1 DMS fixture for DynamoDB scalar/container type round-trips.
-type TypeMatrix struct {
-	PK             string         `theorydb:"pk"`
-	SK             string         `theorydb:"sk"`
-	NumberSet      []int64        `theorydb:"attr:numberSet,set"`
-	BinaryBlob     []byte         `theorydb:"attr:binaryBlob"`
-	BinarySet      [][]byte       `theorydb:"attr:binarySet,set"`
-	Flag           bool           `theorydb:"attr:flag"`
-	Nothing        *string        `theorydb:"attr:nothing"`
-	Items          []any          `theorydb:"attr:items"`
-	Metadata       map[string]any `theorydb:"attr:metadata"`
-	EmptyNumberSet []int64        `theorydb:"attr:emptyNumberSet,set"`
-	EmptyBinarySet [][]byte       `theorydb:"attr:emptyBinarySet,set"`
-	OptionalString string         `theorydb:"attr:optionalString"`
-}
-
-func (TypeMatrix) TableName() string { return "type_matrix_contract" }
-
-// SnakeCaseRecord matches the v0.1 DMS fixture that pins snake_case naming.
-type SnakeCaseRecord struct {
-	_ struct{} `theorydb:"naming:snake_case"`
-
-	PK          string `theorydb:"pk"`
-	SK          string `theorydb:"sk"`
-	DisplayName string
-	EmailHash   string
-}
-
-func (SnakeCaseRecord) TableName() string { return "snake_case_contract" }
-
-// EncryptedRecord matches the v0.1 DMS fixture that pins encryption interop.
-type EncryptedRecord struct {
-	PK     string `theorydb:"pk"`
-	SK     string `theorydb:"sk"`
-	Secret string `theorydb:"encrypted,attr:secret"`
-}
-
-func (EncryptedRecord) TableName() string { return "encrypted_records_contract" }
-
-// ReleaseStateActual matches the v0.1 release-state actual-row DMS fixture.
-type ReleaseStateActual struct {
-	PK                string         `theorydb:"pk"`
-	SK                string         `theorydb:"sk"`
-	Status            string         `theorydb:"omitempty"`
-	PinnedReleaseID   string         `theorydb:"attr:pinnedReleaseId,omitempty"`
-	PreviousReleaseID string         `theorydb:"attr:previousReleaseId,omitempty"`
-	Provenance        map[string]any `theorydb:"json,omitempty"`
-	Confidence        map[string]any `theorydb:"json,omitempty"`
-
-	UpdatedAt time.Time `theorydb:"updated_at"`
-	Version   int64     `theorydb:"version"`
-}
-
-func (ReleaseStateActual) TableName() string { return "release_state_contract" }
-
-func (ReleaseStateActual) WritePolicy() model.WritePolicy {
-	return model.WritePolicy{
-		Mode:                model.WritePolicyModeMutable,
-		ProtectedAttributes: []string{"pinnedReleaseId"},
-	}
-}
-
-// ReleaseStateEvent matches the v0.1 release-state event-row DMS fixture.
-type ReleaseStateEvent struct {
-	PK         string         `theorydb:"pk"`
-	SK         string         `theorydb:"sk"`
-	ReleaseID  string         `theorydb:"attr:releaseId,omitempty"`
-	EventType  string         `theorydb:"attr:eventType,omitempty"`
-	Provenance map[string]any `theorydb:"json,omitempty"`
-	Confidence map[string]any `theorydb:"json,omitempty"`
-	RecordedAt string         `theorydb:"attr:recordedAt,omitempty"`
-	TTL        int64          `theorydb:"ttl,omitempty"`
-}
-
-func (ReleaseStateEvent) TableName() string { return "release_state_contract" }
-
-func (ReleaseStateEvent) WritePolicy() model.WritePolicy {
-	return model.WritePolicy{Mode: model.WritePolicyModeWriteOnce}
 }
 
 func userFromMap(item map[string]any) (*User, error) {
@@ -1402,11 +1278,7 @@ func numberPrecisionFromMap(item map[string]any) (*NumberPrecision, error) {
 		n.SK = fmt.Sprintf("%v", v)
 	}
 	if v, ok := item["largeInteger"]; ok {
-		parsed, err := asInt64(v)
-		if err != nil {
-			return nil, err
-		}
-		n.LargeInteger = parsed
+		n.LargeInteger = DecimalString(fmt.Sprintf("%v", v))
 	}
 	if v, ok := item["preciseDecimal"]; ok {
 		n.PreciseDecimal = DecimalString(fmt.Sprintf("%v", v))
@@ -1628,7 +1500,7 @@ func normalizeNumberPrecision(n NumberPrecision) map[string]any {
 	return map[string]any{
 		"PK":             n.PK,
 		"SK":             n.SK,
-		"largeInteger":   n.LargeInteger,
+		"largeInteger":   string(n.LargeInteger),
 		"preciseDecimal": string(n.PreciseDecimal),
 	}
 }

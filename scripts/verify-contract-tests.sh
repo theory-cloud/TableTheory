@@ -9,6 +9,9 @@ fi
 echo "contract-tests: generated-ts"
 bash scripts/verify-generated-ts-key-contract.sh
 
+echo "contract-tests: generated-models"
+bash scripts/verify-generated-models.sh --check
+
 skip="${SKIP_INTEGRATION:-}"
 if [[ "${skip}" == "1" || "${skip}" == "true" ]]; then
   echo "contract-tests: SKIP (SKIP_INTEGRATION=${skip})"

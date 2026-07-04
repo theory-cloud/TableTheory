@@ -2,7 +2,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests generate-contract-models verify-generated-models benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory
@@ -52,6 +52,13 @@ integration: docker-up
 # Run the shared Go/TypeScript/Python contract suite (requires DynamoDB Local)
 contract-tests: docker-up
 	@bash scripts/verify-contract-tests.sh
+
+# Generate and verify DMS-derived contract-runner model files.
+generate-contract-models:
+	@bash scripts/verify-generated-models.sh --write
+
+verify-generated-models:
+	@bash scripts/verify-generated-models.sh --check
 
 # Run benchmarks
 benchmark:

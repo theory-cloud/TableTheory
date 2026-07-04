@@ -22,9 +22,11 @@ models:
       - attribute: "status"
         type: "S"
         optional: true
+        omit_empty: true
       - attribute: "amount"
         type: "N"
         optional: true
+        omit_empty: true
 
       - attribute: "createdAt"
         type: "S"

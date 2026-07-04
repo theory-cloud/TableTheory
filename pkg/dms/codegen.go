@@ -91,6 +91,9 @@ func generateGo(models []Model, opts GenerateOptions) ([]byte, error) {
 		}
 		fmt.Fprintf(&out, ")\n\n")
 	}
+	if goNeedsDecimalString(models) {
+		fmt.Fprintf(&out, "type DecimalString string\n\n")
+	}
 	out.Write(body.Bytes())
 
 	formatted, err := format.Source(out.Bytes())
@@ -204,6 +207,9 @@ func goTypeForAttribute(attr Attribute, imports map[string]struct{}) (string, er
 	case "S":
 		return "string", nil
 	case "N":
+		if attr.Format == "decimal_string" {
+			return "DecimalString", nil
+		}
 		return "int64", nil
 	case "B":
 		return "[]byte", nil
@@ -356,6 +362,9 @@ func generatePython(models []Model, _ GenerateOptions) ([]byte, error) {
 		imports["typing"] = struct{}{}
 	}
 	fmt.Fprintf(&out, "from dataclasses import dataclass\n")
+	if pythonNeedsDecimal(models) {
+		fmt.Fprintf(&out, "from decimal import Decimal\n")
+	}
 	if _, ok := imports["typing"]; ok {
 		fmt.Fprintf(&out, "from typing import Any\n")
 	}
@@ -427,7 +436,7 @@ func generatePythonModel(out *bytes.Buffer, m Model) error {
 	fmt.Fprintf(out, "    table_name=%s", pyString(m.Table.Name))
 	policy := normalizeWritePolicy(m.WritePolicy)
 	if policy.Mode != modeMutable || len(policy.ProtectedAttributes) > 0 {
-		fmt.Fprintf(out, ",\n    write_policy=WritePolicy(mode=%s, protected_attributes=(%s,))", pyString(policy.Mode), pyTupleStrings(policy.ProtectedAttributes))
+		fmt.Fprintf(out, ",\n    write_policy=WritePolicy(mode=%s, protected_attributes=%s)", pyString(policy.Mode), pyTupleLiteral(policy.ProtectedAttributes))
 	}
 	if len(m.Indexes) > 0 {
 		fmt.Fprintf(out, ",\n    indexes=[\n")
@@ -501,6 +510,13 @@ var pyTypeDefaults = map[string]pyTypeDefault{
 }
 
 func pyTypeAndDefault(attr Attribute) (string, string, error) {
+	if attr.Type == "N" && attr.Format == "decimal_string" {
+		defaultExpr := `Decimal("0")`
+		if attr.Required && !attr.Optional && !attr.OmitEmpty && !hasRole(attr.Roles, "pk") && !hasRole(attr.Roles, "sk") {
+			defaultExpr = ""
+		}
+		return "Decimal", defaultExpr, nil
+	}
 	spec, ok := pyTypeDefaults[attr.Type]
 	if !ok {
 		return "", "", fmt.Errorf("unsupported DMS attribute type %q", attr.Type)
@@ -837,7 +853,7 @@ func isPyKeyword(s string) bool {
 
 func isCommonInitialism(s string) bool {
 	switch s {
-	case "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IP", "JSON", "KMS", "PK", "QPS", "RAM", "RPC", "SLA", "SMTP", "SQL", "SSH", "TTL", "UID", "URI", "URL", "UTF8", "UUID", "VM", "XML", "XMPP", "XSRF", "XSS":
+	case "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IP", "JSON", "KMS", "PK", "QPS", "SK", "RAM", "RPC", "SLA", "SMTP", "SQL", "SSH", "TTL", "UID", "URI", "URL", "UTF8", "UUID", "VM", "XML", "XMPP", "XSRF", "XSS":
 		return true
 	default:
 		return false
@@ -868,15 +884,18 @@ func pyListStrings(values []string) string {
 	return strings.Join(parts, ", ")
 }
 
-func pyTupleStrings(values []string) string {
+func pyTupleLiteral(values []string) string {
 	if len(values) == 0 {
-		return ""
+		return "()"
 	}
 	parts := make([]string, len(values))
 	for i, value := range values {
 		parts[i] = pyString(value)
 	}
-	return strings.Join(parts, ", ")
+	if len(parts) == 1 {
+		return "(" + parts[0] + ",)"
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
 }
 
 func pyListAsArgs(values []string) string {
@@ -908,6 +927,28 @@ func tsString(value string) string {
 	}
 	b.WriteByte('\'')
 	return b.String()
+}
+
+func goNeedsDecimalString(models []Model) bool {
+	for _, m := range models {
+		for _, attr := range m.Attributes {
+			if attr.Type == "N" && attr.Format == "decimal_string" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func pythonNeedsDecimal(models []Model) bool {
+	for _, m := range models {
+		for _, attr := range m.Attributes {
+			if attr.Type == "N" && attr.Format == "decimal_string" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func pythonNeedsAny(models []Model) bool {

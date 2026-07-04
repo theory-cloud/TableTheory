@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import os
 import time
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, is_dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
@@ -15,6 +15,40 @@ import pytest
 import yaml
 from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError, EndpointConnectionError
+from generated_models import (
+    EncryptedRecord as _EncryptedRecord,
+)
+from generated_models import (
+    EncryptedRecordDefinition,
+    NumberPrecisionDefinition,
+    OrderDefinition,
+    ReleaseStateActualDefinition,
+    ReleaseStateEventDefinition,
+    SnakeCaseRecordDefinition,
+    TypeMatrixDefinition,
+    UserDefinition,
+)
+from generated_models import (
+    NumberPrecision as _NumberPrecision,
+)
+from generated_models import (
+    Order as _Order,
+)
+from generated_models import (
+    ReleaseStateActual as _ReleaseStateActual,
+)
+from generated_models import (
+    ReleaseStateEvent as _ReleaseStateEvent,
+)
+from generated_models import (
+    SnakeCaseRecord as _SnakeCaseRecord,
+)
+from generated_models import (
+    TypeMatrix as _TypeMatrix,
+)
+from generated_models import (
+    User as _User,
+)
 
 from theorydb_py import (
     ConditionFailedError,
@@ -22,9 +56,7 @@ from theorydb_py import (
     FilterCondition,
     FilterGroup,
     ImmutableModelMutationError,
-    ModelDefinition,
     NotFoundError,
-    Projection,
     ProtectedFieldMutationError,
     RejectedDeployAuthorityEvidenceError,
     SortKeyCondition,
@@ -36,9 +68,6 @@ from theorydb_py import (
     TransactWriteAction,
     ValidationError,
     VersionConflictError,
-    WritePolicy,
-    gsi,
-    theorydb_field,
     transition_release_state,
     validate_deploy_authority_metadata,
 )
@@ -78,93 +107,53 @@ def _load_scenarios_from(name: str) -> list[dict[str, Any]]:
     return scenarios
 
 
-@dataclass(frozen=True)
-class _User:
-    PK: str = theorydb_field(name="PK", roles=["pk"])
-    SK: str = theorydb_field(name="SK", roles=["sk"])
-    emailHash: str | None = theorydb_field(omitempty=True, default=None)
-    nickname: str | None = theorydb_field(omitempty=True, default=None)
-    tags: set[str] | None = theorydb_field(set_=True, omitempty=True, default=None)
-    createdAt: str = theorydb_field(roles=["created_at"], default="")
-    updatedAt: str = theorydb_field(roles=["updated_at"], default="")
-    version: int | None = theorydb_field(roles=["version"], default=None)
-    ttl: int | None = theorydb_field(roles=["ttl"], omitempty=True, default=None)
+_MODEL_DEFINITIONS: dict[str, Any] = {
+    "User": UserDefinition,
+    "Order": OrderDefinition,
+    "NumberPrecision": NumberPrecisionDefinition,
+    "TypeMatrix": TypeMatrixDefinition,
+    "SnakeCaseRecord": SnakeCaseRecordDefinition,
+    "EncryptedRecord": EncryptedRecordDefinition,
+    "ReleaseStateActual": ReleaseStateActualDefinition,
+    "ReleaseStateEvent": ReleaseStateEventDefinition,
+}
+
+_MODEL_CLASSES: dict[str, type[Any]] = {
+    "User": _User,
+    "Order": _Order,
+    "NumberPrecision": _NumberPrecision,
+    "TypeMatrix": _TypeMatrix,
+    "SnakeCaseRecord": _SnakeCaseRecord,
+    "EncryptedRecord": _EncryptedRecord,
+    "ReleaseStateActual": _ReleaseStateActual,
+    "ReleaseStateEvent": _ReleaseStateEvent,
+}
 
 
-@dataclass(frozen=True)
-class _Order:
-    PK: str = theorydb_field(name="PK", roles=["pk"])
-    SK: str = theorydb_field(name="SK", roles=["sk"])
-    status: str | None = theorydb_field(omitempty=True, default=None)
-    amount: int | None = theorydb_field(omitempty=True, default=None)
-    createdAt: str = theorydb_field(roles=["created_at"], default="")
-    updatedAt: str = theorydb_field(roles=["updated_at"], default="")
-    version: int | None = theorydb_field(roles=["version"], default=None)
-    ttl: int | None = theorydb_field(roles=["ttl"], omitempty=True, default=None)
+def _to_python_kwargs(model: str, item: dict[str, Any]) -> dict[str, Any]:
+    by_attribute = {
+        attr.attribute_name: attr.python_name
+        for attr in _MODEL_DEFINITIONS[model].attributes.values()
+    }
+    return {by_attribute.get(key, key): value for key, value in item.items()}
 
 
-@dataclass(frozen=True)
-class _NumberPrecision:
-    PK: str = theorydb_field(name="PK", roles=["pk"])
-    SK: str = theorydb_field(name="SK", roles=["sk"])
-    largeInteger: Decimal = Decimal(0)
-    preciseDecimal: Decimal = Decimal(0)
+def _to_attribute_item(model: str, item: dict[str, Any]) -> dict[str, Any]:
+    by_python = {
+        attr.python_name: attr.attribute_name
+        for attr in _MODEL_DEFINITIONS[model].attributes.values()
+    }
+    return {by_python.get(key, key): value for key, value in item.items()}
 
 
-@dataclass(frozen=True)
-class _TypeMatrix:
-    PK: str = theorydb_field(name="PK", roles=["pk"])
-    SK: str = theorydb_field(name="SK", roles=["sk"])
-    numberSet: set[Decimal] | None = theorydb_field(set_=True, default=None)
-    binaryBlob: bytes | None = theorydb_field(default=None)
-    binarySet: set[bytes] | None = theorydb_field(set_=True, default=None)
-    flag: bool | None = None
-    nothing: Any = None
-    items: list[Any] | None = None
-    metadata: dict[str, Any] | None = None
-    emptyNumberSet: set[Decimal] | None = theorydb_field(set_=True, default=None)
-    emptyBinarySet: set[bytes] | None = theorydb_field(set_=True, default=None)
-    optionalString: str | None = None
-
-
-@dataclass(frozen=True)
-class _SnakeCaseRecord:
-    pk: str = theorydb_field(roles=["pk"])
-    sk: str = theorydb_field(roles=["sk"])
-    display_name: str | None = None
-    email_hash: str | None = None
-
-
-@dataclass(frozen=True)
-class _EncryptedRecord:
-    PK: str = theorydb_field(name="PK", roles=["pk"])
-    SK: str = theorydb_field(name="SK", roles=["sk"])
-    secret: str | None = theorydb_field(encrypted=True, default=None)
-
-
-@dataclass(frozen=True)
-class _ReleaseStateActual:
-    PK: str = theorydb_field(name="PK", roles=["pk"])
-    SK: str = theorydb_field(name="SK", roles=["sk"])
-    status: str | None = theorydb_field(omitempty=True, default=None)
-    pinnedReleaseId: str | None = theorydb_field(omitempty=True, default=None)
-    previousReleaseId: str | None = theorydb_field(omitempty=True, default=None)
-    provenance: dict[str, Any] | None = theorydb_field(json=True, omitempty=True, default=None)
-    confidence: dict[str, Any] | None = theorydb_field(json=True, omitempty=True, default=None)
-    updatedAt: str = theorydb_field(roles=["updated_at"], default="")
-    version: int | None = theorydb_field(roles=["version"], default=None)
-
-
-@dataclass(frozen=True)
-class _ReleaseStateEvent:
-    PK: str = theorydb_field(name="PK", roles=["pk"])
-    SK: str = theorydb_field(name="SK", roles=["sk"])
-    releaseId: str | None = theorydb_field(omitempty=True, default=None)
-    eventType: str | None = theorydb_field(omitempty=True, default=None)
-    provenance: dict[str, Any] | None = theorydb_field(json=True, omitempty=True, default=None)
-    confidence: dict[str, Any] | None = theorydb_field(json=True, omitempty=True, default=None)
-    recordedAt: str | None = theorydb_field(omitempty=True, default=None)
-    ttl: int | None = theorydb_field(roles=["ttl"], omitempty=True, default=None)
+def _to_python_field_list(model: str, fields: list[str] | None) -> list[str] | None:
+    if fields is None:
+        return None
+    by_attribute = {
+        attr.attribute_name: attr.python_name
+        for attr in _MODEL_DEFINITIONS[model].attributes.values()
+    }
+    return [by_attribute.get(field, field) for field in fields]
 
 
 class _DeterministicEncryptionMaterial:
@@ -176,7 +165,7 @@ class _DeterministicEncryptionMaterial:
 
     def next_bytes(self, label: str, n: int) -> bytes:
         self._counter += 1
-        digest = hmac.new(self._master, f"{label}|{self._counter}".encode("utf-8"), hashlib.sha256).digest()
+        digest = hmac.new(self._master, f"{label}|{self._counter}".encode(), hashlib.sha256).digest()
         return digest[:n]
 
     def data_key(self, edk: bytes) -> bytes:
@@ -213,66 +202,9 @@ class _TheorydbPyDriver:
         self.client = client
         self.encryption = _deterministic_encryption_material(encryption)
         self.tables: dict[str, Table[Any]] = {
-            "User": Table(
-                ModelDefinition.from_dataclass(
-                    _User,
-                    table_name="users_contract",
-                    indexes=[gsi("gsi-email", partition="emailHash", projection=Projection.keys_only())],
-                ),
-                client=client,
-            ),
-            "Order": Table(
-                ModelDefinition.from_dataclass(
-                    _Order,
-                    table_name="orders_contract",
-                    indexes=[
-                        gsi(
-                            "gsi-status",
-                            partition="status",
-                            sort="createdAt",
-                            projection=Projection.include("amount"),
-                        )
-                    ],
-                ),
-                client=client,
-            ),
-            "NumberPrecision": Table(
-                ModelDefinition.from_dataclass(
-                    _NumberPrecision,
-                    table_name="number_precision_contract",
-                ),
-                client=client,
-            ),
-            "TypeMatrix": Table(
-                ModelDefinition.from_dataclass(
-                    _TypeMatrix,
-                    table_name="type_matrix_contract",
-                ),
-                client=client,
-            ),
-            "SnakeCaseRecord": Table(
-                ModelDefinition.from_dataclass(
-                    _SnakeCaseRecord,
-                    table_name="snake_case_contract",
-                ),
-                client=client,
-            ),
-            "ReleaseStateActual": Table(
-                ModelDefinition.from_dataclass(
-                    _ReleaseStateActual,
-                    table_name="release_state_contract",
-                    write_policy=WritePolicy(mode="mutable", protected_attributes=["pinnedReleaseId"]),
-                ),
-                client=client,
-            ),
-            "ReleaseStateEvent": Table(
-                ModelDefinition.from_dataclass(
-                    _ReleaseStateEvent,
-                    table_name="release_state_contract",
-                    write_policy=WritePolicy(mode="write_once"),
-                ),
-                client=client,
-            ),
+            name: Table(definition, client=client)
+            for name, definition in _MODEL_DEFINITIONS.items()
+            if name != "EncryptedRecord"
         }
 
     def _table(self, model: str) -> Table[Any]:
@@ -285,10 +217,7 @@ class _TheorydbPyDriver:
                     "rand_bytes": self.encryption.rand_bytes,
                 }
             return Table(
-                ModelDefinition.from_dataclass(
-                    _EncryptedRecord,
-                    table_name="encrypted_records_contract",
-                ),
+                EncryptedRecordDefinition,
                 client=self.client,
                 **kwargs,
             )
@@ -307,14 +236,14 @@ class _TheorydbPyDriver:
 
     def get(self, model: str, key: dict[str, Any]) -> dict[str, Any]:
         table = self._table(model)
-        return _contract_item(table.get(_pk_value(key), _sk_value(key), consistent_read=True))
+        return _contract_item(model, table.get(_pk_value(key), _sk_value(key), consistent_read=True))
 
     def get_optional(self, model: str, key: dict[str, Any]) -> dict[str, Any] | None:
         table = self._table(model)
         item = table.get_or_none(_pk_value(key), _sk_value(key), consistent_read=True)
         if item is None:
             return None
-        return _contract_item(item)
+        return _contract_item(model, item)
 
     def update(
         self,
@@ -325,7 +254,7 @@ class _TheorydbPyDriver:
         protected_attributes: list[str] | None = None,
     ) -> None:
         table = self._table(model)
-        updates = {field: item[field] for field in fields if field in item}
+        updates = _to_python_kwargs(model, {field: item[field] for field in fields if field in item})
         expected_version = _expected_version(table, item)
         table.update(
             _pk_value(item),
@@ -354,10 +283,10 @@ class _TheorydbPyDriver:
             cursor=request.get("cursor"),
             scan_forward=_scan_forward(request.get("sort_direction")),
             consistent_read=bool(request.get("consistent_read", False)),
-            projection=request.get("projection"),
-            filter=_filter_expression(request.get("filter", [])),
+            projection=_to_python_field_list(model, request.get("projection")),
+            filter=_filter_expression(model, request.get("filter", [])),
         )
-        return {"items": [_contract_item(item) for item in page.items], "cursor": page.next_cursor}
+        return {"items": [_contract_item(model, item) for item in page.items], "cursor": page.next_cursor}
 
     def scan(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
         page = self._table(model).scan(
@@ -365,10 +294,10 @@ class _TheorydbPyDriver:
             limit=request.get("limit"),
             cursor=request.get("cursor"),
             consistent_read=bool(request.get("consistent_read", False)),
-            projection=request.get("projection"),
-            filter=_filter_expression(request.get("filter", [])),
+            projection=_to_python_field_list(model, request.get("projection")),
+            filter=_filter_expression(model, request.get("filter", [])),
         )
-        return {"items": [_contract_item(item) for item in page.items], "cursor": page.next_cursor}
+        return {"items": [_contract_item(model, item) for item in page.items], "cursor": page.next_cursor}
 
     def count_query(self, model: str, request: dict[str, Any]) -> dict[str, Any]:
         partition = request.get("partition")
@@ -382,8 +311,8 @@ class _TheorydbPyDriver:
             cursor=request.get("cursor"),
             scan_forward=_scan_forward(request.get("sort_direction")),
             consistent_read=bool(request.get("consistent_read", False)),
-            projection=request.get("projection"),
-            filter=_filter_expression(request.get("filter", [])),
+            projection=_to_python_field_list(model, request.get("projection")),
+            filter=_filter_expression(model, request.get("filter", [])),
         )
         return {"items": [], "count": count}
 
@@ -393,8 +322,8 @@ class _TheorydbPyDriver:
             limit=request.get("limit"),
             cursor=request.get("cursor"),
             consistent_read=bool(request.get("consistent_read", False)),
-            projection=request.get("projection"),
-            filter=_filter_expression(request.get("filter", [])),
+            projection=_to_python_field_list(model, request.get("projection")),
+            filter=_filter_expression(model, request.get("filter", [])),
         )
         return {"items": [], "count": count}
 
@@ -402,11 +331,11 @@ class _TheorydbPyDriver:
         table = self._table(model)
         keys = [_key_tuple(item["key"]) for item in items]
         rows = table.transact_get(keys)
-        return {"items": [_contract_item(item) for item in rows if item is not None]}
+        return {"items": [_contract_item(model, item) for item in rows if item is not None]}
 
     def batch_get(self, model: str, keys: list[dict[str, Any]]) -> dict[str, Any]:
         rows = self._table(model).batch_get([_key_tuple(key) for key in keys], consistent_read=True)
-        return {"items": [_contract_item(item) for item in rows]}
+        return {"items": [_contract_item(model, item) for item in rows]}
 
     def batch_write(
         self,
@@ -443,7 +372,7 @@ class _TheorydbPyDriver:
             return TransactUpdate(
                 pk=pk,
                 sk=sk,
-                updates=action.get("set", {}),
+                updates=_to_python_kwargs(model, action.get("set", {})),
                 condition_expression=condition_expression,
                 expression_attribute_names=names,
                 expression_attribute_values=values,
@@ -496,16 +425,12 @@ class _TheorydbPyDriver:
         if model == "User":
             if "tags" in kwargs and kwargs["tags"] is not None:
                 kwargs["tags"] = set(cast(list[str], kwargs["tags"]))
-            return _User(**kwargs)
-        if model == "Order":
-            return _Order(**kwargs)
-        if model == "NumberPrecision":
+        elif model == "NumberPrecision":
             if "largeInteger" in kwargs and kwargs["largeInteger"] is not None:
                 kwargs["largeInteger"] = Decimal(str(kwargs["largeInteger"]))
             if "preciseDecimal" in kwargs and kwargs["preciseDecimal"] is not None:
                 kwargs["preciseDecimal"] = Decimal(str(kwargs["preciseDecimal"]))
-            return _NumberPrecision(**kwargs)
-        if model == "TypeMatrix":
+        elif model == "TypeMatrix":
             if "numberSet" in kwargs and kwargs["numberSet"] is not None:
                 kwargs["numberSet"] = {Decimal(str(item)) for item in cast(list[Any], kwargs["numberSet"])}
             if "binaryBlob" in kwargs and kwargs["binaryBlob"] is not None:
@@ -522,16 +447,9 @@ class _TheorydbPyDriver:
                 kwargs["emptyBinarySet"] = {
                     base64.b64decode(cast(str, item)) for item in cast(list[Any], kwargs["emptyBinarySet"])
                 }
-            return _TypeMatrix(**kwargs)
-        if model == "SnakeCaseRecord":
-            return _SnakeCaseRecord(**kwargs)
-        if model == "EncryptedRecord":
-            return _EncryptedRecord(**kwargs)
-        if model == "ReleaseStateActual":
-            return _ReleaseStateActual(**kwargs)
-        if model == "ReleaseStateEvent":
-            return _ReleaseStateEvent(**kwargs)
-        raise AssertionError(f"unknown model: {model}")
+        if model not in _MODEL_CLASSES:
+            raise AssertionError(f"unknown model: {model}")
+        return _MODEL_CLASSES[model](**_to_python_kwargs(model, kwargs))
 
 
 @pytest.mark.parametrize("scenario", _load_scenarios(), ids=lambda scenario: str(scenario["name"]))
@@ -697,8 +615,8 @@ def _sort_condition(condition: dict[str, Any] | None) -> SortKeyCondition | None
     raise ValidationError(f"unsupported sort operator: {condition['operator']}")
 
 
-def _filter_expression(conditions: list[dict[str, Any]]) -> Any:
-    filters = [_filter_condition(condition) for condition in conditions]
+def _filter_expression(model: str, conditions: list[dict[str, Any]]) -> Any:
+    filters = [_filter_condition(model, condition) for condition in conditions]
     if not filters:
         return None
     if len(filters) == 1:
@@ -706,9 +624,9 @@ def _filter_expression(conditions: list[dict[str, Any]]) -> Any:
     return FilterGroup.and_(*filters)
 
 
-def _filter_condition(condition: dict[str, Any]) -> FilterCondition:
+def _filter_condition(model: str, condition: dict[str, Any]) -> FilterCondition:
     values = _condition_values(condition)
-    field = condition["attribute"]
+    field = _to_python_field_list(model, [condition["attribute"]])[0]
     op = str(condition["operator"]).lower()
     if op == "=":
         return FilterCondition.eq(field, values[0])
@@ -1208,9 +1126,9 @@ def _expected_version(table: Table[Any], item: dict[str, Any]) -> int | None:
     return None
 
 
-def _contract_item(value: Any) -> dict[str, Any]:
+def _contract_item(model: str, value: Any) -> dict[str, Any]:
     if is_dataclass(value):
-        return _normalize_contract_value(asdict(value))
+        return _normalize_contract_value(_to_attribute_item(model, asdict(value)))
     assert isinstance(value, dict)
     return _normalize_contract_value(value)
 
