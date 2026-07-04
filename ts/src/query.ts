@@ -36,7 +36,11 @@ import {
   type UnmarshalOptions,
 } from './marshal.js';
 import type { AttributeSchema, IndexSchema, Model } from './model.js';
-import type { BuilderShape } from './optimizer.js';
+import type {
+  BuilderShape,
+  OptimizerCondition,
+  OptimizerIndexShape,
+} from './optimizer.js';
 import { mapConcurrent } from './query-concurrency.js';
 import {
   collectAllItems,
@@ -71,6 +75,7 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
     names: Record<string, string>;
     values: Record<string, AttributeValue>;
     namePlaceholders: Map<string, string>;
+    optimizerConditions: OptimizerCondition[];
   };
 
   constructor(
@@ -85,6 +90,7 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
         names: {},
         values: {},
         namePlaceholders: new Map<string, string>(),
+        optimizerConditions: [],
       } satisfies FilterExpressionBuilder['state']);
   }
 
@@ -117,6 +123,10 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
       names: this.state.names,
       values: this.state.values,
     };
+  }
+
+  optimizerConditions(): OptimizerCondition[] {
+    return this.state.optimizerConditions.slice();
   }
 
   private addGroup(
@@ -155,6 +165,7 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
     const upper = op.toUpperCase();
 
     const expr = this.buildConditionExpr(nameRef, schema, upper, values);
+    this.state.optimizerConditions.push({ field, operator: upper });
     this.append(logicalOp, expr);
   }
 
@@ -268,6 +279,44 @@ type SortKeyCondition = {
   op: '=' | '<' | '<=' | '>' | '>=' | 'between' | 'begins_with';
   values: unknown[];
 };
+
+function optimizerIndexesForModel(model: Model): OptimizerIndexShape[] {
+  return [
+    {
+      type: 'PRIMARY',
+      partition: model.schema.keys.partition.attribute,
+      ...(model.schema.keys.sort?.attribute
+        ? { sort: model.schema.keys.sort.attribute }
+        : {}),
+      projectionType: 'ALL',
+    },
+    ...Array.from(model.indexes.values(), (idx) => ({
+      name: idx.name,
+      type: idx.type,
+      partition: idx.partition.attribute,
+      ...(idx.sort?.attribute ? { sort: idx.sort.attribute } : {}),
+      ...(idx.projection?.type ? { projectionType: idx.projection.type } : {}),
+    })),
+  ];
+}
+
+function optimizerQueryConditions(args: {
+  pkName: string;
+  hasPartitionKey: boolean;
+  skName: string | undefined;
+  skCondition: SortKeyCondition | undefined;
+  filters: FilterExpressionBuilder;
+}): OptimizerCondition[] {
+  const conditions: OptimizerCondition[] = [];
+  if (args.hasPartitionKey) {
+    conditions.push({ field: args.pkName, operator: '=' });
+  }
+  if (args.skName && args.skCondition) {
+    conditions.push({ field: args.skName, operator: args.skCondition.op });
+  }
+  conditions.push(...args.filters.optimizerConditions());
+  return conditions;
+}
 
 export class QueryBuilder<
   TItem extends Record<string, unknown> = Record<string, unknown>,
@@ -689,6 +738,16 @@ export class QueryBuilder<
         : {}),
       consistentRead: this.consistentReadEnabled,
       sort: this.sortDir,
+      indexes: optimizerIndexesForModel(this.model),
+      conditions: optimizerQueryConditions({
+        pkName:
+          index?.partition.attribute ??
+          this.model.schema.keys.partition.attribute,
+        hasPartitionKey: this.pkValue !== undefined,
+        skName,
+        skCondition: this.skCondition,
+        filters: this.filters,
+      }),
     };
   }
 
@@ -1213,6 +1272,8 @@ export class ScanBuilder<
       ...(this.totalSegments !== undefined
         ? { totalSegments: this.totalSegments }
         : {}),
+      indexes: optimizerIndexesForModel(this.model),
+      conditions: this.filters.optimizerConditions(),
     };
   }
 

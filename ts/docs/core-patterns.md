@@ -204,6 +204,27 @@ const page = await db
 Do not set `consistentRead(true)` on a GSI query; DynamoDB rejects strongly consistent GSI reads and TableTheory surfaces
 that as `ErrInvalidOperator`.
 
+### Query optimizer explanation
+
+`QueryOptimizer.explain(builder.describe())` now runs the same condition-analysis shape as the Go selector: equality
+conditions identify partition-key candidates, the first non-partition condition becomes the sort-key candidate, and indexes
+are scored by partition match, sort-key operator, GSI isolation, and projection coverage. Use it as an explanation aid before
+choosing `.usingIndex(...)`; it does not mutate a builder or hide DynamoDB's explicit access-pattern requirements.
+
+```ts
+import { QueryOptimizer } from '@theory-cloud/tabletheory-ts';
+
+const optimizer = new QueryOptimizer();
+const plan = optimizer.explain(
+  db
+    .scan('UserByEmail')
+    .filter('GSI1PK', '=', 'EMAIL#ada@example.com')
+    .describe(),
+);
+
+// plan.operation === 'Query' and plan.indexName === 'gsi_email' when the model declares that GSI.
+```
+
 ## Pattern: Fail-closed encryption
 
 Encrypted attributes use an explicit `EncryptionProvider`. The runtime fails closed: if any registered model has an

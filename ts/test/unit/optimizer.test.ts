@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
+import { test } from 'node:test';
 
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 
 import { TheorydbClient } from '../../src/client.js';
 import { defineModel } from '../../src/model.js';
-import { QueryOptimizer } from '../../src/optimizer.js';
+import {
+  analyzeConditions,
+  QueryOptimizer,
+  selectOptimalIndex,
+} from '../../src/optimizer.js';
 
 class StubDdb {
   async send(): Promise<unknown> {
@@ -34,7 +39,7 @@ const User = defineModel({
   ],
 });
 
-{
+void test('optimizer reports missing query partition key deterministically', () => {
   const client = new TheorydbClient(new StubDdb() as unknown as DynamoDBClient)
     .register(User)
     .withSendOptions(undefined);
@@ -48,15 +53,15 @@ const User = defineModel({
 
   const plan2 = optimizer.explain(builder.describe());
   assert.equal(plan.id, plan2.id);
-}
+});
 
-{
+void test('optimizer preserves scan warnings when no indexable condition exists', () => {
   const client = new TheorydbClient(new StubDdb() as unknown as DynamoDBClient)
     .register(User)
     .withSendOptions(undefined);
 
   const optimizer = new QueryOptimizer({ maxParallelism: 3 });
-  const scan = client.scan('UserOpt').filter('emailHash', '=', 'x');
+  const scan = client.scan('UserOpt').filter('emailHash', 'CONTAINS', 'x');
   const plan = optimizer.explain(scan.describe());
 
   assert.equal(plan.operation, 'Scan');
@@ -66,9 +71,9 @@ const User = defineModel({
   assert.ok(
     plan.optimizationHints.some((h) => h.includes('scanAllSegments(3)')),
   );
-}
+});
 
-{
+void test('optimizer omits projection hint when projection is present', () => {
   const client = new TheorydbClient(new StubDdb() as unknown as DynamoDBClient)
     .register(User)
     .withSendOptions(undefined);
@@ -81,4 +86,71 @@ const User = defineModel({
   const plan = optimizer.explain(query.describe());
 
   assert.ok(!plan.optimizationHints.some((h) => h.includes('projection()')));
-}
+});
+
+void test('optimizer selects indexes using Go-compatible condition analysis', () => {
+  const required = analyzeConditions([
+    { field: 'createdAt', operator: 'BETWEEN' },
+    { field: 'emailHash', operator: 'EQ' },
+  ]);
+
+  assert.deepEqual(required, {
+    partitionKey: 'emailHash',
+    sortKey: 'createdAt',
+    sortKeyOp: 'between',
+  });
+
+  const selected = selectOptimalIndex(required, [
+    {
+      type: 'PRIMARY',
+      partition: 'PK',
+      sort: 'SK',
+      projectionType: 'ALL',
+    },
+    {
+      name: 'gsi-email',
+      type: 'GSI',
+      partition: 'emailHash',
+      projectionType: 'ALL',
+    },
+  ]);
+
+  assert.equal(selected?.name, 'gsi-email');
+});
+
+void test('optimizer explain selects GSI from query filter conditions', () => {
+  const client = new TheorydbClient(new StubDdb() as unknown as DynamoDBClient)
+    .register(User)
+    .withSendOptions(undefined);
+
+  const optimizer = new QueryOptimizer();
+  const query = client.query('UserOpt').filter('emailHash', '=', 'x');
+  const plan = optimizer.explain(query.describe());
+
+  assert.equal(plan.operation, 'Query');
+  assert.equal(plan.indexName, 'gsi-email');
+  assert.ok(
+    plan.optimizationHints.some((h) => h.includes('selected GSI gsi-email')),
+  );
+});
+
+void test('optimizer explain keeps primary index when partition key is set', () => {
+  const client = new TheorydbClient(new StubDdb() as unknown as DynamoDBClient)
+    .register(User)
+    .withSendOptions(undefined);
+
+  const optimizer = new QueryOptimizer();
+  const query = client
+    .query('UserOpt')
+    .partitionKey('USER#1')
+    .filter('emailHash', '=', 'x');
+  const plan = optimizer.explain(query.describe());
+
+  assert.equal(plan.operation, 'Query');
+  assert.equal(plan.indexName, undefined);
+  assert.ok(
+    plan.optimizationHints.some((h) =>
+      h.includes('selected the table primary'),
+    ),
+  );
+});

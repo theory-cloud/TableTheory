@@ -602,6 +602,17 @@ export interface OptimizationOptions {
     enableParallel?: boolean;
     maxParallelism?: number;
 }
+export interface OptimizerCondition {
+    field: string;
+    operator: string;
+}
+export interface OptimizerIndexShape {
+    name?: string;
+    type: 'PRIMARY' | 'GSI' | 'LSI';
+    partition: string;
+    sort?: string;
+    projectionType?: 'ALL' | 'KEYS_ONLY' | 'INCLUDE';
+}
 export type BuilderShape = {
     kind: 'query';
     modelName: string;
@@ -615,6 +626,8 @@ export type BuilderShape = {
     projections?: string[];
     consistentRead: boolean;
     sort: 'ASC' | 'DESC';
+    indexes?: OptimizerIndexShape[];
+    conditions?: OptimizerCondition[];
 } | {
     kind: 'scan';
     modelName: string;
@@ -626,13 +639,22 @@ export type BuilderShape = {
     consistentRead: boolean;
     parallelScanConfigured: boolean;
     totalSegments?: number;
+    indexes?: OptimizerIndexShape[];
+    conditions?: OptimizerCondition[];
 };
+export interface RequiredKeys {
+    partitionKey: string;
+    sortKey: string;
+    sortKeyOp: string;
+}
 export declare class QueryOptimizer {
     private readonly enableParallel;
     private readonly maxParallelism;
     constructor(opts?: OptimizationOptions);
     explain(shape: BuilderShape): QueryPlan;
 }
+export declare function analyzeConditions(conditions: readonly OptimizerCondition[]): RequiredKeys;
+export declare function selectOptimalIndex(required: RequiredKeys, indexes: readonly OptimizerIndexShape[]): OptimizerIndexShape | undefined;
 ```
 
 ### `encryption`
