@@ -8,8 +8,10 @@ import { defineModel } from '../../src/model.js';
 import {
   createDeterministicEncryptionProvider,
   createMockDynamoDBClient,
+  createStatefulDynamoDBClient,
   fixedNow,
 } from '../../src/testkit/index.js';
+import { hasTheorydbErrorCode } from '../../src/errors.js';
 
 function assertInstanceOf<T>(
   value: unknown,
@@ -116,4 +118,70 @@ test('createDeterministicEncryptionProvider round-trips + binds AAD to attribute
   await assert.rejects(() =>
     provider.decrypt(env, { model: 'T', attribute: 'other' }),
   );
+});
+
+test('createStatefulDynamoDBClient stores, queries, and checks versions', async () => {
+  const stateful = createStatefulDynamoDBClient();
+  const model = defineModel({
+    name: 'T',
+    table: { name: 'stateful_t' },
+    keys: {
+      partition: { attribute: 'PK', type: 'S' },
+      sort: { attribute: 'SK', type: 'S' },
+    },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'SK', type: 'S', roles: ['sk'] },
+      { attribute: 'emailHash', type: 'S', optional: true },
+      { attribute: 'name', type: 'S', optional: true },
+      { attribute: 'createdAt', type: 'S', roles: ['created_at'] },
+      { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
+      { attribute: 'version', type: 'N', roles: ['version'] },
+      { attribute: 'ttl', type: 'N', roles: ['ttl'], optional: true },
+    ],
+  });
+  const now = '2026-07-04T00:00:00.000000000Z';
+  const client = new TheorydbClient(stateful.client, {
+    now: fixedNow(now),
+  }).register(model);
+
+  await client.create('T', {
+    PK: 'USER#1',
+    SK: 'PROFILE',
+    emailHash: 'test@example',
+    name: 'one',
+    ttl: 1_700_000_000,
+  });
+
+  const page = await client
+    .query('T')
+    .partitionKey('USER#1')
+    .sortKey('begins_with', 'PRO')
+    .filter('emailHash', '=', 'test@example')
+    .all();
+  assert.equal(page.length, 1);
+  assert.equal(page[0]?.name, 'one');
+  assert.equal(page[0]?.version, 0);
+  assert.equal(page[0]?.createdAt, now);
+
+  await client.update(
+    'T',
+    { PK: 'USER#1', SK: 'PROFILE', name: 'two', version: 0 },
+    ['name'],
+  );
+  await assert.rejects(
+    () =>
+      client.update(
+        'T',
+        { PK: 'USER#1', SK: 'PROFILE', name: 'stale', version: 0 },
+        ['name'],
+      ),
+    (err) =>
+      hasTheorydbErrorCode(err, 'ErrConditionFailed') &&
+      hasTheorydbErrorCode(err, 'ErrVersionConflict'),
+  );
+
+  const got = await client.get('T', { PK: 'USER#1', SK: 'PROFILE' });
+  assert.equal(got.name, 'two');
+  assert.equal(got.version, 1);
 });
