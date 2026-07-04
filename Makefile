@@ -190,6 +190,10 @@ verify-ci-toolchain:
 verify-planning-docs:
 	@./scripts/verify-planning-docs.sh
 
+# Smoke test the `tabletheory init` Go scaffold against DynamoDB Local (requires Docker).
+init-smoke:
+	@bash ./scripts/verify-init-scaffold.sh
+
 sec:
 	@./scripts/sec-gosec.sh
 	@./scripts/sec-govulncheck.sh
@@ -267,6 +271,7 @@ help:
 	@echo "  make verify-go-modules - Compile all Go modules"
 	@echo "  make verify-ci-toolchain - Verify CI toolchain alignment"
 	@echo "  make verify-planning-docs - Verify planning docs exist"
+	@echo "  make init-smoke  - Smoke test the 'tabletheory init' Go scaffold (requires Docker)"
 	@echo "  make sec         - Run security gates (gosec + govulncheck + go mod verify)"
 	@echo "  make rubric      - Run full rubric gate set"
 	@echo "  make rubric-fast - Run fast contributor gates (format/lint/unit/docs; no Docker)"

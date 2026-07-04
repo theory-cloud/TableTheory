@@ -31,6 +31,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) error {
 		return validate(args[1:], stdout, stderr)
 	case "gen":
 		return generate(args[1:], stdout, stderr)
+	case "init":
+		return initScaffold(args[1:], stdout, stderr)
 	case "contract":
 		return contract(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
@@ -204,6 +206,7 @@ func usageText() string {
 	return `Usage:
   tabletheory validate <dms.yml>
   tabletheory gen --lang <go|ts|py> [--model <name>] [--out <file>] <dms.yml>
+  tabletheory init --lang <go|ts|py> [--dir <path>] [--module <name>] [--force]
   tabletheory contract generate-ts --contract <file> --out <file> [--runtime-import <module>]
 `
 }
