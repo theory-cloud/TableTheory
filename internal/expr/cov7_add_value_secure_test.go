@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/stretchr/testify/require"
+	"github.com/theory-cloud/tabletheory/internal/anonymous"
 )
 
 type cov7Converter struct {
@@ -139,8 +141,8 @@ func TestFlatAnonymousEmbedEncodingHelpers_COV7(t *testing.T) {
 		FlatAnonymousEmbedEncoding: true,
 	}))
 
-	require.False(t, converterRequestsFlatAnonymousEmbeds(nil))
-	require.False(t, converterRequestsFlatAnonymousEmbeds(struct{}{}))
-	require.False(t, converterRequestsFlatAnonymousEmbeds(&cov7Converter{}))
-	require.True(t, converterRequestsFlatAnonymousEmbeds(&cov7Converter{flat: true}))
+	require.False(t, anonymous.RequestsFlatEncoding(nil))
+	require.False(t, anonymous.RequestsFlatEncoding(struct{}{}))
+	require.False(t, anonymous.RequestsFlatEncoding(&cov7Converter{}))
+	require.True(t, anonymous.RequestsFlatEncoding(&cov7Converter{flat: true}))
 }

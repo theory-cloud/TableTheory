@@ -26,19 +26,6 @@ type ConvertOptions struct {
 	FixedFloatFormat bool
 }
 
-type flatAnonymousEmbedEncodingLookup interface {
-	FlatAnonymousEmbedEncodingEnabled() bool
-}
-
 func convertOptionsRequestFlatAnonymousEmbeds(opts ConvertOptions) bool {
 	return opts.FlatAnonymousEmbedEncoding
-}
-
-func converterRequestsFlatAnonymousEmbeds(converter any) bool {
-	if converter == nil {
-		return false
-	}
-
-	lookup, ok := converter.(flatAnonymousEmbedEncodingLookup)
-	return ok && lookup.FlatAnonymousEmbedEncodingEnabled()
 }

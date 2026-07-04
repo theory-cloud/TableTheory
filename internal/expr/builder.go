@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/anonymous"
 	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/validation"
 )
@@ -780,7 +781,7 @@ func (b *Builder) addValueSecure(value any) (string, error) {
 			return placeholder, nil
 		}
 
-		if converterRequestsFlatAnonymousEmbeds(b.converter) {
+		if anonymous.RequestsFlatEncoding(b.converter) {
 			if err := validation.ValidateValue(value); err != nil {
 				return "", fmt.Errorf("security validation failed: %w", err)
 			}

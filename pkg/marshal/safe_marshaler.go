@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/anonymous"
 	"github.com/theory-cloud/tabletheory/internal/expr"
 	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/pkg/model"
@@ -204,7 +205,7 @@ func (m *SafeMarshaler) marshalValue(v reflect.Value, fieldMeta *safeFieldMarsha
 			return nil, err
 		}
 		return expr.ConvertToAttributeValueWithOptions(normalized, expr.ConvertOptions{
-			FlatAnonymousEmbedEncoding: converterRequestsFlatAnonymousEmbeds(m.converter),
+			FlatAnonymousEmbedEncoding: anonymous.RequestsFlatEncoding(m.converter),
 		})
 	}
 
@@ -415,7 +416,7 @@ func (m *SafeMarshaler) marshalMap(v reflect.Value, fieldMeta *safeFieldMarshale
 func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	typ := v.Type()
 	convention := resolveNestedNamingConvention(typ, fieldMeta)
-	flattenAnonymousEmbeds := converterRequestsFlatAnonymousEmbeds(m.converter)
+	flattenAnonymousEmbeds := anonymous.RequestsFlatEncoding(m.converter)
 	fieldPlans, err := buildMarshalVisibleFieldPlans(typ, m.converter)
 	if err != nil {
 		return nil, err
@@ -443,13 +444,13 @@ func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarsh
 		if skip {
 			continue
 		}
-		containerNames, skip := marshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
+		containerNames, skip := anonymous.MarshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
 			return resolveNestedFieldName(field, convention)
 		}, flattenAnonymousEmbeds)
 		if skip {
 			continue
 		}
-		if err := setMarshaledAttributeValue(structMap, containerNames, attrName, av, flattenAnonymousEmbeds); err != nil {
+		if err := anonymous.SetMarshaledAttributeValue(structMap, containerNames, attrName, av, flattenAnonymousEmbeds); err != nil {
 			return nil, fmt.Errorf("struct field %s: %w", fieldPlan.Field.Name, err)
 		}
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/anonymous"
 	"github.com/theory-cloud/tabletheory/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
@@ -189,59 +190,19 @@ func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConve
 			return nil, fmt.Errorf("failed to convert field %s: %w", fieldPlan.Field.Name, err)
 		}
 
-		containerNames, skip := exprMarshalContainerNames(t, fieldPlan.IndexPath, convention, opts)
+		containerNames, skip := anonymous.MarshalContainerNamesForField(t, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
+			name, _, _, ok := marshalFieldNameAndTags(field, convention, true, opts)
+			return name, !ok
+		}, convertOptionsRequestFlatAnonymousEmbeds(opts))
 		if skip {
 			continue
 		}
-		if err := setExprMarshaledFieldValue(m, containerNames, fieldName, av); err != nil {
+		if err := anonymous.SetMarshaledAttributeValue(m, containerNames, fieldName, av, convertOptionsRequestFlatAnonymousEmbeds(opts)); err != nil {
 			return nil, fmt.Errorf("failed to convert field %s: %w", fieldPlan.Field.Name, err)
 		}
 	}
 
 	return &types.AttributeValueMemberM{Value: m}, nil
-}
-
-func exprMarshalContainerNames(modelType reflect.Type, indexPath []int, convention naming.Convention, opts ConvertOptions) ([]string, bool) {
-	if convertOptionsRequestFlatAnonymousEmbeds(opts) {
-		return nil, false
-	}
-	if len(indexPath) <= 1 {
-		return nil, false
-	}
-
-	names := make([]string, 0, len(indexPath)-1)
-	for depth := 1; depth < len(indexPath); depth++ {
-		containerField := modelType.FieldByIndex(indexPath[:depth])
-		containerName, _, _, ok := marshalFieldNameAndTags(containerField, convention, true, opts)
-		if !ok {
-			return nil, true
-		}
-		names = append(names, containerName)
-	}
-
-	return names, false
-}
-
-func setExprMarshaledFieldValue(root map[string]types.AttributeValue, containerNames []string, fieldName string, av types.AttributeValue) error {
-	current := root
-	for _, containerName := range containerNames {
-		existing, ok := current[containerName]
-		if !ok {
-			child := make(map[string]types.AttributeValue)
-			current[containerName] = &types.AttributeValueMemberM{Value: child}
-			current = child
-			continue
-		}
-
-		nested, ok := existing.(*types.AttributeValueMemberM)
-		if !ok {
-			return fmt.Errorf("legacy anonymous container %s must marshal as map, got %T", containerName, existing)
-		}
-		current = nested.Value
-	}
-
-	current[fieldName] = av
-	return nil
 }
 
 func marshalFieldNameAndTags(field reflect.StructField, convention naming.Convention, useTheorydbNaming bool, opts ConvertOptions) (string, string, string, bool) {

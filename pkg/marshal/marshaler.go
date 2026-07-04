@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/anonymous"
 	"github.com/theory-cloud/tabletheory/internal/expr"
 	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/internal/reflectutil"
@@ -319,7 +320,7 @@ func (m *Marshaler) buildJSONMarshalFunc(typ reflect.Type, fieldMeta *model.Fiel
 		}
 
 		return expr.ConvertToAttributeValueWithOptions(normalized, expr.ConvertOptions{
-			FlatAnonymousEmbedEncoding: converterRequestsFlatAnonymousEmbeds(m.converter),
+			FlatAnonymousEmbedEncoding: anonymous.RequestsFlatEncoding(m.converter),
 		})
 	}
 }
@@ -538,7 +539,7 @@ func (m *Marshaler) marshalStructComplex(v reflect.Value) (types.AttributeValue,
 
 func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, error) {
 	typ := v.Type()
-	flattenAnonymousEmbeds := converterRequestsFlatAnonymousEmbeds(m.converter)
+	flattenAnonymousEmbeds := anonymous.RequestsFlatEncoding(m.converter)
 	fieldPlans, err := buildMarshalVisibleFieldPlans(typ, m.converter)
 	if err != nil {
 		return nil, err
@@ -565,13 +566,13 @@ func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, e
 		if skip {
 			continue
 		}
-		containerNames, skip := marshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
+		containerNames, skip := anonymous.MarshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
 			return resolveMarshalStructFieldName(field, m.namingConvention)
 		}, flattenAnonymousEmbeds)
 		if skip {
 			continue
 		}
-		if err := setMarshaledAttributeValue(structMap, containerNames, fieldName, av, flattenAnonymousEmbeds); err != nil {
+		if err := anonymous.SetMarshaledAttributeValue(structMap, containerNames, fieldName, av, flattenAnonymousEmbeds); err != nil {
 			return nil, fmt.Errorf("struct field %s: %w", field.Name, err)
 		}
 	}
@@ -590,50 +591,6 @@ func resolveMarshalStructFieldName(field reflect.StructField, convention naming.
 		fieldName = jsonTagName(jsonTag)
 	}
 	return fieldName, false
-}
-
-func resolveMarshalContainerNames(
-	modelType reflect.Type,
-	indexPath []int,
-	resolve func(reflect.StructField) (string, bool),
-) ([]string, bool) {
-	if len(indexPath) <= 1 {
-		return nil, false
-	}
-
-	names := make([]string, 0, len(indexPath)-1)
-	for depth := 1; depth < len(indexPath); depth++ {
-		field := modelType.FieldByIndex(indexPath[:depth])
-		name, skip := resolve(field)
-		if skip {
-			return nil, true
-		}
-		names = append(names, name)
-	}
-
-	return names, false
-}
-
-func setLegacyNestedAttributeValue(root map[string]types.AttributeValue, containerNames []string, fieldName string, av types.AttributeValue) error {
-	current := root
-	for _, containerName := range containerNames {
-		existing, ok := current[containerName]
-		if !ok {
-			child := make(map[string]types.AttributeValue)
-			current[containerName] = &types.AttributeValueMemberM{Value: child}
-			current = child
-			continue
-		}
-
-		nested, ok := existing.(*types.AttributeValueMemberM)
-		if !ok {
-			return fmt.Errorf("legacy anonymous container %s must marshal as map, got %T", containerName, existing)
-		}
-		current = nested.Value
-	}
-
-	current[fieldName] = av
-	return nil
 }
 
 func jsonTagName(tag string) string {
