@@ -2,7 +2,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests example-local generate-contract-models verify-generated-models benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests example-local generate-contract-models verify-generated-models sync-runtime-docs-site verify-runtime-docs-site benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory
@@ -65,6 +65,13 @@ generate-contract-models:
 
 verify-generated-models:
 	@bash scripts/verify-generated-models.sh --check
+
+# Generate and verify Jekyll site copies of package-local TS/Py runtime docs.
+sync-runtime-docs-site:
+	@python3 scripts/sync-runtime-docs-site.py --write
+
+verify-runtime-docs-site:
+	@python3 scripts/sync-runtime-docs-site.py --check
 
 # Run benchmarks
 benchmark:
@@ -274,6 +281,7 @@ help:
 	@echo "  make integration - Run integration tests only (requires Docker)"
 	@echo "  make contract-tests - Run Go/TypeScript/Python contract suite (requires Docker)"
 	@echo "  make example-local - Start DynamoDB Local and run the Go quickstart CRUD proof"
+	@echo "  make verify-runtime-docs-site - Check generated TS/Py site doc copies"
 	@echo "  make test-all    - Run all tests including benchmarks and stress tests"
 	@echo "  make benchmark   - Run performance benchmarks"
 	@echo "  make stress      - Run stress tests"

@@ -36,6 +36,24 @@ groups:
       - { id: runtime-ts,            title: TypeScript,              url: /runtimes/typescript/,              icon: ts-mark,     tag: ga }
       - { id: runtime-py,            title: Python,                  url: /runtimes/python/,                  icon: py-mark,     tag: ga }
 
+
+  - label: Runtime Guides
+    items:
+      - { id: ts-getting-started,     title: TS Getting Started,     url: /runtimes/typescript/getting-started/,     icon: ts-mark }
+      - { id: ts-api-reference,       title: TS API Reference,       url: /runtimes/typescript/api-reference/,       icon: book }
+      - { id: ts-core-patterns,       title: TS Core Patterns,       url: /runtimes/typescript/core-patterns/,       icon: compass }
+      - { id: ts-testing-guide,       title: TS Testing,             url: /runtimes/typescript/testing-guide/,       icon: check }
+      - { id: ts-troubleshooting,     title: TS Troubleshooting,     url: /runtimes/typescript/troubleshooting/,     icon: life-buoy }
+      - { id: ts-migration-guide,     title: TS Migration,           url: /runtimes/typescript/migration-guide/,     icon: arrow-right }
+      - { id: ts-release-state,       title: TS Release State,       url: /runtimes/typescript/release-state/,       icon: tag }
+      - { id: py-getting-started,     title: Py Getting Started,     url: /runtimes/python/getting-started/,         icon: py-mark }
+      - { id: py-api-reference,       title: Py API Reference,       url: /runtimes/python/api-reference/,           icon: book }
+      - { id: py-core-patterns,       title: Py Core Patterns,       url: /runtimes/python/core-patterns/,           icon: compass }
+      - { id: py-testing-guide,       title: Py Testing,             url: /runtimes/python/testing-guide/,           icon: check }
+      - { id: py-troubleshooting,     title: Py Troubleshooting,     url: /runtimes/python/troubleshooting/,         icon: life-buoy }
+      - { id: py-migration-guide,     title: Py Migration,           url: /runtimes/python/migration-guide/,         icon: arrow-right }
+      - { id: py-release-state,       title: Py Release State,       url: /runtimes/python/release-state/,           icon: tag }
+
   - label: Features
     items:
       - { id: feature-crud,          title: CRUD & Marshaling,       url: /features/crud/,                    icon: layers }
@@ -62,6 +80,14 @@ groups:
   - label: CDK
     items:
       - { id: cdk-overview,          title: CDK Overview,            url: /cdk/,                              icon: package }
+
+
+  - label: Examples
+    items:
+      - { id: examples-overview,      title: Examples Overview,      url: /examples/,                         icon: play }
+      - { id: examples-go-local,      title: Go Local Quickstart,    url: /examples/go-local-quickstart/,       icon: go-mark }
+      - { id: examples-cdk-multilang, title: CDK Multi-language,     url: /examples/cdk-multilang/,             icon: package }
+      - { id: examples-release-state, title: Release State Example,  url: /examples/release-state/,             icon: tag }
 
   - label: Guides
     items:
@@ -90,6 +116,20 @@ order:
   - runtime-go
   - runtime-ts
   - runtime-py
+  - ts-getting-started
+  - ts-api-reference
+  - ts-core-patterns
+  - ts-testing-guide
+  - ts-troubleshooting
+  - ts-migration-guide
+  - ts-release-state
+  - py-getting-started
+  - py-api-reference
+  - py-core-patterns
+  - py-testing-guide
+  - py-troubleshooting
+  - py-migration-guide
+  - py-release-state
   - feature-crud
   - feature-lock
   - feature-timestamps
@@ -105,6 +145,10 @@ order:
   - int-knowledgetheory
   - int-autheory
   - cdk-overview
+  - examples-overview
+  - examples-go-local
+  - examples-cdk-multilang
+  - examples-release-state
   - testing-guide
   - troubleshooting
   - migration-guide
@@ -129,6 +173,20 @@ url_to_id:
   /runtimes/go/:                           runtime-go
   /runtimes/typescript/:                   runtime-ts
   /runtimes/python/:                       runtime-py
+  /runtimes/typescript/getting-started/:     ts-getting-started
+  /runtimes/typescript/api-reference/:       ts-api-reference
+  /runtimes/typescript/core-patterns/:       ts-core-patterns
+  /runtimes/typescript/testing-guide/:       ts-testing-guide
+  /runtimes/typescript/troubleshooting/:     ts-troubleshooting
+  /runtimes/typescript/migration-guide/:     ts-migration-guide
+  /runtimes/typescript/release-state/:       ts-release-state
+  /runtimes/python/getting-started/:         py-getting-started
+  /runtimes/python/api-reference/:           py-api-reference
+  /runtimes/python/core-patterns/:           py-core-patterns
+  /runtimes/python/testing-guide/:           py-testing-guide
+  /runtimes/python/troubleshooting/:         py-troubleshooting
+  /runtimes/python/migration-guide/:         py-migration-guide
+  /runtimes/python/release-state/:           py-release-state
   /features/crud/:                         feature-crud
   /features/optimistic-locking/:           feature-lock
   /features/lifecycle-timestamps/:         feature-timestamps
@@ -144,6 +202,10 @@ url_to_id:
   /integrations/knowledgetheory/:          int-knowledgetheory
   /integrations/autheory/:                 int-autheory
   /cdk/:                                   cdk-overview
+  /examples/:                               examples-overview
+  /examples/go-local-quickstart/:           examples-go-local
+  /examples/cdk-multilang/:                 examples-cdk-multilang
+  /examples/release-state/:                 examples-release-state
   /testing-guide/:                         testing-guide
   /troubleshooting/:                       troubleshooting
   /migration-guide/:                       migration-guide

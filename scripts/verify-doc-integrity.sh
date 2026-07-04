@@ -222,3 +222,5 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 PY
+
+python3 scripts/sync-runtime-docs-site.py --check
