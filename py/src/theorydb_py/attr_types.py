@@ -17,7 +17,7 @@ def _is_union_annotation(annotation: Any) -> bool:
     return get_origin(annotation) in {Union, types.UnionType}
 
 
-def unwrap_optional(annotation: Any) -> Any:
+def unwrap_optional(annotation: Any, *, reject_unsupported_union: bool = True) -> Any:
     if not _is_union_annotation(annotation):
         return annotation
     args = get_args(annotation)
@@ -26,7 +26,26 @@ def unwrap_optional(annotation: Any) -> Any:
     non_none = [a for a in args if a is not type(None)]  # noqa: E721
     if len(args) == 2 and len(non_none) == 1:
         return non_none[0]
+    if not reject_unsupported_union:
+        return annotation
     raise ValidationError(f"unsupported union annotation: {annotation!r}; only Optional[T] is supported")
+
+
+def _coerce_value(value: Any, annotation: Any) -> Any:
+    if value is None:
+        return None
+
+    if annotation is int and isinstance(value, Decimal):
+        return int(value)
+    if annotation is float and isinstance(value, Decimal):
+        return float(value)
+
+    origin = get_origin(annotation)
+    if origin is set and isinstance(value, set):
+        (elem_type,) = get_args(annotation) or (Any,)
+        return {_coerce_value(v, elem_type) for v in value}
+
+    return value
 
 
 def resolve_attribute_storage_type(attr_def: Any) -> str:

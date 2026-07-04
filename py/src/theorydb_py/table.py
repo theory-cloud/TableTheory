@@ -6,13 +6,14 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import MISSING, fields, is_dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Literal, cast, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import boto3
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 
 from .attr_types import (
+    _coerce_value,
     decode_json_field_from_storage,
     normalize_json_field_for_storage,
     resolve_attribute_storage_type,
@@ -78,23 +79,6 @@ def _is_empty(value: Any) -> bool:
     if isinstance(value, (list, dict, set, tuple)) and len(value) == 0:
         return True
     return False
-
-
-def _coerce_value(value: Any, annotation: Any) -> Any:
-    if value is None:
-        return None
-
-    if annotation is int and isinstance(value, Decimal):
-        return int(value)
-    if annotation is float and isinstance(value, Decimal):
-        return float(value)
-
-    origin = get_origin(annotation)
-    if origin is set and isinstance(value, set):
-        (elem_type,) = get_args(annotation) or (Any,)
-        return {_coerce_value(v, elem_type) for v in value}
-
-    return value
 
 
 def _backoff_seconds(attempt: int) -> float:

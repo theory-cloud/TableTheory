@@ -4,12 +4,12 @@ import time
 from collections.abc import Callable
 from dataclasses import is_dataclass
 from decimal import Decimal
-from types import UnionType
-from typing import Any, Union, get_args, get_origin, get_type_hints
+from typing import Any, get_type_hints
 
 import boto3
 from botocore.exceptions import ClientError
 
+from .attr_types import unwrap_optional
 from .errors import AwsError, NotFoundError, ValidationError
 from .model import ModelDefinition
 
@@ -373,7 +373,7 @@ def _key_scalar_type_for_attribute(model: ModelDefinition[Any], attribute_name: 
         annotation = get_type_hints(model.model_type, include_extras=True).get(python_name, Any)
     except Exception:
         annotation = getattr(model.model_type, "__annotations__", {}).get(python_name, Any)
-    annotation = _unwrap_optional(annotation)
+    annotation = unwrap_optional(annotation, reject_unsupported_union=False)
 
     if getattr(attr_def, "json", False):
         return "S"
@@ -385,19 +385,6 @@ def _key_scalar_type_for_attribute(model: ModelDefinition[Any], attribute_name: 
         return "N"
 
     raise ValidationError(f"key attribute must be S/N/B: {attribute_name} (got {annotation})")
-
-
-def _unwrap_optional(annotation: Any) -> Any:
-    origin = get_origin(annotation)
-    if origin not in {Union, UnionType}:
-        return annotation
-    args = get_args(annotation)
-    if not args:
-        return annotation
-    non_none = [a for a in args if a is not type(None)]  # noqa: E721
-    if len(args) == 2 and len(non_none) == 1:
-        return non_none[0]
-    return annotation
 
 
 def _map_schema_error(err: ClientError) -> Exception:

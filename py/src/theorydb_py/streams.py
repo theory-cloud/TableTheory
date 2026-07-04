@@ -2,31 +2,13 @@ from __future__ import annotations
 
 import base64
 from dataclasses import fields, is_dataclass
-from decimal import Decimal
-from typing import Any, cast, get_args, get_origin
+from typing import Any, cast
 
 from boto3.dynamodb.types import TypeDeserializer
 
-from .attr_types import decode_json_field_from_storage, resolve_attribute_storage_type
+from .attr_types import _coerce_value, decode_json_field_from_storage, resolve_attribute_storage_type
 from .errors import ValidationError
 from .model import ModelDefinition
-
-
-def _coerce_value(value: Any, annotation: Any) -> Any:
-    if value is None:
-        return None
-
-    if annotation is int and isinstance(value, Decimal):
-        return int(value)
-    if annotation is float and isinstance(value, Decimal):
-        return float(value)
-
-    origin = get_origin(annotation)
-    if origin is set and isinstance(value, set):
-        (elem_type,) = get_args(annotation) or (Any,)
-        return {_coerce_value(v, elem_type) for v in value}
-
-    return value
 
 
 def _decode_stream_av(av: Any) -> dict[str, Any]:
