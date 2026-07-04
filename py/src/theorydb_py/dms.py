@@ -56,11 +56,29 @@ def assert_model_definition_equivalent_to_dms(
     *,
     ignore_table_name: bool,
 ) -> None:
-    want = _normalize_dms_model(dms_model, ignore_table_name=ignore_table_name)
-    got = _normalize_dms_model(_model_definition_to_dms_model(model), ignore_table_name=ignore_table_name)
+    assert_models_equivalent(model, dms_model, ignore_table_name=ignore_table_name)
+
+
+def model_definition_to_dms_model(model: ModelDefinition[Any]) -> dict[str, Any]:
+    return _model_definition_to_dms_model(model)
+
+
+def assert_models_equivalent(
+    got_model: ModelDefinition[Any] | Mapping[str, Any],
+    want_model: Mapping[str, Any],
+    *,
+    ignore_table_name: bool = False,
+) -> None:
+    want = _normalize_dms_model(want_model, ignore_table_name=ignore_table_name)
+    got_raw: Mapping[str, Any]
+    if isinstance(got_model, ModelDefinition):
+        got_raw = _model_definition_to_dms_model(got_model)
+    else:
+        got_raw = got_model
+    got = _normalize_dms_model(got_raw, ignore_table_name=ignore_table_name)
     if got != want:
         raise ValidationError(
-            "model definition does not match DMS:\n"
+            "models not equivalent:\n"
             f"want={json.dumps(want, sort_keys=True, separators=(',', ':'))}\n"
             f"got={json.dumps(got, sort_keys=True, separators=(',', ':'))}"
         )

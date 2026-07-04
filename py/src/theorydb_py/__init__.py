@@ -58,7 +58,13 @@ if TYPE_CHECKING:
         min_field,
         sum_field,
     )
-    from .dms import assert_model_definition_equivalent_to_dms, get_dms_model, parse_dms_document
+    from .dms import (
+        assert_model_definition_equivalent_to_dms,
+        assert_models_equivalent,
+        get_dms_model,
+        model_definition_to_dms_model,
+        parse_dms_document,
+    )
     from .fakedb import StatefulDynamoDBClient
     from .lease import Lease, LeaseKey, LeaseManager
     from .multiaccount import AccountConfig, MultiAccountSessions
@@ -128,7 +134,13 @@ __version__ = _normalize_repo_version(__repo_version__)
 
 
 def __getattr__(name: str) -> Any:
-    if name in {"parse_dms_document", "get_dms_model", "assert_model_definition_equivalent_to_dms"}:
+    if name in {
+        "parse_dms_document",
+        "get_dms_model",
+        "assert_model_definition_equivalent_to_dms",
+        "assert_models_equivalent",
+        "model_definition_to_dms_model",
+    }:
         from . import dms
 
         return getattr(dms, name)
@@ -251,6 +263,7 @@ __all__ = [
     "DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS",
     "LambdaTimeoutConfig",
     "assert_model_definition_equivalent_to_dms",
+    "assert_models_equivalent",
     "AggregateResult",
     "aggregate_field",
     "AttributeConverter",
@@ -285,6 +298,7 @@ __all__ = [
     "IndexSpec",
     "ModelDefinition",
     "ModelDefinitionError",
+    "model_definition_to_dms_model",
     "NotFoundError",
     "Projection",
     "Role",

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+from types import ModuleType
+from typing import cast
 
 import pytest
 
@@ -11,9 +16,11 @@ from theorydb_py import (
     ValidationError,
     WritePolicy,
     assert_model_definition_equivalent_to_dms,
+    assert_models_equivalent,
     get_dms_model,
     gsi,
     lsi,
+    model_definition_to_dms_model,
     parse_dms_document,
     theorydb_field,
 )
@@ -287,7 +294,7 @@ models:
 
 def test_model_definition_to_dms_model_uses_json_storage_type() -> None:
     model = ModelDefinition.from_dataclass(_JsonDoc, table_name="tbl")
-    dms_model = _model_definition_to_dms_model(model)
+    dms_model = model_definition_to_dms_model(model)
     attrs = {attr["attribute"]: attr for attr in dms_model["attributes"]}
     assert attrs["payload"]["type"] == "M"
     assert attrs["payload"]["json"] is True
@@ -391,6 +398,41 @@ models:
         ],
     )
     assert_model_definition_equivalent_to_dms(model, dms_model, ignore_table_name=False)
+
+
+def test_generated_python_fixture_equivalent_to_dms_source() -> None:
+    root = Path(__file__).resolve().parents[3]
+    raw = (root / "pkg" / "dms" / "testdata" / "codegen" / "dms-note.yml").read_text(encoding="utf-8")
+    doc = parse_dms_document(raw)
+    dms_model = get_dms_model(doc, "DMSNote")
+
+    generated = _load_generated_dms_note()
+    definition = cast(ModelDefinition[object], vars(generated)["DMSNoteDefinition"])
+    assert_models_equivalent(definition, dms_model)
+    assert model_definition_to_dms_model(definition)["name"] == "DMSNote"
+
+
+def test_assert_models_equivalent_accepts_mapping_and_detects_drift() -> None:
+    root = Path(__file__).resolve().parents[3]
+    raw = (root / "pkg" / "dms" / "testdata" / "codegen" / "dms-note.yml").read_text(encoding="utf-8")
+    doc = parse_dms_document(raw)
+    dms_model = get_dms_model(doc, "DMSNote")
+    drifted = dict(dms_model)
+    drifted["write_policy"] = {"mode": "mutable", "protected_attributes": ["count"]}
+
+    with pytest.raises(ValidationError, match="models not equivalent"):
+        assert_models_equivalent(drifted, dms_model)
+
+
+def _load_generated_dms_note() -> ModuleType:
+    root = Path(__file__).resolve().parents[2]
+    fixture = root / "tests" / "fixtures" / "dms_codegen" / "generated_dms_note.py"
+    spec = importlib.util.spec_from_file_location("generated_dms_note", fixture)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_ignore_table_name_allows_dms_without_table() -> None:
