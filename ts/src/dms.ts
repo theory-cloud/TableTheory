@@ -1,12 +1,23 @@
 import YAML from 'yaml';
 
 import { TheorydbError } from './errors.js';
-import { defineModel, type ModelSchema } from './model.js';
+import {
+  defineModel,
+  type AttributeSchema,
+  type IndexSchema,
+  type KeySchema,
+  type Model,
+  type ModelSchema,
+} from './model.js';
 
 export interface DmsDocument {
   dms_version: string;
   namespace?: string;
   models: ModelSchema[];
+}
+
+export interface DmsCompareOptions {
+  ignoreTableName?: boolean;
 }
 
 export function parseDmsDocument(raw: string): DmsDocument {
@@ -53,6 +64,129 @@ export function getDmsModel(doc: DmsDocument, name: string): ModelSchema {
     if (model?.name === name) return model;
   }
   throw new TheorydbError('ErrInvalidModel', `DMS model not found: ${name}`);
+}
+
+export function modelToDmsModel(
+  model: Model | ModelSchema,
+): Readonly<ModelSchema> {
+  return normalizeSchema(extractSchema(model), {});
+}
+
+export function assertModelsEquivalent(
+  got: Model | ModelSchema,
+  want: ModelSchema,
+  options: DmsCompareOptions = {},
+): void {
+  const normalizedGot = normalizeSchema(extractSchema(got), options);
+  const normalizedWant = normalizeSchema(want, options);
+  if (stableJson(normalizedGot) === stableJson(normalizedWant)) return;
+
+  throw new TheorydbError(
+    'ErrInvalidModel',
+    `models not equivalent\nwant=${stableJson(normalizedWant)}\ngot=${stableJson(
+      normalizedGot,
+    )}`,
+  );
+}
+
+function extractSchema(model: Model | ModelSchema): ModelSchema {
+  if ('schema' in model) return model.schema;
+  return model;
+}
+
+function normalizeSchema(
+  schema: ModelSchema,
+  options: DmsCompareOptions,
+): ModelSchema {
+  const normalized: ModelSchema = {
+    name: schema.name,
+    table: { name: options.ignoreTableName ? '' : schema.table.name },
+    naming: {
+      convention: schema.naming?.convention ?? 'camelCase',
+    },
+    keys: normalizeKeys(schema.keys),
+    write_policy: {
+      mode: schema.write_policy?.mode ?? 'mutable',
+      protected_attributes: [
+        ...new Set(schema.write_policy?.protected_attributes ?? []),
+      ].sort(),
+    },
+    attributes: [...schema.attributes]
+      .map(normalizeAttribute)
+      .sort((a, b) => a.attribute.localeCompare(b.attribute)),
+    indexes: [...(schema.indexes ?? [])]
+      .map(normalizeIndex)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  };
+  return normalized;
+}
+
+function normalizeKeys(keys: ModelSchema['keys']): ModelSchema['keys'] {
+  const normalized: ModelSchema['keys'] = {
+    partition: normalizeKey(keys.partition),
+  };
+  if (keys.sort) normalized.sort = normalizeKey(keys.sort);
+  return normalized;
+}
+
+function normalizeKey(key: KeySchema): KeySchema {
+  return { attribute: key.attribute, type: key.type };
+}
+
+function normalizeAttribute(attr: AttributeSchema): AttributeSchema {
+  const roles = [...(attr.roles ?? [])]
+    .filter((role) => role.length > 0)
+    .sort();
+  const normalized: AttributeSchema = {
+    attribute: attr.attribute,
+    type: attr.type,
+    required: attr.required === true,
+    optional: attr.optional === true,
+    omit_empty: attr.omit_empty === true,
+    roles,
+    json: attr.json === true,
+    binary: attr.binary === true,
+  };
+  if (attr.encryption !== undefined && attr.encryption !== null) {
+    normalized.encryption = { v: 1 };
+  }
+  return normalized;
+}
+
+function normalizeIndex(idx: IndexSchema): IndexSchema {
+  const normalized: IndexSchema = {
+    name: idx.name,
+    type: idx.type,
+    partition: normalizeKey(idx.partition),
+    projection: normalizeProjection(idx.projection),
+  };
+  if (idx.sort) normalized.sort = normalizeKey(idx.sort);
+  return normalized;
+}
+
+function normalizeProjection(
+  projection: IndexSchema['projection'],
+): NonNullable<IndexSchema['projection']> {
+  return {
+    type: projection?.type ?? 'ALL',
+    fields: [...(projection?.fields ?? [])].sort(),
+  };
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonValue);
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort()) {
+    const child = value[key];
+    if (child === undefined) continue;
+    out[key] = sortJsonValue(child);
+  }
+  return out;
 }
 
 function validateDmsNamingConvention(model: unknown): void {
