@@ -15,6 +15,10 @@
 
 ### Features
 
+* **go:** add `NewWithClient` and a state-backed `pkg/testing/fakedb` consumer test fake
+* **contract:** validate the Go state-backed fake against the P0 contract corpus
+* **ts:** add a stateful DynamoDB `send()` fake to the public testkit
+* **py:** add a stateful DynamoDB testkit fake and top-level re-exports
 * add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
 * add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage
 
