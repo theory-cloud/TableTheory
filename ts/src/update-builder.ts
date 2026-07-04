@@ -5,6 +5,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 
 import { mapDynamoError } from './dynamo-error.js';
+import { buildConditionExpression } from './expression-builder.js';
 import { TheorydbError } from './errors.js';
 import {
   decryptItemAttributes,
@@ -145,98 +146,19 @@ class ConditionExpressionBuilder {
     op: string,
     values: unknown[],
   ): string {
-    switch (op) {
-      case '=':
-      case 'EQ': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} = ${valueRef}`;
-      }
-      case '!=':
-      case '<>':
-      case 'NE': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} <> ${valueRef}`;
-      }
-      case '<':
-      case 'LT': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} < ${valueRef}`;
-      }
-      case '<=':
-      case 'LE': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} <= ${valueRef}`;
-      }
-      case '>':
-      case 'GT': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} > ${valueRef}`;
-      }
-      case '>=':
-      case 'GE': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} >= ${valueRef}`;
-      }
-      case 'BETWEEN': {
-        if (values.length !== 2) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'BETWEEN requires two values',
-          );
-        }
-        const left = this.valueRef(schema, values[0]);
-        const right = this.valueRef(schema, values[1]);
-        return `${nameRef} BETWEEN ${left} AND ${right}`;
-      }
-      case 'IN': {
-        if (values.length !== 1 || !Array.isArray(values[0])) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'IN requires a single array value',
-          );
-        }
-        const list = values[0];
-        if (list.length > 100) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'IN supports maximum 100 values',
-          );
-        }
-        const refs = list.map((v) => this.valueRef(schema, v));
-        return `${nameRef} IN (${refs.join(', ')})`;
-      }
-      case 'BEGINS_WITH': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `begins_with(${nameRef}, ${valueRef})`;
-      }
-      case 'CONTAINS': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `contains(${nameRef}, ${valueRef})`;
-      }
-      case 'ATTRIBUTE_EXISTS': {
-        if (values.length !== 0) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'attribute_exists does not take a value',
-          );
-        }
-        return `attribute_exists(${nameRef})`;
-      }
-      case 'ATTRIBUTE_NOT_EXISTS': {
-        if (values.length !== 0) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'attribute_not_exists does not take a value',
-          );
-        }
-        return `attribute_not_exists(${nameRef})`;
-      }
-      default:
-        throw new TheorydbError(
-          'ErrInvalidOperator',
-          `Unsupported operator: ${op}`,
-        );
-    }
+    return buildConditionExpression(
+      nameRef,
+      schema,
+      op,
+      values,
+      (valueSchema, value) => this.valueRef(valueSchema, value),
+      {
+        existsOperators: ['ATTRIBUTE_EXISTS'],
+        notExistsOperators: ['ATTRIBUTE_NOT_EXISTS'],
+        existsValueError: 'attribute_exists does not take a value',
+        notExistsValueError: 'attribute_not_exists does not take a value',
+      },
+    );
   }
 
   private append(op: 'AND' | 'OR', expr: string): void {
@@ -269,13 +191,6 @@ class ConditionExpressionBuilder {
     this.state.values[placeholder] = marshalScalar(schema, value);
     return placeholder;
   }
-}
-
-function singleValue(values: unknown[], op: string): unknown {
-  if (values.length !== 1) {
-    throw new TheorydbError('ErrInvalidOperator', `${op} requires one value`);
-  }
-  return values[0];
 }
 
 export class UpdateBuilder {

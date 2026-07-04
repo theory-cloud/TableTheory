@@ -29,3 +29,15 @@ export async function* itemIterator<T>(
     }
   }
 }
+
+export async function collectAllItems<T>(
+  getCursor: () => string | undefined,
+  setCursor: (cursor: string | undefined) => void,
+  loadPage: () => Promise<Page<T>>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for await (const page of pageIterator(getCursor, setCursor, loadPage)) {
+    out.push(...page.items);
+  }
+  return out;
+}
