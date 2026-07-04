@@ -49,8 +49,8 @@ func initScaffold(args []string, stdout io.Writer, stderr io.Writer) error {
 	}
 
 	targetDir := *dir
-	if err := ensureWritableDir(targetDir, *force); err != nil {
-		return err
+	if ensureErr := ensureWritableDir(targetDir, *force); ensureErr != nil {
+		return ensureErr
 	}
 
 	data := initData{
@@ -126,28 +126,28 @@ func resolveModuleName(module, dir string) string {
 func renderTemplateTree(targetDir, treeName string, data initData) ([]string, error) {
 	root := "templates/" + treeName
 	var written []string
-	err := fs.WalkDir(templatesFS, root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	err := fs.WalkDir(templatesFS, root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 		if d.IsDir() {
 			return nil
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
 		}
 		outRel := strings.TrimSuffix(rel, ".tmpl")
 		outPath := filepath.Join(targetDir, outRel)
-		if err := os.MkdirAll(filepath.Dir(outPath), 0o750); err != nil {
-			return err
+		if mkdirErr := os.MkdirAll(filepath.Dir(outPath), 0o750); mkdirErr != nil {
+			return mkdirErr
 		}
-		rendered, err := renderTemplateFile(path, data)
-		if err != nil {
-			return err
+		rendered, renderErr := renderTemplateFile(path, data)
+		if renderErr != nil {
+			return renderErr
 		}
-		if err := os.WriteFile(outPath, rendered, 0o600); err != nil {
-			return err
+		if writeErr := os.WriteFile(outPath, rendered, 0o600); writeErr != nil {
+			return writeErr
 		}
 		written = append(written, outRel)
 		return nil

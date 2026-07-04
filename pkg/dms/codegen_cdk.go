@@ -101,7 +101,7 @@ func generateCDKIndex(out *bytes.Buffer, modelName string, idx Index) error {
 		}
 	}
 	fmt.Fprintf(out, "    projectionType: %s,\n", cdkProjectionType(proj.Type))
-	if proj.Type == "INCLUDE" && len(proj.Fields) > 0 {
+	if proj.Type == projectionInclude && len(proj.Fields) > 0 {
 		fmt.Fprintf(out, "    nonKeyAttributes: [%s],\n", tsStringList(proj.Fields))
 	}
 	fmt.Fprintf(out, "  });\n")
@@ -125,7 +125,7 @@ func cdkProjectionType(projectionType string) string {
 	switch projectionType {
 	case "KEYS_ONLY":
 		return "dynamodb.ProjectionType.KEYS_ONLY"
-	case "INCLUDE":
+	case projectionInclude:
 		return "dynamodb.ProjectionType.INCLUDE"
 	default:
 		return "dynamodb.ProjectionType.ALL"

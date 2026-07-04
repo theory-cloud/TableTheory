@@ -102,8 +102,7 @@ def _copy_data(
         items = list(resp.get("Items", []))
         if items:
             requests = [
-                {"PutRequest": {"Item": transform(item) if transform is not None else item}}
-                for item in items
+                {"PutRequest": {"Item": transform(item) if transform is not None else item}} for item in items
             ]
             _batch_write_all(client, target_table, requests, sleep)
 

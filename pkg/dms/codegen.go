@@ -20,8 +20,10 @@ type GenerateOptions struct {
 const (
 	modeMutable         = "mutable"
 	projectionAll       = "ALL"
+	projectionInclude   = "INCLUDE"
 	indexTypeLSI        = "LSI"
 	attributeTypeBool   = "BOOL"
+	formatDecimalString = "decimal_string"
 	attributeTypeNull   = "NULL"
 	pyDefaultFactorySet = "default_factory=set"
 	pyNone              = "None"
@@ -207,7 +209,7 @@ func goTypeForAttribute(attr Attribute, imports map[string]struct{}) (string, er
 	case "S":
 		return "string", nil
 	case "N":
-		if attr.Format == "decimal_string" {
+		if attr.Format == formatDecimalString {
 			return "DecimalString", nil
 		}
 		return "int64", nil
@@ -510,26 +512,24 @@ var pyTypeDefaults = map[string]pyTypeDefault{
 }
 
 func pyTypeAndDefault(attr Attribute) (string, string, error) {
-	if attr.Type == "N" && attr.Format == "decimal_string" {
-		defaultExpr := `Decimal("0")`
-		if attr.Required && !attr.Optional && !attr.OmitEmpty && !hasRole(attr.Roles, "pk") && !hasRole(attr.Roles, "sk") {
-			defaultExpr = ""
-		}
-		return "Decimal", defaultExpr, nil
+	if attr.Type == "N" && attr.Format == formatDecimalString {
+		return "Decimal", pyDefaultExpression(attr, `Decimal("0")`), nil
 	}
 	spec, ok := pyTypeDefaults[attr.Type]
 	if !ok {
 		return "", "", fmt.Errorf("unsupported DMS attribute type %q", attr.Type)
 	}
-	typ := spec.Type
-	defaultExpr := spec.Default
-	if attr.Required && !attr.Optional && !attr.OmitEmpty && !hasRole(attr.Roles, "pk") && !hasRole(attr.Roles, "sk") {
-		defaultExpr = ""
-	}
+	return spec.Type, pyDefaultExpression(attr, spec.Default), nil
+}
+
+func pyDefaultExpression(attr Attribute, fallback string) string {
 	if hasRole(attr.Roles, "pk") || hasRole(attr.Roles, "sk") {
-		defaultExpr = ""
+		return ""
 	}
-	return typ, defaultExpr, nil
+	if attr.Required && !attr.Optional && !attr.OmitEmpty {
+		return ""
+	}
+	return fallback
 }
 
 func pyIndexSpec(idx Index, pythonFieldByAttribute map[string]string) string {
@@ -538,7 +538,7 @@ func pyIndexSpec(idx Index, pythonFieldByAttribute map[string]string) string {
 	switch proj.Type {
 	case "KEYS_ONLY":
 		projExpr = "Projection.keys_only()"
-	case "INCLUDE":
+	case projectionInclude:
 		projExpr = "Projection.include(" + pyListAsArgs(proj.Fields) + ")"
 	}
 	if idx.Type == indexTypeLSI {
@@ -932,7 +932,7 @@ func tsString(value string) string {
 func goNeedsDecimalString(models []Model) bool {
 	for _, m := range models {
 		for _, attr := range m.Attributes {
-			if attr.Type == "N" && attr.Format == "decimal_string" {
+			if attr.Type == "N" && attr.Format == formatDecimalString {
 				return true
 			}
 		}
@@ -943,7 +943,7 @@ func goNeedsDecimalString(models []Model) bool {
 func pythonNeedsDecimal(models []Model) bool {
 	for _, m := range models {
 		for _, attr := range m.Attributes {
-			if attr.Type == "N" && attr.Format == "decimal_string" {
+			if attr.Type == "N" && attr.Format == formatDecimalString {
 				return true
 			}
 		}
