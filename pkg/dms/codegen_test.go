@@ -74,6 +74,50 @@ func TestGeneratePythonGolden(t *testing.T) {
 	require.Equal(t, string(want), string(got))
 }
 
+func TestGenerateCDKGolden(t *testing.T) {
+	t.Parallel()
+
+	doc := readCodegenFixture(t)
+	got, err := Generate(doc, GenerateOptions{Lang: "cdk"})
+	require.NoError(t, err)
+	want := readRepoFile(t, "testdata", "codegen", "dms-note.cdk.ts")
+	require.Equal(t, string(want), string(got))
+
+	// The emitted construct must reflect the DMS table/GSI/TTL shape.
+	rendered := string(got)
+	require.Contains(t, rendered, "tableName: 'dms_notes'")
+	require.Contains(t, rendered, "partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING }")
+	require.Contains(t, rendered, "timeToLiveAttribute: 'ttl'")
+	require.Contains(t, rendered, "addGlobalSecondaryIndex")
+	require.Contains(t, rendered, "projectionType: dynamodb.ProjectionType.INCLUDE")
+	require.Contains(t, rendered, "nonKeyAttributes: ['count', 'payload']")
+
+	// Generation must be deterministic for drift-gating.
+	second, err := Generate(doc, GenerateOptions{Lang: "cdk"})
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(got, second))
+}
+
+func TestGenerateCDKRejectsUnsupportedKeyType(t *testing.T) {
+	t.Parallel()
+
+	doc := &Document{
+		DMSVersion: "0.1",
+		Models: []Model{
+			{
+				Name:  "Bad",
+				Table: Table{Name: "bad"},
+				Keys:  Keys{Partition: KeyAttribute{Attribute: "PK", Type: "BOOL"}},
+				Attributes: []Attribute{
+					{Attribute: "PK", Type: "BOOL", Roles: []string{"pk"}},
+				},
+			},
+		},
+	}
+	_, err := Generate(doc, GenerateOptions{Lang: "cdk"})
+	require.ErrorContains(t, err, "unsupported key attribute type")
+}
+
 func TestGenerateOptionsAndErrors(t *testing.T) {
 	t.Parallel()
 

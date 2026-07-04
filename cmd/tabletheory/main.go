@@ -69,6 +69,7 @@ func generate(args []string, stdout io.Writer, stderr io.Writer) error {
 	fs := flag.NewFlagSet("gen", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	lang := fs.String("lang", "", "generation target: go, ts, or py")
+	cdk := fs.Bool("cdk", false, "generate AWS CDK DynamoDB table constructs (TypeScript) instead of models")
 	outPath := fs.String("out", "", "output file path (defaults to stdout)")
 	packageName := fs.String("package", "models", "Go package name for --lang go")
 	modelName := fs.String("model", "", "optional model name to generate")
@@ -76,8 +77,14 @@ func generate(args []string, stdout io.Writer, stderr io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if *cdk {
+		if *lang != "" && *lang != "cdk" {
+			return usageError("gen --cdk cannot be combined with --lang")
+		}
+		*lang = "cdk"
+	}
 	if *lang == "" {
-		return usageError("gen requires --lang <go|ts|py>")
+		return usageError("gen requires --lang <go|ts|py> or --cdk")
 	}
 	if fs.NArg() != 1 {
 		return usageError("gen requires exactly one DMS file")
@@ -206,6 +213,7 @@ func usageText() string {
 	return `Usage:
   tabletheory validate <dms.yml>
   tabletheory gen --lang <go|ts|py> [--model <name>] [--out <file>] <dms.yml>
+  tabletheory gen --cdk [--model <name>] [--out <file>] <dms.yml>
   tabletheory init --lang <go|ts|py> [--dir <path>] [--module <name>] [--force]
   tabletheory contract generate-ts --contract <file> --out <file> [--runtime-import <module>]
 `

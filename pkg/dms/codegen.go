@@ -50,8 +50,10 @@ func Generate(doc *Document, opts GenerateOptions) ([]byte, error) {
 		return generateTypeScript(models, opts)
 	case "py", "python":
 		return generatePython(models, opts)
+	case "cdk":
+		return generateCDK(models, opts)
 	default:
-		return nil, fmt.Errorf("unsupported generation language %q (want go, ts, or py)", opts.Lang)
+		return nil, fmt.Errorf("unsupported generation language %q (want go, ts, py, or cdk)", opts.Lang)
 	}
 }
 

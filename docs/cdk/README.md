@@ -7,6 +7,8 @@ permalink: /cdk/
 
 This guide provides comprehensive information for integrating TableTheory with Lift CDK constructs, specifically for RateLimitedFunction and IdempotentFunction.
 
+> **Generate constructs from DMS:** the hand-written CDK tables below are one option. You can also generate `dynamodb.Table` constructs directly from a DMS document with `tabletheory gen --cdk`, so infrastructure cannot drift from your runtime model contract. See [Generating CDK Table Constructs from DMS](./generated-constructs.md).
+
 ## 1. Table Structure Patterns
 
 ### Rate Limiting Table Structure

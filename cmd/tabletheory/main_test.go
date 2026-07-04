@@ -90,6 +90,32 @@ func TestGenerateCommandWritesPythonStdout(t *testing.T) {
 	require.Contains(t, stdout.String(), "ModelDefinition.from_dataclass")
 }
 
+func TestGenerateCommandWritesCDKStdout(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"gen",
+		"--cdk",
+		filepath.Join("..", "..", "pkg", "dms", "testdata", "codegen", "dms-note.yml"),
+	}, &stdout, ioDiscard{})
+	require.NoError(t, err)
+	require.Contains(t, stdout.String(), "createDMSNoteTable")
+	require.Contains(t, stdout.String(), "aws-cdk-lib/aws-dynamodb")
+	require.Contains(t, stdout.String(), "timeToLiveAttribute: 'ttl'")
+	require.Contains(t, stdout.String(), "addGlobalSecondaryIndex")
+}
+
+func TestGenerateCommandRejectsCDKWithLang(t *testing.T) {
+	t.Parallel()
+
+	err := run([]string{
+		"gen", "--cdk", "--lang", "go",
+		filepath.Join("..", "..", "pkg", "dms", "testdata", "codegen", "dms-note.yml"),
+	}, ioDiscard{}, ioDiscard{})
+	require.ErrorContains(t, err, "cannot be combined with --lang")
+}
+
 func TestGenerateCommandRequiresLanguage(t *testing.T) {
 	t.Parallel()
 
