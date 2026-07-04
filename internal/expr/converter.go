@@ -35,15 +35,20 @@ func ConvertToAttributeValueWithOptions(value any, opts ConvertOptions) (types.A
 }
 
 func convertToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
-	prepared, terminalAV, done, err := prepareValueForConversion(v)
+	prepared, terminalAV, done, err := prepareValueForConversion(v, opts)
 	if done || err != nil {
 		return terminalAV, err
+	}
+
+	if opts.Converter != nil && prepared.CanInterface() && opts.Converter.HasCustomConverter(prepared.Type()) {
+		av, err := opts.Converter.ToAttributeValue(prepared.Interface())
+		return av, err
 	}
 
 	return convertConcreteValueToAttributeValue(prepared, inheritedConvention, inheritNaming, opts)
 }
 
-func prepareValueForConversion(v reflect.Value) (reflect.Value, types.AttributeValue, bool, error) {
+func prepareValueForConversion(v reflect.Value, opts ConvertOptions) (reflect.Value, types.AttributeValue, bool, error) {
 	if !v.IsValid() {
 		return reflect.Value{}, &types.AttributeValueMemberNULL{Value: true}, true, nil
 	}
@@ -97,6 +102,9 @@ func convertConcreteValueToAttributeValue(v reflect.Value, inheritedConvention n
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", v.Uint())}, nil
 	case reflect.Float32, reflect.Float64:
+		if opts.FixedFloatFormat {
+			return &types.AttributeValueMemberN{Value: strconv.FormatFloat(v.Float(), 'f', -1, 64)}, nil
+		}
 		return &types.AttributeValueMemberN{Value: fmt.Sprintf("%g", v.Float())}, nil
 	case reflect.Bool:
 		return &types.AttributeValueMemberBOOL{Value: v.Bool()}, nil
@@ -135,6 +143,9 @@ func convertSliceToAttributeValueWithConvention(v reflect.Value, inheritedConven
 func convertMapToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
 	// Handle map[string]any as M type
 	if v.Type().Key().Kind() != reflect.String {
+		if opts.LegacyStructFieldNames {
+			return nil, fmt.Errorf("map keys must be strings")
+		}
 		return nil, fmt.Errorf("unsupported map type: %v", v.Type())
 	}
 
@@ -155,7 +166,7 @@ func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConve
 	// before values reach this generic converter.
 	m := make(map[string]types.AttributeValue)
 	t := v.Type()
-	convention, _ := resolveStructNaming(t, inheritedConvention, inheritNaming)
+	convention, useTheorydbNaming := resolveStructNaming(t, inheritedConvention, inheritNaming)
 
 	fieldPlans, err := BuildMarshalVisibleFieldPlan(t, nil, true)
 	if err != nil {
@@ -163,13 +174,13 @@ func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConve
 	}
 
 	for _, fieldPlan := range fieldPlans {
-		fieldName, theorydbTag, jsonTag, ok := marshalFieldNameAndTags(fieldPlan.Field, convention)
+		fieldName, theorydbTag, jsonTag, ok := marshalFieldNameAndTags(fieldPlan.Field, convention, useTheorydbNaming, opts)
 		if !ok {
 			continue
 		}
 
 		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
-		if shouldOmitEmptyField(fieldValue, theorydbTag, jsonTag) {
+		if shouldOmitEmptyField(fieldValue, theorydbTag, jsonTag) || (opts.OmitZeroFieldsByDefault && isZeroValue(fieldValue)) {
 			continue
 		}
 
@@ -201,7 +212,7 @@ func exprMarshalContainerNames(modelType reflect.Type, indexPath []int, conventi
 	names := make([]string, 0, len(indexPath)-1)
 	for depth := 1; depth < len(indexPath); depth++ {
 		containerField := modelType.FieldByIndex(indexPath[:depth])
-		containerName, _, _, ok := marshalFieldNameAndTags(containerField, convention)
+		containerName, _, _, ok := marshalFieldNameAndTags(containerField, convention, true, opts)
 		if !ok {
 			return nil, true
 		}
@@ -233,7 +244,7 @@ func setExprMarshaledFieldValue(root map[string]types.AttributeValue, containerN
 	return nil
 }
 
-func marshalFieldNameAndTags(field reflect.StructField, convention naming.Convention) (string, string, string, bool) {
+func marshalFieldNameAndTags(field reflect.StructField, convention naming.Convention, useTheorydbNaming bool, opts ConvertOptions) (string, string, string, bool) {
 	theorydbTag := field.Tag.Get("theorydb")
 	jsonTag := field.Tag.Get("json")
 	if theorydbTag == "-" || jsonTag == "-" {
@@ -243,6 +254,10 @@ func marshalFieldNameAndTags(field reflect.StructField, convention naming.Conven
 	if theorydbTag != "" {
 		fieldName := fieldNameFromTheorydbTag(naming.ConvertAttrName(field.Name, convention), theorydbTag, convention)
 		return fieldName, theorydbTag, jsonTag, true
+	}
+
+	if opts.LegacyStructFieldNames && !useTheorydbNaming {
+		return field.Name, theorydbTag, jsonTag, true
 	}
 
 	fieldName := naming.ConvertAttrName(field.Name, convention)

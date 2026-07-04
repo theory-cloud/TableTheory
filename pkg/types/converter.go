@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/expr"
 	"github.com/theory-cloud/tabletheory/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/naming"
@@ -33,6 +34,29 @@ type CustomConverter interface {
 
 	// FromAttributeValue converts a DynamoDB AttributeValue to Go value
 	FromAttributeValue(av types.AttributeValue, target any) error
+}
+
+type customConverterAdapter struct {
+	converter *Converter
+}
+
+func (a customConverterAdapter) HasCustomConverter(typ reflect.Type) bool {
+	return a.converter != nil && a.converter.HasCustomConverter(typ)
+}
+
+func (a customConverterAdapter) ToAttributeValue(value any) (types.AttributeValue, error) {
+	if a.converter == nil || value == nil {
+		return &types.AttributeValueMemberNULL{Value: true}, nil
+	}
+	v, isNull := indirectValueOrNull(reflect.ValueOf(value))
+	if isNull {
+		return &types.AttributeValueMemberNULL{Value: true}, nil
+	}
+	custom, ok := a.converter.lookupConverter(v.Type())
+	if !ok {
+		return expr.ConvertToAttributeValueWithOptions(value, a.converter.convertOptions())
+	}
+	return custom.ToAttributeValue(v.Interface())
 }
 
 // NewConverter creates a new type converter
@@ -81,14 +105,23 @@ func (c *Converter) lookupConverter(typ reflect.Type) (CustomConverter, bool) {
 	return nil, false
 }
 
+func (c *Converter) convertOptions() expr.ConvertOptions {
+	opts := expr.ConvertOptions{
+		Converter:                  customConverterAdapter{converter: c},
+		LegacyStructFieldNames:     true,
+		OmitZeroFieldsByDefault:    true,
+		FixedFloatFormat:           true,
+		FlatAnonymousEmbedEncoding: c.FlatAnonymousEmbedEncodingEnabled(),
+	}
+	return opts
+}
+
 // ToAttributeValue converts a Go value to DynamoDB AttributeValue
 func (c *Converter) ToAttributeValue(value any) (types.AttributeValue, error) {
-	if value == nil {
-		return &types.AttributeValueMemberNULL{Value: true}, nil
+	if c == nil {
+		c = NewConverter()
 	}
-
-	v := reflect.ValueOf(value)
-	return c.toAttributeValueWithConvention(v, naming.CamelCase, false)
+	return expr.ConvertToAttributeValueWithOptions(value, c.convertOptions())
 }
 
 func (c *Converter) toAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
