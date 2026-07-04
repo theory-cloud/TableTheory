@@ -176,3 +176,100 @@ await db.create('User', { PK: 'U#1', SK: 'PROFILE' });
 
 assert.equal(mock.calls.length, 1);
 ```
+
+## Pattern: Key design and GSI queries
+
+Model keys are explicit in `defineModel`; do not infer access patterns from arbitrary fields. Keep PK/SK and GSI keys
+stable, plaintext, and non-encrypted so DynamoDB can route requests.
+
+```ts
+export const UserByEmail = defineModel({
+  name: 'UserByEmail',
+  table: { name: 'users_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  indexes: [
+    {
+      name: 'gsi_email',
+      partition: { attribute: 'GSI1PK', type: 'S' },
+      sort: { attribute: 'GSI1SK', type: 'S' },
+    },
+  ],
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'GSI1PK', type: 'S', roles: ['gsi1pk'] },
+    { attribute: 'GSI1SK', type: 'S', roles: ['gsi1sk'] },
+    { attribute: 'email', type: 'S' },
+  ],
+});
+
+const page = await db
+  .query('UserByEmail')
+  .usingIndex('gsi_email')
+  .partitionKey('EMAIL#ada@example.com')
+  .limit(25)
+  .page();
+```
+
+Do not set `consistentRead(true)` on a GSI query; DynamoDB rejects strongly consistent GSI reads and TableTheory surfaces
+that as `ErrInvalidOperator`.
+
+## Pattern: Fail-closed encryption
+
+Encrypted attributes use an explicit `EncryptionProvider`. The runtime fails closed: if any registered model has an
+encrypted attribute and no provider is configured, reads/writes fail instead of returning plaintext or skipping
+decryption.
+
+```ts
+import { KMSClient } from '@aws-sdk/client-kms';
+import {
+  AwsKmsEncryptionProvider,
+  TheorydbClient,
+} from '@theory-cloud/tabletheory-ts';
+
+const encryptedDb = new TheorydbClient(ddb, {
+  encryption: new AwsKmsEncryptionProvider(
+    new KMSClient({ region: 'us-east-1' }),
+    {
+      keyArn: process.env.TABLETHEORY_KMS_KEY_ARN!,
+    },
+  ),
+}).register(UserWithSecret);
+```
+
+For unit tests, inject the deterministic testkit provider rather than disabling encryption:
+
+```ts
+import { createDeterministicEncryptionProvider } from '@theory-cloud/tabletheory-ts/testkit';
+
+const testDb = new TheorydbClient(mock.client, {
+  encryption: createDeterministicEncryptionProvider('unit-test-seed'),
+}).register(UserWithSecret);
+```
+
+## Pattern: Error handling by TableTheory code
+
+Catch `TheorydbError` and branch on stable error codes instead of message text. Version conflicts include both
+`ErrVersionConflict` and `ErrConditionFailed` for backward compatibility.
+
+```ts
+import {
+  hasTheorydbErrorCode,
+  isTheorydbError,
+} from '@theory-cloud/tabletheory-ts';
+
+try {
+  await db.update('User', staleItem, ['nickname']);
+} catch (err) {
+  if (hasTheorydbErrorCode(err, 'ErrVersionConflict')) {
+    // Reload, merge, and retry from the current version.
+  } else if (isTheorydbError(err)) {
+    throw new Error(`TableTheory ${err.code}: ${err.message}`);
+  } else {
+    throw err;
+  }
+}
+```

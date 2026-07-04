@@ -82,3 +82,96 @@ from tabletheory_py.mocks import ANY, FakeDynamoDBClient
 fake = FakeDynamoDBClient()
 fake.expect("put_item", {"TableName": "notes", "Item": {"PK": ANY, "SK": ANY}})
 ```
+
+## Pattern: Key design and GSI queries
+
+Keep key attributes explicit in the dataclass metadata. PK/SK and GSI key fields must be stable plaintext values;
+encrypted fields are rejected for keys because DynamoDB must be able to route and compare key attributes.
+
+```python
+from dataclasses import dataclass
+
+from tabletheory_py import IndexSpec, ModelDefinition, SortKeyCondition, Table, theorydb_field
+
+
+@dataclass(frozen=True)
+class User:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    gsi1pk: str = theorydb_field(name="GSI1PK", roles=["gsi1pk"])
+    gsi1sk: str = theorydb_field(name="GSI1SK", roles=["gsi1sk"])
+    email: str = theorydb_field()
+
+
+model = ModelDefinition.from_dataclass(
+    User,
+    table_name="users_contract",
+    indexes=[IndexSpec(name="gsi_email", type="GSI", partition="GSI1PK", sort="GSI1SK")],
+)
+table = Table(model, client=client)
+page = table.query("EMAIL#ada@example.com", index_name="gsi_email", limit=25)
+```
+
+Do not request `consistent_read=True` on GSI queries; DynamoDB rejects strongly consistent GSI reads.
+
+## Pattern: Fail-closed encryption
+
+Encrypted fields require explicit KMS configuration. If a model has `encrypted=True` and `Table(...)` lacks a
+`kms_key_arn`, construction fails closed instead of allowing plaintext fallback.
+
+```python
+from dataclasses import dataclass
+
+from tabletheory_py import ModelDefinition, Table, theorydb_field
+
+
+@dataclass(frozen=True)
+class SecretNote:
+    pk: str = theorydb_field(roles=["pk"])
+    sk: str = theorydb_field(roles=["sk"])
+    secret: str = theorydb_field(encrypted=True)
+
+
+model = ModelDefinition.from_dataclass(SecretNote, table_name="secret_notes")
+table = Table(
+    model,
+    client=client,
+    kms_key_arn="arn:aws:kms:us-east-1:111111111111:key/example",
+)
+```
+
+For unit tests, inject `FakeKmsClient` and deterministic random bytes; do not disable encryption in the model.
+
+```python
+from tabletheory_py.mocks import FakeDynamoDBClient, FakeKmsClient
+
+fake_kms = FakeKmsClient(plaintext_key=b"\x01" * 32, ciphertext_blob=b"edk")
+table = Table(
+    model,
+    client=FakeDynamoDBClient(),
+    kms_key_arn="arn:aws:kms:us-east-1:111111111111:key/test",
+    kms_client=fake_kms,
+    rand_bytes=lambda n: b"\x02" * n,
+)
+```
+
+## Pattern: Error handling by TableTheory type
+
+Branch on exported exception types rather than message strings. Version conflicts remain condition failures for backward
+compatibility while exposing the narrower conflict type.
+
+```python
+from tabletheory_py import ConditionFailedError, NotFoundError, VersionConflictError
+
+try:
+    table.update("USER#1", "PROFILE", {"nickname": "Ada"}, expected_version=3)
+except VersionConflictError:
+    # Reload, merge, and retry.
+    raise
+except ConditionFailedError:
+    # Other conditional failure, such as create-if-absent collision.
+    raise
+except NotFoundError:
+    # Missing item.
+    raise
+```
