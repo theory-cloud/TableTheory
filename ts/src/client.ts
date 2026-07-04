@@ -6,11 +6,13 @@ import {
   DynamoDBClient,
   GetItemCommand,
   PutItemCommand,
+  TransactGetItemsCommand,
   TransactWriteItemsCommand,
   UpdateItemCommand,
   type ConditionCheck,
   type Delete,
   type Put,
+  type TransactGetItem,
   type Update,
   type TransactWriteItem,
   type WriteRequest,
@@ -38,7 +40,7 @@ import {
   type UnmarshalOptions,
 } from './marshal.js';
 import { QueryBuilder, ScanBuilder } from './query.js';
-import type { TransactAction } from './transaction.js';
+import type { TransactAction, TransactGetAction } from './transaction.js';
 import { UpdateBuilder } from './update-builder.js';
 import {
   decryptItemAttributes,
@@ -540,7 +542,72 @@ export class TheorydbClient {
     return { unprocessed };
   }
 
+  async transactGet(
+    actions: TransactGetAction[],
+  ): Promise<Array<Record<string, unknown> | undefined>> {
+    if (actions.length === 0) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'TransactGetItems requires at least one item',
+      );
+    }
+    if (actions.length > 100) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'DynamoDB TransactGetItems supports up to 100 items',
+      );
+    }
+
+    const models = actions.map((action) => this.requireModel(action.model));
+    const transactItems: TransactGetItem[] = actions.map((action, index) => {
+      const model = models[index]!;
+      const get: NonNullable<TransactGetItem['Get']> = {
+        TableName: model.tableName,
+        Key: marshalKey(model, action.key),
+      };
+      if (action.projection && action.projection.length > 0) {
+        const projection = buildProjectionExpression(model, action.projection);
+        get.ProjectionExpression = projection.expression;
+        get.ExpressionAttributeNames = projection.names;
+      }
+      return { Get: get };
+    });
+
+    let resp;
+    try {
+      resp = await this.ddb.send(
+        new TransactGetItemsCommand({ TransactItems: transactItems }),
+        this.sendOptions,
+      );
+    } catch (err) {
+      throw mapDynamoError(err);
+    }
+
+    const responses = resp.Responses ?? [];
+    return Promise.all(
+      actions.map(async (_, index) => {
+        const item = responses[index]?.Item;
+        if (!item || Object.keys(item).length === 0) return undefined;
+        const model = models[index]!;
+        const provider = modelHasEncryptedAttributes(model)
+          ? this.requireEncryption(model)
+          : undefined;
+        const plain = provider
+          ? await decryptItemAttributes(model, item, provider)
+          : item;
+        return unmarshalItem(model, plain, this.unmarshalOptions);
+      }),
+    );
+  }
+
   async transactWrite(actions: TransactAction[]): Promise<void> {
+    if (actions.length > 100) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'DynamoDB TransactWriteItems supports up to 100 actions',
+      );
+    }
+
     const transactItems: TransactWriteItem[] = [];
 
     for (const a of actions) {
@@ -703,6 +770,21 @@ function policyFieldsForUpdate(
   if (model.roles.updatedAt) out.push(model.roles.updatedAt);
   if (model.roles.version) out.push(model.roles.version);
   return out;
+}
+
+function buildProjectionExpression(
+  model: Model,
+  fields: readonly string[],
+): { expression: string; names: Record<string, string> } {
+  const names: Record<string, string> = {};
+  const parts: string[] = [];
+  fields.forEach((field, index) => {
+    const attr = model.attributes.get(field)?.attribute ?? field;
+    const placeholder = `#p${index}`;
+    names[placeholder] = attr;
+    parts.push(placeholder);
+  });
+  return { expression: parts.join(', '), names };
 }
 
 function hasProtectedAttributes(model: Model): boolean {

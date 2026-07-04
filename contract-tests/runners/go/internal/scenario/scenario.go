@@ -31,26 +31,64 @@ type EncryptionConfig struct {
 }
 
 type Step struct {
-	Op                  string            `yaml:"op"`
-	Model               string            `yaml:"model"`
-	IfNotExists         bool              `yaml:"if_not_exists"`
-	Fields              []string          `yaml:"fields"`
-	ProtectedAttributes []string          `yaml:"protected_attributes"`
-	Item                map[string]any    `yaml:"item"`
-	Key                 map[string]any    `yaml:"key"`
-	Query               *ReadRequest      `yaml:"query"`
-	Scan                *ReadRequest      `yaml:"scan"`
-	Count               *CountRequest     `yaml:"count"`
-	Actual              *TransitionActual `yaml:"actual"`
-	Event               *TransitionEvent  `yaml:"event"`
-	Ms                  int               `yaml:"ms"`
-	Save                map[string]string `yaml:"save"`
-	Expect              Expectation       `yaml:"expect"`
+	Op                  string                `yaml:"op"`
+	Model               string                `yaml:"model"`
+	IfNotExists         bool                  `yaml:"if_not_exists"`
+	Fields              []string              `yaml:"fields"`
+	ProtectedAttributes []string              `yaml:"protected_attributes"`
+	Item                map[string]any        `yaml:"item"`
+	Key                 map[string]any        `yaml:"key"`
+	Query               *ReadRequest          `yaml:"query"`
+	Scan                *ReadRequest          `yaml:"scan"`
+	Count               *CountRequest         `yaml:"count"`
+	TransactGet         *TransactGetRequest   `yaml:"transact_get"`
+	BatchGet            *BatchGetRequest      `yaml:"batch_get"`
+	BatchWrite          *BatchWriteRequest    `yaml:"batch_write"`
+	TransactWrite       *TransactWriteRequest `yaml:"transact_write"`
+	Actual              *TransitionActual     `yaml:"actual"`
+	Event               *TransitionEvent      `yaml:"event"`
+	Ms                  int                   `yaml:"ms"`
+	Save                map[string]string     `yaml:"save"`
+	Expect              Expectation           `yaml:"expect"`
 }
 
 type CountRequest struct {
 	Query *ReadRequest `yaml:"query"`
 	Scan  *ReadRequest `yaml:"scan"`
+}
+
+type TransactGetRequest struct {
+	Items []KeyedItem `yaml:"items"`
+}
+
+type BatchGetRequest struct {
+	Keys []map[string]any `yaml:"keys"`
+}
+
+type BatchWriteRequest struct {
+	Puts    []map[string]any `yaml:"puts"`
+	Deletes []map[string]any `yaml:"deletes"`
+}
+
+type TransactWriteRequest struct {
+	Actions []TransactWriteAction `yaml:"actions"`
+}
+
+type KeyedItem struct {
+	Model string         `yaml:"model"`
+	Key   map[string]any `yaml:"key"`
+}
+
+type TransactWriteAction struct {
+	Kind                      string            `yaml:"kind"`
+	Model                     string            `yaml:"model"`
+	Item                      map[string]any    `yaml:"item"`
+	Key                       map[string]any    `yaml:"key"`
+	Set                       map[string]any    `yaml:"set"`
+	ConditionExpression       string            `yaml:"condition_expression"`
+	ExpressionAttributeNames  map[string]string `yaml:"expression_attribute_names"`
+	ExpressionAttributeValues map[string]any    `yaml:"expression_attribute_values"`
+	IfNotExists               bool              `yaml:"if_not_exists"`
 }
 
 type ReadRequest struct {
@@ -187,6 +225,32 @@ func validateStep(label string, i int, step Step) error {
 			return validateQueryReadRequest(step.Count.Query, fmt.Sprintf("%s count.query", prefix))
 		}
 		return validateScanReadRequest(step.Count.Scan, fmt.Sprintf("%s count.scan", prefix))
+	case "transact_get":
+		if step.TransactGet == nil || len(step.TransactGet.Items) == 0 {
+			return fmt.Errorf("%s transact_get: transact_get.items are required", prefix)
+		}
+		for j, item := range step.TransactGet.Items {
+			if len(item.Key) == 0 {
+				return fmt.Errorf("%s transact_get.items[%d]: key is required", prefix, j)
+			}
+		}
+	case "batch_get":
+		if step.BatchGet == nil || len(step.BatchGet.Keys) == 0 {
+			return fmt.Errorf("%s batch_get: batch_get.keys are required", prefix)
+		}
+	case "batch_write":
+		if step.BatchWrite == nil || (len(step.BatchWrite.Puts) == 0 && len(step.BatchWrite.Deletes) == 0) {
+			return fmt.Errorf("%s batch_write: batch_write.puts or batch_write.deletes are required", prefix)
+		}
+	case "transact_write":
+		if step.TransactWrite == nil || len(step.TransactWrite.Actions) == 0 {
+			return fmt.Errorf("%s transact_write: transact_write.actions are required", prefix)
+		}
+		for j, action := range step.TransactWrite.Actions {
+			if action.Kind == "" {
+				return fmt.Errorf("%s transact_write.actions[%d]: kind is required", prefix, j)
+			}
+		}
 	case "transition_append_event":
 		if step.Actual == nil {
 			return fmt.Errorf("%s transition_append_event: actual is required", prefix)

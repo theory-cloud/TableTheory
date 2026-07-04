@@ -77,7 +77,12 @@ All query parameters are listed above:
 ### `query_all(...) -> list[T]`
 
 Accepts the same query parameters and follows cursors until exhaustion. It materializes every matching item into a Python
-list; prefer page-by-page `query` calls for large partitions.
+list; prefer `query_iter(...)` or page-by-page `query` calls for large partitions.
+
+### `query_iter(...) -> Iterator[Page[T]]`
+
+Accepts the same query parameters and yields one `Page[T]` at a time. This is the preferred large-result path because the
+next DynamoDB page is fetched only when the caller advances the generator; breaking out of the loop stops pagination.
 
 ### `query_with_retry(..., max_retries=5, initial_delay_seconds=0.1, max_delay_seconds=5.0, backoff_factor=2.0, retry_on_empty=True, retry_on_error=True, verify=None, sleep=time.sleep) -> Page[T]`
 
@@ -90,7 +95,12 @@ Runs a DynamoDB Scan and returns a page with `items` and `next_cursor`.
 ### `scan_all(...) -> list[T]`
 
 Accepts the same scan parameters and follows cursors until exhaustion. It materializes every scanned item into a Python
-list; prefer page-by-page `scan` calls for large tables.
+list; prefer `scan_iter(...)` or page-by-page `scan` calls for large tables.
+
+### `scan_iter(...) -> Iterator[Page[T]]`
+
+Accepts the same scan parameters and yields one `Page[T]` at a time. Use it for large scans so consumers can stop early
+without fetching the remaining pages.
 
 ### `scan_all_segments(*, total_segments, index_name=None, limit=None, consistent_read=False, projection=None, filter=None, max_workers=None) -> list[T]`
 
@@ -118,7 +128,10 @@ Actual signatures and defaults:
 
 - `batch_get(keys, *, consistent_read=False, projection=None, max_retries=5, sleep=time.sleep) -> list[T]`
 - `batch_write(*, puts=(), deletes=(), max_retries=5, sleep=time.sleep) -> None`
+- `transact_get(keys, *, projection=None) -> list[T | None]`
 - `transact_write(actions) -> None`
+
+`transact_get` accepts 1-100 keys and returns one result slot per requested key; missing items are `None`.
 
 `transact_write(actions)` accepts a sequence of dataclass actions:
 

@@ -46,6 +46,19 @@ page2 = table.query("A", cursor=page1.next_cursor) if page1.next_cursor else Non
 table.batch_write(puts=[Note(pk="A", sk="2", value=1)], deletes=[("A", "1")])
 ```
 
+## Pattern: Lazy pagination for large reads
+
+Use `query_iter` and `scan_iter` when a caller may stop before consuming every page. The generator fetches the next
+DynamoDB page only when iteration advances:
+
+```python
+for page in table.query_iter("USER#1", limit=100):
+    for item in page.items:
+        if should_stop(item):
+            break
+    break  # no additional page is fetched
+```
+
 ## Pattern: Aggregations are client-side
 
 `sum_field`, `average_field`, `min_field`, `max_field`, `aggregate_field`, `count_distinct`, and `group_by(...).execute()`
@@ -69,4 +82,3 @@ from tabletheory_py.mocks import ANY, FakeDynamoDBClient
 fake = FakeDynamoDBClient()
 fake.expect("put_item", {"TableName": "notes", "Item": {"PK": ANY, "SK": ANY}})
 ```
-

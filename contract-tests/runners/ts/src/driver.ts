@@ -1,8 +1,10 @@
-import type { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import type { AttributeValue, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { TheorydbClient } from "../../../../ts/src/client.js";
 import type { EncryptionProvider } from "../../../../ts/src/encryption.js";
 import { TheorydbError } from "../../../../ts/src/errors.js";
+import { marshalScalar } from "../../../../ts/src/marshal.js";
 import type { Model } from "../../../../ts/src/model.js";
+import type { TransactAction } from "../../../../ts/src/transaction.js";
 import {
   transitionReleaseState,
   validateDeployAuthorityMetadata,
@@ -52,6 +54,20 @@ export interface Driver {
   scan(model: string, req: ReadRequest): Promise<ReadResult>;
   countQuery(model: string, req: ReadRequest): Promise<ReadResult>;
   countScan(model: string, req: ReadRequest): Promise<ReadResult>;
+  transactGet(model: string, items: KeyedItem[]): Promise<ReadResult>;
+  batchGet(
+    model: string,
+    keys: Array<Record<string, unknown>>,
+  ): Promise<ReadResult>;
+  batchWrite(
+    model: string,
+    puts: Array<Record<string, unknown>>,
+    deletes: Array<Record<string, unknown>>,
+  ): Promise<void>;
+  transactWrite(
+    model: string,
+    actions: ScenarioTransactWriteAction[],
+  ): Promise<void>;
   transitionAppendEvent(
     actual: TransitionActual,
     event: TransitionEvent,
@@ -66,6 +82,23 @@ export interface ReadResult {
   items: Array<Record<string, unknown>>;
   cursor?: string;
   count?: number;
+}
+
+export interface KeyedItem {
+  model?: string;
+  key: Record<string, unknown>;
+}
+
+export interface ScenarioTransactWriteAction {
+  kind: string;
+  model?: string;
+  item?: Record<string, unknown>;
+  key?: Record<string, unknown>;
+  set?: Record<string, unknown>;
+  conditionExpression?: string;
+  expressionAttributeNames?: Record<string, string>;
+  expressionAttributeValues?: Record<string, unknown>;
+  ifNotExists?: boolean;
 }
 
 export interface TransitionActual {
@@ -83,6 +116,7 @@ export interface TransitionEvent {
 export class TheorydbDriver implements Driver {
   private readonly client: TheorydbClient;
   private readonly exactNumbers: boolean;
+  private readonly models: Map<string, Model>;
 
   constructor(
     ddb: DynamoDBClient,
@@ -90,6 +124,7 @@ export class TheorydbDriver implements Driver {
     opts: { exactNumbers?: boolean; encryption?: EncryptionProvider } = {},
   ) {
     this.exactNumbers = opts.exactNumbers ?? false;
+    this.models = new Map(models.map((model) => [model.name, model]));
     this.client = new TheorydbClient(ddb, {
       ...(this.exactNumbers ? { numberUnmarshalMode: "string" } : {}),
       ...(opts.encryption ? { encryption: opts.encryption } : {}),
@@ -110,6 +145,10 @@ export class TheorydbDriver implements Driver {
       "scan.basic",
       "count.native",
       "get.optional",
+      "transact_get",
+      "batch.get",
+      "batch.write",
+      "transact.write",
       "release_state.write_policy",
       "release_state.transactional_transition",
       "release_state.provenance_confidence",
@@ -250,6 +289,190 @@ export class TheorydbDriver implements Driver {
       );
     }
     return { items: [], count: await builder.count() };
+  }
+
+  async transactGet(model: string, items: KeyedItem[]): Promise<ReadResult> {
+    const rows = await this.client.transactGet(
+      items.map((item) => ({
+        model: item.model ?? model,
+        key: item.key,
+      })),
+    );
+    return {
+      items: rows.filter(
+        (row): row is Record<string, unknown> => row !== undefined,
+      ),
+    };
+  }
+
+  async batchGet(
+    model: string,
+    keys: Array<Record<string, unknown>>,
+  ): Promise<ReadResult> {
+    const result = await this.client.batchGet(model, keys);
+    return { items: result.items };
+  }
+
+  async batchWrite(
+    model: string,
+    puts: Array<Record<string, unknown>>,
+    deletes: Array<Record<string, unknown>>,
+  ): Promise<void> {
+    const result = await this.client.batchWrite(model, {
+      puts: puts.map((item) => contractItemForModel(model, item)),
+      deletes,
+    });
+    if (result.unprocessed.length > 0) {
+      throw new TheorydbError(
+        "ErrInvalidOperator",
+        `batch write left ${result.unprocessed.length} unprocessed items`,
+      );
+    }
+  }
+
+  async transactWrite(
+    model: string,
+    actions: ScenarioTransactWriteAction[],
+  ): Promise<void> {
+    await this.client.transactWrite(
+      actions.map((action) => this.toTransactAction(model, action)),
+    );
+  }
+
+  private toTransactAction(
+    defaultModel: string,
+    action: ScenarioTransactWriteAction,
+  ): TransactAction {
+    const modelName = action.model ?? defaultModel;
+    switch (action.kind.toLowerCase()) {
+      case "put":
+      case "create":
+        if (!action.item) {
+          throw new TheorydbError(
+            "ErrInvalidModel",
+            "put action requires item",
+          );
+        }
+        return {
+          kind: "put",
+          model: modelName,
+          item: contractItemForModel(modelName, action.item),
+          ifNotExists:
+            action.ifNotExists || action.kind.toLowerCase() === "create",
+        };
+      case "update":
+        return this.toUpdateAction(modelName, action);
+      case "delete":
+        if (!action.key) {
+          throw new TheorydbError(
+            "ErrInvalidModel",
+            "delete action requires key",
+          );
+        }
+        return {
+          kind: "delete",
+          model: modelName,
+          key: action.key,
+          conditionExpression: action.conditionExpression,
+          expressionAttributeNames: action.expressionAttributeNames,
+          expressionAttributeValues: this.expressionValues(
+            modelName,
+            action.expressionAttributeValues,
+          ),
+        };
+      case "condition":
+      case "condition_check":
+        if (!action.key || !action.conditionExpression) {
+          throw new TheorydbError(
+            "ErrInvalidModel",
+            "condition action requires key and conditionExpression",
+          );
+        }
+        return {
+          kind: "condition",
+          model: modelName,
+          key: action.key,
+          conditionExpression: action.conditionExpression,
+          expressionAttributeNames: action.expressionAttributeNames,
+          expressionAttributeValues: this.expressionValues(
+            modelName,
+            action.expressionAttributeValues,
+          ),
+        };
+      default:
+        throw new TheorydbError(
+          "ErrInvalidOperator",
+          `unsupported transact_write action: ${action.kind}`,
+        );
+    }
+  }
+
+  private toUpdateAction(
+    modelName: string,
+    action: ScenarioTransactWriteAction,
+  ): TransactAction {
+    if (!action.key || !action.set) {
+      throw new TheorydbError(
+        "ErrInvalidModel",
+        "update action requires key and set",
+      );
+    }
+    const model = this.requireScenarioModel(modelName);
+    const names: Record<string, string> = {
+      ...(action.expressionAttributeNames ?? {}),
+    };
+    const values: Record<string, AttributeValue> =
+      this.expressionValues(modelName, action.expressionAttributeValues) ?? {};
+    const assignments: string[] = [];
+    for (const [index, [field, value]] of Object.entries(
+      action.set,
+    ).entries()) {
+      const attr = model.attributes.get(field);
+      if (!attr) {
+        throw new TheorydbError(
+          "ErrInvalidModel",
+          `unknown update field ${field}`,
+        );
+      }
+      const name = `#u${index}`;
+      const valueName = `:u${index}`;
+      names[name] = attr.attribute;
+      values[valueName] = marshalScalar(attr, value);
+      assignments.push(`${name} = ${valueName}`);
+    }
+    return {
+      kind: "update",
+      model: modelName,
+      key: action.key,
+      updateExpression: `SET ${assignments.join(", ")}`,
+      conditionExpression: action.conditionExpression,
+      expressionAttributeNames: names,
+      expressionAttributeValues: values,
+    };
+  }
+
+  private expressionValues(
+    modelName: string,
+    values: Record<string, unknown> | undefined,
+  ): Record<string, AttributeValue> | undefined {
+    if (!values) return undefined;
+    const model = this.requireScenarioModel(modelName);
+    const fallbackSchema =
+      model.attributes.get(model.roles.pk) ?? model.schema.attributes[0];
+    if (!fallbackSchema) return undefined;
+    const out: Record<string, AttributeValue> = {};
+    for (const [key, value] of Object.entries(values)) {
+      out[key] = marshalScalar(fallbackSchema, value);
+    }
+    return out;
+  }
+
+  private requireScenarioModel(name: string): Model {
+    const model = this.models.get(name);
+    if (!model) {
+      throw new TheorydbError("ErrInvalidModel", `unknown model: ${name}`);
+    }
+    return model;
   }
 
   async transitionAppendEvent(

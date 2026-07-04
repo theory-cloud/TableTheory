@@ -172,9 +172,15 @@ Key, cursor, and page methods:
 - `projection(fields: string[]): this`
 - `cursor(encoded: string): this`
 - `page(): Promise<Page>`
+- `pages(): AsyncGenerator<Page>`
+- `items(): AsyncGenerator<Record<string, unknown>>`
 - `all(): Promise<Array<Record<string, unknown>>>`
 - `pageWithRetry(options?): Promise<Page>`
 - `describe(): BuilderShape`
+
+Prefer `pages()` or `items()` for large result sets. They fetch one DynamoDB page at a time and stop fetching when the
+consumer breaks out of the `for await` loop. `all()` is a convenience helper for bounded result sets because it follows
+every cursor and materializes every matching item.
 
 Filter expressions are implemented:
 
@@ -226,10 +232,13 @@ Actual signatures:
 
 - `batchGet(modelName: string, keys: Array<Record<string, unknown>>, opts?: RetryOptions & { consistentRead?: boolean }): Promise<BatchGetResult>`
 - `batchWrite(modelName: string, request: { puts?: Array<Record<string, unknown>>; deletes?: Array<Record<string, unknown>> }, opts?: RetryOptions): Promise<BatchWriteResult>`
+- `transactGet(actions: TransactGetAction[]): Promise<Array<Record<string, unknown> | undefined>>`
 - `transactWrite(actions: TransactAction[]): Promise<void>`
 
 `batchGet` defaults to `consistentRead: true`, `maxAttempts: 5`, and `baseDelayMs: 25`. `batchWrite` defaults to
 `maxAttempts: 5` and `baseDelayMs: 25`.
+
+`transactGet` accepts 1-100 items and returns one result slot per requested item; missing items are `undefined`.
 
 `TransactAction` is a discriminated union of:
 

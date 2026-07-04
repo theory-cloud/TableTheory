@@ -85,6 +85,37 @@ type ExtendedDB interface {
 	TransactWrite(ctx context.Context, fn func(TransactionBuilder) error) error
 }
 
+// TransactGetter is an additive extension interface for DynamoDB TransactGetItems
+// support. It is intentionally separate from DB/ExtendedDB so existing mocks and
+// implementations of those exported interfaces remain source-compatible.
+type TransactGetter interface {
+	// TransactGet retrieves up to 100 items atomically using DynamoDB TransactGetItems.
+	// Missing items are represented by a TransactGetResult with Found=false; they
+	// are not collapsed into ErrItemNotFound because DynamoDB TransactGetItems
+	// returns sparse responses for absent keys.
+	TransactGet(ctx context.Context, requests []TransactGetRequest) ([]TransactGetResult, error)
+}
+
+// TransactGetRequest describes one item in a TransactGetItems request.
+type TransactGetRequest struct {
+	// Model identifies the TableTheory model shape used to derive the table and
+	// primary-key schema. A zero value is invalid.
+	Model any
+	// Key is either a core.KeyPair, a model-shaped key struct, or a primitive
+	// partition-key value for single-key models.
+	Key any
+	// Dest is an optional pointer populated when the item exists.
+	Dest any
+	// Projection limits the returned attributes for this item when non-empty.
+	Projection []string
+}
+
+// TransactGetResult reports whether the item for a TransactGetRequest existed.
+// When Found is true and the request supplied Dest, Dest has been populated.
+type TransactGetResult struct {
+	Found bool
+}
+
 // TransactionBuilder defines the fluent DSL for composing DynamoDB transactions
 type TransactionBuilder interface {
 	// Put adds a put (upsert) operation

@@ -114,6 +114,57 @@ function validateStep(
     case "count":
       requireCountRequest(step.count, `${prefix}: count`);
       break;
+    case "transact_get": {
+      requirePlainObject(
+        step.transact_get,
+        `${prefix}: transact_get is required`,
+      );
+      const request = step.transact_get as { items?: unknown };
+      if (!Array.isArray(request.items) || request.items.length === 0) {
+        throw new Error(`${prefix}: transact_get.items are required`);
+      }
+      for (const [itemIndex, item] of request.items.entries()) {
+        requirePlainObject(
+          (item as { key?: unknown }).key,
+          `${prefix}: transact_get.items[${itemIndex}].key is required`,
+        );
+      }
+      break;
+    }
+    case "batch_get": {
+      requirePlainObject(step.batch_get, `${prefix}: batch_get is required`);
+      const request = step.batch_get as { keys?: unknown };
+      if (!Array.isArray(request.keys) || request.keys.length === 0) {
+        throw new Error(`${prefix}: batch_get.keys are required`);
+      }
+      break;
+    }
+    case "batch_write": {
+      requirePlainObject(
+        step.batch_write,
+        `${prefix}: batch_write is required`,
+      );
+      const request = step.batch_write as { puts?: unknown; deletes?: unknown };
+      const puts = Array.isArray(request.puts) ? request.puts.length : 0;
+      const deletes = Array.isArray(request.deletes)
+        ? request.deletes.length
+        : 0;
+      if (puts + deletes === 0) {
+        throw new Error(`${prefix}: batch_write.puts or deletes are required`);
+      }
+      break;
+    }
+    case "transact_write": {
+      requirePlainObject(
+        step.transact_write,
+        `${prefix}: transact_write is required`,
+      );
+      const request = step.transact_write as { actions?: unknown };
+      if (!Array.isArray(request.actions) || request.actions.length === 0) {
+        throw new Error(`${prefix}: transact_write.actions are required`);
+      }
+      break;
+    }
     case "transition_append_event":
       requireTransitionActual(step.actual, `${prefix}: actual`);
       requireTransitionEvent(step.event, `${prefix}: event`);

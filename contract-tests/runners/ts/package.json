@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "npm run test:key-contract && npm run test:fixtures && npm run test:encoding && npm run test:reserved-words && npm run test:update-builder && npm run test:filters && npm run test:crypto && npm run test:contract:p0 && npm run test:contract:p1",
+    "test": "npm run test:key-contract && npm run test:fixtures && npm run test:encoding && npm run test:reserved-words && npm run test:update-builder && npm run test:filters && npm run test:crypto && npm run test:contract:p0 && npm run test:contract:p1 && npm run test:contract:p2",
     "test:crypto": "tsx test/crypto.contract.test.ts",
     "test:encoding": "tsx test/encoding.contract.test.ts",
     "test:fixtures": "tsx test/fixtures.test.ts",
@@ -14,7 +14,8 @@
     "test:contract:p0": "tsx test/contract.p0.test.ts",
     "test:contract:p1": "tsx test/contract.p1.test.ts",
     "test:contract:interop": "tsx test/contract.interop.test.ts",
-    "test:key-contract": "tsx test/key-contract.contract.test.ts"
+    "test:key-contract": "tsx test/key-contract.contract.test.ts",
+    "test:contract:p2": "tsx test/contract.p2.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1053.0"

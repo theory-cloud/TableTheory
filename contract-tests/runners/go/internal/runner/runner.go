@@ -199,6 +199,30 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		r.assertReadResult(t, step.Expect, result, err, model)
 		return
 
+	case "transact_get":
+		require.NotNil(t, step.TransactGet, "transact_get request is required")
+		result, err := r.driver.TransactGet(ctx, modelName, transactGetItemsFromScenario(step.TransactGet))
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
+	case "batch_get":
+		require.NotNil(t, step.BatchGet, "batch_get request is required")
+		result, err := r.driver.BatchGet(ctx, modelName, cloneKeyMaps(step.BatchGet.Keys))
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
+	case "batch_write":
+		require.NotNil(t, step.BatchWrite, "batch_write request is required")
+		err := r.driver.BatchWrite(ctx, modelName, cloneKeyMaps(step.BatchWrite.Puts), cloneKeyMaps(step.BatchWrite.Deletes))
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "transact_write":
+		require.NotNil(t, step.TransactWrite, "transact_write request is required")
+		err := r.driver.TransactWrite(ctx, modelName, transactWriteActionsFromScenario(step.TransactWrite.Actions))
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
 	case "transition_append_event":
 		require.NotNil(t, step.Actual, "transition_append_event actual is required")
 		require.NotNil(t, step.Event, "transition_append_event event is required")
@@ -257,6 +281,68 @@ func readConditionFromScenario(cond scenario.ReadCondition) driver.ReadCondition
 		Value:     cond.Value,
 		Values:    append([]any(nil), cond.Values...),
 	}
+}
+
+func transactGetItemsFromScenario(req *scenario.TransactGetRequest) []driver.KeyedItem {
+	if req == nil {
+		return nil
+	}
+	items := make([]driver.KeyedItem, 0, len(req.Items))
+	for _, item := range req.Items {
+		items = append(items, driver.KeyedItem{
+			Model: item.Model,
+			Key:   cloneMap(item.Key),
+		})
+	}
+	return items
+}
+
+func transactWriteActionsFromScenario(actions []scenario.TransactWriteAction) []driver.TransactWriteAction {
+	out := make([]driver.TransactWriteAction, 0, len(actions))
+	for _, action := range actions {
+		out = append(out, driver.TransactWriteAction{
+			Kind:                      action.Kind,
+			Model:                     action.Model,
+			Item:                      cloneMap(action.Item),
+			Key:                       cloneMap(action.Key),
+			Set:                       cloneMap(action.Set),
+			ConditionExpression:       action.ConditionExpression,
+			ExpressionAttributeNames:  cloneStringMap(action.ExpressionAttributeNames),
+			ExpressionAttributeValues: cloneMap(action.ExpressionAttributeValues),
+			IfNotExists:               action.IfNotExists,
+		})
+	}
+	return out
+}
+
+func cloneKeyMaps(values []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, cloneMap(value))
+	}
+	return out
+}
+
+func cloneMap(value map[string]any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	out := make(map[string]any, len(value))
+	for k, v := range value {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneStringMap(value map[string]string) map[string]string {
+	if value == nil {
+		return nil
+	}
+	out := make(map[string]string, len(value))
+	for k, v := range value {
+		out[k] = v
+	}
+	return out
 }
 
 func stepModelName(s *scenario.Scenario, step scenario.Step) string {

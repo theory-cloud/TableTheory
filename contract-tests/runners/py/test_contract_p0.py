@@ -29,6 +29,11 @@ from theorydb_py import (
     RejectedDeployAuthorityEvidenceError,
     SortKeyCondition,
     Table,
+    TransactConditionCheck,
+    TransactDelete,
+    TransactPut,
+    TransactUpdate,
+    TransactWriteAction,
     ValidationError,
     VersionConflictError,
     WritePolicy,
@@ -393,6 +398,76 @@ class _TheorydbPyDriver:
         )
         return {"items": [], "count": count}
 
+    def transact_get(self, model: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+        table = self._table(model)
+        keys = [_key_tuple(item["key"]) for item in items]
+        rows = table.transact_get(keys)
+        return {"items": [_contract_item(item) for item in rows if item is not None]}
+
+    def batch_get(self, model: str, keys: list[dict[str, Any]]) -> dict[str, Any]:
+        rows = self._table(model).batch_get([_key_tuple(key) for key in keys], consistent_read=True)
+        return {"items": [_contract_item(item) for item in rows]}
+
+    def batch_write(
+        self,
+        model: str,
+        puts: list[dict[str, Any]],
+        deletes: list[dict[str, Any]],
+    ) -> None:
+        self._table(model).batch_write(
+            puts=[self._item(model, item) for item in puts],
+            deletes=[_key_tuple(key) for key in deletes],
+        )
+
+    def transact_write(self, model: str, actions: list[dict[str, Any]]) -> None:
+        self._table(model).transact_write([self._transact_action(model, action) for action in actions])
+
+    def _transact_action(self, model: str, action: dict[str, Any]) -> TransactWriteAction[Any]:
+        kind = str(action["kind"]).lower()
+        action_model = action.get("model") or model
+        if action_model != model:
+            raise ValidationError("python transact_write runner supports one table per scenario")
+        condition_expression = action.get("condition_expression")
+        names = action.get("expression_attribute_names")
+        values = action.get("expression_attribute_values")
+
+        if kind in {"put", "create"}:
+            return TransactPut(
+                self._item(model, action["item"]),
+                condition_expression=condition_expression,
+                expression_attribute_names=names,
+                expression_attribute_values=values,
+            )
+        if kind == "update":
+            pk, sk = _key_tuple(action["key"])
+            return TransactUpdate(
+                pk=pk,
+                sk=sk,
+                updates=action.get("set", {}),
+                condition_expression=condition_expression,
+                expression_attribute_names=names,
+                expression_attribute_values=values,
+            )
+        if kind == "delete":
+            pk, sk = _key_tuple(action["key"])
+            return TransactDelete(
+                pk=pk,
+                sk=sk,
+                condition_expression=condition_expression,
+                expression_attribute_names=names,
+                expression_attribute_values=values,
+            )
+        if kind in {"condition", "condition_check"}:
+            pk, sk = _key_tuple(action["key"])
+            return TransactConditionCheck(
+                pk=pk,
+                sk=sk,
+                condition_expression=condition_expression,
+                expression_attribute_names=names,
+                expression_attribute_values=values,
+            )
+        raise ValidationError(f"unsupported transact_write action: {kind}")
+
     def transition_append_event(self, actual: dict[str, Any], event: dict[str, Any]) -> None:
         transition_release_state(
             self._table(actual["model"]),
@@ -497,6 +572,25 @@ def test_p1_contract_scenarios_execute_for_python(scenario: dict[str, Any]) -> N
     _run_scenario(client, driver, scenario, models)
 
 
+@pytest.mark.parametrize("scenario", _load_scenarios_from("p2"), ids=lambda scenario: str(scenario["name"]))
+def test_p2_contract_scenarios_execute_for_python(scenario: dict[str, Any]) -> None:
+    models = _load_models()
+    missing = _missing_capabilities(scenario, _supported_capabilities())
+    if missing:
+        pytest.skip(f"scenario requires unsupported capabilities: {', '.join(missing)}")
+
+    client = _dynamodb_client()
+    try:
+        client.list_tables(Limit=1)
+    except EndpointConnectionError:
+        if os.environ.get("SKIP_INTEGRATION") in {"1", "true"}:
+            pytest.skip("DynamoDB Local not reachable and SKIP_INTEGRATION is set")
+        raise
+
+    driver = _TheorydbPyDriver(client, encryption=scenario.get("encryption"))
+    _run_scenario(client, driver, scenario, models)
+
+
 @pytest.mark.parametrize(
     "scenario",
     _load_scenarios_from("interop"),
@@ -532,6 +626,10 @@ def _supported_capabilities() -> list[str]:
         "scan.basic",
         "count.native",
         "get.optional",
+        "transact_get",
+        "batch.get",
+        "batch.write",
+        "transact.write",
         "release_state.write_policy",
         "release_state.transactional_transition",
         "release_state.provenance_confidence",
@@ -565,6 +663,10 @@ def _sk_value(values: dict[str, Any]) -> Any:
     if "SK" in values:
         return values["SK"]
     return values["sk"]
+
+
+def _key_tuple(values: dict[str, Any]) -> tuple[Any, Any | None]:
+    return (_pk_value(values), _sk_value(values))
 
 
 def _condition_values(condition: dict[str, Any]) -> tuple[Any, ...]:
@@ -770,6 +872,27 @@ def _run_step(
         else:
             result, error = _capture_result(lambda: driver.count_scan(model_name, count_request["scan"]))
         _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
+        return
+
+    if step["op"] == "transact_get":
+        result, error = _capture_result(lambda: driver.transact_get(model_name, step["transact_get"]["items"]))
+        _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
+        return
+
+    if step["op"] == "batch_get":
+        result, error = _capture_result(lambda: driver.batch_get(model_name, step["batch_get"]["keys"]))
+        _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
+        return
+
+    if step["op"] == "batch_write":
+        request = step["batch_write"]
+        error = _capture_error(lambda: driver.batch_write(model_name, request.get("puts", []), request.get("deletes", [])))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "transact_write":
+        error = _capture_error(lambda: driver.transact_write(model_name, step["transact_write"]["actions"]))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
         return
 
     if step["op"] == "transition_append_event":
@@ -1069,6 +1192,8 @@ def _map_errors(error: Exception) -> list[str]:
             "consistent_read" in str(error)
             or "unsupported sort operator" in str(error)
             or "unsupported filter operator" in str(error)
+            or "at most 100" in str(error)
+            or "supports at most 100" in str(error)
         ):
             return ["ErrInvalidOperator"]
         return ["ErrInvalidModel"]

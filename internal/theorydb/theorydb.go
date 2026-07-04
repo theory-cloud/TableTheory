@@ -282,6 +282,18 @@ func (db *DB) TransactWrite(ctx context.Context, fn func(core.TransactionBuilder
 	return builder.Execute()
 }
 
+// TransactGet executes a DynamoDB TransactGetItems request through the additive
+// core.TransactGetter extension interface.
+func (db *DB) TransactGet(ctx context.Context, requests []core.TransactGetRequest) ([]core.TransactGetResult, error) {
+	if ctx == nil {
+		ctx = db.ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return transaction.TransactGet(ctx, db.session, db.registry, db.converter, requests)
+}
+
 // AutoMigrate creates or updates tables based on the given models
 func (db *DB) AutoMigrate(models ...any) error {
 	manager := schema.NewManager(db.session, db.registry)

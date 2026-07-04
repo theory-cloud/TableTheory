@@ -1,7 +1,16 @@
 export type DmsVersion = "0.1";
 
 export type ScalarType =
-  "S" | "N" | "B" | "BOOL" | "NULL" | "M" | "L" | "SS" | "NS" | "BS";
+  | "S"
+  | "N"
+  | "B"
+  | "BOOL"
+  | "NULL"
+  | "M"
+  | "L"
+  | "SS"
+  | "NS"
+  | "BS";
 
 export interface DmsDocument {
   dms_version: DmsVersion;
@@ -70,6 +79,10 @@ export interface Step {
     | "query"
     | "scan"
     | "count"
+    | "transact_get"
+    | "batch_get"
+    | "batch_write"
+    | "transact_write"
     | "sleep"
     | "save"
     | "transition_append_event"
@@ -83,11 +96,49 @@ export interface Step {
   query?: ReadRequest;
   scan?: ReadRequest;
   count?: CountRequest;
+  transact_get?: TransactGetRequest;
+  batch_get?: BatchGetRequest;
+  batch_write?: BatchWriteRequest;
+  transact_write?: TransactWriteRequest;
   actual?: TransitionActual;
   event?: TransitionEvent;
   ms?: number;
   save?: Record<string, string>;
   expect?: Expectation;
+}
+
+export interface TransactGetRequest {
+  items: KeyedItem[];
+}
+
+export interface BatchGetRequest {
+  keys: Array<Record<string, unknown>>;
+}
+
+export interface BatchWriteRequest {
+  puts?: Array<Record<string, unknown>>;
+  deletes?: Array<Record<string, unknown>>;
+}
+
+export interface TransactWriteRequest {
+  actions: TransactWriteAction[];
+}
+
+export interface KeyedItem {
+  model?: string;
+  key: Record<string, unknown>;
+}
+
+export interface TransactWriteAction {
+  kind: string;
+  model?: string;
+  item?: Record<string, unknown>;
+  key?: Record<string, unknown>;
+  set?: Record<string, unknown>;
+  condition_expression?: string;
+  expression_attribute_names?: Record<string, string>;
+  expression_attribute_values?: Record<string, unknown>;
+  if_not_exists?: boolean;
 }
 
 export interface CountRequest {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import MISSING, fields, is_dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -37,8 +37,13 @@ from .query import (
 )
 from .runtime import DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS, _is_lambda_timeout_error
 from .runtime import with_lambda_timeout as with_lambda_timeout_client
+from .table_all import query_all as _query_all
+from .table_all import scan_all as _scan_all_pages
 from .table_count import query_count as _query_count
 from .table_count import scan_count as _scan_count
+from .table_iterators import query_iter as _query_iter
+from .table_iterators import scan_iter as _scan_iter
+from .table_transact_get import transact_get as _transact_get
 from .transaction import (
     TransactConditionCheck,
     TransactDelete,
@@ -345,27 +350,44 @@ class Table[T]:
         projection: list[str] | None = None,
         filter: FilterExpression | None = None,
     ) -> list[T]:
-        out: list[T] = []
-        next_cursor: str | None = cursor
+        return _query_all(
+            self,
+            partition,
+            sort=sort,
+            index_name=index_name,
+            limit=limit,
+            cursor=cursor,
+            scan_forward=scan_forward,
+            consistent_read=consistent_read,
+            projection=projection,
+            filter=filter,
+        )
 
-        while True:
-            page = self.query(
-                partition,
-                sort=sort,
-                index_name=index_name,
-                limit=limit,
-                cursor=next_cursor,
-                scan_forward=scan_forward,
-                consistent_read=consistent_read,
-                projection=projection,
-                filter=filter,
-            )
-            out.extend(page.items)
-            if page.next_cursor is None:
-                break
-            next_cursor = page.next_cursor
-
-        return out
+    def query_iter(
+        self,
+        partition: Any,
+        *,
+        sort: SortKeyCondition | None = None,
+        index_name: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        scan_forward: bool = True,
+        consistent_read: bool = False,
+        projection: list[str] | None = None,
+        filter: FilterExpression | None = None,
+    ) -> Iterator[Page[T]]:
+        return _query_iter(
+            self,
+            partition,
+            sort=sort,
+            index_name=index_name,
+            limit=limit,
+            cursor=cursor,
+            scan_forward=scan_forward,
+            consistent_read=consistent_read,
+            projection=projection,
+            filter=filter,
+        )
 
     def describe_query(
         self,
@@ -493,26 +515,41 @@ class Table[T]:
         segment: int | None = None,
         total_segments: int | None = None,
     ) -> list[T]:
-        out: list[T] = []
-        next_cursor: str | None = cursor
+        return _scan_all_pages(
+            self,
+            index_name=index_name,
+            limit=limit,
+            cursor=cursor,
+            consistent_read=consistent_read,
+            projection=projection,
+            filter=filter,
+            segment=segment,
+            total_segments=total_segments,
+        )
 
-        while True:
-            page = self.scan(
-                index_name=index_name,
-                limit=limit,
-                cursor=next_cursor,
-                consistent_read=consistent_read,
-                projection=projection,
-                filter=filter,
-                segment=segment,
-                total_segments=total_segments,
-            )
-            out.extend(page.items)
-            if page.next_cursor is None:
-                break
-            next_cursor = page.next_cursor
-
-        return out
+    def scan_iter(
+        self,
+        *,
+        index_name: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        consistent_read: bool = False,
+        projection: list[str] | None = None,
+        filter: FilterExpression | None = None,
+        segment: int | None = None,
+        total_segments: int | None = None,
+    ) -> Iterator[Page[T]]:
+        return _scan_iter(
+            self,
+            index_name=index_name,
+            limit=limit,
+            cursor=cursor,
+            consistent_read=consistent_read,
+            projection=projection,
+            filter=filter,
+            segment=segment,
+            total_segments=total_segments,
+        )
 
     def describe_scan(
         self,
@@ -780,6 +817,9 @@ class Table[T]:
                     attempts += 1
                     if sleep is not None:
                         sleep(_backoff_seconds(attempts))
+
+    def transact_get(self, keys: Sequence[Any], *, projection: list[str] | None = None) -> list[T | None]:
+        return _transact_get(self, keys, projection=projection)
 
     def transact_write(self, actions: Sequence[TransactWriteAction[T]]) -> None:
         if not actions:

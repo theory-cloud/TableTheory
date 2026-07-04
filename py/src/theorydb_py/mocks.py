@@ -112,6 +112,9 @@ class FakeDynamoDBClient:
     def transact_write_items(self, **kwargs: Any) -> Mapping[str, Any]:
         return self._handle("transact_write_items", kwargs)
 
+    def transact_get_items(self, **kwargs: Any) -> Mapping[str, Any]:
+        return self._handle("transact_get_items", kwargs)
+
     def create_table(self, **kwargs: Any) -> Mapping[str, Any]:
         return self._handle("create_table", kwargs)
 

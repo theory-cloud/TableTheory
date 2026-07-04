@@ -56,6 +56,19 @@ const page2 = page1.cursor
   : { items: [] };
 ```
 
+For large partitions or scans, prefer the lazy async iterators so callers can stop early without fetching the remaining
+pages:
+
+```ts
+for await (const item of db
+  .query('User')
+  .partitionKey('U#1')
+  .limit(100)
+  .items()) {
+  if (shouldStop(item)) break; // no additional page is fetched after break
+}
+```
+
 ## Pattern: Aggregations are client-side
 
 `db.query(...).sum(...)`, `average(...)`, `min(...)`, `max(...)`, `aggregate(...)`, `countDistinct(...)`, and

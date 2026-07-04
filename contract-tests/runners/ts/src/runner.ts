@@ -205,6 +205,67 @@ async function runStep(opts: {
     return;
   }
 
+  if (step.op === "transact_get") {
+    assert.ok(step.transact_get, "transact_get request is required");
+    const res = await captureResult(() =>
+      driver.transactGet(modelName, step.transact_get!.items),
+    );
+    assertReadExpectation(step.expect, {
+      err: res.err,
+      result: res.value,
+      model,
+    });
+    return;
+  }
+
+  if (step.op === "batch_get") {
+    assert.ok(step.batch_get, "batch_get request is required");
+    const res = await captureResult(() =>
+      driver.batchGet(modelName, step.batch_get!.keys),
+    );
+    assertReadExpectation(step.expect, {
+      err: res.err,
+      result: res.value,
+      model,
+    });
+    return;
+  }
+
+  if (step.op === "batch_write") {
+    assert.ok(step.batch_write, "batch_write request is required");
+    const err = await captureError(() =>
+      driver.batchWrite(
+        modelName,
+        step.batch_write!.puts ?? [],
+        step.batch_write!.deletes ?? [],
+      ),
+    );
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "transact_write") {
+    assert.ok(step.transact_write, "transact_write request is required");
+    const err = await captureError(() =>
+      driver.transactWrite(
+        modelName,
+        step.transact_write!.actions.map((action) => ({
+          kind: action.kind,
+          model: action.model,
+          item: action.item,
+          key: action.key,
+          set: action.set,
+          conditionExpression: action.condition_expression,
+          expressionAttributeNames: action.expression_attribute_names,
+          expressionAttributeValues: action.expression_attribute_values,
+          ifNotExists: action.if_not_exists,
+        })),
+      ),
+    );
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
   if (step.op === "transition_append_event") {
     assert.ok(step.actual, "transition_append_event actual is required");
     assert.ok(step.event, "transition_append_event event is required");

@@ -35,6 +35,8 @@ import {
 } from './marshal.js';
 import type { AttributeSchema, IndexSchema, Model } from './model.js';
 import type { BuilderShape } from './optimizer.js';
+import { mapConcurrent } from './query-concurrency.js';
+import { itemIterator, pageIterator } from './query-iterators.js';
 import { countAllPages } from './query-count.js';
 import type { SendOptions } from './send-options.js';
 
@@ -714,6 +716,20 @@ export class QueryBuilder {
     }
   }
 
+  pages(): AsyncGenerator<Page<Record<string, unknown>>> {
+    return pageIterator(
+      () => this.cursorToken,
+      (cursor) => {
+        this.cursorToken = cursor;
+      },
+      () => this.page(),
+    );
+  }
+
+  items(): AsyncGenerator<Record<string, unknown>> {
+    return itemIterator(this.pages());
+  }
+
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before summing.
    * Use only for bounded result sets; use native `count()` for count-only reads.
@@ -1227,6 +1243,20 @@ export class ScanBuilder {
     }
   }
 
+  pages(): AsyncGenerator<Page<Record<string, unknown>>> {
+    return pageIterator(
+      () => this.cursorToken,
+      (cursor) => {
+        this.cursorToken = cursor;
+      },
+      () => this.page(),
+    );
+  }
+
+  items(): AsyncGenerator<Record<string, unknown>> {
+    return itemIterator(this.pages());
+  }
+
   /**
    * Client-side aggregation: calls `all()` and materializes every matching item before summing.
    * Use only for bounded result sets; use native `count()` for count-only reads.
@@ -1460,37 +1490,4 @@ export class ScanBuilder {
 
     return lastPage ?? { items: [] };
   }
-}
-
-async function mapConcurrent<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  if (!Number.isFinite(concurrency) || concurrency <= 0) {
-    throw new TheorydbError(
-      'ErrInvalidOperator',
-      'concurrency must be a positive number',
-    );
-  }
-  if (items.length === 0) return [];
-
-  const limit = Math.min(items.length, Math.floor(concurrency));
-  const out: R[] = new Array<R>(items.length);
-  let next = 0;
-
-  const workers = Array.from({ length: limit }, async () => {
-    let done = false;
-    while (!done) {
-      const idx = next;
-      next += 1;
-      if (idx >= items.length) {
-        done = true;
-        continue;
-      }
-      out[idx] = await fn(items[idx]!);
-    }
-  });
-  await Promise.all(workers);
-  return out;
 }

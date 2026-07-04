@@ -638,3 +638,78 @@ const User = defineModel({
   assert.equal(count, 4);
   assert.equal(ddb.calls, 1);
 }
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof QueryCommand) {
+      return {
+        Items: [{ PK: { S: 'LAZY' }, SK: { S: '1' }, version: { N: '0' } }],
+        LastEvaluatedKey: { PK: { S: 'LAZY' }, SK: { S: '1' } },
+      };
+    }
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  let pages = 0;
+  for await (const page of client.query('User').partitionKey('LAZY').pages()) {
+    pages += 1;
+    assert.equal(page.items.length, 1);
+    break;
+  }
+  assert.equal(pages, 1);
+  assert.equal(ddb.calls, 1);
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof QueryCommand) {
+      return {
+        Items: [
+          { PK: { S: 'LAZYITEMS' }, SK: { S: '1' }, version: { N: '0' } },
+          { PK: { S: 'LAZYITEMS' }, SK: { S: '2' }, version: { N: '0' } },
+        ],
+        LastEvaluatedKey: { PK: { S: 'LAZYITEMS' }, SK: { S: '2' } },
+      };
+    }
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  let items = 0;
+  for await (const item of client
+    .query('User')
+    .partitionKey('LAZYITEMS')
+    .items()) {
+    items += 1;
+    assert.equal(item.PK, 'LAZYITEMS');
+    break;
+  }
+  assert.equal(items, 1);
+  assert.equal(ddb.calls, 1);
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof ScanCommand) {
+      return {
+        Items: [{ PK: { S: 'SCANLAZY' }, SK: { S: '1' }, version: { N: '0' } }],
+        LastEvaluatedKey: { PK: { S: 'SCANLAZY' }, SK: { S: '1' } },
+      };
+    }
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  let pages = 0;
+  for await (const page of client.scan('User').pages()) {
+    pages += 1;
+    assert.equal(page.items[0]?.PK, 'SCANLAZY');
+    break;
+  }
+  assert.equal(pages, 1);
+  assert.equal(ddb.calls, 1);
+}

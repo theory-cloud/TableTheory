@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -54,6 +55,10 @@ type Driver interface {
 	Scan(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
 	CountQuery(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
 	CountScan(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
+	TransactGet(ctx context.Context, model string, items []KeyedItem) (ReadResult, error)
+	BatchGet(ctx context.Context, model string, keys []map[string]any) (ReadResult, error)
+	BatchWrite(ctx context.Context, model string, puts []map[string]any, deletes []map[string]any) error
+	TransactWrite(ctx context.Context, model string, actions []TransactWriteAction) error
 	TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error
 	ValidateProvenance(ctx context.Context, model string, item map[string]any) error
 }
@@ -81,6 +86,23 @@ type ReadResult struct {
 	Items  []map[string]any
 	Cursor string
 	Count  *int64
+}
+
+type KeyedItem struct {
+	Model string
+	Key   map[string]any
+}
+
+type TransactWriteAction struct {
+	Kind                      string
+	Model                     string
+	Item                      map[string]any
+	Key                       map[string]any
+	Set                       map[string]any
+	ConditionExpression       string
+	ExpressionAttributeNames  map[string]string
+	ExpressionAttributeValues map[string]any
+	IfNotExists               bool
 }
 
 type TransitionActual struct {
@@ -153,6 +175,10 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"scan.basic",
 		"count.native",
 		"get.optional",
+		"transact_get",
+		"batch.get",
+		"batch.write",
+		"transact.write",
 		"release_state.write_policy",
 		"release_state.transactional_transition",
 		"release_state.provenance_confidence",
@@ -521,6 +547,183 @@ func countResult(q core.Query) (ReadResult, error) {
 	return ReadResult{Items: []map[string]any{}, Count: &count}, nil
 }
 
+func (d *TheorydbDriver) TransactGet(ctx context.Context, model string, items []KeyedItem) (ReadResult, error) {
+	getter, ok := d.db.(core.TransactGetter)
+	if !ok {
+		return ReadResult{}, fmt.Errorf("%w: transact get extension unavailable", theorydbErrors.ErrInvalidOperator)
+	}
+
+	requests := make([]core.TransactGetRequest, 0, len(items))
+	dests := make([]any, 0, len(items))
+	models := make([]string, 0, len(items))
+	for _, item := range items {
+		itemModel := item.Model
+		if itemModel == "" {
+			itemModel = model
+		}
+		empty, err := emptyModel(itemModel)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		dest, err := newModelDest(itemModel)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		key, err := keyPairFromMap(item.Key)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		requests = append(requests, core.TransactGetRequest{
+			Model: empty,
+			Key:   key,
+			Dest:  dest,
+		})
+		dests = append(dests, dest)
+		models = append(models, itemModel)
+	}
+
+	results, err := getter.TransactGet(ctx, requests)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	out := make([]map[string]any, 0, len(results))
+	for i, result := range results {
+		if !result.Found {
+			continue
+		}
+		normalized, err := normalizeModel(models[i], dests[i])
+		if err != nil {
+			return ReadResult{}, err
+		}
+		out = append(out, normalized)
+	}
+	return ReadResult{Items: out}, nil
+}
+
+func (d *TheorydbDriver) BatchGet(ctx context.Context, model string, keys []map[string]any) (ReadResult, error) {
+	keyPairs := make([]any, 0, len(keys))
+	for _, key := range keys {
+		pair, err := keyPairFromMap(key)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		keyPairs = append(keyPairs, pair)
+	}
+
+	switch model {
+	case "User":
+		var out []User
+		err := d.db.WithContext(ctx).Model(&User{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeUsers(out)}, err
+	case "Order":
+		var out []Order
+		err := d.db.WithContext(ctx).Model(&Order{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeOrders(out)}, err
+	case "NumberPrecision":
+		var out []NumberPrecision
+		err := d.db.WithContext(ctx).Model(&NumberPrecision{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeNumberPrecisions(out)}, err
+	case "TypeMatrix":
+		var out []TypeMatrix
+		err := d.db.WithContext(ctx).Model(&TypeMatrix{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeTypeMatrices(out)}, err
+	case "SnakeCaseRecord":
+		var out []SnakeCaseRecord
+		err := d.db.WithContext(ctx).Model(&SnakeCaseRecord{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeSnakeCaseRecords(out)}, err
+	case "EncryptedRecord":
+		var out []EncryptedRecord
+		err := d.db.WithContext(ctx).Model(&EncryptedRecord{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeEncryptedRecords(out)}, err
+	case "ReleaseStateActual":
+		var out []ReleaseStateActual
+		err := d.db.WithContext(ctx).Model(&ReleaseStateActual{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeReleaseStateActuals(out)}, err
+	case "ReleaseStateEvent":
+		var out []ReleaseStateEvent
+		err := d.db.WithContext(ctx).Model(&ReleaseStateEvent{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeReleaseStateEvents(out)}, err
+	default:
+		return ReadResult{}, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
+	}
+}
+
+func (d *TheorydbDriver) BatchWrite(ctx context.Context, model string, puts []map[string]any, deletes []map[string]any) error {
+	putItems := make([]any, 0, len(puts))
+	for _, item := range puts {
+		instance, err := modelFromMap(model, item)
+		if err != nil {
+			return err
+		}
+		putItems = append(putItems, instance)
+	}
+
+	deleteKeys := make([]any, 0, len(deletes))
+	for _, key := range deletes {
+		pair, err := keyPairFromMap(key)
+		if err != nil {
+			return err
+		}
+		deleteKeys = append(deleteKeys, pair)
+	}
+
+	empty, err := emptyModel(model)
+	if err != nil {
+		return err
+	}
+	return d.db.WithContext(ctx).Model(empty).BatchWrite(putItems, deleteKeys)
+}
+
+func (d *TheorydbDriver) TransactWrite(ctx context.Context, model string, actions []TransactWriteAction) error {
+	return d.db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
+		for _, action := range actions {
+			actionModel := action.Model
+			if actionModel == "" {
+				actionModel = model
+			}
+			conditions := transactConditionsFromAction(action)
+			switch strings.ToLower(action.Kind) {
+			case "put", "create":
+				instance, err := modelFromMap(actionModel, action.Item)
+				if err != nil {
+					return err
+				}
+				if action.IfNotExists || strings.EqualFold(action.Kind, "create") {
+					tx = tx.Create(instance, conditions...)
+				} else {
+					tx = tx.Put(instance, conditions...)
+				}
+			case "update":
+				item := mergeMaps(action.Key, action.Set)
+				instance, err := modelFromMap(actionModel, item)
+				if err != nil {
+					return err
+				}
+				fields, err := updateFieldNames(actionModel, action.Set)
+				if err != nil {
+					return err
+				}
+				tx = tx.Update(instance, fields, conditions...)
+			case "delete":
+				instance, err := modelFromMap(actionModel, action.Key)
+				if err != nil {
+					return err
+				}
+				tx = tx.Delete(instance, conditions...)
+			case "condition", "condition_check":
+				instance, err := modelFromMap(actionModel, action.Key)
+				if err != nil {
+					return err
+				}
+				tx = tx.ConditionCheck(instance, conditions...)
+			default:
+				return fmt.Errorf("%w: unsupported transact_write action %q", theorydbErrors.ErrInvalidOperator, action.Kind)
+			}
+		}
+		return nil
+	})
+}
+
 func (d *TheorydbDriver) TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error {
 	if actual.Model != "ReleaseStateActual" || event.Model != "ReleaseStateEvent" {
 		return fmt.Errorf("%w: unsupported transition models %s/%s", theorydbErrors.ErrInvalidModel, actual.Model, event.Model)
@@ -629,6 +832,144 @@ func emptyModel(model string) (any, error) {
 	default:
 		return nil, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
+}
+
+func newModelDest(model string) (any, error) {
+	return emptyModel(model)
+}
+
+func normalizeModel(model string, value any) (map[string]any, error) {
+	switch model {
+	case "User":
+		if v, ok := value.(*User); ok {
+			return normalizeUser(*v), nil
+		}
+	case "Order":
+		if v, ok := value.(*Order); ok {
+			return normalizeOrder(*v), nil
+		}
+	case "NumberPrecision":
+		if v, ok := value.(*NumberPrecision); ok {
+			return normalizeNumberPrecision(*v), nil
+		}
+	case "TypeMatrix":
+		if v, ok := value.(*TypeMatrix); ok {
+			return normalizeTypeMatrix(*v), nil
+		}
+	case "SnakeCaseRecord":
+		if v, ok := value.(*SnakeCaseRecord); ok {
+			return normalizeSnakeCaseRecord(*v), nil
+		}
+	case "EncryptedRecord":
+		if v, ok := value.(*EncryptedRecord); ok {
+			return normalizeEncryptedRecord(*v), nil
+		}
+	case "ReleaseStateActual":
+		if v, ok := value.(*ReleaseStateActual); ok {
+			return normalizeReleaseStateActual(*v), nil
+		}
+	case "ReleaseStateEvent":
+		if v, ok := value.(*ReleaseStateEvent); ok {
+			return normalizeReleaseStateEvent(*v), nil
+		}
+	}
+	return nil, fmt.Errorf("%w: cannot normalize %T as %s", theorydbErrors.ErrInvalidModel, value, model)
+}
+
+func keyPairFromMap(key map[string]any) (core.KeyPair, error) {
+	pk, sk, err := keyValues(key)
+	if err != nil {
+		return core.KeyPair{}, err
+	}
+	return core.NewKeyPair(pk, sk), nil
+}
+
+func transactConditionsFromAction(action TransactWriteAction) []core.TransactCondition {
+	if strings.TrimSpace(action.ConditionExpression) == "" {
+		return nil
+	}
+	values := make(map[string]any, len(action.ExpressionAttributeValues))
+	for k, v := range action.ExpressionAttributeValues {
+		values[k] = v
+	}
+	return []core.TransactCondition{
+		{
+			Kind:       core.TransactConditionKindExpression,
+			Expression: action.ConditionExpression,
+			Values:     values,
+		},
+	}
+}
+
+func mergeMaps(left map[string]any, right map[string]any) map[string]any {
+	out := make(map[string]any, len(left)+len(right))
+	for k, v := range left {
+		out[k] = v
+	}
+	for k, v := range right {
+		out[k] = v
+	}
+	return out
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func updateFieldNames(model string, values map[string]any) ([]string, error) {
+	fields := sortedMapKeys(values)
+	instance, err := emptyModel(model)
+	if err != nil {
+		return nil, err
+	}
+	typ := reflect.TypeOf(instance)
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	resolved := make([]string, 0, len(fields))
+	for _, field := range fields {
+		goName, ok := resolveGoFieldName(typ, field)
+		if !ok {
+			return nil, fmt.Errorf("%w: unknown update field %s", theorydbErrors.ErrInvalidModel, field)
+		}
+		resolved = append(resolved, goName)
+	}
+	return resolved, nil
+}
+
+func resolveGoFieldName(typ reflect.Type, attr string) (string, bool) {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.Name == "_" {
+			continue
+		}
+		candidates := []string{field.Name, lowerFirst(field.Name)}
+		if tag := field.Tag.Get("theorydb"); tag != "" {
+			for _, part := range strings.Split(tag, ",") {
+				if strings.HasPrefix(part, "attr:") {
+					candidates = append(candidates, strings.TrimPrefix(part, "attr:"))
+				}
+			}
+		}
+		for _, candidate := range candidates {
+			if candidate == attr || strings.EqualFold(candidate, attr) {
+				return field.Name, true
+			}
+		}
+	}
+	return "", false
+}
+
+func lowerFirst(value string) string {
+	if value == "" {
+		return value
+	}
+	return strings.ToLower(value[:1]) + value[1:]
 }
 
 func asStringSlice(v any) ([]string, error) {

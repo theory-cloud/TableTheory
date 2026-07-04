@@ -1,0 +1,134 @@
+name: "p1.transact_get"
+dms_version: "0.1"
+requires_capabilities: ["transact_get"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item: { PK: "USER#TG", SK: "ITEM#001", emailHash: "tg@example", nickname: "one" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#TG", SK: "ITEM#002", emailHash: "tg@example", nickname: "two" }
+    expect: { ok: true }
+
+  - op: transact_get
+    transact_get:
+      items:
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#MISSING" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#002" } }
+    expect:
+      ok: true
+      item_count: 2
+      items_contains:
+        - { PK: "USER#TG", SK: "ITEM#001", nickname: "one" }
+        - { PK: "USER#TG", SK: "ITEM#002", nickname: "two" }
+
+  - op: transact_get
+    transact_get:
+      items:
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+        - { key: { PK: "USER#TG", SK: "ITEM#001" } }
+    expect:
+      error: "ErrInvalidOperator"
