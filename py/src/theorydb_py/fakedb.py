@@ -177,7 +177,11 @@ class StatefulDynamoDBClient:
             for key in req.get("Keys", []):
                 item = table.items.get(_key_from_map(table, key))
                 if item is not None:
-                    found.append(_project(item, req.get("ProjectionExpression"), req.get("ExpressionAttributeNames") or {}))
+                    found.append(
+                        _project(
+                            item, req.get("ProjectionExpression"), req.get("ExpressionAttributeNames") or {}
+                        )
+                    )
             responses[str(table_name)] = found
         return {"Responses": responses}
 
@@ -293,7 +297,9 @@ def _apply_transact(tables: dict[str, _TableState], req: dict[str, Any]) -> None
             raise _client_error("ConditionalCheckFailedException", "conditional request failed")
 
 
-def _read_response(table: _TableState, source: list[Item], req: dict[str, Any], *, query: bool) -> dict[str, Any]:
+def _read_response(
+    table: _TableState, source: list[Item], req: dict[str, Any], *, query: bool
+) -> dict[str, Any]:
     names = req.get("ExpressionAttributeNames") or {}
     values = req.get("ExpressionAttributeValues") or {}
     items = [
@@ -351,7 +357,9 @@ def _matches(expression: Any, item: Item | None, names: dict[str, str], values: 
         return item is not None and item.get(_name(expr[len("attribute_exists(") : -1], names)) is not None
     if expr.startswith("begins_with("):
         left, right = _split_csv(expr[len("begins_with(") : -1])
-        return _string_value((item or {}).get(_name(left, names))).startswith(_string_value(values.get(right.strip())))
+        return _string_value((item or {}).get(_name(left, names))).startswith(
+            _string_value(values.get(right.strip()))
+        )
     for op in ("<>", ">=", "<=", "=", ">", "<"):
         marker = f" {op} "
         if marker not in expr:
@@ -520,7 +528,12 @@ def _table_description(table_name: str, table: _TableState) -> dict[str, Any]:
     key_schema = [{"AttributeName": table.pk, "KeyType": "HASH"}]
     if table.sk is not None:
         key_schema.append({"AttributeName": table.sk, "KeyType": "RANGE"})
-    return {"TableName": table_name, "TableStatus": "ACTIVE", "KeySchema": key_schema, "ItemCount": len(table.items)}
+    return {
+        "TableName": table_name,
+        "TableStatus": "ACTIVE",
+        "KeySchema": key_schema,
+        "ItemCount": len(table.items),
+    }
 
 
 def _client_error(code: str, message: str) -> ClientError:

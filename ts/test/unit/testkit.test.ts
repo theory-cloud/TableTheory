@@ -1,7 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import {
+  BatchGetItemCommand,
+  BatchWriteItemCommand,
+  CreateTableCommand,
+  DeleteItemCommand,
+  DeleteTableCommand,
+  DescribeTableCommand,
+  GetItemCommand,
+  ListTablesCommand,
+  PutItemCommand,
+  QueryCommand,
+  ResourceInUseException,
+  ScanCommand,
+  TransactionCanceledException,
+  TransactGetItemsCommand,
+  TransactWriteItemsCommand,
+  UpdateItemCommand,
+  UpdateTimeToLiveCommand,
+  type AttributeValue,
+} from '@aws-sdk/client-dynamodb';
 
 import { TheorydbClient } from '../../src/client.js';
 import { defineModel } from '../../src/model.js';
@@ -22,6 +41,33 @@ function assertInstanceOf<T>(
 
 function assertDefined<T>(value: T): asserts value is NonNullable<T> {
   assert.ok(value !== undefined && value !== null);
+}
+
+function avS(value: string): AttributeValue {
+  return { S: value };
+}
+
+function avN(value: string): AttributeValue {
+  return { N: value };
+}
+
+function statefulKey(pk: string, sk: string): Record<string, AttributeValue> {
+  return { PK: avS(pk), SK: avS(sk) };
+}
+
+function statefulItem(
+  pk: string,
+  sk: string,
+  name: string,
+  score: string,
+): Record<string, AttributeValue> {
+  return {
+    ...statefulKey(pk, sk),
+    name: avS(name),
+    score: avN(score),
+    tag: avS(name.slice(0, 1)),
+    ttl: avN('1700000000'),
+  };
 }
 
 test('createMockDynamoDBClient is strict by default', async () => {
@@ -184,4 +230,217 @@ test('createStatefulDynamoDBClient stores, queries, and checks versions', async 
   const got = await client.get('T', { PK: 'USER#1', SK: 'PROFILE' });
   assert.equal(got.name, 'two');
   assert.equal(got.version, 1);
+});
+
+test('StatefulDynamoDBFake supports admin, batches, scans, and transactions', async () => {
+  const { client, fake } = createStatefulDynamoDBClient();
+  const tableName = 'stateful_admin';
+
+  await client.send(
+    new CreateTableCommand({
+      TableName: tableName,
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+    }),
+  );
+  await assert.rejects(
+    () => client.send(new CreateTableCommand({ TableName: tableName })),
+    ResourceInUseException,
+  );
+  await client.send(
+    new UpdateTimeToLiveCommand({
+      TableName: tableName,
+      TimeToLiveSpecification: { AttributeName: 'ttl', Enabled: true },
+    }),
+  );
+
+  const listed = (await client.send(new ListTablesCommand({ Limit: 1 }))) as {
+    TableNames?: string[];
+  };
+  assert.deepEqual(listed.TableNames, [tableName]);
+
+  fake.seed(
+    tableName,
+    statefulItem('USER#1', 'A', 'one', '10'),
+    statefulItem('USER#1', 'B', 'two', '20'),
+    statefulItem('USER#2', 'A', 'three', '30'),
+  );
+
+  const described = (await client.send(
+    new DescribeTableCommand({ TableName: tableName }),
+  )) as { Table?: { ItemCount?: number } };
+  assert.equal(described.Table?.ItemCount, 3);
+
+  const got = (await client.send(
+    new GetItemCommand({
+      TableName: tableName,
+      Key: statefulKey('USER#1', 'A'),
+      ProjectionExpression: 'PK, #n',
+      ExpressionAttributeNames: { '#n': 'name' },
+    }),
+  )) as { Item?: Record<string, AttributeValue> };
+  assert.deepEqual(got.Item?.name, avS('one'));
+  assert.equal(got.Item?.score, undefined);
+
+  const scanned = (await client.send(
+    new ScanCommand({
+      TableName: tableName,
+      FilterExpression: '(#score >= :min AND begins_with(#name, :prefix))',
+      ExpressionAttributeNames: { '#name': 'name', '#score': 'score' },
+      ExpressionAttributeValues: { ':min': avN('10'), ':prefix': avS('t') },
+      Limit: 1,
+    }),
+  )) as {
+    Items?: Array<Record<string, AttributeValue>>;
+    LastEvaluatedKey?: Record<string, AttributeValue>;
+  };
+  assert.equal(scanned.Items?.length, 1);
+  assert.ok(scanned.LastEvaluatedKey);
+
+  const counted = (await client.send(
+    new ScanCommand({ TableName: tableName, Select: 'COUNT' }),
+  )) as { Count?: number; Items?: unknown[] };
+  assert.equal(counted.Count, 3);
+  assert.equal(counted.Items, undefined);
+
+  const queryPage = (await client.send(
+    new QueryCommand({
+      TableName: tableName,
+      KeyConditionExpression: '#pk = :pk AND #sk >= :sk',
+      ExpressionAttributeNames: { '#pk': 'PK', '#sk': 'SK' },
+      ExpressionAttributeValues: { ':pk': avS('USER#1'), ':sk': avS('A') },
+      ScanIndexForward: false,
+      Limit: 1,
+    }),
+  )) as {
+    Items?: Array<Record<string, AttributeValue>>;
+    LastEvaluatedKey?: Record<string, AttributeValue>;
+  };
+  assert.deepEqual(queryPage.Items?.[0]?.SK, avS('B'));
+
+  const nextQueryPage = (await client.send(
+    new QueryCommand({
+      TableName: tableName,
+      KeyConditionExpression: '#pk = :pk AND #sk >= :sk',
+      ExpressionAttributeNames: { '#pk': 'PK', '#sk': 'SK' },
+      ExpressionAttributeValues: { ':pk': avS('USER#1'), ':sk': avS('A') },
+      ExclusiveStartKey: queryPage.LastEvaluatedKey,
+      ScanIndexForward: false,
+    }),
+  )) as { Items?: Array<Record<string, AttributeValue>> };
+  assert.deepEqual(nextQueryPage.Items?.[0]?.SK, avS('A'));
+
+  await client.send(
+    new BatchWriteItemCommand({
+      RequestItems: {
+        [tableName]: [
+          { PutRequest: { Item: statefulItem('USER#1', 'C', 'four', '40') } },
+          { DeleteRequest: { Key: statefulKey('USER#1', 'B') } },
+        ],
+      },
+    }),
+  );
+  const batch = (await client.send(
+    new BatchGetItemCommand({
+      RequestItems: {
+        [tableName]: {
+          Keys: [statefulKey('USER#1', 'A'), statefulKey('USER#1', 'C')],
+        },
+      },
+    }),
+  )) as { Responses?: Record<string, unknown[]> };
+  assert.equal(batch.Responses?.[tableName]?.length, 2);
+
+  const updated = (await client.send(
+    new UpdateItemCommand({
+      TableName: tableName,
+      Key: statefulKey('USER#1', 'C'),
+      UpdateExpression: 'SET #note = :note REMOVE #tag ADD #score :inc',
+      ExpressionAttributeNames: {
+        '#note': 'note',
+        '#score': 'score',
+        '#tag': 'tag',
+      },
+      ExpressionAttributeValues: { ':inc': avN('2'), ':note': avS('seeded') },
+      ReturnValues: 'ALL_NEW',
+    }),
+  )) as { Attributes?: Record<string, AttributeValue> };
+  assert.deepEqual(updated.Attributes?.score, avN('42'));
+  assert.deepEqual(updated.Attributes?.note, avS('seeded'));
+  assert.equal(updated.Attributes?.tag, undefined);
+
+  const transactRead = (await client.send(
+    new TransactGetItemsCommand({
+      TransactItems: [
+        { Get: { TableName: tableName, Key: statefulKey('USER#1', 'C') } },
+        { Get: { TableName: tableName, Key: statefulKey('MISSING', 'A') } },
+      ],
+    }),
+  )) as { Responses?: Array<{ Item?: Record<string, AttributeValue> }> };
+  assert.ok(transactRead.Responses?.[0]?.Item);
+  assert.equal(transactRead.Responses?.[1]?.Item, undefined);
+
+  await client.send(
+    new TransactWriteItemsCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: tableName,
+            Item: statefulItem('TX#1', 'A', 'tx', '1'),
+          },
+        },
+        {
+          ConditionCheck: {
+            TableName: tableName,
+            Key: statefulKey('USER#1', 'C'),
+            ConditionExpression: 'attribute_exists(PK)',
+          },
+        },
+        {
+          Update: {
+            TableName: tableName,
+            Key: statefulKey('TX#1', 'A'),
+            UpdateExpression: 'ADD #score :inc',
+            ExpressionAttributeNames: { '#score': 'score' },
+            ExpressionAttributeValues: { ':inc': avN('1') },
+          },
+        },
+        { Delete: { TableName: tableName, Key: statefulKey('USER#2', 'A') } },
+      ],
+    }),
+  );
+  await assert.rejects(
+    () =>
+      client.send(
+        new TransactWriteItemsCommand({
+          TransactItems: [
+            {
+              ConditionCheck: {
+                TableName: tableName,
+                Key: statefulKey('USER#1', 'C'),
+                ConditionExpression: 'attribute_not_exists(PK)',
+              },
+            },
+          ],
+        }),
+      ),
+    TransactionCanceledException,
+  );
+
+  await client.send(
+    new DeleteItemCommand({
+      TableName: tableName,
+      Key: statefulKey('USER#1', 'A'),
+      ConditionExpression: 'attribute_exists(PK)',
+    }),
+  );
+  await client.send(new DeleteTableCommand({ TableName: tableName }));
+  await assert.rejects(
+    () => client.send(new DescribeTableCommand({ TableName: tableName })),
+    /not found/,
+  );
+  fake.reset();
+  assert.deepEqual(fake.items(tableName), []);
 });
