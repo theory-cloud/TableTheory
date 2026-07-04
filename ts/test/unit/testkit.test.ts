@@ -70,14 +70,14 @@ function statefulItem(
   };
 }
 
-test('createMockDynamoDBClient is strict by default', async () => {
+void test('createMockDynamoDBClient is strict by default', async () => {
   const mock = createMockDynamoDBClient();
   await assert.rejects(() =>
     mock.client.send(new PutItemCommand({ TableName: 't', Item: {} })),
   );
 });
 
-test('createMockDynamoDBClient matches handlers by command name', async () => {
+void test('createMockDynamoDBClient matches handlers by command name', async () => {
   const mock = createMockDynamoDBClient();
 
   const ShadowUpdateItemCommand = class UpdateItemCommand {};
@@ -97,7 +97,7 @@ test('createMockDynamoDBClient matches handlers by command name', async () => {
   );
 });
 
-test('client now() injection drives createdAt/updatedAt + update :now', async () => {
+void test('client now() injection drives createdAt/updatedAt + update :now', async () => {
   const mock = createMockDynamoDBClient();
 
   mock.when(PutItemCommand, async () => ({ $metadata: {} }));
@@ -151,7 +151,7 @@ test('client now() injection drives createdAt/updatedAt + update :now', async ()
   assert.equal(updInput.ExpressionAttributeValues[':now'].S, now);
 });
 
-test('createDeterministicEncryptionProvider round-trips + binds AAD to attribute', async () => {
+void test('createDeterministicEncryptionProvider round-trips + binds AAD to attribute', async () => {
   const provider = createDeterministicEncryptionProvider('seed');
 
   const env = await provider.encrypt(new TextEncoder().encode('secret'), {
@@ -166,7 +166,7 @@ test('createDeterministicEncryptionProvider round-trips + binds AAD to attribute
   );
 });
 
-test('createStatefulDynamoDBClient stores, queries, and checks versions', async () => {
+void test('createStatefulDynamoDBClient stores, queries, and checks versions', async () => {
   const stateful = createStatefulDynamoDBClient();
   const model = defineModel({
     name: 'T',
@@ -232,7 +232,7 @@ test('createStatefulDynamoDBClient stores, queries, and checks versions', async 
   assert.equal(got.version, 1);
 });
 
-test('StatefulDynamoDBFake supports admin, batches, scans, and transactions', async () => {
+void test('StatefulDynamoDBFake supports admin, batches, scans, and transactions', async () => {
   const { client, fake } = createStatefulDynamoDBClient();
   const tableName = 'stateful_admin';
 

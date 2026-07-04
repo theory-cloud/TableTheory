@@ -13,7 +13,7 @@ const releaseStateCodes: ErrorCode[] = [
   'ErrRejectedDeployAuthorityEvidence',
 ];
 
-test('release-state errors use stable parity codes', () => {
+void test('release-state errors use stable parity codes', () => {
   for (const code of releaseStateCodes) {
     const err = new TheorydbError(code, code);
     assert.equal(err.name, code);

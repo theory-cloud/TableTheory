@@ -19,7 +19,7 @@ class FakeSTS {
   }
 }
 
-test('createAssumeRoleCredentialsProvider caches until refresh window', async () => {
+void test('createAssumeRoleCredentialsProvider caches until refresh window', async () => {
   let nowMs = 0;
   const now = () => nowMs;
 
@@ -57,7 +57,7 @@ test('createAssumeRoleCredentialsProvider caches until refresh window', async ()
   assert.equal(sts.calls, 2);
 });
 
-test('MultiAccountDynamoDBClients caches per partner id', () => {
+void test('MultiAccountDynamoDBClients caches per partner id', () => {
   const mac = new MultiAccountDynamoDBClients(
     {
       p1: {

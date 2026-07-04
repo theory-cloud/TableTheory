@@ -17,13 +17,13 @@ const item: Record<string, AttributeValue> = {
   name: { S: 'Ada' },
 };
 
-test('copyAllFields passes attributes through unchanged', () => {
+void test('copyAllFields passes attributes through unchanged', () => {
   const out = copyAllFields()(item);
   assert.deepEqual(out, item);
   assert.notEqual(out, item);
 });
 
-test('renameField renames one attribute and preserves its value', () => {
+void test('renameField renames one attribute and preserves its value', () => {
   const out = renameField('name', 'displayName')(item);
   assert.deepEqual(out, {
     PK: { S: 'USER#1' },
@@ -32,19 +32,19 @@ test('renameField renames one attribute and preserves its value', () => {
   });
 });
 
-test('addField adds an attribute', () => {
+void test('addField adds an attribute', () => {
   const out = addField('status', { S: 'active' })(item);
   assert.deepEqual(out.status, { S: 'active' });
   assert.deepEqual(out.name, { S: 'Ada' });
 });
 
-test('removeField drops an attribute', () => {
+void test('removeField drops an attribute', () => {
   const out = removeField('name')(item);
   assert.equal('name' in out, false);
   assert.deepEqual(out.PK, { S: 'USER#1' });
 });
 
-test('chainTransforms composes transforms left to right', () => {
+void test('chainTransforms composes transforms left to right', () => {
   const out = chainTransforms(
     renameField('name', 'displayName'),
     addField('status', { S: 'active' }),
