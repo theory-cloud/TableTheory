@@ -59,6 +59,7 @@ if TYPE_CHECKING:
         sum_field,
     )
     from .dms import assert_model_definition_equivalent_to_dms, get_dms_model, parse_dms_document
+    from .fakedb import StatefulDynamoDBClient
     from .lease import Lease, LeaseKey, LeaseManager
     from .multiaccount import AccountConfig, MultiAccountSessions
     from .optimizer import QueryOptimizer, QueryPlan, QueryShape, ScanShape
@@ -158,6 +159,10 @@ def __getattr__(name: str) -> Any:
         from .table import Table
 
         return {"DynamoDBClientProtocol": DynamoDBClientProtocol, "Table": Table}[name]
+    if name == "StatefulDynamoDBClient":
+        from .fakedb import StatefulDynamoDBClient
+
+        return StatefulDynamoDBClient
     if name in {
         "AggregateResult",
         "GroupByQuery",
@@ -310,6 +315,7 @@ __all__ = [
     "SimpleLimiter",
     "SortKeyCondition",
     "ScanShape",
+    "StatefulDynamoDBClient",
     "sum_field",
     "max_field",
     "min_field",

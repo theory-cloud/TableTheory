@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from .fakedb import StatefulDynamoDBClient
 from .mocks import ANY, FakeDynamoDBClient, FakeKmsClient
 
 
@@ -28,6 +29,7 @@ __all__ = [
     "ANY",
     "FakeDynamoDBClient",
     "FakeKmsClient",
+    "StatefulDynamoDBClient",
     "fixed_rand_bytes",
     "no_sleep",
 ]
