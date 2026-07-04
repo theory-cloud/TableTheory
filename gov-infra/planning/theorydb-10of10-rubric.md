@@ -55,7 +55,7 @@ Enforcement rule (anti-drift):
 | COM-2 | 1 | Toolchain pins align to repo (Go/Node/Python + pinned tool versions) | `bash scripts/verify-ci-toolchain.sh` |
 | COM-3 | 1 | Planning docs exist and are versioned | `bash scripts/verify-planning-docs.sh` |
 | COM-4 | 1 | Lint config schema-valid (no silent skip) | `golangci-lint config verify -c .golangci-v2.yml` |
-| COM-5 | 1 | Coverage threshold not diluted (≥ 90%) | `bash scripts/verify-coverage-threshold.sh` |
+| COM-5 | 1 | Coverage threshold not diluted (≥ 90%) | `bash scripts/verify-coverage.sh --check-threshold-config` |
 | COM-6 | 2 | CI enforces rubric surface (runs `make rubric`, pinned tools, uploads artifacts) | `bash scripts/verify-ci-rubric-enforced.sh` |
 | COM-7 | 1 | DynamoDB Local pinned (no `:latest`) | `bash scripts/verify-dynamodb-local-pin.sh` |
 | COM-8 | 2 | Branch + release supply-chain enforced (premain prerelease, main release; version sync) | `bash scripts/verify-branch-release-supply-chain.sh`, `bash scripts/verify-branch-version-sync.sh` |
@@ -120,7 +120,7 @@ bash scripts/verify-unit-tests.sh
 bash scripts/verify-integration-tests.sh
 bash scripts/verify-validation-parity.sh
 bash scripts/fuzz-smoke.sh
-bash scripts/verify-coverage-threshold.sh
+bash scripts/verify-coverage.sh --check-threshold-config
 bash scripts/verify-coverage.sh
 
 bash scripts/verify-formatting.sh

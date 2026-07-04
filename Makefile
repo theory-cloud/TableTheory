@@ -42,7 +42,7 @@ unit-cover:
 	@go test ./... -short -coverpkg=./... -coverprofile=coverage_unit.out
 
 verify-coverage:
-	@./scripts/verify-coverage.sh
+	@bash scripts/verify-coverage.sh
 
 # Run integration tests (requires DynamoDB Local)
 integration: docker-up
@@ -115,7 +115,7 @@ fmt:
 	fi
 
 fmt-check:
-	@./scripts/fmt-check.sh
+	@bash scripts/verify-formatting.sh --language go
 
 # Run linters
 lint:
@@ -260,7 +260,7 @@ coverage: test
 
 # Show coverage dashboard
 coverage-dashboard:
-	@./scripts/coverage-dashboard.sh
+	@bash scripts/verify-coverage.sh --dashboard
 
 # Quick test for development (unit tests only, no race detector)
 quick-test:

@@ -21,7 +21,7 @@ These definitions are intentionally explicit to prevent denominator games and â€
 ### Go (repo root)
 
 - **Library code scope (coverage):** packages from `go list ./...` excluding `/examples/**`, `/tests/**`, `/scripts/**`
-  (see `scripts/coverage.sh`).
+  (see `scripts/verify-coverage.sh --language go --record-only`).
 - **Unit tests:** `make test-unit` (no DynamoDB Local; excludes `./tests/integration`).
 - **Integration tests:** `make integration` (DynamoDB Local; `./tests/integration/...`).
 - **Coverage metric:** Go tool â€œstatementsâ€ coverage.
@@ -33,7 +33,7 @@ These definitions are intentionally explicit to prevent denominator games and â€
 - **Unit tests:** `npm --prefix ts run test:unit` (no DynamoDB Local).
 - **Integration tests:** `npm --prefix ts run test:integration` (DynamoDB Local; `DYNAMODB_ENDPOINT`).
 - **Coverage metrics:** line/branch/function (Node.js test coverage).
-- **Coverage minimum:** **90% line coverage** of `ts/src/**` enforced by `bash scripts/verify-typescript-coverage.sh` (via `bash scripts/verify-coverage.sh`).
+- **Coverage minimum:** **90% line coverage** of `ts/src/**` enforced by `bash scripts/verify-coverage.sh --language typescript` (via `bash scripts/verify-coverage.sh`).
 
 ### Python (`py/`)
 
@@ -41,7 +41,7 @@ These definitions are intentionally explicit to prevent denominator games and â€
 - **Unit tests:** `uv --directory py run pytest -q tests/unit` (no DynamoDB Local).
 - **Integration tests:** `uv --directory py run pytest -q tests/integration` (DynamoDB Local; `DYNAMODB_ENDPOINT`).
 - **Coverage metric:** line coverage via `coverage.py` / `pytest-cov`.
-- **Coverage minimum:** **90% line coverage** of `py/src/theorydb_py/**` enforced by `bash scripts/verify-python-coverage.sh` (via `bash scripts/verify-coverage.sh`).
+- **Coverage minimum:** **90% line coverage** of `py/src/theorydb_py/**` enforced by `bash scripts/verify-coverage.sh --language python` (via `bash scripts/verify-coverage.sh`).
 
 ## Rubric gates â†’ language matrix (current)
 
@@ -66,7 +66,7 @@ Legend:
 | COM-2 | `bash scripts/verify-ci-toolchain.sh` | Enforced | Enforced | Enforced | Enforces Go toolchain pin + Node 24 + Python 3.14 pins in workflows |
 | COM-3 | `bash scripts/verify-planning-docs.sh` | Enforced | Enforced | Enforced | Repo-wide |
 | COM-4 | `golangci-lint config verify -c .golangci-v2.yml` | Enforced | N/A | N/A | Go-only config validation |
-| COM-5 | `bash scripts/verify-coverage-threshold.sh` | Enforced | Enforced | Enforced | Ensures default thresholds stay >= 90% (raise-only) |
+| COM-5 | `bash scripts/verify-coverage.sh --check-threshold-config` | Enforced | Enforced | Enforced | Ensures default thresholds stay >= 90% (raise-only) |
 | COM-6 | `bash scripts/verify-ci-rubric-enforced.sh` | Enforced | Enforced | Enforced | Ensures CI runs `make rubric` and pins toolchains |
 | COM-7 | `bash scripts/verify-dynamodb-local-pin.sh` | Enforced | Enforced | Enforced | Repo-wide |
 | COM-8 | `bash scripts/verify-branch-release-supply-chain.sh` | Enforced | Enforced | Enforced | Repo-wide |

@@ -60,7 +60,7 @@ adding explicit checks that verify the integrity of the checks:
 - `COM-1`: all Go modules compile (`bash scripts/verify-go-modules.sh`)
 - `COM-2`: CI toolchain aligns to repo expectations (`bash scripts/verify-ci-toolchain.sh`)
 - `COM-3`: golangci-lint config is schema-valid (`golangci-lint config verify -c .golangci-v2.yml`)
-- `COM-4`: coverage gate default threshold is not diluted (`bash scripts/verify-coverage-threshold.sh`)
+- `COM-4`: coverage gate default threshold is not diluted (`bash scripts/verify-coverage.sh --check-threshold-config`)
 - `COM-5`: gosec is not “made green” by excluding high-signal rules (`bash scripts/verify-sec-gosec-config.sh`)
 - `COM-6`: logging standard is enforced for app/runtime code (`bash scripts/verify-logging-standards.sh`)
 
@@ -87,7 +87,7 @@ agentic drift.
 
 Representative failures captured by COM checks:
 
-- `bash scripts/verify-coverage-threshold.sh` fails when the default coverage threshold is diluted below the required
+- `bash scripts/verify-coverage.sh --check-threshold-config` fails when the default coverage threshold is diluted below the required
   minimum (e.g., “default 10% vs min 90%”).
 - `bash scripts/verify-ci-toolchain.sh` fails when CI’s Go version diverges from `go.mod` or when golangci-lint is
   configured as `latest`.

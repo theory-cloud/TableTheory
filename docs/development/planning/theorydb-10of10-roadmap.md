@@ -24,7 +24,7 @@ Evidence (refresh whenever behavior changes):
 - `bash scripts/verify-unit-tests.sh`
 - `bash scripts/verify-integration-tests.sh`
 - `bash scripts/verify-coverage.sh` (current: **90.1%** vs threshold **90%**)
-- `bash scripts/verify-coverage-threshold.sh` (default threshold **90%**)
+- `bash scripts/verify-coverage.sh --check-threshold-config` (default threshold **90%**)
 - `bash scripts/verify-formatting.sh`
 - `golangci-lint config verify -c .golangci-v2.yml`
 - `bash scripts/verify-lint.sh`
@@ -109,7 +109,7 @@ Tracking document: `docs/development/planning/theorydb-lint-green-roadmap.md`
 
 **Acceptance criteria**
 - `golangci-lint config verify -c .golangci-v2.yml` is green.
-- `bash scripts/fmt-check.sh` is green (no diffs).
+- `bash scripts/verify-formatting.sh --language go` is green (no diffs).
 - `make lint` is green (0 issues) with `.golangci-v2.yml` (no threshold loosening and no new blanket excludes).
 - Any `//nolint` usage is line-scoped and justified; remove stale linter names (e.g., `unusedparams`, `unusedwrite`).
 
@@ -128,11 +128,11 @@ Tracking document: `docs/development/planning/theorydb-coverage-roadmap.md`
 **Acceptance criteria**
 - `make test-unit` is green.
 - `make integration` is green (DynamoDB Local).
-- `bash scripts/verify-coverage-threshold.sh` is green (default threshold ≥ 90%).
+- `bash scripts/verify-coverage.sh --check-threshold-config` is green (default threshold ≥ 90%).
 - `bash scripts/verify-coverage.sh` is green at the default threshold (≥ 90%).
 
 Guardrails (no denominator games):
-- Do not exclude production packages from `scripts/coverage.sh` beyond the existing `examples/` + `tests/` filtering.
+- Do not exclude production packages from `scripts/verify-coverage.sh --language go --record-only` beyond the existing `examples/` + `tests/` filtering.
 - If we need package-level floors, add a targets-based verifier (modeled after K3) rather than weakening the global gate.
 
 ---
@@ -245,7 +245,7 @@ Tracking document: `docs/development/planning/theorydb-encryption-tag-roadmap.md
 Tracking document: `docs/development/planning/theorydb-maintainability-roadmap.md`
 
 **Acceptance criteria**
-- `bash scripts/verify-go-file-size.sh` is green.
+- `bash scripts/verify-file-size.sh --language go` is green.
 - `bash scripts/verify-maintainability-roadmap.sh` is green.
 - `bash scripts/verify-query-singleton.sh` is green.
 

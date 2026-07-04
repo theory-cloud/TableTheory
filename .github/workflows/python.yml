@@ -58,7 +58,7 @@ jobs:
         run: uv --directory py run python -m build
 
       - name: Unit tests + coverage (unit)
-        run: bash scripts/coverage-py.sh unit
+        run: bash scripts/verify-coverage.sh --language python --suite unit --record-only
 
       - name: Integration test
         env:

@@ -58,7 +58,7 @@ jobs:
         run: npm --prefix ts run test:unit
 
       - name: Coverage (unit)
-        run: bash scripts/coverage-ts.sh unit
+        run: bash scripts/verify-coverage.sh --language typescript --suite unit --record-only
 
       - name: Integration test
         env:

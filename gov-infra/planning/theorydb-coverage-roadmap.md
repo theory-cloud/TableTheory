@@ -14,7 +14,7 @@ intermediate milestones, guardrails, and repeatable measurement.
 Snapshot (2026-01-17):
 - Coverage gate: `bash scripts/verify-coverage.sh`
 - Current result: unknown (run `bash gov-infra/verifiers/gov-verify-rubric.sh` to record evidence)
-- Measurement surface: as implemented by `scripts/coverage.sh` and `scripts/verify-coverage.sh`
+- Measurement surface: as implemented by `scripts/verify-coverage.sh --language go --record-only` and `scripts/verify-coverage.sh`
 
 ## Progress snapshots
 - Baseline (2026-01-17): evidence to be captured in `gov-infra/evidence/QUA-3-output.log`
@@ -45,7 +45,7 @@ Suggested flow:
 
 ## Helpful commands
 ```bash
-bash scripts/verify-coverage-threshold.sh
+bash scripts/verify-coverage.sh --check-threshold-config
 bash scripts/verify-coverage.sh
 bash scripts/verify-unit-tests.sh
 bash scripts/verify-integration-tests.sh
