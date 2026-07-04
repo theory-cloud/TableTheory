@@ -1,13 +1,104 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensures `premain` stays aligned with the latest stable version on `main`.
+# Canonical release-version verifier.
 #
-# Why this exists:
-# - `main` cuts stable releases using `.release-please-manifest.json`
-# - `premain` cuts prereleases using `.release-please-manifest.premain.json`
-# The stable release workflow owns that sync after a release is published. This
-# verifier catches drift before a stale prerelease track can cut the next RC.
+# Default mode preserves the branch-version sync guard used on premain/main
+# release-lane gates. --alignment preserves the former verify-version-alignment
+# behavior for local build/package version checks.
+
+mode="branch-sync"
+repo_root=""
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  bash scripts/verify-branch-version-sync.sh [--alignment] [--repo-root PATH]
+
+Modes:
+  default       Verify premain/main branch release-version sync.
+  --alignment  Verify checked-out SDK/package versions align with the selected
+               release-please manifest. Replaces verify-version-alignment.sh.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --alignment)
+      mode="alignment"
+      shift
+      ;;
+    --repo-root)
+      repo_root="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "branch-version-sync: FAIL (unknown argument: $1)" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${repo_root}" ]]; then
+  repo_root="$(cd "${script_dir}/.." && pwd)"
+fi
+cd "${repo_root}"
+
+json_file_value() {
+  local path="$1"
+  local expr="$2"
+  python3 - "${path}" "${expr}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path, expr = sys.argv[1], sys.argv[2]
+data = json.loads(Path(path).read_text(encoding="utf-8"))
+if expr == ".":
+    print(data.get(".", "") if isinstance(data, dict) else "")
+    raise SystemExit(0)
+value = data
+for part in expr.split("."):
+    if not part:
+        continue
+    if isinstance(value, dict):
+        value = value.get(part, "")
+    else:
+        value = ""
+print(value if isinstance(value, str) else "")
+PY
+}
+
+git_ref_json_value() {
+  local ref="$1"
+  local path="$2"
+  local expr="$3"
+  git show "${ref}:${path}" | python3 - "${expr}" <<'PY'
+import json
+import sys
+
+expr = sys.argv[1]
+data = json.load(sys.stdin)
+if expr == ".":
+    print(data.get(".", "") if isinstance(data, dict) else "")
+    raise SystemExit(0)
+value = data
+for part in expr.split("."):
+    if not part:
+        continue
+    if isinstance(value, dict):
+        value = value.get(part, "")
+    else:
+        value = ""
+print(value if isinstance(value, str) else "")
+PY
+}
 
 git_fetch_retry() {
   local remote="$1"
@@ -35,123 +126,183 @@ git_fetch_retry() {
   done
 }
 
-base_ref="${GITHUB_BASE_REF:-}"
-head_ref="${GITHUB_HEAD_REF:-}"
-ref_name="${GITHUB_REF_NAME:-}"
-branch="${base_ref:-${ref_name:-}}"
-if [[ -z "${branch}" ]]; then
-  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-fi
-
-mode="skip"
-if [[ "${branch}" == "premain" ]]; then
-  mode="premain"
-elif [[ "${branch}" == "main" && "${head_ref}" == "premain" ]]; then
-  mode="promotion"
-fi
-
-if [[ "${mode}" == "skip" ]]; then
-  echo "branch-version-sync: SKIP"
-  exit 0
-fi
-
-for f in ".release-please-manifest.json" ".release-please-manifest.premain.json"; do
-  if [[ ! -f "${f}" ]]; then
-    echo "branch-version-sync: FAIL (missing ${f})"
-    exit 1
+run_alignment_check() {
+  local base_ref="${GITHUB_BASE_REF:-}"
+  local ref_name="${GITHUB_REF_NAME:-}"
+  local branch="${base_ref:-${ref_name:-}}"
+  if [[ -z "${branch}" ]]; then
+    branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   fi
-done
 
-git_fetch_retry origin main
+  local ts_version=""
+  if [[ -f "ts/package.json" ]]; then
+    ts_version="$(json_file_value "ts/package.json" "version")"
+  fi
 
-main_stable="$(
-  python3 - <<'PY'
+  local py_version=""
+  if [[ -f "py/src/theorydb_py/version.json" ]]; then
+    py_version="$(json_file_value "py/src/theorydb_py/version.json" "version")"
+  fi
+
+  if [[ -z "${ts_version}" && -z "${py_version}" ]]; then
+    echo "version-alignment: SKIP (no versioned packages found)"
+    return 0
+  fi
+
+  local observed_version="${ts_version:-${py_version}}"
+  local manifest=""
+
+  case "${branch}" in
+    main)
+      manifest=".release-please-manifest.json"
+      ;;
+    premain)
+      manifest=".release-please-manifest.premain.json"
+      ;;
+    *)
+      # Local runs won't have PR context (no `GITHUB_BASE_REF`). Infer intent from the observed package version:
+      # - prereleases (e.g., `-rc` or `-rc.N`) validate against the premain manifest
+      # - stable versions validate against the main manifest
+      if [[ "${observed_version}" == *"-rc"* && -f ".release-please-manifest.premain.json" ]]; then
+        manifest=".release-please-manifest.premain.json"
+      else
+        manifest=".release-please-manifest.json"
+      fi
+      ;;
+  esac
+
+  if [[ ! -f "${manifest}" ]]; then
+    echo "version-alignment: FAIL (missing ${manifest})"
+    return 1
+  fi
+
+  local expected
+  expected="$(json_file_value "${manifest}" ".")"
+  if [[ -z "${expected}" ]]; then
+    echo "version-alignment: FAIL (missing '.' version in ${manifest})"
+    return 1
+  fi
+
+  if [[ "${observed_version}" != "${expected}" ]]; then
+    if [[ "${branch}" == "main" && "${observed_version}" == *"-rc"* && -f ".release-please-manifest.premain.json" ]]; then
+      # Promotion PRs (premain -> main) and immediate post-merge pushes may still carry prerelease versions.
+      # Allow alignment against the premain prerelease manifest; the subsequent release PR on `main` will
+      # enforce stable alignment.
+      expected="$(json_file_value ".release-please-manifest.premain.json" ".")"
+      manifest=".release-please-manifest.premain.json"
+    elif [[ "${branch}" == "premain" && "${observed_version}" != *"-rc"* && -f ".release-please-manifest.json" ]]; then
+      # Promotion PRs (staging -> premain) and immediate post-merge pushes start from the latest stable
+      # baseline. Allow alignment against the stable manifest; the subsequent prerelease PR on `premain`
+      # will bump versions and enforce prerelease alignment.
+      expected="$(json_file_value ".release-please-manifest.json" ".")"
+      manifest=".release-please-manifest.json"
+    fi
+  fi
+
+  if [[ -n "${ts_version}" ]]; then
+    if [[ "${ts_version}" != "${expected}" ]]; then
+      echo "version-alignment: FAIL (ts/package.json ${ts_version} != ${expected} from ${manifest})"
+      return 1
+    fi
+
+    local lock_version pkg_lock_version
+    lock_version="$(json_file_value "ts/package-lock.json" "version")"
+    pkg_lock_version="$(python3 - <<'PY'
 import json
-import subprocess
+from pathlib import Path
 
-data = subprocess.check_output(
-    ["git", "show", "origin/main:.release-please-manifest.json"], text=True
-)
-print(json.loads(data).get(".", ""))
+data = json.loads(Path("ts/package-lock.json").read_text(encoding="utf-8"))
+packages = data.get("packages", {})
+root = packages.get("", {}) if isinstance(packages, dict) else {}
+print(root.get("version", ""))
 PY
 )"
 
-if [[ -z "${main_stable}" ]]; then
-  echo "branch-version-sync: FAIL (could not read origin/main stable version)"
-  exit 1
-fi
+    if [[ "${lock_version}" != "${expected}" ]]; then
+      echo "version-alignment: FAIL (ts/package-lock.json ${lock_version} != ${expected})"
+      return 1
+    fi
 
-premain_stable=""
-premain_version=""
+    if [[ "${pkg_lock_version}" != "${expected}" ]]; then
+      echo "version-alignment: FAIL (ts/package-lock.json packages[''].version ${pkg_lock_version} != ${expected})"
+      return 1
+    fi
+  fi
 
-if [[ "${mode}" == "premain" ]]; then
-  premain_stable="$(
-    python3 - <<'PY'
-import json
-from pathlib import Path
+  if [[ -n "${py_version}" && "${py_version}" != "${expected}" ]]; then
+    echo "version-alignment: FAIL (py/src/theorydb_py/version.json ${py_version} != ${expected} from ${manifest})"
+    return 1
+  fi
 
-data = json.loads(Path(".release-please-manifest.json").read_text(encoding="utf-8"))
-print(data.get(".", ""))
-PY
-  )"
-  premain_version="$(
-    python3 - <<'PY'
-import json
-from pathlib import Path
+  echo "version-alignment: PASS (${expected})"
+}
 
-data = json.loads(
-    Path(".release-please-manifest.premain.json").read_text(encoding="utf-8")
-)
-print(data.get(".", ""))
-PY
-  )"
-else
-  git_fetch_retry origin premain
+run_branch_sync_check() {
+  local base_ref="${GITHUB_BASE_REF:-}"
+  local head_ref="${GITHUB_HEAD_REF:-}"
+  local ref_name="${GITHUB_REF_NAME:-}"
+  local branch="${base_ref:-${ref_name:-}}"
+  if [[ -z "${branch}" ]]; then
+    branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  fi
 
-  premain_stable="$(
-    python3 - <<'PY'
-import json
-import subprocess
+  local sync_mode="skip"
+  if [[ "${branch}" == "premain" ]]; then
+    sync_mode="premain"
+  elif [[ "${branch}" == "main" && "${head_ref}" == "premain" ]]; then
+    sync_mode="promotion"
+  fi
 
-data = subprocess.check_output(
-    ["git", "show", "origin/premain:.release-please-manifest.json"], text=True
-)
-print(json.loads(data).get(".", ""))
-PY
-  )"
-  premain_version="$(
-    python3 - <<'PY'
-import json
-import subprocess
+  if [[ "${sync_mode}" == "skip" ]]; then
+    echo "branch-version-sync: SKIP"
+    return 0
+  fi
 
-data = subprocess.check_output(
-    ["git", "show", "origin/premain:.release-please-manifest.premain.json"], text=True
-)
-print(json.loads(data).get(".", ""))
-PY
-  )"
-fi
+  for f in ".release-please-manifest.json" ".release-please-manifest.premain.json"; do
+    if [[ ! -f "${f}" ]]; then
+      echo "branch-version-sync: FAIL (missing ${f})"
+      return 1
+    fi
+  done
 
-if [[ -z "${premain_stable}" ]]; then
-  echo "branch-version-sync: FAIL (missing premain stable manifest version)"
-  exit 1
-fi
+  git_fetch_retry origin main
 
-if [[ -z "${premain_version}" ]]; then
-  echo "branch-version-sync: FAIL (missing premain prerelease manifest version)"
-  exit 1
-fi
+  local main_stable
+  main_stable="$(git_ref_json_value origin/main .release-please-manifest.json '.')"
+  if [[ -z "${main_stable}" ]]; then
+    echo "branch-version-sync: FAIL (could not read origin/main stable version)"
+    return 1
+  fi
 
-if [[ "${premain_stable}" != "${main_stable}" ]]; then
-  echo "branch-version-sync: FAIL (premain .release-please-manifest.json ${premain_stable} != origin/main ${main_stable})"
-  echo "branch-version-sync: hint: inspect the release.yml post-stable baseline sync for premain/staging"
-  exit 1
-fi
+  local premain_stable=""
+  local premain_version=""
 
-export MAIN_STABLE="${main_stable}"
-export PREMAIN_VERSION="${premain_version}"
+  if [[ "${sync_mode}" == "premain" ]]; then
+    premain_stable="$(json_file_value ".release-please-manifest.json" ".")"
+    premain_version="$(json_file_value ".release-please-manifest.premain.json" ".")"
+  else
+    git_fetch_retry origin premain
+    premain_stable="$(git_ref_json_value origin/premain .release-please-manifest.json '.')"
+    premain_version="$(git_ref_json_value origin/premain .release-please-manifest.premain.json '.')"
+  fi
 
-python3 - <<'PY'
+  if [[ -z "${premain_stable}" ]]; then
+    echo "branch-version-sync: FAIL (missing premain stable manifest version)"
+    return 1
+  fi
+
+  if [[ -z "${premain_version}" ]]; then
+    echo "branch-version-sync: FAIL (missing premain prerelease manifest version)"
+    return 1
+  fi
+
+  if [[ "${premain_stable}" != "${main_stable}" ]]; then
+    echo "branch-version-sync: FAIL (premain .release-please-manifest.json ${premain_stable} != origin/main ${main_stable})"
+    echo "branch-version-sync: hint: inspect the release.yml post-stable baseline sync for premain/staging"
+    return 1
+  fi
+
+  MAIN_STABLE="${main_stable}" PREMAIN_VERSION="${premain_version}" python3 - <<'PY'
 import os
 import sys
 
@@ -190,4 +341,14 @@ if premain_tuple < main_tuple:
     sys.exit(1)
 PY
 
-echo "branch-version-sync: PASS (main=${main_stable}, premain=${premain_version})"
+  echo "branch-version-sync: PASS (main=${main_stable}, premain=${premain_version})"
+}
+
+case "${mode}" in
+  alignment)
+    run_alignment_check
+    ;;
+  branch-sync)
+    run_branch_sync_check
+    ;;
+esac

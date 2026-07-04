@@ -9,11 +9,15 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: bash scripts/watch-release-cycle.sh [--strict] [--tag vX.Y.Z]
+Usage: bash scripts/watch-release-cycle.sh [--strict] [--tag vX.Y.Z] [--repo-root PATH] [--skip-github]
 
 Options:
   --strict   Exit non-zero if any FAIL finding is reported.
   --tag TAG  Check that an existing GitHub release is published, tagged, and has non-source assets.
+  --repo-root PATH
+             Evaluate a different checkout root (used by policy self-tests).
+  --skip-github
+             Skip live GitHub PR/release reads (used by policy self-tests).
   -h, --help Show this help.
 
 This command reads local refs and, when gh is authenticated, open PR/release
@@ -23,6 +27,8 @@ USAGE
 
 strict=0
 tag_name=""
+repo_root=""
+skip_github=0
 github_repo="theory-cloud/TableTheory"
 
 while [[ $# -gt 0 ]]; do
@@ -39,6 +45,18 @@ while [[ $# -gt 0 ]]; do
       tag_name="$2"
       shift 2
       ;;
+    --repo-root)
+      if [[ $# -lt 2 ]]; then
+        echo "watch-release-cycle: FAIL (--repo-root requires a value)" >&2
+        exit 2
+      fi
+      repo_root="$2"
+      shift 2
+      ;;
+    --skip-github)
+      skip_github=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -51,7 +69,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${repo_root}" ]]; then
+  repo_root="$(cd "${script_dir}/.." && pwd)"
+fi
+source "${script_dir}/lib/release-cycle-core.sh"
 cd "${repo_root}"
 
 fail_count=0
@@ -71,105 +93,6 @@ fail() {
   fail_count=$((fail_count + 1))
 }
 
-json_value_at_ref() {
-  local ref="$1"
-  local path="$2"
-  local expr="$3"
-
-  git show "${ref}:${path}" 2>/dev/null | python3 -c '
-import json
-import sys
-
-expr = sys.argv[1]
-data = json.load(sys.stdin)
-if expr == ".":
-    print(data.get(".", "") if isinstance(data, dict) else "")
-    raise SystemExit(0)
-value = data
-for part in expr.split("."):
-    if not part:
-        continue
-    if isinstance(value, dict):
-        value = value.get(part, "")
-    else:
-        value = ""
-print(value if isinstance(value, str) else "")
-' "${expr}"
-}
-
-json_string_value() {
-  local json="$1"
-  local expr="$2"
-
-  JSON_INPUT="${json}" python3 - "${expr}" <<'PY'
-import json
-import os
-import sys
-
-expr = sys.argv[1]
-raw = os.environ["JSON_INPUT"]
-try:
-    data = json.loads(raw)
-except json.JSONDecodeError:
-    try:
-        data, _ = json.JSONDecoder().raw_decode(raw)
-    except json.JSONDecodeError:
-        print("")
-        raise SystemExit(0)
-value = data
-for part in expr.split("."):
-    if not part:
-        continue
-    if isinstance(value, dict):
-        value = value.get(part)
-    else:
-        value = None
-if isinstance(value, bool):
-    print("true" if value else "false")
-elif value is None:
-    print("")
-elif isinstance(value, (str, int, float)):
-    print(value)
-else:
-    print(json.dumps(value))
-PY
-}
-
-toolchain_at_ref() {
-  local ref="$1"
-  local path="$2"
-  git show "${ref}:${path}" 2>/dev/null | awk '$1 == "toolchain" { print $2; exit }'
-}
-
-semver_base() {
-  python3 - "$1" <<'PY'
-import re
-import sys
-
-v = sys.argv[1].strip()
-m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", v)
-if not m:
-    raise SystemExit(1)
-print(".".join(m.group(i) for i in range(1, 4)))
-PY
-}
-
-semver_lt() {
-  python3 - "$1" "$2" <<'PY'
-import re
-import sys
-
-
-def parse(v: str) -> tuple[int, int, int]:
-    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", v.strip())
-    if not m:
-        raise SystemExit(2)
-    return tuple(int(m.group(i)) for i in range(1, 4))
-
-raise SystemExit(0 if parse(sys.argv[1]) < parse(sys.argv[2]) else 1)
-PY
-}
-
 refs=(origin/main origin/premain origin/staging)
 for ref in "${refs[@]}"; do
   if ! git rev-parse --verify --quiet "${ref}" >/dev/null; then
@@ -185,12 +108,12 @@ main_pending_promotion=0
 main_pending_version=""
 
 if git rev-parse --verify --quiet origin/main >/dev/null; then
-  main_stable="$(json_value_at_ref origin/main .release-please-manifest.json '.')"
-  main_premain="$(json_value_at_ref origin/main .release-please-manifest.premain.json '.')"
-  main_ts="$(json_value_at_ref origin/main ts/package.json version)"
-  main_ts_lock="$(json_value_at_ref origin/main ts/package-lock.json version)"
+  main_stable="$(release_cycle_json_value_at_ref origin/main .release-please-manifest.json '.')"
+  main_premain="$(release_cycle_json_value_at_ref origin/main .release-please-manifest.premain.json '.')"
+  main_ts="$(release_cycle_json_value_at_ref origin/main ts/package.json version)"
+  main_ts_lock="$(release_cycle_json_value_at_ref origin/main ts/package-lock.json version)"
   main_ts_lock_pkg="$(git show origin/main:ts/package-lock.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("packages", {}).get("", {}).get("version", ""))')"
-  main_py="$(json_value_at_ref origin/main py/src/theorydb_py/version.json version)"
+  main_py="$(release_cycle_json_value_at_ref origin/main py/src/theorydb_py/version.json version)"
 
   main_pending_candidate=1
   main_pending_version="${main_premain}"
@@ -200,7 +123,7 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
     fi
   done
 
-  if [[ "${main_pending_candidate}" -eq 1 && -n "${main_stable}" && "${main_stable}" != *-* ]] && semver_lt "${main_stable}" "${main_pending_version}"; then
+  if [[ "${main_pending_candidate}" -eq 1 && -n "${main_stable}" && "${main_stable}" != *-* ]] && release_cycle_semver_lt "${main_stable}" "${main_pending_version}"; then
     main_pending_promotion=1
     warn "origin/main pending stable promotion: stable manifest ${main_stable}, normalized files ${main_pending_version}"
   fi
@@ -243,8 +166,8 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
     fi
   done
 
-  main_go="$(toolchain_at_ref origin/main go.mod)"
-  main_example_go="$(toolchain_at_ref origin/main examples/multi-tenant/go.mod)"
+  main_go="$(release_cycle_toolchain_at_ref origin/main go.mod)"
+  main_example_go="$(release_cycle_toolchain_at_ref origin/main examples/multi-tenant/go.mod)"
   for item in "go.mod:${main_go}" "examples/multi-tenant/go.mod:${main_example_go}"; do
     label="${item%%:*}"
     version="${item#*:}"
@@ -259,8 +182,8 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
 fi
 
 if git rev-parse --verify --quiet origin/premain >/dev/null; then
-  premain_stable="$(json_value_at_ref origin/premain .release-please-manifest.json '.')"
-  premain_prerelease="$(json_value_at_ref origin/premain .release-please-manifest.premain.json '.')"
+  premain_stable="$(release_cycle_json_value_at_ref origin/premain .release-please-manifest.json '.')"
+  premain_prerelease="$(release_cycle_json_value_at_ref origin/premain .release-please-manifest.premain.json '.')"
 
   if [[ -n "${main_stable}" && -n "${premain_stable}" && "${premain_stable}" != "${main_stable}" ]]; then
     fail "origin/premain stable manifest ${premain_stable} != origin/main ${main_stable}"
@@ -269,16 +192,16 @@ if git rev-parse --verify --quiet origin/premain >/dev/null; then
   fi
 
   if [[ -n "${main_stable}" && -n "${premain_prerelease}" ]]; then
-    premain_base="$(semver_base "${premain_prerelease}" || true)"
-    main_base="$(semver_base "${main_stable}" || true)"
-    if [[ -n "${premain_base}" && -n "${main_base}" ]] && semver_lt "${premain_base}" "${main_base}"; then
+    premain_base="$(release_cycle_semver_base "${premain_prerelease}" || true)"
+    main_base="$(release_cycle_semver_base "${main_stable}" || true)"
+    if [[ -n "${premain_base}" && -n "${main_base}" ]] && release_cycle_semver_lt "${premain_base}" "${main_base}"; then
       fail "origin/premain prerelease track ${premain_prerelease} is behind origin/main ${main_stable}"
     else
       pass "origin/premain prerelease track is ${premain_prerelease}"
     fi
   fi
 
-  premain_go="$(toolchain_at_ref origin/premain go.mod)"
+  premain_go="$(release_cycle_toolchain_at_ref origin/premain go.mod)"
   if [[ "${premain_go}" == "go1.26.3" ]]; then
     fail "origin/premain go.mod still observes vulnerable toolchain ${premain_go}"
   elif [[ -n "${premain_go}" ]]; then
@@ -289,15 +212,15 @@ if git rev-parse --verify --quiet origin/premain >/dev/null; then
 fi
 
 if git rev-parse --verify --quiet origin/staging >/dev/null; then
-  staging_stable="$(json_value_at_ref origin/staging .release-please-manifest.json '.')"
+  staging_stable="$(release_cycle_json_value_at_ref origin/staging .release-please-manifest.json '.')"
   if [[ -n "${main_stable}" && -n "${staging_stable}" && "${staging_stable}" != "${main_stable}" ]]; then
     fail "origin/staging stable manifest ${staging_stable} != origin/main ${main_stable}"
   else
     pass "origin/staging stable manifest matches origin/main (${staging_stable:-<missing>})"
   fi
 
-  staging_go="$(toolchain_at_ref origin/staging go.mod)"
-  staging_example_go="$(toolchain_at_ref origin/staging examples/multi-tenant/go.mod)"
+  staging_go="$(release_cycle_toolchain_at_ref origin/staging go.mod)"
+  staging_example_go="$(release_cycle_toolchain_at_ref origin/staging examples/multi-tenant/go.mod)"
   for item in "go.mod:${staging_go}" "examples/multi-tenant/go.mod:${staging_example_go}"; do
     label="${item%%:*}"
     version="${item#*:}"
@@ -311,7 +234,7 @@ if git rev-parse --verify --quiet origin/staging >/dev/null; then
   done
 fi
 
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+if [[ "${skip_github}" -eq 0 ]] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   premain_bad_release_prs="$(
     gh pr list \
       --repo "${github_repo}" \
@@ -390,12 +313,12 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     if [[ -z "${release_json}" ]]; then
       fail "GitHub release ${tag_name} does not exist"
     else
-      release_tag="$(json_string_value "${release_json}" tagName)"
-      release_is_draft="$(json_string_value "${release_json}" isDraft)"
-      release_is_prerelease="$(json_string_value "${release_json}" isPrerelease)"
-      release_published_at="$(json_string_value "${release_json}" publishedAt)"
-      release_target_commitish="$(json_string_value "${release_json}" targetCommitish)"
-      release_url="$(json_string_value "${release_json}" url)"
+      release_tag="$(release_cycle_json_string_value "${release_json}" tagName)"
+      release_is_draft="$(release_cycle_json_string_value "${release_json}" isDraft)"
+      release_is_prerelease="$(release_cycle_json_string_value "${release_json}" isPrerelease)"
+      release_published_at="$(release_cycle_json_string_value "${release_json}" publishedAt)"
+      release_target_commitish="$(release_cycle_json_string_value "${release_json}" targetCommitish)"
+      release_url="$(release_cycle_json_string_value "${release_json}" url)"
       asset_count="$(python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("assets", [])))' <<<"${release_json}")"
 
       if [[ "${release_tag}" != "${tag_name}" ]]; then
@@ -436,13 +359,13 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
 
       tag_ref_json="$(gh api "repos/${github_repo}/git/ref/tags/${tag_name}" 2>/dev/null || true)"
       tag_ref_target_sha=""
-      tag_ref_status="$(json_string_value "${tag_ref_json:-{}}" status)"
-      tag_ref_message="$(json_string_value "${tag_ref_json:-{}}" message)"
+      tag_ref_status="$(release_cycle_json_string_value "${tag_ref_json:-{}}" status)"
+      tag_ref_message="$(release_cycle_json_string_value "${tag_ref_json:-{}}" message)"
       if [[ -z "${tag_ref_json}" || "${tag_ref_status}" == "404" || "${tag_ref_message}" == "Not Found" ]]; then
         fail "git tag ref refs/tags/${tag_name} is missing"
       else
-        tag_ref_type="$(json_string_value "${tag_ref_json}" object.type)"
-        tag_ref_sha="$(json_string_value "${tag_ref_json}" object.sha)"
+        tag_ref_type="$(release_cycle_json_string_value "${tag_ref_json}" object.type)"
+        tag_ref_sha="$(release_cycle_json_string_value "${tag_ref_json}" object.sha)"
         case "${tag_ref_type}" in
           commit)
             tag_ref_target_sha="${tag_ref_sha}"
@@ -453,8 +376,8 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
             if [[ -z "${annotated_tag_json}" ]]; then
               fail "git tag ref refs/tags/${tag_name} points to an unreadable annotated tag ${tag_ref_sha}"
             else
-              annotated_target_type="$(json_string_value "${annotated_tag_json}" object.type)"
-              annotated_target_sha="$(json_string_value "${annotated_tag_json}" object.sha)"
+              annotated_target_type="$(release_cycle_json_string_value "${annotated_tag_json}" object.type)"
+              annotated_target_sha="$(release_cycle_json_string_value "${annotated_tag_json}" object.sha)"
               if [[ "${annotated_target_type}" == "commit" && -n "${annotated_target_sha}" ]]; then
                 tag_ref_target_sha="${annotated_target_sha}"
                 pass "git tag ref refs/tags/${tag_name} dereferences to commit ${tag_ref_target_sha}"
@@ -496,9 +419,17 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   fi
 else
   if [[ "${main_pending_promotion}" -eq 1 ]]; then
-    warn "origin/main pending stable promotion requires an open stable release PR check, but gh is unavailable or unauthenticated"
+    if [[ "${skip_github}" -eq 1 ]]; then
+      warn "origin/main pending stable promotion requires an open stable release PR check, but GitHub reads were skipped"
+    else
+      warn "origin/main pending stable promotion requires an open stable release PR check, but gh is unavailable or unauthenticated"
+    fi
   fi
-  warn "gh is unavailable or unauthenticated; skipped PR and release asset watchpoints"
+  if [[ "${skip_github}" -eq 1 ]]; then
+    warn "GitHub PR and release asset watchpoints skipped by --skip-github"
+  else
+    warn "gh is unavailable or unauthenticated; skipped PR and release asset watchpoints"
+  fi
 fi
 
 if [[ "${strict}" -eq 1 && "${fail_count}" -ne 0 ]]; then
