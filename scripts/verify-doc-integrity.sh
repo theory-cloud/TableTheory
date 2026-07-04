@@ -45,6 +45,19 @@ def iter_md_files(repo_root: Path) -> list[Path]:
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
 
+def strip_fenced_code(content: str) -> str:
+    lines: list[str] = []
+    in_fence = False
+    for line in content.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            lines.append("")
+            continue
+        lines.append("" if in_fence else line)
+    return "\n".join(lines)
+
+
 def is_external(link: str) -> bool:
     link = link.strip()
     if not link:
@@ -123,7 +136,7 @@ def check_links(repo_root: Path) -> list[str]:
     anchor_cache: dict[Path, set[str]] = {}
 
     for md in iter_md_files(repo_root):
-        content = read_text(md)
+        content = strip_fenced_code(read_text(md))
         for m in LINK_RE.finditer(content):
             raw = m.group(1)
             if is_external(raw):
@@ -223,4 +236,5 @@ if __name__ == "__main__":
     raise SystemExit(main())
 PY
 
+python3 scripts/generate-api-reference.py --check
 python3 scripts/sync-runtime-docs-site.py --check

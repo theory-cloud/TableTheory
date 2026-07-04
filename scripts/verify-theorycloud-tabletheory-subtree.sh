@@ -206,6 +206,19 @@ def collect_expected(repo_root: Path) -> tuple[list[str], list[str]]:
 
 
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+
+def strip_fenced_code(content: str) -> str:
+    lines: list[str] = []
+    in_fence = False
+    for line in content.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            lines.append("")
+            continue
+        lines.append("" if in_fence else line)
+    return "\n".join(lines)
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)(?:\s+#+\s*)?$")
 
 
@@ -269,7 +282,7 @@ def verify_doc_links(subtree_root: Path) -> None:
     anchor_cache: dict[Path, set[str]] = {}
 
     for md in sorted(subtree_root.rglob("*.md")):
-        content = md.read_text(encoding="utf-8", errors="replace")
+        content = strip_fenced_code(md.read_text(encoding="utf-8", errors="replace"))
         for match in LINK_RE.finditer(content):
             raw = match.group(1)
             if is_external(raw):
