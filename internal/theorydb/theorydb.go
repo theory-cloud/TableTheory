@@ -324,7 +324,11 @@ func (db *DB) AutoMigrate(models ...any) error {
 	return nil
 }
 
-// AutoMigrateWithOptions performs enhanced auto-migration with data copy support
+// AutoMigrateWithOptions performs enhanced auto-migration with data copy support.
+//
+// Deprecation notice: use AutoMigrateWithTypedOptions when the concrete
+// schema.AutoMigrateOption type is available. This opts ...any compatibility
+// surface is planned for removal in v2.
 func (db *DB) AutoMigrateWithOptions(model any, opts ...any) error {
 	// Convert opts to the expected type
 	var options []schema.AutoMigrateOption
@@ -336,17 +340,22 @@ func (db *DB) AutoMigrateWithOptions(model any, opts ...any) error {
 		}
 	}
 
-	manager := schema.NewManager(db.session, db.registry)
-	return manager.AutoMigrateWithOptions(model, options...)
+	return db.AutoMigrateWithTypedOptions(model, options...)
 }
 
-// CreateTable creates a DynamoDB table for the given model
-func (db *DB) CreateTable(model any, opts ...any) error {
-	// Register model first
-	if err := db.registry.Register(model); err != nil {
-		return fmt.Errorf("failed to register model %T: %w", model, err)
-	}
+// AutoMigrateWithTypedOptions performs enhanced auto-migration with concrete
+// schema.AutoMigrateOption values.
+func (db *DB) AutoMigrateWithTypedOptions(model any, opts ...schema.AutoMigrateOption) error {
+	manager := schema.NewManager(db.session, db.registry)
+	return manager.AutoMigrateWithOptions(model, opts...)
+}
 
+// CreateTable creates a DynamoDB table for the given model.
+//
+// Deprecation notice: use CreateTableWithOptions when the concrete
+// schema.TableOption type is available. This opts ...any compatibility surface
+// is planned for removal in v2.
+func (db *DB) CreateTable(model any, opts ...any) error {
 	// Convert opts to the expected type
 	var options []schema.TableOption
 	for _, opt := range opts {
@@ -357,8 +366,18 @@ func (db *DB) CreateTable(model any, opts ...any) error {
 		}
 	}
 
+	return db.CreateTableWithOptions(model, options...)
+}
+
+// CreateTableWithOptions creates a DynamoDB table with concrete schema.TableOption values.
+func (db *DB) CreateTableWithOptions(model any, opts ...schema.TableOption) error {
+	// Register model first
+	if err := db.registry.Register(model); err != nil {
+		return fmt.Errorf("failed to register model %T: %w", model, err)
+	}
+
 	manager := schema.NewManager(db.session, db.registry)
-	return manager.CreateTable(model, options...)
+	return manager.CreateTable(model, opts...)
 }
 
 // EnsureTable checks if a table exists for the model and creates it if not

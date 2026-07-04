@@ -18,6 +18,7 @@ TheoryCloud TableTheory subtree. This page is the Go API reference.
 - [Core Interfaces](#core-interfaces)
   - [DB Interface](#db-interface)
   - [LambdaDB](#lambdadb-struct)
+- [Typed Go APIs](#typed-go-apis)
 - [Query Builder](#query-builder)
 - [Transaction Builder](#transaction-builder)
 - [Update Builder](#update-builder)
@@ -209,7 +210,49 @@ memory/X-Ray configuration.
 
 Returns memory usage statistics useful for tuning Lambda memory allocation.
 
+
 ---
+
+## Typed Go APIs
+
+The generic Go layer is additive. Existing `db.Model(&User{})` calls remain supported; typed handles wrap the same
+runtime behavior while removing destination `any` plumbing at common call sites.
+
+```go
+modelOfUser := tabletheory.ModelOf[User]
+users := modelOfUser(db)
+
+created := User{PK: "TENANT#demo", SK: "USER#ada", Name: "Ada"}
+if err := users.Create(&created); err != nil {
+    return err
+}
+
+key := users.Key("TENANT#demo", "USER#ada")
+found, err := users.Get(key)
+if err != nil {
+    return err
+}
+
+found.Name = "Ada Lovelace"
+if err := users.Update(&found, "Name"); err != nil {
+    return err
+}
+
+first, err := users.Query().
+    Where("SK", query.OpBeginsWith, "USER#").
+    First()
+```
+
+Primary typed entry points:
+
+- `tabletheory.ModelOf` / `typed.ModelOf` create a model-typed handle from an existing `core.DB`.
+- `Model[T].Query().First() (T, error)` and `All() ([]T, error)` allocate correctly typed destinations internally.
+- `Model[T].Key(pk, sk...)` returns a `typed.Key[T]`, so a key for one model type is not assignable to another model
+  type.
+- `query.OpEqual`, `query.OpBeginsWith`, `query.OpBetween`, and the other `query.Op*` constants are exported for
+  typo-resistant operator spelling. `query.Between(lo, hi)` preserves the existing two-value `BETWEEN` operand shape.
+
+See `examples/typed-go` for a compile-checked typed CRUD/query flow.
 
 ## Query Builder
 
@@ -221,7 +264,7 @@ The `Query` interface is returned by `db.Model()`.
 
 Adds a condition. Translates to `KeyConditionExpression` if field is a key, or `FilterExpression` otherwise.
 
-- **op**: `=`, `>`, `<`, `>=`, `<=`, `BEGINS_WITH`, `BETWEEN`.
+- **op**: `=`, `>`, `<`, `>=`, `<=`, `BEGINS_WITH`, `BETWEEN`; prefer exported `query.Op*` constants in new Go code (for example `query.OpBeginsWith`) and `query.Between(lo, hi)` for the two-value `BETWEEN` operand shape.
 
 #### `Index(name string) Query`
 
@@ -397,10 +440,19 @@ Appends elements to a list.
 Creates a table based on struct tags.
 
 - **Warning**: For development use. Production should use Terraform/CDK.
+- **Deprecation notice**: this compatibility method accepts `opts ...any`. Prefer `CreateTableWithOptions(model, opts ...schema.TableOption)` through `*tabletheory.DB` or the additive `core.TypedExtendedDB` extension interface.
+
+#### `CreateTableWithOptions(model any, opts ...schema.TableOption) error`
+
+Creates a table using concrete `schema.TableOption` values without the legacy `opts ...any` boundary.
 
 #### `AutoMigrate(models ...any) error`
 
 Checks if tables exist and creates them if missing.
+
+#### `AutoMigrateWithTypedOptions(model any, opts ...schema.AutoMigrateOption) error`
+
+Runs enhanced auto-migration using concrete `schema.AutoMigrateOption` values. The legacy `AutoMigrateWithOptions(model, opts ...any)` surface remains for backward compatibility and is planned for v2 removal.
 
 #### `EnsureTable(model any) error`
 

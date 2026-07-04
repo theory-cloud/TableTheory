@@ -9,6 +9,7 @@ import { TheorydbClient } from '../../src/client.js';
 import { encryptAttributeValue } from '../../src/encryption.js';
 import { hasTheorydbErrorCode, TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
+import { unsafeOperator } from '../../src/query.js';
 import {
   createDeterministicEncryptionProvider,
   createMockDynamoDBClient,
@@ -796,7 +797,7 @@ import {
       client
         .updateBuilder('T', { PK: 'A' })
         .set('name', 'x')
-        .condition('count', 'bogus', 1)
+        .condition('count', unsafeOperator('bogus'), 1)
         .execute(),
     (e) => e instanceof TheorydbError && e.code === 'ErrInvalidOperator',
   );

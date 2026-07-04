@@ -39,25 +39,19 @@ import { mapConcurrent } from './query-concurrency.js';
 import { itemIterator, pageIterator } from './query-iterators.js';
 import { countAllPages } from './query-count.js';
 import type { SendOptions } from './send-options.js';
-
-export interface Page<T = Record<string, unknown>> {
-  items: T[];
-  cursor?: string;
-}
-
-export interface QueryRetryOptions {
-  maxAttempts?: number;
-  baseDelayMs?: number;
-  maxDelayMs?: number;
-  backoffFactor?: number;
-  retryOnEmpty?: boolean;
-  retryOnError?: boolean;
-  verify?: (page: Page) => boolean;
-}
+import type { Page, QueryOperator, QueryRetryOptions } from './query-types.js';
+export { unsafeOperator } from './query-types.js';
+export type {
+  KnownOperator,
+  OperatorEscape,
+  Page,
+  QueryOperator,
+  QueryRetryOptions,
+} from './query-types.js';
 
 export interface FilterGroupBuilder {
-  filter(field: string, op: string, ...values: unknown[]): this;
-  orFilter(field: string, op: string, ...values: unknown[]): this;
+  filter(field: string, op: QueryOperator, ...values: unknown[]): this;
+  orFilter(field: string, op: QueryOperator, ...values: unknown[]): this;
   filterGroup(fn: (b: FilterGroupBuilder) => void): this;
   orFilterGroup(fn: (b: FilterGroupBuilder) => void): this;
 }
@@ -88,12 +82,12 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
       } satisfies FilterExpressionBuilder['state']);
   }
 
-  filter(field: string, op: string, ...values: unknown[]): this {
+  filter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.addCondition('AND', field, op, values);
     return this;
   }
 
-  orFilter(field: string, op: string, ...values: unknown[]): this {
+  orFilter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.addCondition('OR', field, op, values);
     return this;
   }
@@ -134,7 +128,7 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
   private addCondition(
     logicalOp: 'AND' | 'OR',
     field: string,
-    op: string,
+    op: QueryOperator,
     values: unknown[],
   ): void {
     const schema = this.model.attributes.get(field);
@@ -299,7 +293,9 @@ function singleValue(values: unknown[], op: string): unknown {
   return values[0];
 }
 
-export class QueryBuilder {
+export class QueryBuilder<
+  TItem extends Record<string, unknown> = Record<string, unknown>,
+> {
   private indexName?: string;
   private pkValue?: unknown;
   private skCondition?: {
@@ -348,12 +344,12 @@ export class QueryBuilder {
     return this;
   }
 
-  filter(field: string, op: string, ...values: unknown[]): this {
+  filter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.filters.filter(field, op, ...values);
     return this;
   }
 
-  orFilter(field: string, op: string, ...values: unknown[]): this {
+  orFilter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.filters.orFilter(field, op, ...values);
     return this;
   }
@@ -386,7 +382,7 @@ export class QueryBuilder {
     return this;
   }
 
-  async page(): Promise<Page> {
+  async page(): Promise<Page<TItem>> {
     const { pkName, pkSchema, skName, skSchema, index } =
       this.resolveKeySchema();
     if (this.pkValue === undefined)
@@ -546,7 +542,7 @@ export class QueryBuilder {
       cursor = encodeCursor(c);
     }
 
-    const page: Page = { items };
+    const page: Page<TItem> = { items: items as TItem[] };
     if (cursor) page.cursor = cursor;
     return page;
   }
@@ -696,10 +692,10 @@ export class QueryBuilder {
     return out;
   }
 
-  async all(): Promise<Array<Record<string, unknown>>> {
+  async all(): Promise<TItem[]> {
     const original = this.cursorToken;
     try {
-      const out: Array<Record<string, unknown>> = [];
+      const out: TItem[] = [];
       let cursor = original;
 
       for (;;) {
@@ -716,7 +712,7 @@ export class QueryBuilder {
     }
   }
 
-  pages(): AsyncGenerator<Page<Record<string, unknown>>> {
+  pages(): AsyncGenerator<Page<TItem>> {
     return pageIterator(
       () => this.cursorToken,
       (cursor) => {
@@ -726,7 +722,7 @@ export class QueryBuilder {
     );
   }
 
-  items(): AsyncGenerator<Record<string, unknown>> {
+  items(): AsyncGenerator<TItem> {
     return itemIterator(this.pages());
   }
 
@@ -782,7 +778,7 @@ export class QueryBuilder {
    * Client-side aggregation: the returned group query calls `all()` during `execute()` and keeps groups in memory.
    * Use only for bounded result sets; use native `count()` for count-only reads.
    */
-  groupBy(field: string): GroupByQuery<Record<string, unknown>> {
+  groupBy(field: string): GroupByQuery<TItem> {
     return new GroupByQuery(() => this.all(), field);
   }
 
@@ -807,7 +803,9 @@ export class QueryBuilder {
     };
   }
 
-  async pageWithRetry(opts: QueryRetryOptions = {}): Promise<Page> {
+  async pageWithRetry(
+    opts: QueryRetryOptions<TItem> = {},
+  ): Promise<Page<TItem>> {
     const maxAttempts = opts.maxAttempts ?? 5;
     if (!Number.isInteger(maxAttempts) || maxAttempts <= 0) {
       throw new TheorydbError(
@@ -823,7 +821,7 @@ export class QueryBuilder {
     const maxDelay = opts.maxDelayMs ?? 5_000;
     const backoff = opts.backoffFactor ?? 2;
 
-    let lastPage: Page | undefined;
+    let lastPage: Page<TItem> | undefined;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const page = await this.page();
@@ -924,7 +922,9 @@ export class QueryBuilder {
   }
 }
 
-export class ScanBuilder {
+export class ScanBuilder<
+  TItem extends Record<string, unknown> = Record<string, unknown>,
+> {
   private indexName?: string;
   private limitCount?: number;
   private projectionFields?: string[];
@@ -964,12 +964,12 @@ export class ScanBuilder {
     return this;
   }
 
-  filter(field: string, op: string, ...values: unknown[]): this {
+  filter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.filters.filter(field, op, ...values);
     return this;
   }
 
-  orFilter(field: string, op: string, ...values: unknown[]): this {
+  orFilter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.filters.orFilter(field, op, ...values);
     return this;
   }
@@ -1016,7 +1016,7 @@ export class ScanBuilder {
   async scanAllSegments(
     totalSegments: number,
     opts: { concurrency?: number } = {},
-  ): Promise<Array<Record<string, unknown>>> {
+  ): Promise<TItem[]> {
     const index = this.indexName
       ? this.model.indexes.get(this.indexName)
       : undefined;
@@ -1124,8 +1124,8 @@ export class ScanBuilder {
       },
     );
 
-    const out: Array<Record<string, unknown>> = [];
-    for (const r of results) out.push(...r);
+    const out: TItem[] = [];
+    for (const r of results) out.push(...(r as TItem[]));
     return out;
   }
 
@@ -1223,10 +1223,10 @@ export class ScanBuilder {
     return out;
   }
 
-  async all(): Promise<Array<Record<string, unknown>>> {
+  async all(): Promise<TItem[]> {
     const original = this.cursorToken;
     try {
-      const out: Array<Record<string, unknown>> = [];
+      const out: TItem[] = [];
       let cursor = original;
 
       for (;;) {
@@ -1243,7 +1243,7 @@ export class ScanBuilder {
     }
   }
 
-  pages(): AsyncGenerator<Page<Record<string, unknown>>> {
+  pages(): AsyncGenerator<Page<TItem>> {
     return pageIterator(
       () => this.cursorToken,
       (cursor) => {
@@ -1253,7 +1253,7 @@ export class ScanBuilder {
     );
   }
 
-  items(): AsyncGenerator<Record<string, unknown>> {
+  items(): AsyncGenerator<TItem> {
     return itemIterator(this.pages());
   }
 
@@ -1309,7 +1309,7 @@ export class ScanBuilder {
    * Client-side aggregation: the returned group query calls `all()` during `execute()` and keeps groups in memory.
    * Use only for bounded result sets; use native `count()` for count-only reads.
    */
-  groupBy(field: string): GroupByQuery<Record<string, unknown>> {
+  groupBy(field: string): GroupByQuery<TItem> {
     return new GroupByQuery(() => this.all(), field);
   }
 
@@ -1337,7 +1337,7 @@ export class ScanBuilder {
     };
   }
 
-  async page(): Promise<Page> {
+  async page(): Promise<Page<TItem>> {
     const index = this.indexName
       ? this.model.indexes.get(this.indexName)
       : undefined;
@@ -1446,12 +1446,14 @@ export class ScanBuilder {
       cursor = encodeCursor(c);
     }
 
-    const page: Page = { items };
+    const page: Page<TItem> = { items: items as TItem[] };
     if (cursor) page.cursor = cursor;
     return page;
   }
 
-  async pageWithRetry(opts: QueryRetryOptions = {}): Promise<Page> {
+  async pageWithRetry(
+    opts: QueryRetryOptions<TItem> = {},
+  ): Promise<Page<TItem>> {
     const maxAttempts = opts.maxAttempts ?? 5;
     if (!Number.isInteger(maxAttempts) || maxAttempts <= 0) {
       throw new TheorydbError(
@@ -1467,7 +1469,7 @@ export class ScanBuilder {
     const maxDelay = opts.maxDelayMs ?? 5_000;
     const backoff = opts.backoffFactor ?? 2;
 
-    let lastPage: Page | undefined;
+    let lastPage: Page<TItem> | undefined;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const page = await this.page();

@@ -26,6 +26,7 @@ from .errors import (
     ValidationError,
 )
 from .model import AttributeDefinition, ModelDefinition
+from .protocols import DynamoDBClientProtocol as DynamoDBClientProtocol
 from .query import (
     FilterCondition,
     FilterExpression,
@@ -119,7 +120,7 @@ class Table[T]:
         self,
         model: ModelDefinition[T],
         *,
-        client: Any | None = None,
+        client: DynamoDBClientProtocol | None = None,
         table_name: str | None = None,
         kms_key_arn: str | None = None,
         kms_client: Any | None = None,
@@ -133,7 +134,9 @@ class Table[T]:
 
         self._model = model
         self._table_name = table_name
-        self._client: Any = client or boto3.client("dynamodb")
+        self._client: DynamoDBClientProtocol = client or cast(
+            DynamoDBClientProtocol, boto3.client("dynamodb")
+        )
         self._kms_key_arn = (kms_key_arn or "").strip() or None
         self._kms_client: Any | None = kms_client
         self._rand_bytes = rand_bytes or os.urandom
@@ -159,7 +162,7 @@ class Table[T]:
             return self
         return Table(
             self._model,
-            client=client,
+            client=cast(DynamoDBClientProtocol, client),
             table_name=self._table_name,
             kms_key_arn=self._kms_key_arn,
             kms_client=self._kms_client,

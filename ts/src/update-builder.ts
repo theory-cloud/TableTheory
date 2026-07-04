@@ -25,6 +25,7 @@ import {
   assertMutableWritePolicy,
   assertProtectedFieldsCanMutate,
 } from './write-policy.js';
+import type { QueryOperator } from './query-types.js';
 
 export type ReturnValuesOption =
   | 'NONE'
@@ -47,7 +48,7 @@ type UpdateOp =
 type ConditionOp = {
   logicOp: 'AND' | 'OR';
   field: string;
-  operator: string;
+  operator: QueryOperator;
   value?: unknown;
 };
 
@@ -70,11 +71,11 @@ class ConditionExpressionBuilder {
 
   constructor(private readonly model: Model) {}
 
-  and(field: string, op: string, value?: unknown): void {
+  and(field: string, op: QueryOperator, value?: unknown): void {
     this.addCondition('AND', field, op, value);
   }
 
-  or(field: string, op: string, value?: unknown): void {
+  or(field: string, op: QueryOperator, value?: unknown): void {
     this.addCondition('OR', field, op, value);
   }
 
@@ -94,7 +95,7 @@ class ConditionExpressionBuilder {
   private addCondition(
     logicalOp: 'AND' | 'OR',
     field: string,
-    op: string,
+    op: QueryOperator,
     value?: unknown,
   ): void {
     const schema = this.model.attributes.get(field);
@@ -345,12 +346,12 @@ export class UpdateBuilder {
     return this;
   }
 
-  condition(field: string, operator: string, value?: unknown): this {
+  condition(field: string, operator: QueryOperator, value?: unknown): this {
     this.conditionOps.push({ logicOp: 'AND', field, operator, value });
     return this;
   }
 
-  orCondition(field: string, operator: string, value?: unknown): this {
+  orCondition(field: string, operator: QueryOperator, value?: unknown): this {
     this.conditionOps.push({ logicOp: 'OR', field, operator, value });
     return this;
   }

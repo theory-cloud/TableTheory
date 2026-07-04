@@ -17,6 +17,7 @@ import (
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	"github.com/theory-cloud/tabletheory/pkg/schema"
 	"github.com/theory-cloud/tabletheory/pkg/session"
+	"github.com/theory-cloud/tabletheory/pkg/typed"
 )
 
 type (
@@ -34,6 +35,7 @@ type (
 	AutoMigrateOption = schema.AutoMigrateOption
 	BatchGetOptions   = core.BatchGetOptions
 	KeyPair           = core.KeyPair
+	TypedExtendedDB   = core.TypedExtendedDB
 )
 
 // Re-export AutoMigrate options for convenience.
@@ -67,6 +69,14 @@ func NewBasic(config session.Config) (core.DB, error) {
 
 func NewKeyPair(partitionKey any, sortKey ...any) core.KeyPair {
 	return internaltheorydb.NewKeyPair(partitionKey, sortKey...)
+}
+
+func ModelOf[T any](db core.DB) typed.Model[T] {
+	return typed.ModelOf[T](db)
+}
+
+func NewTypedKey[T any](partitionKey any, sortKey ...any) typed.Key[T] {
+	return typed.NewKey[T](partitionKey, sortKey...)
 }
 
 func DefaultBatchGetOptions() *core.BatchGetOptions {

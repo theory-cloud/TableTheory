@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/pkg/model"
+	"github.com/theory-cloud/tabletheory/pkg/schema"
 	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
 )
 
@@ -43,7 +44,10 @@ type ExtendedDB interface {
 	DB
 
 	// AutoMigrateWithOptions performs enhanced auto-migration with data copy support
-	// opts should be of type schema.AutoMigrateOption
+	//
+	// Deprecation notice: use TypedExtendedDB.AutoMigrateWithTypedOptions when the
+	// concrete option type is available. This opts ...any compatibility surface is
+	// planned for removal in v2.
 	AutoMigrateWithOptions(model any, opts ...any) error
 
 	// RegisterTypeConverter registers a custom converter for a specific Go type, allowing
@@ -51,7 +55,10 @@ type ExtendedDB interface {
 	RegisterTypeConverter(typ reflect.Type, converter pkgTypes.CustomConverter) error
 
 	// CreateTable creates a DynamoDB table for the given model
-	// opts should be of type schema.TableOption
+	//
+	// Deprecation notice: use TypedExtendedDB.CreateTableWithOptions when the
+	// concrete option type is available. This opts ...any compatibility surface is
+	// planned for removal in v2.
 	CreateTable(model any, opts ...any) error
 
 	// EnsureTable checks if a table exists for the model and creates it if not
@@ -83,6 +90,21 @@ type ExtendedDB interface {
 	// TransactWrite executes the provided function within a transaction builder context
 	// and automatically commits the accumulated operations.
 	TransactWrite(ctx context.Context, fn func(TransactionBuilder) error) error
+}
+
+// TypedExtendedDB is an additive extension interface for callers that want
+// concrete option types instead of the legacy opts ...any compatibility methods.
+// It is intentionally separate from ExtendedDB so existing mocks and custom
+// implementations remain source-compatible.
+type TypedExtendedDB interface {
+	ExtendedDB
+
+	// AutoMigrateWithTypedOptions performs enhanced auto-migration with
+	// schema.AutoMigrateOption values.
+	AutoMigrateWithTypedOptions(model any, opts ...schema.AutoMigrateOption) error
+
+	// CreateTableWithOptions creates a DynamoDB table with schema.TableOption values.
+	CreateTableWithOptions(model any, opts ...schema.TableOption) error
 }
 
 // TransactGetter is an additive extension interface for DynamoDB TransactGetItems

@@ -10,6 +10,7 @@ import { encodeCursor } from '../../src/cursor.js';
 import { TheorydbClient } from '../../src/client.js';
 import { TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
+import { unsafeOperator } from '../../src/query.js';
 
 class StubDdb {
   calls = 0;
@@ -414,7 +415,10 @@ const User = defineModel({
   );
   assert.throws(
     () =>
-      client.query('User').partitionKey('A').filter('emailHash', 'LIKE', 'x'),
+      client
+        .query('User')
+        .partitionKey('A')
+        .filter('emailHash', unsafeOperator('LIKE'), 'x'),
     (e) => e instanceof TheorydbError && e.code === 'ErrInvalidOperator',
   );
 }

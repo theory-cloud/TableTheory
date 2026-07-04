@@ -8,6 +8,7 @@ from theorydb_py.model import (
     ModelDefinition,
     ModelDefinitionError,
     Projection,
+    Role,
     WritePolicy,
     gsi,
     lsi,
@@ -17,10 +18,10 @@ from theorydb_py.model import (
 
 @dataclass(frozen=True)
 class User:
-    pk: str = theorydb_field(name="PK", roles=["pk"])
-    sk: str = theorydb_field(name="SK", roles=["sk"])
+    pk: str = theorydb_field(name="PK", roles=[Role.PK])
+    sk: str = theorydb_field(name="SK", roles=[Role.SK])
     email_hash: str = theorydb_field(name="emailHash", omitempty=True)
-    created_at: str = theorydb_field(name="createdAt", roles=["created_at"])
+    created_at: str = theorydb_field(name="createdAt", roles=[Role.CREATED_AT])
     tags: set[str] = theorydb_field(name="tags", set_=True, omitempty=True, default_factory=set)
     payload: dict[str, int] = theorydb_field(name="payload", json=True, omitempty=True, default_factory=dict)
     blob: bytes = theorydb_field(name="blob", binary=True, omitempty=True, default=b"")
@@ -50,6 +51,20 @@ def test_model_definition_extracts_keys_attributes_and_indexes() -> None:
     assert len(model.indexes) == 2
     assert model.indexes[0].type == "GSI" and model.indexes[0].partition == "emailHash"
     assert model.indexes[1].type == "LSI" and model.indexes[1].partition == "PK"
+
+
+def test_model_definition_accepts_role_constants_and_strings() -> None:
+    @dataclass(frozen=True)
+    class MixedRoles:
+        pk: str = theorydb_field(roles=[Role.PK])
+        sk: str = theorydb_field(roles=["sk"])
+        ttl: int = theorydb_field(roles=[Role.TTL], default=0)
+
+    model = ModelDefinition.from_dataclass(MixedRoles)
+
+    assert model.pk.roles == ("pk",)
+    assert model.sk is not None and model.sk.roles == ("sk",)
+    assert model.attributes["ttl"].roles == ("ttl",)
 
 
 def test_model_definition_rejects_missing_pk() -> None:

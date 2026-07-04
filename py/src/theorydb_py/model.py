@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass
+from enum import StrEnum
 from typing import Any, Protocol, cast, get_type_hints, overload
 
 from .attr_types import infer_storage_type, validate_json_storage_type
@@ -10,6 +11,24 @@ from .errors import ValidationError
 
 class ModelDefinitionError(ValueError):
     pass
+
+
+class Role(StrEnum):
+    PK = "pk"
+    SK = "sk"
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    VERSION = "version"
+    TTL = "ttl"
+
+
+RoleLike = str | Role
+
+
+def _normalize_role(role: RoleLike) -> str:
+    if isinstance(role, Role):
+        return role.value
+    return role
 
 
 class AttributeConverter(Protocol):
@@ -111,7 +130,7 @@ def _resolve_write_policy(
 def theorydb_field(
     *,
     name: str | None = None,
-    roles: Sequence[str] | None = None,
+    roles: Sequence[RoleLike] | None = None,
     omitempty: bool = False,
     set_: bool = False,
     json: bool = False,
@@ -127,7 +146,7 @@ def theorydb_field(
 def theorydb_field(
     *,
     name: str | None = None,
-    roles: Sequence[str] | None = None,
+    roles: Sequence[RoleLike] | None = None,
     omitempty: bool = False,
     set_: bool = False,
     json: bool = False,
@@ -144,7 +163,7 @@ def theorydb_field(
 def theorydb_field(
     *,
     name: str | None = None,
-    roles: Sequence[str] | None = None,
+    roles: Sequence[RoleLike] | None = None,
     omitempty: bool = False,
     set_: bool = False,
     json: bool = False,
@@ -160,7 +179,7 @@ def theorydb_field(
 def theorydb_field(
     *,
     name: str | None = None,
-    roles: Sequence[str] | None = None,
+    roles: Sequence[RoleLike] | None = None,
     omitempty: bool = False,
     set_: bool = False,
     json: bool = False,
@@ -186,7 +205,7 @@ def theorydb_field(
     if name is not None:
         theorydb["name"] = name
     if roles is not None:
-        theorydb["roles"] = list(roles)
+        theorydb["roles"] = [_normalize_role(role) for role in roles]
 
     return field(default=default, default_factory=default_factory, metadata={"theorydb": theorydb})
 

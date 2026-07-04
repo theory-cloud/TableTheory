@@ -13,12 +13,14 @@ import {
   createLambdaDynamoDBClient,
   createLambdaTimeoutSignal,
   defineModel,
+  unsafeOperator,
   withLambdaTimeout,
   type BatchGetResult,
   type BatchWriteResult,
   type EncryptionProvider,
   type LambdaContextLike,
   type Model,
+  type ModelItem,
   type Page,
   type SendOptions,
   type TransactAction,
@@ -42,8 +44,21 @@ Defines a model with explicit attribute names and roles.
 - `indexes`: optional GSI/LSI definitions with explicit key attributes
 - `write_policy`: optional write-once/protected-attribute policy
 
-`defineModel` returns a runtime model descriptor. It does not currently infer a schema-specific TypeScript item type for
-`TheorydbClient`; client item payloads are still `Record<string, unknown>`.
+`defineModel<const S>(...)` returns a runtime model descriptor whose item type is inferred from literal schema attributes. Required attributes remain required; `optional`, `omit_empty`, and lifecycle-managed roles such as `created_at`, `updated_at`, `version`, and `ttl` are optional in the inferred call-site type.
+
+```ts
+const User = defineModel({
+  name: 'User',
+  table: { name: 'users' },
+  keys: { partition: { attribute: 'PK', type: 'S' } },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'age', type: 'N' },
+  ],
+});
+
+type UserItem = ModelItem<typeof User>; // { PK: string; age: number }
+```
 
 See [Core Patterns](./core-patterns.md) for canonical model definitions.
 
@@ -72,6 +87,21 @@ Options:
 ### `register(...models: Model[]): this`
 
 Registers one or more model definitions and returns the same client.
+
+### `model(model: Model)` / `model(modelName: string)`
+
+Returns a repository handle for one model. Passing a model descriptor preserves the inferred item type; string lookup remains available and intentionally returns the existing untyped `Record<string, unknown>` boundary.
+
+```ts
+const db = new TheorydbClient(ddb);
+const users = db.model(User);
+
+await users.create({ PK: 'USER#1', age: 42 });
+const got = await users.get({ PK: 'USER#1' }); // UserItem
+await users.update({ ...got, age: 43 }, ['age']);
+
+await db.model('User').create({ stringLookup: 'stays untyped' });
+```
 
 ### `withEncryption(provider: EncryptionProvider): this`
 
@@ -170,12 +200,13 @@ Key, cursor, and page methods:
 - `consistentRead(enabled = true): this` (rejected for GSIs)
 - `limit(n: number): this`
 - `projection(fields: string[]): this`
+- `filter(field, op, ...values): this`, where `op` is a known operator literal (`'='`, `'BETWEEN'`, `'BEGINS_WITH'`, etc.) or `unsafeOperator(value)` for explicit runtime-validation escape hatches
 - `cursor(encoded: string): this`
-- `page(): Promise<Page>`
-- `pages(): AsyncGenerator<Page>`
-- `items(): AsyncGenerator<Record<string, unknown>>`
-- `all(): Promise<Array<Record<string, unknown>>>`
-- `pageWithRetry(options?): Promise<Page>`
+- `page(): Promise<Page<TItem>>` for typed repository handles, otherwise `Promise<Page<Record<string, unknown>>>`
+- `pages(): AsyncGenerator<Page<TItem>>`
+- `items(): AsyncGenerator<TItem>`
+- `all(): Promise<TItem[]>`
+- `pageWithRetry(options?): Promise<Page<TItem>>`
 - `describe(): BuilderShape`
 
 Prefer `pages()` or `items()` for large result sets. They fetch one DynamoDB page at a time and stop fetching when the

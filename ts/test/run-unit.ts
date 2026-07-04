@@ -1,6 +1,7 @@
 await import('./unit/basic.test.js');
 await import('./unit/errors.test.js');
 await import('./unit/model.test.js');
+await import('./unit/typed-api.test.js');
 await import('./unit/dms.test.js');
 await import('./unit/key-contract.test.js');
 await import('./unit/cursor.test.js');

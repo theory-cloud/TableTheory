@@ -6,7 +6,7 @@
 ## Imports
 
 ```python
-from tabletheory_py import ModelDefinition, Table, theorydb_field
+from tabletheory_py import DynamoDBClientProtocol, ModelDefinition, Role, Table, theorydb_field
 from tabletheory_py import SortKeyCondition
 from tabletheory_py import unmarshal_stream_record
 from tabletheory_py import (
@@ -25,7 +25,14 @@ from tabletheory_py.mocks import FakeDynamoDBClient, FakeKmsClient
 
 ### `theorydb_field(...)`
 
-Declares attribute metadata for dataclass fields (roles, omitempty, encryption, defaults, converters, etc.).
+Declares attribute metadata for dataclass fields (roles, omitempty, encryption, defaults, converters, etc.). Role strings remain supported; new code can use `Role` constants for typo-resistant type checking.
+
+```python
+@dataclass(frozen=True)
+class User:
+    pk: str = theorydb_field(name='PK', roles=[Role.PK])
+    sk: str = theorydb_field(name='SK', roles=[Role.SK])
+```
 
 ### `ModelDefinition.from_dataclass(dataclass_type, table_name=...)`
 
@@ -35,9 +42,7 @@ Builds a model definition from a dataclass and a table name.
 
 ### `Table(model, *, client=None, table_name=None, kms_key_arn=None, kms_client=None, rand_bytes=None, now=None)`
 
-Primary entrypoint for operations. `client` is a boto3-compatible DynamoDB client; when omitted, `Table` constructs one
-with `boto3.client("dynamodb")`. If any model attribute is encrypted, construction fails closed unless `kms_key_arn` is
-provided.
+Primary entrypoint for operations. `client` is typed as `DynamoDBClientProtocol` (a boto3-compatible DynamoDB client protocol with `query`, `scan`, `get_item`, `put_item`, batch, transaction, delete, and update methods); when omitted, `Table` constructs one with `boto3.client("dynamodb")`. If any model attribute is encrypted, construction fails closed unless `kms_key_arn` is provided.
 
 ### CRUD
 

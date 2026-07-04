@@ -27,7 +27,7 @@ import {
 } from './batch.js';
 import { mapDynamoError } from './dynamo-error.js';
 import { hasTheorydbErrorCode, TheorydbError } from './errors.js';
-import type { Model } from './model.js';
+import type { Model, ModelItem } from './model.js';
 import type { SendOptions } from './send-options.js';
 import {
   isEmpty,
@@ -69,6 +69,82 @@ export interface TheorydbClientOptions {
    * Use 'string' to receive canonical DynamoDB decimal strings for exact reads.
    */
   numberUnmarshalMode?: NumberUnmarshalMode;
+}
+
+type ModelKey<TItem extends Record<string, unknown>> = Partial<TItem>;
+type ModelField<TItem extends Record<string, unknown>> = Extract<
+  keyof TItem,
+  string
+>;
+
+export class ModelRepository<
+  TItem extends Record<string, unknown> = Record<string, unknown>,
+> {
+  constructor(
+    private readonly client: TheorydbClient,
+    private readonly modelDef: Model<TItem>,
+  ) {}
+
+  create(item: TItem, opts: { ifNotExists?: boolean } = {}): Promise<void> {
+    return this.client.create(this.modelDef.name, item, opts);
+  }
+
+  save(item: TItem): Promise<void> {
+    return this.client.save(this.modelDef.name, item);
+  }
+
+  async get(key: ModelKey<TItem>): Promise<TItem> {
+    return (await this.client.get(this.modelDef.name, key)) as TItem;
+  }
+
+  async getOrNull(key: ModelKey<TItem>): Promise<TItem | null> {
+    return (await this.client.getOrNull(
+      this.modelDef.name,
+      key,
+    )) as TItem | null;
+  }
+
+  update(
+    item: TItem,
+    fields: readonly ModelField<TItem>[],
+    opts: WritePolicyOptions = {},
+  ): Promise<void> {
+    return this.client.update(this.modelDef.name, item, [...fields], opts);
+  }
+
+  delete(key: ModelKey<TItem>): Promise<void> {
+    return this.client.delete(this.modelDef.name, key);
+  }
+
+  async batchGet(
+    keys: Array<ModelKey<TItem>>,
+    opts: RetryOptions & { consistentRead?: boolean } = {},
+  ): Promise<BatchGetResult<TItem>> {
+    const result = await this.client.batchGet(this.modelDef.name, keys, opts);
+    return result as BatchGetResult<TItem>;
+  }
+
+  batchWrite(
+    req: {
+      puts?: TItem[];
+      deletes?: Array<ModelKey<TItem>>;
+    },
+    opts: RetryOptions = {},
+  ): Promise<BatchWriteResult> {
+    return this.client.batchWrite(this.modelDef.name, req, opts);
+  }
+
+  query(): QueryBuilder<TItem> {
+    return this.client.query(this.modelDef.name) as QueryBuilder<TItem>;
+  }
+
+  scan(): ScanBuilder<TItem> {
+    return this.client.scan(this.modelDef.name) as ScanBuilder<TItem>;
+  }
+
+  updateBuilder(key: ModelKey<TItem>): UpdateBuilder {
+    return this.client.updateBuilder(this.modelDef.name, key);
+  }
 }
 
 export class TheorydbClient {
@@ -122,6 +198,16 @@ export class TheorydbClient {
       this.models.set(model.name, model);
     }
     return this;
+  }
+
+  model<M extends Model>(model: M): ModelRepository<ModelItem<M>>;
+  model(modelName: string): ModelRepository<Record<string, unknown>>;
+  model(modelOrName: string | Model): ModelRepository<Record<string, unknown>> {
+    const model =
+      typeof modelOrName === 'string'
+        ? this.requireModel(modelOrName)
+        : this.register(modelOrName).requireModel(modelOrName.name);
+    return new ModelRepository(this, model);
   }
 
   private requireModel(name: string): Model {

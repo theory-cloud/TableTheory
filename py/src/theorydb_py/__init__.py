@@ -28,6 +28,7 @@ from .model import (
     ModelDefinition,
     ModelDefinitionError,
     Projection,
+    Role,
     WritePolicy,
     gsi,
     lsi,
@@ -62,6 +63,7 @@ if TYPE_CHECKING:
     from .multiaccount import AccountConfig, MultiAccountSessions
     from .optimizer import QueryOptimizer, QueryPlan, QueryShape, ScanShape
     from .protection import ConcurrencyLimiter, SimpleLimiter
+    from .protocols import DynamoDBClientProtocol
     from .release_state import transition_release_state, validate_deploy_authority_metadata
     from .runtime import (
         DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS,
@@ -151,10 +153,11 @@ def __getattr__(name: str) -> Any:
         from . import schema
 
         return getattr(schema, name)
-    if name == "Table":
+    if name in {"DynamoDBClientProtocol", "Table"}:
+        from .protocols import DynamoDBClientProtocol
         from .table import Table
 
-        return Table
+        return {"DynamoDBClientProtocol": DynamoDBClientProtocol, "Table": Table}[name]
     if name in {
         "AggregateResult",
         "GroupByQuery",
@@ -258,6 +261,7 @@ __all__ = [
     "create_lambda_boto3_config",
     "create_table",
     "delete_table",
+    "DynamoDBClientProtocol",
     "TheorydbPyError",
     "describe_table",
     "group_by",
@@ -278,6 +282,7 @@ __all__ = [
     "ModelDefinitionError",
     "NotFoundError",
     "Projection",
+    "Role",
     "ProtectedFieldMutationError",
     "RejectedDeployAuthorityEvidenceError",
     "FilterCondition",
