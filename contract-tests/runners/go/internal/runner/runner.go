@@ -26,10 +26,11 @@ import (
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/scenario"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/spec"
 	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
+	"github.com/theory-cloud/tabletheory/pkg/session"
 )
 
 type Runner struct {
-	ddb    *dynamodb.Client
+	ddb    session.DynamoDBAPI
 	driver driver.Driver
 	vars   map[string]any
 }
@@ -59,6 +60,17 @@ func New(driver driver.Driver) (*Runner, error) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
+	return &Runner{
+		ddb:    ddb,
+		driver: driver,
+		vars:   make(map[string]any),
+	}, nil
+}
+
+func NewWithDynamoDBAPI(driver driver.Driver, ddb session.DynamoDBAPI) (*Runner, error) {
+	if ddb == nil {
+		return nil, fmt.Errorf("dynamodb api is required")
+	}
 	return &Runner{
 		ddb:    ddb,
 		driver: driver,

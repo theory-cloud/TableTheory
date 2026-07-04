@@ -22,6 +22,7 @@ import (
 	"github.com/theory-cloud/tabletheory/pkg/model"
 	"github.com/theory-cloud/tabletheory/pkg/releasestate"
 	"github.com/theory-cloud/tabletheory/pkg/session"
+	"github.com/theory-cloud/tabletheory/pkg/testing/fakedb"
 )
 
 type ErrorCode string
@@ -242,6 +243,35 @@ func NewTheorydbDriver(options ...Options) (*TheorydbDriver, error) {
 	}
 
 	return &TheorydbDriver{db: db, deterministicEncryption: deterministicEncryption}, nil
+}
+
+func NewFakeTheorydbDriver(options ...Options) (*TheorydbDriver, *fakedb.Fake, error) {
+	cfg := session.Config{
+		Region: "us-east-1",
+	}
+	deterministicEncryption := false
+	if len(options) > 0 && options[0].Encryption.Provider != "" {
+		kmsClient, rng, err := deterministicEncryptionForOptions(options[0].Encryption)
+		if err != nil {
+			return nil, nil, err
+		}
+		cfg.KMSKeyARN = "arn:aws:kms:us-east-1:111111111111:key/contract-deterministic"
+		cfg.KMSClient = kmsClient
+		cfg.EncryptionRand = rng
+		deterministicEncryption = true
+	}
+
+	fake := fakedb.New()
+	db, err := tabletheory.NewWithClient(cfg, fake)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := db.RegisterTypeConverter(reflect.TypeOf(DecimalString("")), decimalStringConverter{}); err != nil {
+		return nil, nil, err
+	}
+
+	return &TheorydbDriver{db: db, deterministicEncryption: deterministicEncryption}, fake, nil
 }
 
 func (d *TheorydbDriver) Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error {
