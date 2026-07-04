@@ -218,6 +218,14 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
     "prerelease workflow must attach TypeScript npm pack artifact"
   require_regex 'python -m build --outdir \.\./release-assets' "${p}" \
     "prerelease workflow must attach Python wheel/sdist artifacts"
+  require_regex 'actions/setup-go@[0-9a-fA-F]{40}' "${p}" \
+    "prerelease workflow must set up Go for the CLI release asset build"
+  require_fixed './cmd/tabletheory' "${p}" \
+    "prerelease workflow must build the tabletheory CLI as a release asset"
+  require_fixed 'release-assets/tabletheory-${os}-${arch}' "${p}" \
+    "prerelease workflow must attach tabletheory CLI binaries per os/arch"
+  require_fixed 'tabletheory-SHA256SUMS.txt' "${p}" \
+    "prerelease workflow must publish CLI binary checksums"
   require_regex 'gh release upload' "${p}" \
     "prerelease workflow must upload release assets"
 fi
@@ -284,6 +292,14 @@ if [[ -f ".github/workflows/release.yml" ]]; then
     "release workflow must attach TypeScript npm pack artifact"
   require_regex 'python -m build --outdir \.\./release-assets' "${r}" \
     "release workflow must attach Python wheel/sdist artifacts"
+  require_regex 'actions/setup-go@[0-9a-fA-F]{40}' "${r}" \
+    "release workflow must set up Go for the CLI release asset build"
+  require_fixed './cmd/tabletheory' "${r}" \
+    "release workflow must build the tabletheory CLI as a release asset"
+  require_fixed 'release-assets/tabletheory-${os}-${arch}' "${r}" \
+    "release workflow must attach tabletheory CLI binaries per os/arch"
+  require_fixed 'tabletheory-SHA256SUMS.txt' "${r}" \
+    "release workflow must publish CLI binary checksums"
   require_regex 'gh release upload' "${r}" \
     "release workflow must upload release assets"
   if grep -Fq "scripts/sync-post-stable-release-baselines.sh" "${r}"; then

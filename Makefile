@@ -194,6 +194,10 @@ verify-planning-docs:
 init-smoke:
 	@bash ./scripts/verify-init-scaffold.sh
 
+# Dry-run proof that the tabletheory CLI release-asset matrix builds (no publish).
+cli-release-dryrun:
+	@bash ./scripts/verify-cli-release-assets.sh
+
 sec:
 	@./scripts/sec-gosec.sh
 	@./scripts/sec-govulncheck.sh
@@ -272,6 +276,7 @@ help:
 	@echo "  make verify-ci-toolchain - Verify CI toolchain alignment"
 	@echo "  make verify-planning-docs - Verify planning docs exist"
 	@echo "  make init-smoke  - Smoke test the 'tabletheory init' Go scaffold (requires Docker)"
+	@echo "  make cli-release-dryrun - Cross-compile+verify the tabletheory CLI release assets (no publish)"
 	@echo "  make sec         - Run security gates (gosec + govulncheck + go mod verify)"
 	@echo "  make rubric      - Run full rubric gate set"
 	@echo "  make rubric-fast - Run fast contributor gates (format/lint/unit/docs; no Docker)"
