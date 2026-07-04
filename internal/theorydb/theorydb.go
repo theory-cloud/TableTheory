@@ -134,7 +134,21 @@ func New(config session.Config) (core.ExtendedDB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
+	return newWithSession(config, sess)
+}
 
+// NewWithClient creates a TableTheory instance backed by an injected DynamoDB
+// API implementation. This is intended for deterministic consumer tests and
+// local fakes; production callers should continue to use New.
+func NewWithClient(config session.Config, client session.DynamoDBAPI) (core.ExtendedDB, error) {
+	sess, err := session.NewSessionWithClient(&config, client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session with client: %w", err)
+	}
+	return newWithSession(config, sess)
+}
+
+func newWithSession(config session.Config, sess *session.Session) (core.ExtendedDB, error) {
 	converter := pkgTypes.NewConverter()
 	marshalerFactory := marshal.NewMarshalerFactory(marshal.DefaultConfig()).WithConverter(converter)
 	if config.Now != nil {

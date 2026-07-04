@@ -32,6 +32,7 @@ type (
 
 	// Re-export types for convenience.
 	Config            = session.Config
+	DynamoDBAPI       = session.DynamoDBAPI
 	AutoMigrateOption = schema.AutoMigrateOption
 	BatchGetOptions   = core.BatchGetOptions
 	KeyPair           = core.KeyPair
@@ -61,6 +62,12 @@ func UnmarshalStreamImage(streamImage map[string]events.DynamoDBAttributeValue, 
 
 func New(config session.Config) (core.ExtendedDB, error) {
 	return internaltheorydb.New(config)
+}
+
+// NewWithClient creates a TableTheory instance backed by an injected DynamoDBAPI.
+// It is intended for deterministic consumer tests and local fakes.
+func NewWithClient(config session.Config, client session.DynamoDBAPI) (core.ExtendedDB, error) {
+	return internaltheorydb.NewWithClient(config, client)
 }
 
 func NewBasic(config session.Config) (core.DB, error) {

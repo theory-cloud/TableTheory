@@ -365,7 +365,7 @@ func (tx *Transaction) Commit() error {
 			TransactItems: tx.writes,
 		}
 
-		client, err := tx.session.Client()
+		client, err := tx.session.API()
 		if err != nil {
 			return fmt.Errorf("failed to get client for transaction commit: %w", err)
 		}
@@ -382,7 +382,7 @@ func (tx *Transaction) Commit() error {
 			TransactItems: tx.reads,
 		}
 
-		client, err := tx.session.Client()
+		client, err := tx.session.API()
 		if err != nil {
 			return fmt.Errorf("failed to get client for transaction reads: %w", err)
 		}

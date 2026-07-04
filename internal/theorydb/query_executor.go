@@ -418,8 +418,8 @@ type pagePaginator[Output any] interface {
 }
 
 type readPagerSpec struct {
-	buildCountPager func(*dynamodb.Client, *core.CompiledQuery) (func() bool, countPageFunc)
-	buildItemPager  func(*dynamodb.Client, *core.CompiledQuery) (func() bool, itemPageFunc)
+	buildCountPager func(session.DynamoDBAPI, *core.CompiledQuery) (func() bool, countPageFunc)
+	buildItemPager  func(session.DynamoDBAPI, *core.CompiledQuery) (func() bool, itemPageFunc)
 	nilErr          string
 	operation       string
 }
@@ -429,14 +429,14 @@ func newReadPagerSpec[Input any, Output any, P pagePaginator[Output]](
 	operation string,
 	buildInput func(*core.CompiledQuery) *Input,
 	configureCountInput func(*Input),
-	newPaginator func(*dynamodb.Client, *Input) P,
+	newPaginator func(session.DynamoDBAPI, *Input) P,
 	extractCounts func(*Output) (int32, int32),
 	extractItems func(*Output) []map[string]types.AttributeValue,
 ) readPagerSpec {
 	return readPagerSpec{
 		nilErr:    nilErr,
 		operation: operation,
-		buildCountPager: func(client *dynamodb.Client, input *core.CompiledQuery) (func() bool, countPageFunc) {
+		buildCountPager: func(client session.DynamoDBAPI, input *core.CompiledQuery) (func() bool, countPageFunc) {
 			countInput := buildInput(input)
 			configureCountInput(countInput)
 
@@ -451,7 +451,7 @@ func newReadPagerSpec[Input any, Output any, P pagePaginator[Output]](
 				return count, scannedCount, nil
 			}
 		},
-		buildItemPager: func(client *dynamodb.Client, input *core.CompiledQuery) (func() bool, itemPageFunc) {
+		buildItemPager: func(client session.DynamoDBAPI, input *core.CompiledQuery) (func() bool, itemPageFunc) {
 			itemInput := buildInput(input)
 
 			paginator := newPaginator(client, itemInput)
@@ -472,10 +472,10 @@ func (qe *queryExecutor) executeReadSpec(input *core.CompiledQuery, dest any, sp
 		dest,
 		spec.nilErr,
 		spec.operation,
-		func(client *dynamodb.Client) (func() bool, countPageFunc) {
+		func(client session.DynamoDBAPI) (func() bool, countPageFunc) {
 			return spec.buildCountPager(client, input)
 		},
-		func(client *dynamodb.Client) (func() bool, itemPageFunc) {
+		func(client session.DynamoDBAPI) (func() bool, itemPageFunc) {
 			return spec.buildItemPager(client, input)
 		},
 	)
@@ -489,7 +489,7 @@ type singlePageResult struct {
 }
 
 type singlePageSpec struct {
-	execute   func(context.Context, *dynamodb.Client, *core.CompiledQuery) (singlePageResult, error)
+	execute   func(context.Context, session.DynamoDBAPI, *core.CompiledQuery) (singlePageResult, error)
 	nilErr    string
 	operation string
 }
@@ -500,7 +500,7 @@ func (qe *queryExecutor) executeReadWithPaginationSpec(input *core.CompiledQuery
 		dest,
 		spec.nilErr,
 		spec.operation,
-		func(client *dynamodb.Client, ctx context.Context) (singlePageResult, error) {
+		func(client session.DynamoDBAPI, ctx context.Context) (singlePageResult, error) {
 			return spec.execute(ctx, client, input)
 		},
 	)
@@ -534,11 +534,11 @@ func configureScanCountInput(scanInput *dynamodb.ScanInput) {
 	scanInput.ProjectionExpression = nil
 }
 
-func newQueryPaginator(client *dynamodb.Client, queryInput *dynamodb.QueryInput) *dynamodb.QueryPaginator {
+func newQueryPaginator(client session.DynamoDBAPI, queryInput *dynamodb.QueryInput) *dynamodb.QueryPaginator {
 	return dynamodb.NewQueryPaginator(client, queryInput)
 }
 
-func newScanPaginator(client *dynamodb.Client, scanInput *dynamodb.ScanInput) *dynamodb.ScanPaginator {
+func newScanPaginator(client session.DynamoDBAPI, scanInput *dynamodb.ScanInput) *dynamodb.ScanPaginator {
 	return dynamodb.NewScanPaginator(client, scanInput)
 }
 
@@ -572,7 +572,7 @@ func newSinglePageResult(
 	}
 }
 
-func executeQuerySinglePage(ctx context.Context, client *dynamodb.Client, input *core.CompiledQuery) (singlePageResult, error) {
+func executeQuerySinglePage(ctx context.Context, client session.DynamoDBAPI, input *core.CompiledQuery) (singlePageResult, error) {
 	out, err := client.Query(ctx, buildDynamoQueryInput(input))
 	if err != nil {
 		return singlePageResult{}, fmt.Errorf("failed to execute query: %w", err)
@@ -580,7 +580,7 @@ func executeQuerySinglePage(ctx context.Context, client *dynamodb.Client, input 
 	return newSinglePageResult(out.Items, out.Count, out.ScannedCount, out.LastEvaluatedKey), nil
 }
 
-func executeScanSinglePage(ctx context.Context, client *dynamodb.Client, input *core.CompiledQuery) (singlePageResult, error) {
+func executeScanSinglePage(ctx context.Context, client session.DynamoDBAPI, input *core.CompiledQuery) (singlePageResult, error) {
 	out, err := client.Scan(ctx, buildDynamoScanInput(input))
 	if err != nil {
 		return singlePageResult{}, fmt.Errorf("failed to execute scan: %w", err)
@@ -620,7 +620,7 @@ var scanSinglePageSpec = singlePageSpec{
 	execute:   executeScanSinglePage,
 }
 
-func (qe *queryExecutor) readClient(input *core.CompiledQuery, nilErr string, operation string) (*dynamodb.Client, error) {
+func (qe *queryExecutor) readClient(input *core.CompiledQuery, nilErr string, operation string) (session.DynamoDBAPI, error) {
 	if input == nil {
 		return nil, errors.New(nilErr)
 	}
@@ -631,7 +631,7 @@ func (qe *queryExecutor) readClient(input *core.CompiledQuery, nilErr string, op
 		return nil, err
 	}
 
-	client, err := qe.session().Client()
+	client, err := qe.session().API()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client for %s: %w", operation, err)
 	}
@@ -643,8 +643,8 @@ func (qe *queryExecutor) executeRead(
 	dest any,
 	nilErr string,
 	operation string,
-	buildCountPager func(*dynamodb.Client) (func() bool, countPageFunc),
-	buildItemPager func(*dynamodb.Client) (func() bool, itemPageFunc),
+	buildCountPager func(session.DynamoDBAPI) (func() bool, countPageFunc),
+	buildItemPager func(session.DynamoDBAPI) (func() bool, itemPageFunc),
 ) error {
 	client, err := qe.readClient(input, nilErr, operation)
 	if err != nil {
@@ -675,7 +675,7 @@ func (qe *queryExecutor) executeReadWithPagination(
 	dest any,
 	nilErr string,
 	operation string,
-	execute func(*dynamodb.Client, context.Context) (singlePageResult, error),
+	execute func(session.DynamoDBAPI, context.Context) (singlePageResult, error),
 ) (singlePageResult, error) {
 	client, err := qe.readClient(input, nilErr, operation)
 	if err != nil {
@@ -750,7 +750,7 @@ func (qe *queryExecutor) ExecuteGetItem(input *core.CompiledQuery, key map[strin
 		return err
 	}
 
-	client, err := qe.session().Client()
+	client, err := qe.session().API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for get item: %w", err)
 	}
@@ -808,7 +808,7 @@ func (qe *queryExecutor) ExecutePutItem(input *core.CompiledQuery, item map[stri
 		return err
 	}
 
-	client, err := qe.session().Client()
+	client, err := qe.session().API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for put item: %w", err)
 	}
@@ -895,7 +895,7 @@ func (qe *queryExecutor) ExecuteUpdateItem(input *core.CompiledQuery, key map[st
 		return err
 	}
 
-	client, err := qe.session().Client()
+	client, err := qe.session().API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for update item: %w", err)
 	}
@@ -930,7 +930,7 @@ func (qe *queryExecutor) ExecuteUpdateItemWithResult(input *core.CompiledQuery, 
 		return nil, err
 	}
 
-	client, err := qe.session().Client()
+	client, err := qe.session().API()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client for update item: %w", err)
 	}
@@ -971,7 +971,7 @@ func (qe *queryExecutor) ExecuteDeleteItem(input *core.CompiledQuery, key map[st
 		return err
 	}
 
-	client, err := qe.session().Client()
+	client, err := qe.session().API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for delete item: %w", err)
 	}
@@ -1016,7 +1016,7 @@ func (qe *queryExecutor) ExecuteBatchGet(input *query.CompiledBatchGet, opts *co
 		return nil, err
 	}
 
-	client, err := qe.session().Client()
+	client, err := qe.session().API()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client for batch get: %w", err)
 	}
@@ -1038,7 +1038,7 @@ func normalizeBatchGetOptions(opts *core.BatchGetOptions) *core.BatchGetOptions 
 }
 
 func (qe *queryExecutor) executeBatchGetWithRetry(
-	client *dynamodb.Client,
+	client session.DynamoDBAPI,
 	requestItems map[string]types.KeysAndAttributes,
 	tableName string,
 	opts *core.BatchGetOptions,
@@ -1186,7 +1186,7 @@ func (qe *queryExecutor) ExecuteBatchWriteItemRaw(tableName string, writeRequest
 		return nil, fmt.Errorf("batch write supports maximum 25 items per request, got %d", len(writeRequests))
 	}
 
-	client, err := qe.session().Client()
+	client, err := qe.session().API()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client for batch write: %w", err)
 	}

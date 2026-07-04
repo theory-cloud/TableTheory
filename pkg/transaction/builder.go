@@ -822,7 +822,7 @@ func (b *Builder) executeWithRetry(ctx context.Context, input *dynamodb.Transact
 			if b.session == nil {
 				return errors.New("dynamodb session is not configured")
 			}
-			client, err := b.session.Client()
+			client, err := b.session.API()
 			if err != nil {
 				return err
 			}

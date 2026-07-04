@@ -61,7 +61,7 @@ func TransactGet(
 		return nil, err
 	}
 
-	client, err := sess.Client()
+	client, err := sess.API()
 	if err != nil {
 		return nil, err
 	}

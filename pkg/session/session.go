@@ -45,6 +45,32 @@ type KMSClient interface {
 	Decrypt(ctx context.Context, params *kms.DecryptInput, optFns ...func(*kms.Options)) (*kms.DecryptOutput, error)
 }
 
+// DynamoDBAPI is the DynamoDB client seam TableTheory uses internally.
+//
+// It is intentionally the AWS SDK v2 operation shape, so tests can inject a
+// deterministic local fake while production callers continue to use
+// *dynamodb.Client through NewSession/New.
+type DynamoDBAPI interface {
+	CreateTable(ctx context.Context, params *dynamodb.CreateTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error)
+	CreateBackup(ctx context.Context, params *dynamodb.CreateBackupInput, optFns ...func(*dynamodb.Options)) (*dynamodb.CreateBackupOutput, error)
+	DescribeTable(ctx context.Context, params *dynamodb.DescribeTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
+	DeleteTable(ctx context.Context, params *dynamodb.DeleteTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteTableOutput, error)
+	ListTables(ctx context.Context, params *dynamodb.ListTablesInput, optFns ...func(*dynamodb.Options)) (*dynamodb.ListTablesOutput, error)
+	UpdateTable(ctx context.Context, params *dynamodb.UpdateTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateTableOutput, error)
+	UpdateTimeToLive(ctx context.Context, params *dynamodb.UpdateTimeToLiveInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateTimeToLiveOutput, error)
+
+	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+	DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
+	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
+	Scan(ctx context.Context, params *dynamodb.ScanInput, optFns ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
+	UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
+	BatchGetItem(ctx context.Context, params *dynamodb.BatchGetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error)
+	BatchWriteItem(ctx context.Context, params *dynamodb.BatchWriteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error)
+	TransactWriteItems(ctx context.Context, params *dynamodb.TransactWriteItemsInput, optFns ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error)
+	TransactGetItems(ctx context.Context, params *dynamodb.TransactGetItemsInput, optFns ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error)
+}
+
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
@@ -61,6 +87,7 @@ func DefaultConfig() *Config {
 type Session struct {
 	config    *Config
 	client    *dynamodb.Client
+	api       DynamoDBAPI
 	awsConfig aws.Config
 }
 
@@ -149,6 +176,31 @@ func NewSession(cfg *Config) (*Session, error) {
 		config:    cfg,
 		awsConfig: awsConfig,
 		client:    client,
+		api:       client,
+	}, nil
+}
+
+// NewSessionWithClient creates a session backed by an injected DynamoDBAPI.
+// It does not create a DynamoDB client or contact AWS for DynamoDB setup. If
+// encrypted fields are used without Config.KMSClient, the normal KMS behavior
+// still applies via AWSConfig().
+func NewSessionWithClient(cfg *Config, client DynamoDBAPI) (*Session, error) {
+	if client == nil {
+		return nil, fmt.Errorf("DynamoDB client is nil")
+	}
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
+	region := cfg.Region
+	if region == "" {
+		region = "us-east-1"
+	}
+	return &Session{
+		config: cfg,
+		api:    client,
+		awsConfig: aws.Config{
+			Region: region,
+		},
 	}, nil
 }
 
@@ -161,6 +213,20 @@ func (s *Session) Client() (*dynamodb.Client, error) {
 		return nil, fmt.Errorf("DynamoDB client is nil")
 	}
 	return s.client, nil
+}
+
+// API returns the configured DynamoDB operation seam.
+func (s *Session) API() (DynamoDBAPI, error) {
+	if s == nil {
+		return nil, fmt.Errorf("session is nil")
+	}
+	if s.api == nil {
+		if s.client == nil {
+			return nil, fmt.Errorf("DynamoDB client is nil")
+		}
+		return s.client, nil
+	}
+	return s.api, nil
 }
 
 // Config returns the session configuration
