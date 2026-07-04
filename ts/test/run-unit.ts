@@ -19,6 +19,7 @@ await import('./unit/encryption-avjson.test.js');
 await import('./unit/encryption-kms.test.js');
 await import('./unit/testkit.test.js');
 await import('./unit/schema.test.js');
+await import('./unit/schema-migration.test.js');
 await import('./unit/lambda.test.js');
 await import('./unit/multiaccount.test.js');
 await import('./unit/validation.test.js');
