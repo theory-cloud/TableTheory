@@ -94,6 +94,14 @@ if TYPE_CHECKING:
         resolve_ttl_attribute,
         update_time_to_live,
     )
+    from .schema_migration import (
+        add_field,
+        auto_migrate,
+        chain_transforms,
+        copy_all_fields,
+        remove_field,
+        rename_field,
+    )
     from .streams import unmarshal_stream_image, unmarshal_stream_record
     from .table import Table
     from .validation import (
@@ -166,6 +174,17 @@ def __getattr__(name: str) -> Any:
         from . import schema
 
         return getattr(schema, name)
+    if name in {
+        "add_field",
+        "auto_migrate",
+        "chain_transforms",
+        "copy_all_fields",
+        "remove_field",
+        "rename_field",
+    }:
+        from . import schema_migration
+
+        return getattr(schema_migration, name)
     if name in {"DynamoDBClientProtocol", "Table"}:
         from .protocols import DynamoDBClientProtocol
         from .table import Table
@@ -265,12 +284,16 @@ __all__ = [
     "assert_model_definition_equivalent_to_dms",
     "assert_models_equivalent",
     "AggregateResult",
+    "add_field",
+    "auto_migrate",
     "aggregate_field",
     "AttributeConverter",
     "average_field",
     "BatchRetryExceededError",
     "build_create_table_request",
     "ConditionFailedError",
+    "chain_transforms",
+    "copy_all_fields",
     "ImmutableModelMutationError",
     "LeaseHeldError",
     "LeaseNotOwnedError",
@@ -280,6 +303,8 @@ __all__ = [
     "create_table",
     "delete_table",
     "DynamoDBClientProtocol",
+    "remove_field",
+    "rename_field",
     "TheorydbPyError",
     "describe_table",
     "group_by",
