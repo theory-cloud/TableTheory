@@ -42,7 +42,10 @@ export interface IndexSchema {
   type: 'GSI' | 'LSI';
   partition: KeySchema;
   sort?: KeySchema;
-  projection?: { type: 'ALL' | 'KEYS_ONLY' | 'INCLUDE'; fields?: string[] };
+  projection?: {
+    type: 'ALL' | 'KEYS_ONLY' | 'INCLUDE';
+    fields?: readonly string[];
+  };
 }
 
 export interface WritePolicySchema {

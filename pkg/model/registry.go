@@ -182,6 +182,8 @@ func parseMetadata(modelType reflect.Type) (*Metadata, error) {
 		return nil, err
 	}
 
+	applyIndexProjectionOverrides(modelType, metadata)
+
 	if err := applyWritePolicy(modelType, metadata); err != nil {
 		return nil, err
 	}
@@ -321,6 +323,42 @@ func registerIndexes(metadata *Metadata, indexMap map[string]*IndexSchema) error
 	}
 
 	return nil
+}
+
+type indexProjectionProvider interface {
+	TableTheoryIndexProjections() map[string]struct {
+		Type   string
+		Fields []string
+	}
+}
+
+func applyIndexProjectionOverrides(modelType reflect.Type, metadata *Metadata) {
+	projections, ok := indexProjectionsFromModel(modelType)
+	if !ok || len(projections) == 0 {
+		return
+	}
+	for i := range metadata.Indexes {
+		projection, ok := projections[metadata.Indexes[i].Name]
+		if !ok {
+			continue
+		}
+		metadata.Indexes[i].ProjectionType = strings.TrimSpace(projection.Type)
+		metadata.Indexes[i].ProjectedFields = append([]string(nil), projection.Fields...)
+		sort.Strings(metadata.Indexes[i].ProjectedFields)
+	}
+}
+
+func indexProjectionsFromModel(modelType reflect.Type) (map[string]struct {
+	Type   string
+	Fields []string
+}, bool) {
+	if provider, ok := reflect.New(modelType).Elem().Interface().(indexProjectionProvider); ok {
+		return provider.TableTheoryIndexProjections(), true
+	}
+	if provider, ok := reflect.New(modelType).Interface().(indexProjectionProvider); ok {
+		return provider.TableTheoryIndexProjections(), true
+	}
+	return nil, false
 }
 
 // parseFields recursively parses fields including embedded structs
