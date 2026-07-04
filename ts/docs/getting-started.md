@@ -84,6 +84,20 @@ The package exposes both ESM and CommonJS entry points. ESM consumers can keep u
 const { TheorydbClient, defineModel } = require('@theory-cloud/tabletheory-ts');
 ```
 
+### Domain subpath imports
+
+For domain-specific helpers, prefer the package subpaths so new code does not pull the whole root barrel:
+
+```ts
+import { FaceTheoryIsrMetaStore } from '@theory-cloud/tabletheory-ts/facetheory';
+import { transitionReleaseState } from '@theory-cloud/tabletheory-ts/release-state';
+import { LeaseManager } from '@theory-cloud/tabletheory-ts/lease';
+```
+
+The root package still re-exports these symbols for backward compatibility, but new FaceTheory ISR, release-state,
+and lease integrations should use the subpaths above. Treat root imports for these domain modules as deprecated in docs,
+not removed from the public API.
+
 ### Option B: Develop from source (this monorepo)
 
 ```bash
