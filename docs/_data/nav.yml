@@ -89,6 +89,13 @@ groups:
       - { id: examples-cdk-multilang, title: CDK Multi-language,     url: /examples/cdk-multilang/,             icon: package }
       - { id: examples-release-state, title: Release State Example,  url: /examples/release-state/,             icon: tag }
 
+
+  - label: AI Artifacts
+    items:
+      - { id: ai-artifacts,          title: Artifact Pack,          url: /ai/,                              icon: command,     tag: new }
+      - { id: ai-rules-template,     title: Consumer Rules,         url: /ai/consumer-rules-template/,       icon: check-square }
+      - { id: ai-prompt-recipes,     title: Prompt Recipes,         url: /ai/prompt-recipes/,                icon: book-open }
+
   - label: Guides
     items:
       - { id: testing-guide,         title: Testing,                 url: /testing-guide/,                    icon: check }
@@ -149,6 +156,9 @@ order:
   - examples-go-local
   - examples-cdk-multilang
   - examples-release-state
+  - ai-artifacts
+  - ai-rules-template
+  - ai-prompt-recipes
   - testing-guide
   - troubleshooting
   - migration-guide
@@ -206,6 +216,9 @@ url_to_id:
   /examples/go-local-quickstart/:           examples-go-local
   /examples/cdk-multilang/:                 examples-cdk-multilang
   /examples/release-state/:                 examples-release-state
+  /ai/:                                      ai-artifacts
+  /ai/consumer-rules-template/:             ai-rules-template
+  /ai/prompt-recipes/:                      ai-prompt-recipes
   /testing-guide/:                         testing-guide
   /troubleshooting/:                       troubleshooting
   /migration-guide/:                       migration-guide

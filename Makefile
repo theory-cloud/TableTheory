@@ -2,7 +2,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests example-local generate-contract-models verify-generated-models generate-api-reference verify-api-reference sync-runtime-docs-site verify-runtime-docs-site benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests example-local generate-contract-models verify-generated-models generate-api-reference verify-api-reference sync-runtime-docs-site verify-runtime-docs-site verify-generative-artifacts benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory
@@ -81,6 +81,9 @@ sync-runtime-docs-site:
 
 verify-runtime-docs-site:
 	@python3 scripts/sync-runtime-docs-site.py --check
+
+verify-generative-artifacts:
+	@python3 scripts/verify-generative-artifacts.py
 
 # Run benchmarks
 benchmark:
@@ -292,6 +295,7 @@ help:
 	@echo "  make example-local - Start DynamoDB Local and run the Go quickstart CRUD proof"
 	@echo "  make verify-runtime-docs-site - Check generated TS/Py site doc copies"
 	@echo "  make verify-api-reference - Check generated API reference drift"
+	@echo "  make verify-generative-artifacts - Check llms/vocabulary/rules artifacts"
 	@echo "  make test-all    - Run all tests including benchmarks and stress tests"
 	@echo "  make benchmark   - Run performance benchmarks"
 	@echo "  make stress      - Run stress tests"

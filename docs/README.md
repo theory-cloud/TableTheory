@@ -53,6 +53,7 @@ TheoryCloud TableTheory subtree.
 - [Patterns](./_patterns.yaml) – Correct vs. incorrect usage patterns
 - [Decisions](./_decisions.yaml) – Decision trees for architectural choices
 - [LLM FAQ](./llm-faq/module-faq.md) – Frequently asked questions for AI assistants
+- [Generative Coding Artifacts](./ai/index.md) – `llms.txt`, vocabulary JSON, consumer rules, and prompt recipes
 
 ### 📦 Infrastructure & Integrations
 

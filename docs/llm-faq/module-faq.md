@@ -177,3 +177,51 @@ err := db.Model(&User{}).
 
 if err != nil { /* handle error */ }
 ```
+
+---
+
+## TypeScript and Python generation samples
+
+### How should an assistant define a TypeScript model?
+
+Use `defineModel` with explicit key roles and index definitions. Do not invent decorators or infer keys from property
+names.
+
+```ts
+const Note = defineModel({
+  name: 'Note',
+  table: { name: 'notes' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'body', type: 'S', optional: true, omit_empty: true },
+  ],
+});
+```
+
+### How should an assistant define a Python model?
+
+Use a dataclass plus `theorydb_field`, then register it with `ModelDefinition.from_dataclass`.
+
+```python
+@dataclass(frozen=True)
+class Note:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    body: str = theorydb_field(default="", omitempty=True)
+
+
+model = ModelDefinition.from_dataclass(Note, table_name="notes")
+table = Table(model, client=client)
+```
+
+### What context should an assistant load first?
+
+Load [`llms.txt`](../llms.txt), [`llms-full.txt`](../llms-full.txt), and the
+[vocabulary JSON](../reference/tabletheory-vocabulary.json). Then use the generated API references for signatures:
+[Go](../api-reference.md), [TypeScript](../runtimes/typescript/api-reference.md), and
+[Python](../runtimes/python/api-reference.md).

@@ -238,3 +238,4 @@ PY
 
 python3 scripts/generate-api-reference.py --check
 python3 scripts/sync-runtime-docs-site.py --check
+python3 scripts/verify-generative-artifacts.py

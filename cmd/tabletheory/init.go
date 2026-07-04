@@ -174,12 +174,15 @@ func renderTemplateFile(path string, data initData) ([]byte, error) {
 func initNextSteps(lang string) string {
 	switch lang {
 	case "go":
-		return "  make smoke   # start DynamoDB Local and run the CRUD program\n"
+		return "  make smoke   # start DynamoDB Local and run the CRUD program\n" +
+			"  # AI artifacts: https://tabletheory.theorycloud.ai/llms.txt\n"
 	case "ts":
-		return "  npm install && npm run smoke\n"
+		return "  npm install && npm run smoke\n" +
+			"  # AI artifacts: https://tabletheory.theorycloud.ai/llms.txt\n"
 	case "py":
 		return "  python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt\n" +
-			"  docker compose up -d && DYNAMODB_ENDPOINT=http://localhost:8000 python main.py\n"
+			"  docker compose up -d && DYNAMODB_ENDPOINT=http://localhost:8000 python main.py\n" +
+			"  # AI artifacts: https://tabletheory.theorycloud.ai/llms.txt\n"
 	default:
 		return ""
 	}
