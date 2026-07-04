@@ -2,14 +2,14 @@ package expr
 
 // ConvertOptions configures generic helper marshaling behavior.
 type ConvertOptions struct {
+	// Converter provides custom conversion hooks while sharing the generic
+	// AttributeValue conversion implementation.
+	Converter ConverterLookup
+
 	// FlatAnonymousEmbedEncoding flattens exported promoted fields that
 	// originate from anonymous embedded structs instead of preserving the
 	// legacy nested anonymous-container helper shape.
 	FlatAnonymousEmbedEncoding bool
-
-	// Converter provides custom conversion hooks while sharing the generic
-	// AttributeValue conversion implementation.
-	Converter ConverterLookup
 
 	// LegacyStructFieldNames preserves pkg/types.Converter's historical
 	// untagged struct-field behavior: exported fields without theorydb tags use

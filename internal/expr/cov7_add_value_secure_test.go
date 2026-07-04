@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-
 	"github.com/stretchr/testify/require"
+
 	"github.com/theory-cloud/tabletheory/internal/anonymous"
 )
 

@@ -124,19 +124,6 @@ func (c *Converter) ToAttributeValue(value any) (types.AttributeValue, error) {
 	return expr.ConvertToAttributeValueWithOptions(value, c.convertOptions())
 }
 
-func (c *Converter) toAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	indirect, isNull := indirectValueOrNull(v)
-	if isNull {
-		return &types.AttributeValueMemberNULL{Value: true}, nil
-	}
-
-	if av, handled, err := c.specialAttributeValue(indirect); handled {
-		return av, err
-	}
-
-	return c.attributeValueByKind(indirect, inheritedConvention, inheritNaming)
-}
-
 func indirectValueOrNull(v reflect.Value) (reflect.Value, bool) {
 	for {
 		if !v.IsValid() {
@@ -151,182 +138,6 @@ func indirectValueOrNull(v reflect.Value) (reflect.Value, bool) {
 		}
 		v = v.Elem()
 	}
-}
-
-func (c *Converter) specialAttributeValue(v reflect.Value) (types.AttributeValue, bool, error) {
-	if converter, exists := c.lookupConverter(v.Type()); exists {
-		av, err := converter.ToAttributeValue(v.Interface())
-		return av, true, err
-	}
-
-	if v.Type() != timeType {
-		return nil, false, nil
-	}
-
-	t, ok := v.Interface().(time.Time)
-	if !ok {
-		return nil, true, fmt.Errorf("expected time.Time, got %T", v.Interface())
-	}
-
-	return &types.AttributeValueMemberS{Value: t.Format(time.RFC3339Nano)}, true, nil
-}
-
-func (c *Converter) attributeValueByKind(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	switch v.Kind() {
-	case reflect.String:
-		return &types.AttributeValueMemberS{Value: v.String()}, nil
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return &types.AttributeValueMemberN{Value: strconv.FormatInt(v.Int(), 10)}, nil
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return &types.AttributeValueMemberN{Value: strconv.FormatUint(v.Uint(), 10)}, nil
-	case reflect.Float32, reflect.Float64:
-		return &types.AttributeValueMemberN{Value: strconv.FormatFloat(v.Float(), 'f', -1, 64)}, nil
-	case reflect.Bool:
-		return &types.AttributeValueMemberBOOL{Value: v.Bool()}, nil
-	case reflect.Slice:
-		if v.Type().Elem().Kind() == reflect.Uint8 {
-			return &types.AttributeValueMemberB{Value: v.Bytes()}, nil
-		}
-		return c.sliceToListWithConvention(v, inheritedConvention, inheritNaming)
-	case reflect.Map:
-		return c.mapToAttributeValueMapWithConvention(v, inheritedConvention, inheritNaming)
-	case reflect.Struct:
-		return c.structToMapWithConvention(v, inheritedConvention, inheritNaming)
-	default:
-		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedType, v.Type())
-	}
-}
-
-func (c *Converter) sliceToListWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	list := make([]types.AttributeValue, v.Len())
-
-	for i := 0; i < v.Len(); i++ {
-		av, err := c.toAttributeValueWithConvention(v.Index(i), inheritedConvention, inheritNaming)
-		if err != nil {
-			return nil, fmt.Errorf("index %d: %w", i, err)
-		}
-		list[i] = av
-	}
-
-	return &types.AttributeValueMemberL{Value: list}, nil
-}
-
-func (c *Converter) mapToAttributeValueMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	if v.Type().Key().Kind() != reflect.String {
-		return nil, fmt.Errorf("%w: map keys must be strings", errors.ErrUnsupportedType)
-	}
-
-	m := make(map[string]types.AttributeValue)
-
-	for _, key := range v.MapKeys() {
-		keyStr := key.String()
-		val := v.MapIndex(key)
-
-		av, err := c.toAttributeValueWithConvention(val, inheritedConvention, inheritNaming)
-		if err != nil {
-			return nil, fmt.Errorf("key %s: %w", keyStr, err)
-		}
-		m[keyStr] = av
-	}
-
-	return &types.AttributeValueMemberM{Value: m}, nil
-}
-
-func (c *Converter) structToMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	if c.FlatAnonymousEmbedEncodingEnabled() {
-		return c.structToFlatMapWithConvention(v, inheritedConvention, inheritNaming)
-	}
-
-	return c.structToLegacyMapWithConvention(v, inheritedConvention, inheritNaming)
-}
-
-func (c *Converter) structToLegacyMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	m := make(map[string]types.AttributeValue)
-	t := v.Type()
-	convention, useTheorydbNaming := resolveStructNaming(t, inheritedConvention, inheritNaming)
-
-	for i := 0; i < v.NumField(); i++ {
-		field := t.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-
-		fieldValue := v.Field(i)
-		if fieldValue.IsZero() {
-			continue // Skip zero values for now
-		}
-
-		av, err := c.toAttributeValueWithConvention(fieldValue, convention, useTheorydbNaming)
-		if err != nil {
-			return nil, fmt.Errorf("field %s: %w", field.Name, err)
-		}
-
-		attrName := field.Name
-		if useTheorydbNaming {
-			var skip bool
-			attrName, skip = naming.ResolveAttrNameWithConvention(field, convention)
-			if skip {
-				continue
-			}
-			if err := naming.ValidateAttrName(attrName, convention); err != nil {
-				return nil, fmt.Errorf("field %s: %w", field.Name, err)
-			}
-		}
-
-		m[attrName] = av
-	}
-
-	return &types.AttributeValueMemberM{Value: m}, nil
-}
-
-func (c *Converter) structToFlatMapWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) (types.AttributeValue, error) {
-	m := make(map[string]types.AttributeValue)
-	t := v.Type()
-	convention, useTheorydbNaming := resolveStructNaming(t, inheritedConvention, inheritNaming)
-
-	fieldPlans, err := reflectutil.BuildVisibleFieldPlan(t, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, fieldPlan := range fieldPlans {
-		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
-		if fieldValue.IsZero() {
-			continue
-		}
-
-		av, err := c.toAttributeValueWithConvention(fieldValue, convention, useTheorydbNaming)
-		if err != nil {
-			return nil, fmt.Errorf("field %s: %w", fieldPlan.Field.Name, err)
-		}
-
-		attrName, skip, err := resolveStructMarshalFieldName(fieldPlan.Field, convention, useTheorydbNaming)
-		if err != nil {
-			return nil, fmt.Errorf("field %s: %w", fieldPlan.Field.Name, err)
-		}
-		if skip {
-			continue
-		}
-
-		m[attrName] = av
-	}
-
-	return &types.AttributeValueMemberM{Value: m}, nil
-}
-
-func resolveStructMarshalFieldName(field reflect.StructField, convention naming.Convention, useTheorydbNaming bool) (string, bool, error) {
-	if !useTheorydbNaming {
-		return field.Name, false, nil
-	}
-
-	attrName, skip := naming.ResolveAttrNameWithConvention(field, convention)
-	if skip {
-		return "", true, nil
-	}
-	if err := naming.ValidateAttrName(attrName, convention); err != nil {
-		return "", false, err
-	}
-	return attrName, false, nil
 }
 
 // FromAttributeValue converts a DynamoDB AttributeValue to Go value
@@ -822,15 +633,15 @@ func (c *Converter) ConvertToSet(slice any, isSet bool) (types.AttributeValue, e
 		reflect.Float32, reflect.Float64:
 		set := make([]string, v.Len())
 		for i := 0; i < v.Len(); i++ {
-			av, err := c.toAttributeValueWithConvention(v.Index(i), naming.CamelCase, false)
+			av, err := expr.ConvertToAttributeValueWithOptions(v.Index(i).Interface(), c.convertOptions())
 			if err != nil {
 				return nil, err
 			}
-			if n, ok := av.(*types.AttributeValueMemberN); ok {
-				set[i] = n.Value
-			} else {
+			n, ok := av.(*types.AttributeValueMemberN)
+			if !ok {
 				return nil, fmt.Errorf("expected number type for set")
 			}
+			set[i] = n.Value
 		}
 		return &types.AttributeValueMemberNS{Value: set}, nil
 

@@ -49,7 +49,7 @@ func convertToAttributeValueWithConvention(v reflect.Value, inheritedConvention 
 	return convertConcreteValueToAttributeValue(prepared, inheritedConvention, inheritNaming, opts)
 }
 
-func prepareValueForConversion(v reflect.Value, opts ConvertOptions) (reflect.Value, types.AttributeValue, bool, error) {
+func prepareValueForConversion(v reflect.Value, _ ConvertOptions) (reflect.Value, types.AttributeValue, bool, error) {
 	if !v.IsValid() {
 		return reflect.Value{}, &types.AttributeValueMemberNULL{Value: true}, true, nil
 	}
