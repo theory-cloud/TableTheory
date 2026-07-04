@@ -44,7 +44,7 @@ Enforcement rule (anti-drift):
 | --- | ---: | --- | --- |
 | CON-1 | 3 | gofmt/formatter clean (no diffs) | `bash scripts/verify-formatting.sh` |
 | CON-2 | 5 | Lint/static analysis green (pinned version) | `bash scripts/verify-lint.sh` |
-| CON-3 | 2 | Public boundary contract parity + DMS-first workflow | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh` |
+| CON-3 | 2 | Public boundary contract parity + DMS-first workflow + generated-model drift gate | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh`, `bash scripts/verify-generated-models.sh --check` |
 
 **10/10 definition:** CON-1 through CON-3 pass.
 
