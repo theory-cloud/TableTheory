@@ -88,7 +88,7 @@ Multi-language versioning:
 
 - **Single release-please manifest**: `.release-please-manifest.json` is the only release-please manifest.
 - **TypeScript/Python package metadata**: `ts/package.json`, `ts/package-lock.json`, and
-  `py/src/theorydb_py/version.json` remain package metadata, but release workflows stamp them from `tag_name` in the
+  `py/src/tabletheory_py/version.json` remain package metadata, but release workflows stamp them from `tag_name` in the
   release-build workspace before packaging instead of committing RC churn through release-please extra-files.
 - **Asset proof**: release workflows must verify the TypeScript tarball and Python wheel/sdist metadata match `tag_name`
   before upload.

@@ -4,9 +4,9 @@ from typing import Any, cast
 
 import pytest
 
-import theorydb_py.schema_migration as sm
-from theorydb_py import ModelDefinition
-from theorydb_py.schema_migration import (
+import tabletheory_py.schema_migration as sm
+from tabletheory_py import ModelDefinition
+from tabletheory_py.schema_migration import (
     add_field,
     chain_transforms,
     copy_all_fields,

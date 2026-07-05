@@ -171,13 +171,13 @@ root = packages.get("", {}) if isinstance(packages, dict) else {}
 print(root.get("version", ""))
 PY
 )"
-  py_version="$(json_file_value "py/src/theorydb_py/version.json" "version")"
+  py_version="$(json_file_value "py/src/tabletheory_py/version.json" "version")"
 
   for item in \
     "ts/package.json:${ts_version}" \
     "ts/package-lock.json:${lock_version}" \
     "ts/package-lock.json packages['']:${pkg_lock_version}" \
-    "py/src/theorydb_py/version.json:${py_version}"; do
+    "py/src/tabletheory_py/version.json:${py_version}"; do
     label="${item%%:*}"
     version="${item#*:}"
     if [[ -z "${version}" ]]; then

@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from theorydb_py.model import ModelDefinition, Role, theorydb_field
-from theorydb_py.table import DynamoDBClientProtocol, Table
+from tabletheory_py.model import ModelDefinition, Role, theorydb_field
+from tabletheory_py.table import DynamoDBClientProtocol, Table
 
 
 @dataclass(frozen=True)

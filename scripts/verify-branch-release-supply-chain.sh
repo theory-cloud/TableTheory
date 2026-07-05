@@ -498,7 +498,7 @@ if [[ -f "ts/package.json" ]]; then
     if grep -Fq '"extra-files"' "${cfg}"; then
       fail "${cfg}: must not use extra-files for tag-derived SDK package versions"
     fi
-    if grep -Eq 'ts/package(-lock)?\.json|py/src/theorydb_py/version\.json|\.release-please-manifest\.premain\.json' "${cfg}"; then
+    if grep -Eq 'ts/package(-lock)?\.json|py/src/tabletheory_py/version\.json|\.release-please-manifest\.premain\.json' "${cfg}"; then
       fail "${cfg}: must not list SDK versions or retired prerelease manifest as release-please extra files"
     fi
   done
@@ -523,8 +523,8 @@ done
 if [[ -f "py/pyproject.toml" ]]; then
   for cfg in "release-please-config.premain.json" "release-please-config.json"; do
     [[ -f "${cfg}" ]] || continue
-    if grep -Fq "py/src/theorydb_py/version.json" "${cfg}"; then
-      fail "${cfg}: must not bump py/src/theorydb_py/version.json through release-please"
+    if grep -Fq "py/src/tabletheory_py/version.json" "${cfg}"; then
+      fail "${cfg}: must not bump py/src/tabletheory_py/version.json through release-please"
     fi
   done
 fi

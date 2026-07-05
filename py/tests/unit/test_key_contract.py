@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from theorydb_py import ValidationError
-from theorydb_py.key_contract import (
+from tabletheory_py import ValidationError
+from tabletheory_py.key_contract import (
     evaluate_derived_key,
     evaluate_derived_key_definition,
     load_key_contract_file,

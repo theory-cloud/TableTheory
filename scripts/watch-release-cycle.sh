@@ -126,7 +126,7 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
   main_ts="$(release_cycle_json_value_at_ref origin/main ts/package.json version)"
   main_ts_lock="$(release_cycle_json_value_at_ref origin/main ts/package-lock.json version)"
   main_ts_lock_pkg="$(git show origin/main:ts/package-lock.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("packages", {}).get("", {}).get("version", ""))')"
-  main_py="$(release_cycle_json_value_at_ref origin/main py/src/theorydb_py/version.json version)"
+  main_py="$(release_cycle_json_value_at_ref origin/main py/src/tabletheory_py/version.json version)"
 
   if git show origin/main:.release-please-manifest.premain.json >/dev/null 2>&1; then
     fail "origin/main still contains retired .release-please-manifest.premain.json"
@@ -144,7 +144,7 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
     "ts/package.json:${main_ts}" \
     "ts/package-lock.json:${main_ts_lock}" \
     "ts/package-lock.json packages['']:${main_ts_lock_pkg}" \
-    "py/src/theorydb_py/version.json:${main_py}"; do
+    "py/src/tabletheory_py/version.json:${main_py}"; do
     check_source_version "origin/main" "${item%%:*}" "${item#*:}"
   done
 

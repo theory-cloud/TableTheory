@@ -7,9 +7,9 @@ from typing import Any
 
 import boto3
 
-from theorydb_py import ModelDefinition, theorydb_field
-from theorydb_py.schema import delete_table, ensure_table
-from theorydb_py.schema_migration import add_field, auto_migrate, chain_transforms, rename_field
+from tabletheory_py import ModelDefinition, theorydb_field
+from tabletheory_py.schema import delete_table, ensure_table
+from tabletheory_py.schema_migration import add_field, auto_migrate, chain_transforms, rename_field
 
 
 def _dynamodb_endpoint() -> str:

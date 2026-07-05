@@ -1,6 +1,6 @@
 # Migration Guide (Python)
 
-This guide helps migrate from raw boto3 DynamoDB usage to `tabletheory_py` / `theorydb_py`.
+This guide helps migrate from raw boto3 DynamoDB usage to `tabletheory_py`.
 
 ## Migration: raw `put_item` → `table.put`
 

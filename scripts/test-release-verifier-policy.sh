@@ -45,7 +45,7 @@ write_version_files() {
 
   mkdir -p \
     "${root}/ts" \
-    "${root}/py/src/theorydb_py" \
+    "${root}/py/src/tabletheory_py" \
     "${root}/scripts" \
     "${root}/.github/workflows" \
     "${root}/examples/multi-tenant"
@@ -53,7 +53,7 @@ write_version_files() {
   printf '{".":"%s"}\n' "${stable}" >"${root}/.release-please-manifest.json"
   printf '{"version":"%s"}\n' "${ts}" >"${root}/ts/package.json"
   printf '{"version":"%s","packages":{"":{"version":"%s"}}}\n' "${ts}" "${ts}" >"${root}/ts/package-lock.json"
-  printf '{"version":"%s"}\n' "${py}" >"${root}/py/src/theorydb_py/version.json"
+  printf '{"version":"%s"}\n' "${py}" >"${root}/py/src/tabletheory_py/version.json"
   printf 'module fixture\n\ngo 1.26\ntoolchain %s\n' "${toolchain}" >"${root}/go.mod"
   printf 'module fixture/example\n\ngo 1.26\ntoolchain %s\n' "${toolchain}" >"${root}/examples/multi-tenant/go.mod"
 

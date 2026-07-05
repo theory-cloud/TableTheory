@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from theorydb_py.attr_types import (
+from tabletheory_py.attr_types import (
     _normalize_json_compatible,
     _parse_json_text,
     _to_json_text,
@@ -19,7 +19,7 @@ from theorydb_py.attr_types import (
     unwrap_optional,
     validate_json_storage_type,
 )
-from theorydb_py.errors import ValidationError
+from tabletheory_py.errors import ValidationError
 
 
 def test_unwrap_optional_handles_optional_and_general_unions() -> None:

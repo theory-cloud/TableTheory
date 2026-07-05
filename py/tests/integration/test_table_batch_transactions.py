@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import boto3
 import pytest
 
-from theorydb_py import (
+from tabletheory_py import (
     ConditionFailedError,
     ModelDefinition,
     NotFoundError,
@@ -41,7 +41,7 @@ class Note:
 
 
 def test_table_batch_get_write_and_transactions() -> None:
-    table_name = f"theorydb_py_batch_{uuid.uuid4().hex[:12]}"
+    table_name = f"tabletheory_py_batch_{uuid.uuid4().hex[:12]}"
     client = _client()
     client.create_table(
         TableName=table_name,

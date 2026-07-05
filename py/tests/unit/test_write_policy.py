@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from theorydb_py import (
+from tabletheory_py import (
     ImmutableModelMutationError,
     ModelDefinition,
     ProtectedFieldMutationError,
@@ -16,7 +16,7 @@ from theorydb_py import (
     WritePolicy,
     theorydb_field,
 )
-from theorydb_py.mocks import FakeDynamoDBClient
+from tabletheory_py.mocks import FakeDynamoDBClient
 
 
 @dataclass(frozen=True)

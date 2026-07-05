@@ -53,7 +53,7 @@ def main() -> int:
 
     ts_package_path = root / "ts/package.json"
     ts_lock_path = root / "ts/package-lock.json"
-    py_version_path = root / "py/src/theorydb_py/version.json"
+    py_version_path = root / "py/src/tabletheory_py/version.json"
 
     for path in (ts_package_path, ts_lock_path, py_version_path):
         if not path.is_file():

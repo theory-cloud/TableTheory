@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from theorydb_py import (
+from tabletheory_py import (
     ModelDefinition,
     Table,
     WritePolicy,
@@ -13,8 +13,8 @@ from theorydb_py import (
     transition_release_state,
     validate_deploy_authority_metadata,
 )
-from theorydb_py.errors import RejectedDeployAuthorityEvidenceError, ValidationError
-from theorydb_py.mocks import FakeDynamoDBClient
+from tabletheory_py.errors import RejectedDeployAuthorityEvidenceError, ValidationError
+from tabletheory_py.mocks import FakeDynamoDBClient
 
 
 @dataclass(frozen=True)

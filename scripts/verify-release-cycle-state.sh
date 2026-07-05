@@ -65,7 +65,7 @@ required_files=(
   ".release-please-manifest.json"
   "ts/package.json"
   "ts/package-lock.json"
-  "py/src/theorydb_py/version.json"
+  "py/src/tabletheory_py/version.json"
 )
 
 for path in "${required_files[@]}"; do

@@ -101,10 +101,10 @@ See [`ts/src/transaction.ts`](https://github.com/theory-cloud/tabletheory/blob/m
 ## Python
 
 `Table.transact_write(actions)` accepts a list of dataclass actions —
-`TransactPut`, `TransactUpdate`, `TransactDelete`, `TransactConditionCheck` — all importable from `theorydb_py`.
+`TransactPut`, `TransactUpdate`, `TransactDelete`, `TransactConditionCheck` — all importable from `tabletheory_py`.
 
 ```python
-from theorydb_py import TransactPut, TransactUpdate
+from tabletheory_py import TransactPut, TransactUpdate
 
 table.transact_write([
     TransactUpdate(
@@ -119,7 +119,7 @@ table.transact_write([
 ])
 ```
 
-See [`py/src/theorydb_py/transaction.py`](https://github.com/theory-cloud/tabletheory/blob/main/py/src/theorydb_py/transaction.py) for the full action-dataclass shapes.
+See [`py/src/tabletheory_py/transaction.py`](https://github.com/theory-cloud/tabletheory/blob/main/py/src/tabletheory_py/transaction.py) for the full action-dataclass shapes.
 
 ## Common patterns
 

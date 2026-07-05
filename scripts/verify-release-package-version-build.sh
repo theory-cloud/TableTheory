@@ -48,14 +48,14 @@ assets_dir="$(mktemp -d)"
 cleanup() {
   cp "${backup_dir}/ts-package.json" ts/package.json
   cp "${backup_dir}/ts-package-lock.json" ts/package-lock.json
-  cp "${backup_dir}/py-version.json" py/src/theorydb_py/version.json
+  cp "${backup_dir}/py-version.json" py/src/tabletheory_py/version.json
   rm -rf "${backup_dir}" "${assets_dir}"
 }
 trap cleanup EXIT
 
 cp ts/package.json "${backup_dir}/ts-package.json"
 cp ts/package-lock.json "${backup_dir}/ts-package-lock.json"
-cp py/src/theorydb_py/version.json "${backup_dir}/py-version.json"
+cp py/src/tabletheory_py/version.json "${backup_dir}/py-version.json"
 
 for version in "${versions[@]}"; do
   echo "==> building release package assets for ${version}"

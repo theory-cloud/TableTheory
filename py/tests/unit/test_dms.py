@@ -11,7 +11,7 @@ from typing import cast
 
 import pytest
 
-from theorydb_py import (
+from tabletheory_py import (
     ModelDefinition,
     ModelDefinitionError,
     Projection,
@@ -26,7 +26,7 @@ from theorydb_py import (
     parse_dms_document,
     theorydb_field,
 )
-from theorydb_py.dms import _model_definition_to_dms_model
+from tabletheory_py.dms import _model_definition_to_dms_model
 
 
 @dataclass(frozen=True)

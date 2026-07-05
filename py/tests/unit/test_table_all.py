@@ -4,9 +4,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from theorydb_py.mocks import FakeDynamoDBClient
-from theorydb_py.model import ModelDefinition, theorydb_field
-from theorydb_py.table import Table
+from tabletheory_py.mocks import FakeDynamoDBClient
+from tabletheory_py.model import ModelDefinition, theorydb_field
+from tabletheory_py.table import Table
 
 
 @dataclass

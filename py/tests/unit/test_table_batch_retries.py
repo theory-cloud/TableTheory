@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py import BatchRetryExceededError, ModelDefinition, Table, ValidationError, theorydb_field
+from tabletheory_py import BatchRetryExceededError, ModelDefinition, Table, ValidationError, theorydb_field
 
 
 @dataclass(frozen=True)

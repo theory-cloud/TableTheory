@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from theorydb_py.key_contract import load_key_contract_file, verify_derived_key_fixtures
+from tabletheory_py.key_contract import load_key_contract_file, verify_derived_key_fixtures
 
 
 def _repo_root() -> Path:

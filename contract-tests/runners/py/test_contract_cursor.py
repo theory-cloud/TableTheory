@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from theorydb_py.query import decode_cursor, encode_cursor
+from tabletheory_py.query import decode_cursor, encode_cursor
 
 
 def _repo_root() -> Path:

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pytest
 from botocore.exceptions import ClientError
 
-from theorydb_py import (
+from tabletheory_py import (
     EncryptionNotConfiguredError,
     FilterCondition,
     ModelDefinition,
@@ -16,8 +16,8 @@ from theorydb_py import (
     VersionConflictError,
     theorydb_field,
 )
-from theorydb_py.model import Projection, gsi
-from theorydb_py.table import _backoff_seconds, _chunked, _map_client_error, _map_transaction_error
+from tabletheory_py.model import Projection, gsi
+from tabletheory_py.table import _backoff_seconds, _chunked, _map_client_error, _map_transaction_error
 
 
 @dataclass(frozen=True)

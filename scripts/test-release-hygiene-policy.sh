@@ -204,7 +204,7 @@ expect_success_contains \
 
 pending_fixture="$(mktemp -d)"
 tmpdirs+=("${pending_fixture}")
-mkdir -p "${pending_fixture}/ts" "${pending_fixture}/py/src/theorydb_py"
+mkdir -p "${pending_fixture}/ts" "${pending_fixture}/py/src/tabletheory_py"
 cat >"${pending_fixture}/.release-please-manifest.json" <<'JSON'
 {".":"1.10.1-rc.1"}
 JSON
@@ -214,7 +214,7 @@ JSON
 cat >"${pending_fixture}/ts/package-lock.json" <<'JSON'
 {"version":"1.10.0","packages":{"":{"version":"1.10.0"}}}
 JSON
-cat >"${pending_fixture}/py/src/theorydb_py/version.json" <<'JSON'
+cat >"${pending_fixture}/py/src/tabletheory_py/version.json" <<'JSON'
 {"version":"1.10.0"}
 JSON
 

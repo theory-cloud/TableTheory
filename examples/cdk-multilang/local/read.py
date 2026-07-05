@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import boto3
 
-from theorydb_py import ModelDefinition, Table, theorydb_field
+from tabletheory_py import ModelDefinition, Table, theorydb_field
 
 
 @dataclass(frozen=True)

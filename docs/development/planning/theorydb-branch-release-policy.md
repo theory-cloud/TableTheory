@@ -19,7 +19,7 @@ TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` 
   single manifest `.release-please-manifest.json`.
 - `main` owns stable releases. Outside the short, explicit single-manifest pending stable-promotion state immediately
   after a `premain` -> `main` promotion, `.release-please-manifest.json` must be stable on `main`.
-- `ts/package.json`, `ts/package-lock.json`, and `py/src/theorydb_py/version.json` are package metadata, not release-cycle
+- `ts/package.json`, `ts/package-lock.json`, and `py/src/tabletheory_py/version.json` are package metadata, not release-cycle
   state. Release workflows stamp them from `tag_name` in the release-build workspace before packaging; release automation
   must not commit RC churn to those files solely to publish assets.
 
@@ -149,7 +149,7 @@ GitHub Releases must attach build artifacts for the non-Go SDKs:
 - **Python:** wheel + sdist from `py/` (`python -m build`)
 
 Release workflows must derive the package version from the release `tag_name`, stamp `ts/package.json`,
-`ts/package-lock.json`, and `py/src/theorydb_py/version.json` in the workflow workspace, build assets, and verify the
+`ts/package-lock.json`, and `py/src/tabletheory_py/version.json` in the workflow workspace, build assets, and verify the
 packed TypeScript and Python metadata matches the tag before upload. These workspace edits are not committed.
 
 If a release workflow was expected to publish but `release_created` is false, pause before trying to patch files by hand.

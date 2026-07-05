@@ -24,7 +24,7 @@ generated: true
 
 ## Installation
 
-This repo does **not** publish to PyPI. GitHub Releases are the source of truth. The canonical import package is `tabletheory_py`. The legacy `theorydb_py` import path remains supported for existing consumers.
+This repo does **not** publish to PyPI. GitHub Releases are the source of truth. The canonical import package is `tabletheory_py`. The legacy `theorydb_py` import path remains only as a `DeprecationWarning` shim for transition diagnostics.
 
 Find the current version before replacing `X.Y.Z`:
 

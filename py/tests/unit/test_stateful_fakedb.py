@@ -5,8 +5,7 @@ from dataclasses import dataclass
 import pytest
 from botocore.exceptions import ClientError
 
-from tabletheory_py import StatefulDynamoDBClient as AliasStatefulDynamoDBClient
-from theorydb_py import (
+from tabletheory_py import (
     FilterCondition,
     ModelDefinition,
     SortKeyCondition,
@@ -15,8 +14,9 @@ from theorydb_py import (
     VersionConflictError,
     theorydb_field,
 )
-from theorydb_py import fakedb as fakedb_module
-from theorydb_py.testkit import StatefulDynamoDBClient as KitStatefulDynamoDBClient
+from tabletheory_py import StatefulDynamoDBClient as AliasStatefulDynamoDBClient
+from tabletheory_py import fakedb as fakedb_module
+from tabletheory_py.testkit import StatefulDynamoDBClient as KitStatefulDynamoDBClient
 
 
 @dataclass(frozen=True)

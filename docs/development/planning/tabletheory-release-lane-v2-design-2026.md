@@ -25,7 +25,7 @@ The v2 target is:
    Go, TypeScript, and Python.
 4. **Generated TS/Py package versions at release-build time**: TypeScript and Python release assets receive their version
    from the release tag while packaging. The source tree no longer commits RC churn into `ts/package.json`,
-   `ts/package-lock.json`, or `py/src/theorydb_py/version.json` solely to publish an asset.
+   `ts/package-lock.json`, or `py/src/tabletheory_py/version.json` solely to publish an asset.
 5. **Merge queue on protected release branches**: promotion PRs and release-please PRs merge only after queue validation
    against the exact branch tip that will receive them.
 6. **Smaller guard surface**: guards that exist only for the dual-manifest/committed-SDK-version model are merged or
@@ -71,7 +71,7 @@ Go already uses tags as the version source. In v2, TS/Py packaging follows the s
   leading `v` for package metadata).
 - Before `npm pack`, the workflow writes that version into a temporary release-build copy of `ts/package.json` and the
   root entries of `ts/package-lock.json`, then packs from that prepared copy or restores the workspace before upload.
-- Before `python -m build`, the workflow writes that version into a generated `py/src/theorydb_py/version.json` in the
+- Before `python -m build`, the workflow writes that version into a generated `py/src/tabletheory_py/version.json` in the
   release-build workspace, then builds the wheel/sdist.
 - The generated files are release-build artifacts, not source-of-truth release-cycle state. They must not be committed by
   release workflows.
@@ -122,7 +122,7 @@ THE-2450 repo-owned implementation:
 | `.release-please-manifest.premain.json` | Prerelease manifest today | **Retire** | Its role is replaced by native prerelease handling against the single manifest. |
 | `ts/package.json` version | Committed TS package version state | **Retire as release-cycle state** | Keep package metadata file, but release workflow patches version from tag in the build workspace. |
 | `ts/package-lock.json` root versions | Committed TS package-lock version state | **Retire as release-cycle state** | Release workflow patches/generated lock metadata from tag for the packed artifact. |
-| `py/src/theorydb_py/version.json` | Committed Python package version state | **Retire as release-cycle state** | Generate from tag during release build; keep runtime import behavior stable in artifacts. |
+| `py/src/tabletheory_py/version.json` | Committed Python package version state | **Retire as release-cycle state** | Generate from tag during release build; keep runtime import behavior stable in artifacts. |
 | `scripts/verify-branch-release-supply-chain.sh` | Source-validates release-lane scaffolding | **Keep, update** | Becomes the source validator for single-manifest invariants, generated version scripts, and merge-queue workflow expectations. |
 | `scripts/verify-branch-version-sync.sh` | Branch/version sync and SDK alignment checks | **Merge/simplify** | Drop dual-manifest and committed SDK version alignment checks; keep branch role sanity and tag-derived asset proof hooks. |
 | `scripts/verify-release-cycle-state.sh` | Local checked-out release-cycle state check | **Keep, simplify** | Enforce one manifest, no RC on `main`, no stale generated source state, no protected-branch mutation. |

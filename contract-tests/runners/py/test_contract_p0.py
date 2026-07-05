@@ -50,7 +50,7 @@ from generated_models import (
     User as _User,
 )
 
-from theorydb_py import (
+from tabletheory_py import (
     ConditionFailedError,
     EncryptionNotConfiguredError,
     FilterCondition,

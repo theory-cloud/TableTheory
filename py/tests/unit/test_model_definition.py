@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py.model import (
+from tabletheory_py.model import (
     ModelDefinition,
     ModelDefinitionError,
     Projection,

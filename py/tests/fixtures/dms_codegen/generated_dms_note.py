@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from theorydb_py import ModelDefinition, Projection, WritePolicy, gsi, theorydb_field
+from tabletheory_py import ModelDefinition, Projection, WritePolicy, gsi, theorydb_field
 
 
 @dataclass(frozen=True)

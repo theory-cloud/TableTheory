@@ -176,11 +176,11 @@ const db = new TheorydbClient(client);
 
 ## Python unit testing
 
-Use `theorydb_py.mocks` for strict fakes and deterministic encryption nonces:
+Use `tabletheory_py.mocks` for strict fakes and deterministic encryption nonces:
 
 ```python
-from theorydb_py import Table
-from theorydb_py.mocks import FakeDynamoDBClient, FakeKmsClient
+from tabletheory_py import Table
+from tabletheory_py.mocks import FakeDynamoDBClient, FakeKmsClient
 
 fake_ddb = FakeDynamoDBClient()
 fake_kms = FakeKmsClient(plaintext_key=b"\x00" * 32, ciphertext_blob=b"edk")

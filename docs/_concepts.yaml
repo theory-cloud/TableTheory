@@ -56,7 +56,7 @@ concepts:
       - aws_sdk_js_v3
       - node_24
 
-  theorydb_py:
+  tabletheory_py:
     type: library
     language: python
     purpose: "Python DynamoDB access layer aligned with Go behavior"

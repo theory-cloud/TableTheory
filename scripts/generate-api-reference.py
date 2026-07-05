@@ -3,7 +3,7 @@
 
 Go uses `go doc -short` over public packages. TypeScript uses declaration files
 emitted from `ts/src` by `npm run build:esm`. Python uses the AST of
-`py/src/theorydb_py` and the package `__all__` export list. The generated docs
+`py/src/tabletheory_py` and the package `__all__` export list. The generated docs
 are committed and this script provides the drift gate.
 """
 from __future__ import annotations
@@ -186,7 +186,7 @@ def module_name_from_path(path: Path) -> str:
 
 
 def parse_py_exports(root: Path) -> tuple[list[str], dict[str, str]]:
-    init_path = root / "py" / "src" / "theorydb_py" / "__init__.py"
+    init_path = root / "py" / "src" / "tabletheory_py" / "__init__.py"
     tree = ast.parse(init_path.read_text(encoding="utf-8"), filename=str(init_path))
     exports: list[str] = []
     import_map: dict[str, str] = {}
@@ -206,7 +206,7 @@ def parse_py_exports(root: Path) -> tuple[list[str], dict[str, str]]:
                         if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                             exports.append(elt.value)
     if not exports:
-        raise RuntimeError("could not parse theorydb_py.__all__")
+        raise RuntimeError("could not parse tabletheory_py.__all__")
     return exports, import_map
 
 
@@ -227,7 +227,7 @@ def class_signature(node: ast.ClassDef) -> str:
 
 
 def collect_py_module(root: Path, module: str) -> dict[str, PyExport]:
-    path = root / "py" / "src" / "theorydb_py" / f"{module}.py"
+    path = root / "py" / "src" / "tabletheory_py" / f"{module}.py"
     if not path.exists():
         return {}
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -272,7 +272,7 @@ def render_py(root: Path) -> str:
         "",
         GENERATED,
         "",
-        "This reference is generated from `py/src/theorydb_py` source and the package `__all__` export list. Do not hand-edit signatures here; run `make generate-api-reference`.",
+        "This reference is generated from `py/src/tabletheory_py` source and the package `__all__` export list. Do not hand-edit signatures here; run `make generate-api-reference`.",
         "",
         "## Drift check",
         "",
@@ -284,7 +284,7 @@ def render_py(root: Path) -> str:
         "",
     ]
     for module in sorted(by_module):
-        sections.extend([f"### `theorydb_py.{module}`", ""])
+        sections.extend([f"### `tabletheory_py.{module}`", ""])
         for export in sorted(by_module[module], key=lambda e: e.name.lower()):
             sections.extend([f"#### `{export.name}`", "", "```python", export.signature])
             if export.details:

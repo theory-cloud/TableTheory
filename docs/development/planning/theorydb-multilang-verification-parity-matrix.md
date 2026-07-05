@@ -37,11 +37,11 @@ These definitions are intentionally explicit to prevent denominator games and â€
 
 ### Python (`py/`)
 
-- **Library code scope (coverage):** `py/src/theorydb_py/**` (exclude `py/tests/**`, `py/examples/**`, `py/dist/**`).
+- **Library code scope (coverage):** `py/src/tabletheory_py/**` (exclude `py/tests/**`, `py/examples/**`, `py/dist/**`).
 - **Unit tests:** `uv --directory py run pytest -q tests/unit` (no DynamoDB Local).
 - **Integration tests:** `uv --directory py run pytest -q tests/integration` (DynamoDB Local; `DYNAMODB_ENDPOINT`).
 - **Coverage metric:** line coverage via `coverage.py` / `pytest-cov`.
-- **Coverage minimum:** **90% line coverage** of `py/src/theorydb_py/**` enforced by `bash scripts/verify-coverage.sh --language python` (via `bash scripts/verify-coverage.sh`).
+- **Coverage minimum:** **90% line coverage** of `py/src/tabletheory_py/**` enforced by `bash scripts/verify-coverage.sh --language python` (via `bash scripts/verify-coverage.sh`).
 
 ## Rubric gates â†’ language matrix (current)
 

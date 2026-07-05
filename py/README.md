@@ -8,7 +8,7 @@ Python implementation of TableTheory for DynamoDB.
 This package is developed in a multi-language monorepo alongside the Go and TypeScript implementations. GitHub releases
 are the source of truth for versions (no PyPI publishing).
 
-The canonical import package is `tabletheory_py`; the legacy `theorydb_py` package remains available for existing consumers.
+The canonical import package is `tabletheory_py`; the legacy `theorydb_py` package remains only as a `DeprecationWarning` shim for transition diagnostics.
 
 ## Requirements
 

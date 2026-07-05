@@ -77,11 +77,11 @@ def read_wheel_metadata(wheel: Path) -> tuple[str, str]:
         if not metadata_name:
             fail(f"{wheel.name} does not contain METADATA")
         version_json_name = next(
-            (name for name in archive.namelist() if name.endswith("theorydb_py/version.json")),
+            (name for name in archive.namelist() if name.endswith("tabletheory_py/version.json")),
             "",
         )
         if not version_json_name:
-            fail(f"{wheel.name} does not contain theorydb_py/version.json")
+            fail(f"{wheel.name} does not contain tabletheory_py/version.json")
         metadata = archive.read(metadata_name).decode("utf-8")
         version_json = json.loads(archive.read(version_json_name).decode("utf-8"))
     return metadata_version(metadata), str(version_json.get("version", ""))
@@ -93,11 +93,11 @@ def read_sdist_metadata(sdist: Path) -> tuple[str, str]:
         if pkg_info is None:
             fail(f"{sdist.name} does not contain PKG-INFO")
         version_json = next(
-            (item for item in archive.getmembers() if item.name.endswith("/src/theorydb_py/version.json")),
+            (item for item in archive.getmembers() if item.name.endswith("/src/tabletheory_py/version.json")),
             None,
         )
         if version_json is None:
-            fail(f"{sdist.name} does not contain src/theorydb_py/version.json")
+            fail(f"{sdist.name} does not contain src/tabletheory_py/version.json")
         pkg_info_file = archive.extractfile(pkg_info)
         version_json_file = archive.extractfile(version_json)
         if pkg_info_file is None or version_json_file is None:

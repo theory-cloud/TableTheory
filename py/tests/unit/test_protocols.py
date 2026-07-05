@@ -1,4 +1,4 @@
-from theorydb_py.protocols import DynamoDBClientProtocol
+from tabletheory_py.protocols import DynamoDBClientProtocol
 
 
 class _ProtocolStub(DynamoDBClientProtocol):

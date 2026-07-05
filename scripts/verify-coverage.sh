@@ -349,7 +349,7 @@ measure_python_coverage() {
   local summary_json="py/coverage-${selected_suite}.json"
 
   uv --directory py run pytest -q "${tests[@]}" \
-    --cov=theorydb_py \
+    --cov=tabletheory_py \
     --cov-report=term \
     --cov-report=xml:coverage.xml | tee "${log}"
 
