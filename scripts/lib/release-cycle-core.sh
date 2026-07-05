@@ -7,25 +7,44 @@ release_cycle_json_value_at_ref() {
   local path="$2"
   local expr="$3"
 
+  if ! git cat-file -e "${ref}:${path}" 2>/dev/null; then
+    return 0
+  fi
+
   git show "${ref}:${path}" 2>/dev/null | python3 -c '
 import json
 import sys
 
 expr = sys.argv[1]
-data = json.load(sys.stdin)
+ref = sys.argv[2]
+path = sys.argv[3]
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError as exc:
+    print(
+        f"{ref}:{path} contains malformed JSON: {exc.msg} "
+        f"at line {exc.lineno} column {exc.colno}",
+        file=sys.stderr,
+    )
+    raise SystemExit(65)
 if expr == ".":
     print(data.get(".", "") if isinstance(data, dict) else "")
     raise SystemExit(0)
 value = data
 for part in expr.split("."):
-    if not part:
-        continue
     if isinstance(value, dict):
         value = value.get(part, "")
     else:
         value = ""
-print(value if isinstance(value, str) else "")
-' "${expr}"
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is None:
+    print("")
+elif isinstance(value, (str, int, float)):
+    print(value)
+else:
+    print(json.dumps(value, separators=(",", ":")))
+' "${expr}" "${ref}" "${path}"
 }
 
 release_cycle_json_string_value() {

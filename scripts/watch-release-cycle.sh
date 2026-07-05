@@ -93,6 +93,55 @@ fail() {
   fail_count=$((fail_count + 1))
 }
 
+watch_json_value_at_ref() {
+  local __target="$1"
+  local ref="$2"
+  local path="$3"
+  local expr="$4"
+  local output status
+
+  set +e
+  output="$(release_cycle_json_value_at_ref "${ref}" "${path}" "${expr}" 2>&1)"
+  status=$?
+  set -e
+
+  if [[ "${status}" -ne 0 ]]; then
+    if [[ -z "${output}" ]]; then
+      output="${ref}:${path} could not be parsed as JSON"
+    fi
+    while IFS= read -r line; do
+      if [[ -n "${line}" ]]; then
+        fail "${line}"
+      fi
+    done <<<"${output}"
+    printf -v "${__target}" '%s' ""
+    return 1
+  fi
+
+  printf -v "${__target}" '%s' "${output}"
+  return 0
+}
+
+watch_python_version_at_ref() {
+  local __version_target="$1"
+  local __label_target="$2"
+  local ref="$3"
+  local canonical_path="py/src/tabletheory_py/version.json"
+  local legacy_path="py/src/theorydb_py/version.json"
+  local path="${canonical_path}"
+  local label="${canonical_path}"
+
+  if git cat-file -e "${ref}:${canonical_path}" 2>/dev/null; then
+    path="${canonical_path}"
+  elif git cat-file -e "${ref}:${legacy_path}" 2>/dev/null; then
+    path="${legacy_path}"
+    label="${canonical_path} (fallback ${legacy_path})"
+  fi
+
+  printf -v "${__label_target}" '%s' "${label}"
+  watch_json_value_at_ref "${__version_target}" "${ref}" "${path}" version
+}
+
 refs=(origin/main origin/premain origin/staging)
 for ref in "${refs[@]}"; do
   if ! git rev-parse --verify --quiet "${ref}" >/dev/null; then
@@ -122,11 +171,11 @@ check_source_version() {
 }
 
 if git rev-parse --verify --quiet origin/main >/dev/null; then
-  main_stable="$(release_cycle_json_value_at_ref origin/main .release-please-manifest.json '.')"
-  main_ts="$(release_cycle_json_value_at_ref origin/main ts/package.json version)"
-  main_ts_lock="$(release_cycle_json_value_at_ref origin/main ts/package-lock.json version)"
-  main_ts_lock_pkg="$(git show origin/main:ts/package-lock.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("packages", {}).get("", {}).get("version", ""))')"
-  main_py="$(release_cycle_json_value_at_ref origin/main py/src/tabletheory_py/version.json version)"
+  watch_json_value_at_ref main_stable origin/main .release-please-manifest.json '.' || true
+  watch_json_value_at_ref main_ts origin/main ts/package.json version || true
+  watch_json_value_at_ref main_ts_lock origin/main ts/package-lock.json version || true
+  watch_json_value_at_ref main_ts_lock_pkg origin/main ts/package-lock.json 'packages..version' || true
+  watch_python_version_at_ref main_py main_py_label origin/main || true
 
   if git show origin/main:.release-please-manifest.premain.json >/dev/null 2>&1; then
     fail "origin/main still contains retired .release-please-manifest.premain.json"
@@ -144,7 +193,7 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
     "ts/package.json:${main_ts}" \
     "ts/package-lock.json:${main_ts_lock}" \
     "ts/package-lock.json packages['']:${main_ts_lock_pkg}" \
-    "py/src/tabletheory_py/version.json:${main_py}"; do
+    "${main_py_label}:${main_py}"; do
     check_source_version "origin/main" "${item%%:*}" "${item#*:}"
   done
 
@@ -164,7 +213,7 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
 fi
 
 if git rev-parse --verify --quiet origin/premain >/dev/null; then
-  premain_version="$(release_cycle_json_value_at_ref origin/premain .release-please-manifest.json '.')"
+  watch_json_value_at_ref premain_version origin/premain .release-please-manifest.json '.' || true
 
   if git show origin/premain:.release-please-manifest.premain.json >/dev/null 2>&1; then
     fail "origin/premain still contains retired .release-please-manifest.premain.json"
@@ -193,7 +242,7 @@ if git rev-parse --verify --quiet origin/premain >/dev/null; then
 fi
 
 if git rev-parse --verify --quiet origin/staging >/dev/null; then
-  staging_stable="$(release_cycle_json_value_at_ref origin/staging .release-please-manifest.json '.')"
+  watch_json_value_at_ref staging_stable origin/staging .release-please-manifest.json '.' || true
 
   if git show origin/staging:.release-please-manifest.premain.json >/dev/null 2>&1; then
     fail "origin/staging still contains retired .release-please-manifest.premain.json"
