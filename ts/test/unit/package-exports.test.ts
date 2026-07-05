@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const require = createRequire(import.meta.url);
@@ -20,6 +21,19 @@ const packageJson = JSON.parse(
   >;
 };
 const rootPackageSpecifier: string = packageJson.name;
+let packageArtifactsBuilt = false;
+
+function ensurePackageArtifactsBuilt(): void {
+  if (packageArtifactsBuilt) {
+    return;
+  }
+  const npmBinary = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  execFileSync(npmBinary, ['run', 'build'], {
+    cwd: packageRoot,
+    stdio: 'inherit',
+  });
+  packageArtifactsBuilt = true;
+}
 
 const domainSubpaths = [
   {
@@ -89,6 +103,8 @@ void test('package exposes domain subpath exports', () => {
 });
 
 void test('domain subpath exports resolve and load ESM and CommonJS artifacts', async () => {
+  ensurePackageArtifactsBuilt();
+
   for (const entry of domainSubpaths) {
     const cjsResolved = require.resolve(entry.specifier);
     assert.equal(
@@ -110,6 +126,8 @@ void test('domain subpath exports resolve and load ESM and CommonJS artifacts', 
 });
 
 void test('root package excludes domain helper exports', async () => {
+  ensurePackageArtifactsBuilt();
+
   const cjsModule = require(rootPackageSpecifier) as Record<string, unknown>;
   const esmModule = (await import(rootPackageSpecifier)) as Record<
     string,
