@@ -187,6 +187,51 @@ run_watch_fixture() {
   fi
 }
 
+run_branch_version_sync_fixture() {
+  local work remote output status
+  work="$(mktemp -d)"
+  remote="$(mktemp -d)"
+  tmpdirs+=("${work}" "${remote}")
+
+  git -C "${remote}" init --bare -q
+  git -C "${work}" init -q
+  git -C "${work}" config user.email fixture@example.com
+  git -C "${work}" config user.name "Release Fixture"
+
+  write_version_files "${work}" "1.10.1" "" "1.10.0" "1.10.0"
+  git -C "${work}" add .
+  git -C "${work}" commit -q -m "fixture main"
+  git -C "${work}" branch -M main
+  git -C "${work}" remote add origin "${remote}"
+  git -C "${remote}" fetch -q "${work}" HEAD:refs/heads/main
+
+  write_version_files "${work}" "1.10.1-rc.1" "" "1.10.0" "1.10.0"
+  git -C "${work}" add .
+  git -C "${work}" commit -q -m "fixture premain"
+
+  set +e
+  output="$(
+    GIT_FETCH_RETRIES=1 \
+    GITHUB_REF_NAME=premain \
+      bash "${repo_root}/scripts/verify-branch-version-sync.sh" --repo-root "${work}" 2>&1
+  )"
+  status=$?
+  set -e
+
+  if [[ "${status}" -ne 0 ]]; then
+    printf '%s\n' "${output}"
+    echo "release-verifier-policy-test: branch-version-sync fixture: expected success, got ${status}"
+    exit 1
+  fi
+  expect_contains \
+    "${output}" \
+    "branch-version-sync: PASS (main=1.10.1, candidate=1.10.1-rc.1, mode=premain)" \
+    "branch-version-sync fixture"
+  expect_absent "${output}" "JSONDecodeError" "branch-version-sync fixture"
+}
+
+run_branch_version_sync_fixture
+
 for fixture in "${fixtures_dir}"/cycle-*; do
   run_cycle_fixture "${fixture}"
 done
