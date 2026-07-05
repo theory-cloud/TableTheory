@@ -118,14 +118,14 @@ try {
   assert.deepEqual(got0.tags, ['a', 'b']);
   assert.equal(typeof got0.createdAt, 'string');
   assert.equal(typeof got0.updatedAt, 'string');
-  assert.equal(got0.version, 0);
+  assert.equal(got0.version, '0');
 
   await theorydb.update('User', { ...key, nickname: 'Alice', version: 0 }, [
     'nickname',
   ]);
   const got1 = await theorydb.get('User', key);
   assert.equal(got1.nickname, 'Alice');
-  assert.equal(got1.version, 1);
+  assert.equal(got1.version, '1');
 
   await theorydb.delete('User', key);
   await assert.rejects(
@@ -143,7 +143,7 @@ try {
   assert.ok(!('ttl' in got2));
   assert.equal(typeof got2.createdAt, 'string');
   assert.equal(typeof got2.updatedAt, 'string');
-  assert.equal(got2.version, 0);
+  assert.equal(got2.version, '0');
 
   // p0.lifecycle.created_updated
   const id3 = `${id}#lifecycle`;
@@ -153,7 +153,7 @@ try {
   assert.equal(got3a.nickname, 'v0');
   const createdAt0 = got3a.createdAt;
   const updatedAt0 = got3a.updatedAt;
-  assert.equal(got3a.version, 0);
+  assert.equal(got3a.version, '0');
 
   await sleep(25);
   await theorydb.update('User', { ...key3, nickname: 'v1', version: 0 }, [
@@ -162,7 +162,7 @@ try {
   const got3b = await theorydb.get('User', key3);
   assert.equal(got3b.createdAt, createdAt0);
   assert.notEqual(got3b.updatedAt, updatedAt0);
-  assert.equal(got3b.version, 1);
+  assert.equal(got3b.version, '1');
 
   // p0.lifecycle.version_optimistic_lock
   const id4 = `${id}#version`;
@@ -180,14 +180,14 @@ try {
   );
   const got4 = await theorydb.get('User', key4);
   assert.equal(got4.nickname, 'v1');
-  assert.equal(got4.version, 1);
+  assert.equal(got4.version, '1');
 
   // p0.lifecycle.ttl_epoch_seconds
   const id5 = `${id}#ttl`;
   const key5 = { PK: id5, SK: 'PROFILE' };
   await theorydb.create('User', { ...key5, ttl: 1_700_000_000 });
   const got5 = await theorydb.get('User', key5);
-  assert.equal(got5.ttl, 1_700_000_000);
+  assert.equal(got5.ttl, '1700000000');
 
   const raw = await ddb.send(
     new GetItemCommand({
