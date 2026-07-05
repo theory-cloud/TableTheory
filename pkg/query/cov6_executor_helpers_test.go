@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
 )
 
 func TestApplyCompiledQueryReadFields_COV6(t *testing.T) {
@@ -125,6 +126,156 @@ func TestCalculateBatchRetryDelay_JitterRange_COV6(t *testing.T) {
 	delay := calculateBatchRetryDelay(policy, 0)
 	require.GreaterOrEqual(t, delay, time.Duration(float64(base)*0.5))
 	require.LessOrEqual(t, delay, time.Duration(float64(base)*1.5))
+}
+
+func TestCompiledConditionReferencesVersion_TokenBoundaries_THE2551(t *testing.T) {
+	tests := []struct {
+		name        string
+		compiled    *core.CompiledQuery
+		versionAttr string
+		want        bool
+	}{
+		{
+			name:        "nil query",
+			compiled:    nil,
+			versionAttr: "version",
+			want:        false,
+		},
+		{
+			name:        "bare default version token",
+			compiled:    &core.CompiledQuery{ConditionExpression: "attribute_exists(version) AND version >= :v"},
+			versionAttr: "",
+			want:        true,
+		},
+		{
+			name: "placeholder maps to version attribute",
+			compiled: &core.CompiledQuery{
+				ConditionExpression:      "#version = :expected",
+				ExpressionAttributeNames: map[string]string{"#version": "recordVersion"},
+			},
+			versionAttr: "recordVersion",
+			want:        true,
+		},
+		{
+			name:        "substring inside longer identifier is not a version token",
+			compiled:    &core.CompiledQuery{ConditionExpression: "preview_version = :v OR versioned = :next"},
+			versionAttr: "version",
+			want:        false,
+		},
+		{
+			name:        "case insensitive token match",
+			compiled:    &core.CompiledQuery{ConditionExpression: "Version BETWEEN :lo AND :hi"},
+			versionAttr: "version",
+			want:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, compiledConditionReferencesVersion(tt.compiled, tt.versionAttr))
+		})
+	}
+}
+
+type the2551RetryReadItem struct {
+	ID string
+}
+
+type the2551RetryReadExecutor struct {
+	batches [][]the2551RetryReadItem
+	errs    []error
+	calls   int
+}
+
+func (e *the2551RetryReadExecutor) ExecuteQuery(input *core.CompiledQuery, dest any) error {
+	return e.ExecuteScan(input, dest)
+}
+
+func (e *the2551RetryReadExecutor) ExecuteScan(_ *core.CompiledQuery, dest any) error {
+	call := e.calls
+	e.calls++
+
+	if call < len(e.errs) && e.errs[call] != nil {
+		return e.errs[call]
+	}
+	if call >= len(e.batches) {
+		return nil
+	}
+
+	reflect.ValueOf(dest).Elem().Set(reflect.ValueOf(e.batches[call]))
+	return nil
+}
+
+func TestQueryRetryReadsRetryEmptyResults_THE2551(t *testing.T) {
+	exec := &the2551RetryReadExecutor{
+		batches: [][]the2551RetryReadItem{
+			{},
+			{},
+			{{ID: "ready"}},
+		},
+	}
+	q := New(&the2551RetryReadItem{}, cov5Metadata{
+		table:      "tbl",
+		primaryKey: core.KeySchema{PartitionKey: "id"},
+	}, exec)
+
+	var out the2551RetryReadItem
+	err := q.WithRetry(2, 0).First(&out)
+	require.NoError(t, err)
+	require.Equal(t, "ready", out.ID)
+	require.Equal(t, 3, exec.calls)
+}
+
+func TestQueryAllWithRetryClearsStaleDestination_THE2551(t *testing.T) {
+	exec := &the2551RetryReadExecutor{
+		batches: [][]the2551RetryReadItem{
+			{},
+			{{ID: "fresh"}},
+		},
+	}
+	q := New(&the2551RetryReadItem{}, cov5Metadata{
+		table:      "tbl",
+		primaryKey: core.KeySchema{PartitionKey: "id"},
+	}, exec)
+
+	out := []the2551RetryReadItem{{ID: "stale"}}
+	err := q.WithRetry(1, 0).All(&out)
+	require.NoError(t, err)
+	require.Equal(t, []the2551RetryReadItem{{ID: "fresh"}}, out)
+	require.Equal(t, 2, exec.calls)
+}
+
+func TestQueryRetryReadsReturnTerminalErrors_THE2551(t *testing.T) {
+	t.Run("first returns not found after retry budget", func(t *testing.T) {
+		exec := &the2551RetryReadExecutor{
+			batches: [][]the2551RetryReadItem{{}},
+		}
+		q := New(&the2551RetryReadItem{}, cov5Metadata{
+			table:      "tbl",
+			primaryKey: core.KeySchema{PartitionKey: "id"},
+		}, exec)
+
+		var out the2551RetryReadItem
+		err := q.WithRetry(0, 0).First(&out)
+		require.ErrorIs(t, err, theorydbErrors.ErrItemNotFound)
+		require.Equal(t, 1, exec.calls)
+	})
+
+	t.Run("all returns last executor error after retry budget", func(t *testing.T) {
+		expected := errors.New("read failed")
+		exec := &the2551RetryReadExecutor{
+			errs: []error{errors.New("transient"), expected},
+		}
+		q := New(&the2551RetryReadItem{}, cov5Metadata{
+			table:      "tbl",
+			primaryKey: core.KeySchema{PartitionKey: "id"},
+		}, exec)
+
+		var out []the2551RetryReadItem
+		err := q.WithRetry(1, 0).All(&out)
+		require.ErrorIs(t, err, expected)
+		require.Equal(t, 2, exec.calls)
+	})
 }
 
 func TestUnmarshalJSONString_ErrorBranches_COV6(t *testing.T) {

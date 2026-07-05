@@ -118,6 +118,90 @@ func TestGenerateCDKRejectsUnsupportedKeyType(t *testing.T) {
 	require.ErrorContains(t, err, "unsupported key attribute type")
 }
 
+func TestGenerateCDKCoversIndexProjectionBranches_THE2551(t *testing.T) {
+	t.Parallel()
+
+	doc := &Document{
+		DMSVersion: "0.1",
+		Models: []Model{
+			{
+				Name:  "Branchy",
+				Table: Table{Name: "branchy"},
+				Keys: Keys{
+					Partition: KeyAttribute{Attribute: "PK", Type: "S"},
+					Sort:      &KeyAttribute{Attribute: "SK", Type: "N"},
+				},
+				Attributes: []Attribute{
+					{Attribute: "PK", Type: "S", Roles: []string{"pk"}},
+					{Attribute: "SK", Type: "N", Roles: []string{"sk"}},
+					{Attribute: "blob", Type: "B", Roles: []string{"gsi1pk"}},
+					{Attribute: "score", Type: "N", Roles: []string{"lsi:by-score,sk"}},
+					{Attribute: "summary", Type: "S"},
+				},
+				Indexes: []Index{
+					{
+						Name:       "by-blob",
+						Type:       "GSI",
+						Partition:  KeyAttribute{Attribute: "blob", Type: "B"},
+						Projection: Projection{Type: "KEYS_ONLY"},
+					},
+					{
+						Name:       "by-score",
+						Type:       indexTypeLSI,
+						Partition:  KeyAttribute{Attribute: "PK", Type: "S"},
+						Sort:       &KeyAttribute{Attribute: "score", Type: "N"},
+						Projection: Projection{Type: projectionInclude, Fields: []string{"summary"}},
+					},
+				},
+			},
+		},
+	}
+
+	got, err := Generate(doc, GenerateOptions{Lang: "cdk"})
+	require.NoError(t, err)
+	rendered := string(got)
+	require.Contains(t, rendered, "sortKey: { name: 'SK', type: dynamodb.AttributeType.NUMBER }")
+	require.Contains(t, rendered, "partitionKey: { name: 'blob', type: dynamodb.AttributeType.BINARY }")
+	require.Contains(t, rendered, "projectionType: dynamodb.ProjectionType.KEYS_ONLY")
+	require.Contains(t, rendered, "table.addLocalSecondaryIndex")
+	require.Contains(t, rendered, "sortKey: { name: 'score', type: dynamodb.AttributeType.NUMBER }")
+	require.Contains(t, rendered, "projectionType: dynamodb.ProjectionType.INCLUDE")
+	require.Contains(t, rendered, "nonKeyAttributes: ['summary']")
+	require.NotContains(t, rendered, "timeToLiveAttribute")
+}
+
+func TestGenerateCDKRejectsUnsupportedIndexKeyTypes_THE2551(t *testing.T) {
+	t.Parallel()
+
+	base := Model{
+		Name:  "BadIndex",
+		Table: Table{Name: "bad_index"},
+		Keys:  Keys{Partition: KeyAttribute{Attribute: "PK", Type: "S"}},
+		Attributes: []Attribute{
+			{Attribute: "PK", Type: "S", Roles: []string{"pk"}},
+		},
+	}
+
+	gsi := base
+	gsi.Indexes = []Index{{
+		Name:      "bad-gsi",
+		Type:      "GSI",
+		Partition: KeyAttribute{Attribute: "bad", Type: "BOOL"},
+	}}
+	_, err := Generate(&Document{DMSVersion: "0.1", Models: []Model{gsi}}, GenerateOptions{Lang: "cdk"})
+	require.ErrorContains(t, err, "index bad-gsi partition key")
+
+	lsi := base
+	lsi.Indexes = []Index{{
+		Name:      "bad-lsi",
+		Type:      indexTypeLSI,
+		Partition: KeyAttribute{Attribute: "PK", Type: "S"},
+		Sort:      &KeyAttribute{Attribute: "bad", Type: "BOOL"},
+	}}
+	_, err = Generate(&Document{DMSVersion: "0.1", Models: []Model{lsi}}, GenerateOptions{Lang: "cdk"})
+	require.ErrorContains(t, err, "index bad-lsi sort key")
+}
+
 func TestGenerateOptionsAndErrors(t *testing.T) {
 	t.Parallel()
 

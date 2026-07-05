@@ -113,6 +113,28 @@ func TestDetectNamingConvention_AndSplitTag_COV6(t *testing.T) {
 	require.Equal(t, []string{"attr:field", "omitempty", "naming:snake_case"}, splitTag("attr:field, omitempty, naming:snake_case"))
 }
 
+func TestResolveStructNaming_ReportsTheoryDBTagPresence_THE2551(t *testing.T) {
+	type withRoleTag struct {
+		ID string `theorydb:"pk" json:"id"`
+	}
+
+	type withoutTheoryDBTags struct {
+		ID string `json:"id"`
+	}
+
+	convention, ok := resolveStructNaming(reflect.TypeOf(withRoleTag{}), naming.PascalCase, false)
+	require.Equal(t, naming.CamelCase, convention)
+	require.True(t, ok, "theorydb tags opt the struct into TableTheory naming even without a naming sentinel")
+
+	convention, ok = resolveStructNaming(reflect.TypeOf(withoutTheoryDBTags{}), naming.PascalCase, false)
+	require.Equal(t, naming.CamelCase, convention)
+	require.False(t, ok)
+
+	convention, ok = resolveStructNaming(reflect.TypeOf(withoutTheoryDBTags{}), naming.PascalCase, true)
+	require.Equal(t, naming.PascalCase, convention)
+	require.True(t, ok, "inherited naming remains explicit for nested decode contexts")
+}
+
 func TestMapToStruct_ValidatesAttributeNames_COV6(t *testing.T) {
 	converter := NewConverter()
 
