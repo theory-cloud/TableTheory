@@ -195,6 +195,17 @@ validate_suite() {
   fi
 }
 
+node_version_label() {
+  node --version 2>/dev/null || printf 'unknown\n'
+}
+
+node_supports_test_coverage_filters() {
+  local help
+  help="$(node --help 2>/dev/null || true)"
+  grep -Fq -- "--test-coverage-include" <<<"${help}" &&
+    grep -Fq -- "--test-coverage-exclude" <<<"${help}"
+}
+
 measure_typescript_coverage() {
   local selected_suite="$1"
 
@@ -216,16 +227,78 @@ measure_typescript_coverage() {
   export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-dummy}"
   export DYNAMODB_ENDPOINT="${DYNAMODB_ENDPOINT:-http://localhost:8000}"
 
-  local tests=(test/unit/*.test.ts)
+  local root_tests=(ts/test/unit/*.test.ts)
   if [[ "${selected_suite}" == "all" ]]; then
-    tests+=(test/integration/*.test.ts)
+    root_tests+=(ts/test/integration/*.test.ts)
   else
     validate_suite "coverage-ts" "${selected_suite}"
   fi
+  if [[ "${#root_tests[@]}" -eq 0 ]]; then
+    echo "coverage-ts: FAIL (no TypeScript tests matched for suite ${selected_suite})"
+    return 1
+  fi
+
+  local tests=()
+  local test_path
+  for test_path in "${root_tests[@]}"; do
+    if [[ "${test_path}" == *"*"* ]]; then
+      echo "coverage-ts: FAIL (unmatched TypeScript test glob ${test_path})"
+      return 1
+    fi
+    tests+=("${test_path#ts/}")
+  done
 
   local log="${outdir}/coverage-${selected_suite}.txt"
   local summary_json="${outdir}/coverage-${selected_suite}.json"
   local output status
+  local node_version
+  node_version="$(node_version_label)"
+
+  if ! node_supports_test_coverage_filters; then
+    if [[ "${record_only}" != "true" ]]; then
+      echo "coverage-ts: FAIL (Node ${node_version} lacks --test-coverage-include/--test-coverage-exclude; threshold mode requires precise src/**/*.ts filtering)"
+      return 1
+    fi
+
+    local v8_dir="${outdir}/v8-${selected_suite}"
+    rm -rf "${v8_dir}"
+    mkdir -p "${v8_dir}"
+
+    pushd ts >/dev/null
+    set +e
+    output="$(
+      NODE_V8_COVERAGE="coverage/v8-${selected_suite}" \
+        node --import tsx --test "${tests[@]}" 2>&1
+    )"
+    status=$?
+    set -e
+    popd >/dev/null
+
+    {
+      echo "coverage-ts: WARN (Node ${node_version} lacks source include/exclude filters; recorded raw V8 coverage instead of filtered percentages)"
+      printf "%s\n" "${output}"
+    } | tee "${log}"
+
+    if [[ "${status}" -ne 0 ]]; then
+      echo "coverage-ts: FAIL (tests failed; exit ${status})"
+      return "${status}"
+    fi
+
+    cat >"${summary_json}" <<JSON
+{
+  "suite": "${selected_suite}",
+  "node": "${node_version}",
+  "filtering": "unsupported",
+  "raw_v8_coverage": "coverage/v8-${selected_suite}",
+  "lines": null,
+  "branches": null,
+  "functions": null
+}
+JSON
+
+    echo "coverage-ts: PASS (${selected_suite}; Node ${node_version} record-only raw V8 coverage; filtered thresholds require Node 24+)"
+    return 0
+  fi
 
   pushd ts >/dev/null
   set +e
@@ -266,13 +339,15 @@ measure_typescript_coverage() {
   cat >"${summary_json}" <<JSON
 {
   "suite": "${selected_suite}",
+  "node": "${node_version}",
+  "filtering": "src/**/*.ts excluding test/**",
   "lines": ${lines},
   "branches": ${branches},
   "functions": ${functions}
 }
 JSON
 
-  echo "coverage-ts: PASS (${selected_suite}; lines ${lines}%, branches ${branches}%, functions ${functions}%)"
+  echo "coverage-ts: PASS (${selected_suite}; source-filtered lines ${lines}%, branches ${branches}%, functions ${functions}%)"
 }
 
 verify_typescript_coverage() {
@@ -285,7 +360,11 @@ verify_typescript_coverage() {
     return 1
   fi
 
-  measure_typescript_coverage "${selected_suite}" >/dev/null
+  local measure_output
+  if ! measure_output="$(measure_typescript_coverage "${selected_suite}" 2>&1)"; then
+    printf "%s\n" "${measure_output}"
+    return 1
+  fi
 
   local summary="ts/coverage/coverage-${selected_suite}.json"
   if [[ ! -f "${summary}" ]]; then

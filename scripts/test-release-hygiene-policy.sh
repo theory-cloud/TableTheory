@@ -347,6 +347,21 @@ grep -Fq -- "--queue-freshness" "${repo_root}/.github/workflows/release-hygiene.
   exit 1
 }
 
+grep -Fq "verify-release-lane-provenance.sh --help" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must feature-detect trusted provenance flags"
+  exit 1
+}
+
+grep -Fq "provenance_args+=(--queue-freshness)" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must append --queue-freshness only after feature detection"
+  exit 1
+}
+
+grep -Fq "trusted base script lacks --queue-freshness" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must document strict-freshness fallback"
+  exit 1
+}
+
 grep -Fq "pending stable promotion accepted on queued main merge group" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release hygiene must allow queued main pending stable promotion"
   exit 1
