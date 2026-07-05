@@ -54,7 +54,6 @@ required_files=(
   "release-please-config.premain.json"
   "release-please-config.json"
   ".release-please-manifest.json"
-  "scripts/sync-post-stable-release-baselines.sh"
   "scripts/prepare-release-package-versions.py"
   "scripts/verify-release-package-version-assets.py"
   "scripts/verify-release-package-version-build.sh"
@@ -70,6 +69,26 @@ required_files=(
 
 for path in "${required_files[@]}"; do
   require_file "${path}"
+done
+
+retired_files=(
+  "scripts/prepare-stable-promotion.sh"
+  "scripts/sync-post-stable-release-baselines.sh"
+)
+
+for path in "${retired_files[@]}"; do
+  if [[ -e "${path}" ]]; then
+    fail "${path} must remain retired; use release-please-owned stable PRs and normal main -> staging PR backmerges"
+  fi
+  if grep -RInF "${path}" \
+    AGENTS.md \
+    docs/development/planning/theorydb-branch-release-policy.md \
+    docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md \
+    docs/development/planning/templates/high-risk-branch-release-policy.template.md \
+    scripts/test-release-*.sh \
+    .github/workflows >/dev/null 2>&1; then
+    fail "${path} must not be referenced by release docs or workflows after retirement"
+  fi
 done
 
 if [[ -f "scripts/watch-release-cycle.sh" ]]; then
@@ -320,9 +339,6 @@ if [[ -f ".github/workflows/release.yml" ]]; then
     "release workflow must publish CLI binary checksums"
   require_regex 'gh release upload' "${r}" \
     "release workflow must upload release assets"
-  if grep -Fq "scripts/sync-post-stable-release-baselines.sh" "${r}"; then
-    fail "release workflow must not call post-stable baseline sync"
-  fi
   if grep -Fq "SYNC_RELEASE_BASELINE" "${r}"; then
     fail "release workflow must not configure post-stable direct-push sync"
   fi
@@ -462,23 +478,6 @@ PY
   then
     fail "release-please CLI lockfile must pin release-please 17.3.0 with sha512 integrity"
   fi
-fi
-
-if [[ -f "scripts/sync-post-stable-release-baselines.sh" ]]; then
-  sync_script="scripts/sync-post-stable-release-baselines.sh"
-  require_fixed "DEPRECATED" "${sync_script}" \
-    "post-stable sync helper must be marked deprecated"
-  require_fixed "dry-run only" "${sync_script}" \
-    "post-stable sync helper must be dry-run only"
-  require_fixed "normal PR backmerge from main to staging" "${sync_script}" \
-    "post-stable sync helper must point operators to main -> staging PR backmerge"
-  if grep -Eq 'git[[:space:]].*push|gh[[:space:]]+api[[:space:]].*(git/refs|contents)' "${sync_script}"; then
-    fail "deprecated post-stable sync helper must not contain branch mutation commands"
-  fi
-fi
-
-if grep -RInF "scripts/sync-post-stable-release-baselines.sh" .github/workflows; then
-  fail "workflows must not call deprecated post-stable baseline sync"
 fi
 
 if grep -RInF "SYNC_RELEASE_BASELINE" .github/workflows; then

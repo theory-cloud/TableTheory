@@ -57,11 +57,6 @@ write_version_files() {
   printf 'module fixture\n\ngo 1.26\ntoolchain %s\n' "${toolchain}" >"${root}/go.mod"
   printf 'module fixture/example\n\ngo 1.26\ntoolchain %s\n' "${toolchain}" >"${root}/examples/multi-tenant/go.mod"
 
-  cat >"${root}/scripts/prepare-stable-promotion.sh" <<'STUB'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "prepare-stable-promotion: PASS (fixture)"
-STUB
   cat >"${root}/scripts/prepare-release-package-versions.py" <<'STUB'
 #!/usr/bin/env python3
 print("release-package-versions: PASS (fixture)")

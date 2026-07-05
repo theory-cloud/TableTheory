@@ -140,8 +140,8 @@ Stable promotion path:
 - After the stable release is published, do not let CI push sync commits to `premain` or `staging`. The next operator step
   is a normal PR backmerge from `main` to `staging`; `premain` receives that baseline through the next
   `staging` -> `premain` promotion.
-- `scripts/prepare-stable-promotion.sh` is deprecated diagnostic tooling only. It is not the normal stable release path and
-  must not replace release-please-owned stable version/changelog updates.
+- No local stable-normalization helper is part of the normal path. Stable manifest and changelog normalization belong to
+  the generated stable release-please PR; post-stable baseline sync belongs to a normal `main` -> `staging` PR.
 
 Release watchpoints and stop conditions:
 

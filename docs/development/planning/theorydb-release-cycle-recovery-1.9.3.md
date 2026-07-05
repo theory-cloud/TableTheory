@@ -29,18 +29,17 @@ Recovery must stay inside the normal protected-branch and release-please flow:
 6. Let `release.yml` skip stable publishing during the temporary pending stable-promotion state.
 7. Let `release-pr.yml` open the stable release-please PR with `release-as: 1.9.3`. If pending stable promotion persists
    without an open generated stable PR, stop and investigate the workflow instead of patching `main` by hand.
-8. Merge the stable release-please PR; release-please must normalize `.release-please-manifest.json`,
-   `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
-   `py/src/theorydb_py/version.json` to `1.9.3`.
+8. Merge the stable release-please PR; release-please must normalize `.release-please-manifest.json` and `CHANGELOG.md`
+   to `1.9.3`. TypeScript/Python asset versions are generated from the stable tag in the release-build workspace and are
+   verified inside the tarball/wheel/sdist before upload.
 9. Let CI publish the generated immutable `v1.9.3` stable release.
 10. Backmerge the stable `main` baseline into `staging` through a normal PR. Do not direct-push sync commits to
     `premain` or `staging`; `premain` receives the stable baseline through the next `staging` -> `premain` promotion.
 
 During this recovery, a reconciliation PR to `staging` may merge current `premain` first to surface promotion conflicts
-before they reach `main`. That PR may carry `.release-please-manifest.premain.json`, `ts/package*.json`, and
-`py/src/theorydb_py/version.json` at the active `1.9.3-rc.1` RC phase as merge-carried state only. The stable manifest must
-remain on the current `main` baseline, the RC files must be internally consistent and ahead of that baseline, and the
-state must be removed by the stable release-please PR plus the normal `main` -> `staging` backmerge after `v1.9.3`
+before they reach `main`; it must still keep `.release-please-manifest.json` coherent with the single-manifest lane and
+must not reintroduce retired prerelease manifests or committed RC package-version churn. Any pending stable-promotion
+state is resolved by the generated stable release-please PR plus the normal `main` -> `staging` backmerge after `v1.9.3`
 publishes.
 
 ## Stop Conditions
@@ -49,11 +48,11 @@ publishes.
 - Do not rerun failed `v1.9.2` workflows as recovery.
 - Do not hand-publish releases, edit immutable GitHub releases, or upload release assets by hand.
 - Do not hand-edit `.release-please-manifest*.json`, `CHANGELOG.md`, `ts/package*.json`, or
-  `py/src/theorydb_py/version.json`; release-please owns those updates.
-- Do not use a local stable-normalization branch as the normal path; `scripts/prepare-stable-promotion.sh` is only a
-  diagnostic/fallback helper if release automation is blocked and recovery is explicitly documented.
-- Do not call CI post-stable sync tooling to push directly to `premain` or `staging`; use the normal `main` -> `staging`
-  PR backmerge.
+  `py/src/theorydb_py/version.json` as release recovery; release-please owns manifest/changelog updates and release
+  workflows generate package metadata from `tag_name` for assets.
+- Do not use a local stable-normalization branch or helper as the normal path.
+- Do not call CI post-stable sync tooling or any helper to push directly to `premain` or `staging`; use the normal
+  `main` -> `staging` PR backmerge.
 - Do not treat release-please "No user facing commits" as a successful no-op on `premain` or `main` gates.
 - Do not continue when a generated RC/stable release PR merge reports `release_created=false` or omits `tag_name`.
 - Do not hard reset, force-push, or mutate protected branches directly.

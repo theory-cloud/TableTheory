@@ -55,10 +55,9 @@ The normal stable promotion path does not use a local stable-normalization branc
 changelog updates; the TypeScript/Python release asset versions are generated from the release tag in the release-build
 workspace and verified inside the tarball/wheel/sdist before upload.
 
-`scripts/sync-post-stable-release-baselines.sh` is deprecated, dry-run-only, and operator-only. It must not be called from
-release workflows and must not push sync commits. Recovery remains PR-based: if a branch is stranded, create a new PR
-branch from the correct base and replay only the needed file state. Do not retag, overwrite release assets, force-push,
-delete branches, mutate GitHub releases, or direct-push protected branches.
+No post-stable sync helper or local stable-normalization helper remains in the release lane. Recovery remains PR-based:
+if a branch is stranded, create a new PR branch from the correct base and replay only the needed file state. Do not retag,
+overwrite release assets, force-push, delete branches, mutate GitHub releases, or direct-push protected branches.
 
 ## Immutable release version reuse
 
@@ -188,10 +187,6 @@ These files are required to exist and be kept current:
 - `scripts/watch-release-cycle.sh`
 - `scripts/prepare-release-package-versions.py`
 - `scripts/verify-release-package-version-assets.py`
-- `scripts/prepare-stable-promotion.sh`
-
-`scripts/prepare-stable-promotion.sh` is retained as a deprecated diagnostic helper. It is not the normal stable
-promotion path, and it must not replace release-please-owned stable version/changelog updates.
 
 Release-lane quality workflow expectations:
 

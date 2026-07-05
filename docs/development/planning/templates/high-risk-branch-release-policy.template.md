@@ -14,12 +14,10 @@ Factory-standard three-branch framework lane: `staging -> premain -> main -> sta
 Define exactly what each branch owns. For a three-branch model, document:
 
 - `[integration-branch]` owns normal work and the latest stable baseline after release. During active RC reconciliation,
-  it may temporarily carry the current `[prerelease-branch]` RC phase in prerelease manifests and SDK/package files, but
-  only while the stable manifest remains aligned with `[release-branch]` and the RC files are internally consistent and
-  ahead of that stable baseline.
-- `[prerelease-branch]` owns RC state and may carry `X.Y.Z-rc.N` in prerelease manifests and SDK/package files.
-- `[release-branch]` owns stable state only; outside explicit pending stable promotion, stable manifests and SDK/package
-  files must not contain `-rc`.
+  it must not keep obsolete RC package-version churn after the stable release publishes.
+- `[prerelease-branch]` owns RC state and may carry `X.Y.Z-rc.N` in the release manifest.
+- `[release-branch]` owns stable state only; outside explicit pending stable promotion, the release manifest must not
+  contain `-rc`.
 
 ## Merge flow (expected)
 
@@ -37,8 +35,8 @@ If the project uses separate integration, prerelease, and stable branches, prefe
    `[release-branch]` promotion PR.
 5. Release automation skips publishing during the temporary pending stable promotion state while release-PR automation
    opens the stable release PR with the stable `release-as` derived from the RC baseline.
-6. Merging the stable release PR normalizes stable manifests, prerelease manifests, and SDK/package version files to the
-   stable version; stable automation then publishes immutable `vX.Y.Z`.
+6. Merging the stable release PR normalizes the release manifest and changelog to the stable version; stable automation
+   then publishes immutable `vX.Y.Z` and stamps SDK/package asset versions from the tag in the release-build workspace.
 7. Backmerge the stable baseline from `[release-branch]` to `[integration-branch]` through a normal PR. Do not direct-sync
    `[release-branch]` to `[prerelease-branch]`; the next `[integration-branch]` -> `[prerelease-branch]` promotion carries
    the stable baseline forward.
@@ -81,8 +79,8 @@ Implementation options (pick one and pin versions):
 
 Document forbidden stable-branch states:
 
-- stable manifest set to `X.Y.Z-rc.N`.
-- language/package version files left at `X.Y.Z-rc.N`.
+- release manifest set to `X.Y.Z-rc.N` outside explicit pending stable promotion.
+- language/package release assets whose metadata does not match the release tag.
 - release automation opening a stable release PR for an RC version.
 - prerelease PR automation completing without an open generated RC release PR after a prerelease promotion.
 - pending stable promotion persisting after the release-branch promotion without an open stable release PR.
@@ -104,14 +102,15 @@ manifests, or hand-editing package-version files.
 
 If release-please or another release-PR tool leaves the release branch at a promoted RC state until the stable release PR
 merges, document the state as explicit pending stable promotion. The pending verifier mode must be visible in the
-workflow, limited to the release branch, require the generated stable release PR to normalize manifests and package files
-to the stable version, and must not publish a stable release. Once the stable release PR merges, strict stable equality is
-required again. If the pending state persists because no stable release PR opens, pause and investigate; do not patch the
-release branch by hand.
+workflow, limited to the release branch, require the generated stable release PR to normalize the release manifest and
+changelog to the stable version, and must not publish a stable release. Once the stable release PR merges, strict stable
+state is required again. If the pending state persists because no stable release PR opens, pause and investigate; do not
+patch the release branch by hand.
 
 If the integration branch must merge the prerelease branch during active recovery to surface later promotion conflicts,
-document that as bounded RC reconciliation. The verifier should accept it only when the stable manifest still matches the
-release branch and all prerelease/package files carry one internally consistent RC version ahead of that stable baseline.
+document that as bounded RC reconciliation. The verifier should accept it only when the single release manifest remains
+coherent with the intended branch role and no retired prerelease manifest or committed RC package-version churn is
+reintroduced.
 
 ## Required workflow artifacts
 
@@ -134,9 +133,9 @@ Evidence should include deterministic branch/version checks and a read-only rele
 
 Pause before merge or release when:
 
-- stable-branch files contain `-rc` outside explicit pending stable promotion.
+- stable-branch release state contains `-rc` outside explicit pending stable promotion.
 - prerelease stable baseline is behind the release branch.
-- integration branch lacks the latest stable baseline after a stable release, or keeps RC reconciliation files after the
+- integration branch lacks the latest stable baseline after a stable release, or keeps RC reconciliation state after the
   active RC phase has been normalized to stable.
 - security/governance checks still observe a vulnerable toolchain or dependency state.
 - branch/version sync checks fail.
@@ -154,7 +153,7 @@ Pause before merge or release when:
 - automation attempts direct branch mutation where the documented path expects PR sync, including post-stable baseline
   sync pushes.
 
-Allowed recovery should be non-destructive: new PR branches from known bases, diagnostic/fallback normalization helpers,
-and verified PR-based sync. The normal release path should leave version and changelog edits to release automation. Do not
+Allowed recovery should be non-destructive: new PR branches from known bases and verified PR-based sync. The normal
+release path should leave version and changelog edits to release automation. Do not
 retag, overwrite release assets, force-push, delete protected branches, hand-publish replacement releases, reuse exhausted
 immutable release versions, or merge around quality/security checks.

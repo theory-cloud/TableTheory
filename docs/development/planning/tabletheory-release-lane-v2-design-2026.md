@@ -1,16 +1,18 @@
-# TableTheory release-lane v2 design (single manifest preparatory gate)
+# TableTheory release-lane v2 design and implementation record
 
 Status: **design record with implementation follow-ups**. This document was authored for TTIP-110 / THE-2448. TTIP-111 /
-THE-2449 implemented the single-manifest lane in repo-owned workflows and guards; TTIP-112 / THE-2450 implements the
-merge-queue workflow triggers and provenance-guard disposition below. TTIP-113 remains the cleanup item for retiring
-superseded scripts after the v2 lane soaks.
+THE-2449 implemented the single-manifest lane in repo-owned workflows and guards; TTIP-112 / THE-2450 implemented the
+merge-queue workflow triggers and provenance-guard disposition below. TTIP-113 retires the helper scripts that the v2
+lane no longer uses; live RC-to-stable proof remains a release-readiness receipt, not a prerequisite for removing those
+orphaned helpers from source.
 
 ## Purpose
 
-The current release lane is safe but too stateful: release-please tracks stable and RC state through two manifests,
-committed TypeScript/Python version files move during RC reconciliation, and several guards exist only to prevent those
-state files from drifting. Release-lane v2 keeps the single branch lane (`staging -> premain -> main -> staging`) and the
-immutable GitHub Releases distribution model, but reduces the mutable release state that can diverge across branches.
+At the time of THE-2448, the release lane was safe but too stateful: release-please tracked stable and RC state through
+two manifests, committed TypeScript/Python version files moved during RC reconciliation, and several guards existed only
+to prevent those state files from drifting. Release-lane v2 keeps the single branch lane
+(`staging -> premain -> main -> staging`) and the immutable GitHub Releases distribution model, but reduces the mutable
+release state that can diverge across branches.
 
 The v2 target is:
 
@@ -36,7 +38,7 @@ The v2 target is:
 - Do not bypass release-please for normal version/changelog ownership.
 - Do not alter the stable public API or runtime contract behavior.
 - Do not change branch protection or GitHub repository settings as part of this preparatory milestone.
-- Do not implement THE-2449/THE-2450/THE-2451 from this document without maintainer sign-off.
+- Historical THE-2448 constraint: later implementation and cleanup items required maintainer sign-off before execution.
 
 ## Proposed v2 lane
 
@@ -56,9 +58,10 @@ The v2 target is:
 main use `.release-please-manifest.json` as their manifest path. The manifest can legitimately contain an RC version on
 `premain` and a stable version on `main`; branch role, not filename, defines whether the version is prerelease or stable.
 
-Stable promotion no longer needs a pending state where `.release-please-manifest.json` is stable while the prerelease
-manifest and SDK files are still RC-shaped. The generated stable release-please PR on `main` normalizes the single
-manifest and changelog only.
+Stable promotion no longer needs a mixed pending state where one manifest is stable while a second prerelease manifest
+and SDK files are still RC-shaped. The remaining pending state is explicit and short-lived: after `premain` promotes to
+`main`, `.release-please-manifest.json` may briefly carry the RC until `release-pr.yml` opens the generated stable
+release-please PR. That stable PR normalizes the single manifest and changelog only.
 
 ### Tag-driven runtime versions
 
@@ -111,8 +114,8 @@ THE-2450 repo-owned implementation:
 | `.github/workflows/release-hygiene.yml` | Lightweight trusted release checks for `premain`/`main` PRs | **Keep, update** | Continue provenance and release-hygiene checks; remove checks that only mention the retired prerelease manifest. |
 | `.github/workflows/prerelease-pr.yml` | Opens generated RC release-please PRs on `premain` | **Keep, update** | Use single manifest path and native prerelease config; paths-ignore no longer includes SDK version files as release state. |
 | `.github/workflows/prerelease.yml` | Publishes prerelease GitHub Releases and assets | **Keep, update** | Use single manifest path; generate TS/Py versions from `tag_name` before packaging. |
-| `.github/workflows/release-pr.yml` | Opens stable release-please PRs on `main` after pending promotion | **Merge/retire pending-state logic** | Stable PR generation no longer computes from a second prerelease manifest; keep stable PR postcondition checks. |
-| `.github/workflows/release.yml` | Publishes stable GitHub Releases and assets | **Keep, update** | Remove pending stable-promotion skip path; generate TS/Py versions from `tag_name` before packaging. |
+| `.github/workflows/release-pr.yml` | Opens stable release-please PRs on `main` after pending promotion | **Keep, update** | Compute stable `release-as` from the single-manifest RC baseline; keep stable PR postcondition checks. |
+| `.github/workflows/release.yml` | Publishes stable GitHub Releases and assets | **Keep, update** | Skip publish only during explicit single-manifest pending stable promotion; generate TS/Py versions from `tag_name` before packaging. |
 | `release-please-config.json` | Stable release-please config plus extra-files normalization | **Keep, simplify** | Remove `.release-please-manifest.premain.json` and SDK version-file extra-files once generated package versions are proven. |
 | `release-please-config.premain.json` | Prerelease release-please config | **Keep initially, possibly merge later** | It may remain branch-specific config while using the single manifest; evaluate config merge only after native prerelease dry-run. |
 | `.release-please-manifest.json` | Stable manifest today | **Keep as sole manifest** | Branch-local value becomes stable on `main`, RC on `premain`. |
@@ -130,8 +133,8 @@ THE-2450 repo-owned implementation:
 | `scripts/verify-prerelease-pr-postcondition.sh` | Ensures generated RC PR exists and is RC-shaped | **Keep, update** | Must validate native prerelease PR shape and single manifest diff. |
 | `scripts/verify-main-release-pr-postcondition.sh` | Ensures stable PR shape and forbids RC main release PRs | **Keep, update** | Must validate single manifest stable diff and no SDK version-source commits. |
 | `scripts/verify-release-created-postcondition.sh` | Fails publish workflows that should have created a release | **Keep** | Immutable release/publish postcondition remains load-bearing. |
-| `scripts/prepare-stable-promotion.sh` | Diagnostic/fallback stable-promotion helper | **Retire after v2 soak** | Pending stable-promotion state disappears; keep one cycle as diagnostic only, then remove in TTIP-113 if unused. |
-| `scripts/sync-post-stable-release-baselines.sh` | Deprecated dry-run helper for old baseline sync | **Retire** | V2 keeps normal `main -> staging` PR backmerge; no direct sync helper should remain after docs converge. |
+| `scripts/prepare-stable-promotion.sh` | Diagnostic/fallback stable-promotion helper | **Retired by TTIP-113** | Stable normalization is owned by `release-pr.yml` and the generated stable release-please PR. |
+| `scripts/sync-post-stable-release-baselines.sh` | Deprecated dry-run helper for old baseline sync | **Retired by TTIP-113** | V2 keeps normal `main -> staging` PR backmerge; no direct sync helper remains. |
 | `scripts/test-release-hygiene-policy.sh` | Policy tests for provenance/promotion/publish guards | **Keep, update** | Add single-manifest promotion and generated-version assertions. |
 | `scripts/test-release-pr-tool-policy.sh` | Ensures pinned release-please CLI path for privileged stable PR workflow | **Keep** | Still protects release-pr privileged token path if CLI remains. |
 | `scripts/test-release-verifier-policy.sh` | Fixture matrix for release verifier PASS/WARN/FAIL judgments | **Keep, update** | Extend fixtures to one-manifest good/bad states before changing guards. |
@@ -198,8 +201,9 @@ Rollback stays PR-based and never reuses an immutable release version:
 4. If failure is discovered after stable publication, keep the published release immutable, open a patch release through
    `staging -> premain -> main`, and document any asset metadata mismatch as a release note / migration note if consumers
    could have pinned it.
-5. `scripts/prepare-stable-promotion.sh` and the current two-manifest docs remain available until v2 completes one full
-   RC-to-stable soak; remove them only in the follow-up cleanup item after the maintainer accepts the soak evidence.
+5. Retired helper scripts are not recovery mechanisms. If rollback requires restoring a retired helper or two-manifest
+   guard, do it through a normal signed PR with the failing release evidence attached; do not patch release branches,
+   tags, manifests, or assets by hand.
 
 ## Historical maintainer sign-off gate before TTIP-111
 

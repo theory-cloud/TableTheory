@@ -59,7 +59,6 @@ require_file() {
 }
 
 required_files=(
-  "scripts/prepare-stable-promotion.sh"
   "scripts/prepare-release-package-versions.py"
   "scripts/verify-release-package-version-assets.py"
   "scripts/watch-release-cycle.sh"
@@ -77,15 +76,6 @@ if [[ "${failures}" -eq 0 ]]; then
   if ! release_cycle_verify_local_state "${repo_root}"; then
     failures=$((failures + 1))
   fi
-fi
-
-stable_promotion_check="$(mktemp)"
-if ! bash scripts/prepare-stable-promotion.sh --check >"${stable_promotion_check}" 2>&1; then
-  cat "${stable_promotion_check}"
-  rm -f "${stable_promotion_check}"
-  fail "stable promotion helper dry-run failed"
-else
-  rm -f "${stable_promotion_check}"
 fi
 
 if grep -RInE 'git push +origin +(main|premain|staging)|git push +[^[:space:]]+ +(main|premain|staging)' .github/workflows scripts | grep -v 'verify-release-cycle-state.sh'; then
