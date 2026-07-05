@@ -87,10 +87,31 @@ Protect both `premain` and `main`:
 - Require CODEOWNERS/review approvals.
 - Require release-hygiene status checks for PRs targeting `premain` and `main`; do not require the full gov-infra rubric
   on those promotion branches.
+- Require the GitHub merge queue. The queue must require the `Release Hygiene` workflow's `merge_group` validation before
+  a promotion PR or generated release-please PR can merge.
 - Restrict force-pushes and deletions.
 
 Protect `staging` with the full gov-infra rubric on PRs targeting `staging`. The full rubric may also run by
-`workflow_dispatch`, but it must not run on push or on PRs targeting `premain` or `main`.
+`workflow_dispatch`, but it must not run on push or on PRs targeting `premain` or `main`. Require the GitHub merge queue
+for `staging` too, with the `Quality Gates (10/10 Rubric)` `merge_group` validation as the queue check.
+
+### Merge queue provenance disposition
+
+Release-lane v2 keeps the provenance checks that identify *what* is allowed to enter a protected release branch:
+
+- PR base/head repositories must be `theory-cloud/TableTheory`; forks and name-spoofed repositories are rejected before
+  any PR-head checkout.
+- `premain` accepts only `staging` promotions or generated `release-please--branches--premain` RC PRs, with numbered
+  `X.Y.Z-rc.N` release titles.
+- `main` accepts only `premain` promotions or generated `release-please--branches--main` stable PRs, with no RC-shaped
+  release title.
+- Human promotion PRs still run the release-driver guard, so release-please "No user facing commits" remains a failed
+  release-intent gate.
+
+The old required PR-time "event base/head SHA must equal the current live branch ref" guard is retired from the normal
+release-hygiene PR path because the merge queue now validates the exact queued merge ref against the latest protected
+branch tip before merge. The strict live-ref check remains in `scripts/verify-release-lane-provenance.sh` for documented
+manual-freeze fallback use if merge queue is unavailable.
 
 ## Automated releases (required)
 
@@ -174,10 +195,10 @@ promotion path, and it must not replace release-please-owned stable version/chan
 
 Release-lane quality workflow expectations:
 
-- `.github/workflows/quality-gates.yml` runs the full gov-infra rubric only for PRs targeting `staging` and for
-  manual dispatch.
-- `.github/workflows/release-hygiene.yml` runs lightweight source-branch, release-cycle, supply-chain, and main-RC-PR
-  checks for PRs targeting `premain` and `main`.
+- `.github/workflows/quality-gates.yml` runs the full gov-infra rubric only for PRs targeting `staging`, queued
+  `staging` merge groups, and manual dispatch.
+- `.github/workflows/release-hygiene.yml` runs lightweight source-branch/provenance, release-cycle, supply-chain, and
+  main-RC-PR checks for PRs targeting `premain`/`main`, plus queued `premain`/`main` merge groups.
 - Other security workflows, such as `.github/workflows/codeql.yml`, may run independently, but they do not replace the
   release-lane gate split above.
 

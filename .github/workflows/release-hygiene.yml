@@ -3,6 +3,8 @@ name: Release Hygiene
 on:
   pull_request:
     branches: ["premain", "main"]
+  merge_group:
+    branches: ["premain", "main"]
   workflow_dispatch: {}
 
 permissions:
@@ -46,7 +48,8 @@ jobs:
             --head-repo "${HEAD_REPOSITORY}" \
             --base-sha "${BASE_SHA}" \
             --head-sha "${HEAD_SHA}" \
-            --title "${PR_TITLE}"
+            --title "${PR_TITLE}" \
+            --queue-freshness
 
       - name: Checkout pull request head after provenance verification
         if: github.event_name == 'pull_request'
@@ -56,11 +59,45 @@ jobs:
           path: pr
           persist-credentials: false
 
-      - name: Checkout workflow dispatch ref
+      - name: Checkout merge queue or workflow dispatch ref
         if: github.event_name != 'pull_request'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
+
+      - name: Resolve release hygiene target branch
+        if: github.event_name != 'pull_request'
+        id: target
+        run: |
+          set -euo pipefail
+
+          target="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
+            target="$(
+              python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+          base_ref = str(event.get("merge_group", {}).get("base_ref", ""))
+          if base_ref.startswith("refs/heads/"):
+              base_ref = base_ref.removeprefix("refs/heads/")
+          print(base_ref)
+          PY
+            )"
+          fi
+
+          case "${target}" in
+            premain|main)
+              ;;
+            *)
+              echo "release-hygiene: FAIL (unsupported target branch ${target:-<empty>})" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "branch=${target}" >> "${GITHUB_OUTPUT}"
 
       - name: Verify human promotion release driver
         if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
@@ -89,8 +126,34 @@ jobs:
       - name: Verify release cycle state
         if: github.event_name != 'pull_request'
         env:
-          RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: "false"
-        run: bash scripts/verify-release-cycle-state.sh
+          TARGET_BRANCH: ${{ steps.target.outputs.branch }}
+        run: |
+          set -euo pipefail
+
+          strict_log="$(mktemp)"
+          pending_log="$(mktemp)"
+          cleanup() {
+            rm -f "${strict_log}" "${pending_log}"
+          }
+          trap cleanup EXIT
+
+          if GITHUB_BASE_REF="${TARGET_BRANCH}" RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=false \
+            bash scripts/verify-release-cycle-state.sh >"${strict_log}" 2>&1; then
+            cat "${strict_log}"
+            exit 0
+          fi
+
+          if [[ "${TARGET_BRANCH}" == "main" ]] && \
+            GITHUB_BASE_REF=main GITHUB_HEAD_REF=premain RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true \
+              bash scripts/verify-release-cycle-state.sh >"${pending_log}" 2>&1; then
+            cat "${pending_log}"
+            echo "release-hygiene: pending stable promotion accepted on queued main merge group"
+            exit 0
+          fi
+
+          cat "${strict_log}"
+          cat "${pending_log}"
+          exit 1
 
       - name: Verify release supply-chain scaffolding
         if: github.event_name == 'pull_request'
@@ -115,7 +178,7 @@ jobs:
             --forbid-rc-only
 
       - name: Forbid RC-shaped main Release PRs
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.target.outputs.branch == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

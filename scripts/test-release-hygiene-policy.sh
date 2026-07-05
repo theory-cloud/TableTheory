@@ -110,6 +110,34 @@ expect_failure_contains \
     --ref "refs/heads/premain=${advanced_base_sha}" \
     --ref "refs/heads/staging=${head_sha}"
 
+expect_success_contains \
+  "live ref freshness covered by merge queue" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base premain \
+    --head staging \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "Promote staging to premain" \
+    --queue-freshness \
+    --ref "refs/heads/premain=${advanced_base_sha}" \
+    --ref "refs/heads/staging=4444444444444444444444444444444444444444"
+
+expect_failure_contains \
+  "same-repository" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base premain \
+    --head staging \
+    --base-repo "${repo}" \
+    --head-repo "attacker/TableTheory" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "Promote staging to premain" \
+    --queue-freshness
+
 expect_failure_contains \
   "numbered RC version" \
   bash "${checker}" \
@@ -277,6 +305,26 @@ fi
 
 grep -Fq "persist-credentials: false" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release hygiene checkouts must disable persisted credentials"
+  exit 1
+}
+
+grep -Fq "merge_group:" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must support merge_group for staging queue"
+  exit 1
+}
+
+grep -Fq "merge_group:" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must support merge_group for release queue"
+  exit 1
+}
+
+grep -Fq -- "--queue-freshness" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene PR provenance must delegate live ref freshness to merge queue"
+  exit 1
+}
+
+grep -Fq "pending stable promotion accepted on queued main merge group" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must allow queued main pending stable promotion"
   exit 1
 }
 

@@ -3,6 +3,8 @@ name: Quality Gates (10/10 Rubric)
 on:
   pull_request:
     branches: ["staging"]
+  merge_group:
+    branches: ["staging"]
   workflow_dispatch: {}
 
 permissions:

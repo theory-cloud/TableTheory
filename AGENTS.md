@@ -67,6 +67,12 @@ The cross-framework release lane is exactly `staging -> premain -> main -> stagi
 requires the full gov-infra rubric, and only on PRs targeting `staging` plus manual workflow dispatch. PRs targeting
 `premain` or `main` require release-hygiene checks only, not the full rubric.
 
+Protected `staging`, `premain`, and `main` are merge-queue branches. Repo-owned workflows support this with
+`merge_group` triggers: `quality-gates.yml` validates queued `staging` merges with the full rubric, and
+`release-hygiene.yml` validates queued `premain`/`main` promotion or release-please merges with release hygiene. The live
+GitHub setting is still operator-owned: require the merge queue and the corresponding checks in branch protection/rulesets
+before relying on the v2 lane.
+
 Branch roles:
 
 - **`staging`**: integration branch (all work lands here first)
@@ -115,8 +121,8 @@ Stable promotion path:
 - Do not start `premain` -> `main` promotion until the intended RC exists as a GitHub release that is published,
   non-draft, marked prerelease, backed by `refs/tags/vX.Y.Z-rc.N`, and complete with the required TypeScript/Python
   assets.
-- Open and merge the promotion PR from `premain` to `main`; do not create a local stable-normalization branch as the
-  normal path.
+- Open the promotion PR from `premain` to `main` and merge it through the merge queue; do not create a local
+  stable-normalization branch as the normal path.
 - After the `premain` -> `main` promotion merges, `main` may briefly contain a single-manifest RC. This state is allowed
   only until `.github/workflows/release-pr.yml` opens the stable release-please PR and that PR merges.
 - Pending stable promotion is explicit automation state only:
@@ -139,6 +145,8 @@ Stable promotion path:
 
 Release watchpoints and stop conditions:
 
+- Stop if live GitHub branch protection/rulesets do not require the merge queue and the queue-compatible
+  `Quality Gates (10/10 Rubric)` / `Release Hygiene` checks for their protected target branches.
 - Stop if `main` carries an RC manifest outside explicit single-manifest pending stable promotion.
 - Stop if `.release-please-manifest.json` is an RC version on `staging`, or if the retired
   `.release-please-manifest.premain.json` appears on release branches.

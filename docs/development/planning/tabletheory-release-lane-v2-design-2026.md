@@ -1,7 +1,9 @@
 # TableTheory release-lane v2 design (single manifest preparatory gate)
 
-Status: **design only**. This document satisfies TTIP-110 / THE-2448 and does not implement TTIP-111, TTIP-112, or
-TTIP-113. The next implementation item must not start until the maintainer explicitly signs off on this design.
+Status: **design record with implementation follow-ups**. This document was authored for TTIP-110 / THE-2448. TTIP-111 /
+THE-2449 implemented the single-manifest lane in repo-owned workflows and guards; TTIP-112 / THE-2450 implements the
+merge-queue workflow triggers and provenance-guard disposition below. TTIP-113 remains the cleanup item for retiring
+superseded scripts after the v2 lane soaks.
 
 ## Purpose
 
@@ -90,6 +92,17 @@ implementation PRs merge:
 If merge queue is unavailable, the fallback is a documented manual merge freeze: one release-lane PR open at a time, no
 parallel promotion/release-please merges, and a fresh strict release-lane verification immediately before merge.
 
+THE-2450 repo-owned implementation:
+
+- `.github/workflows/quality-gates.yml` has a `merge_group` trigger for queued `staging` merges.
+- `.github/workflows/release-hygiene.yml` has a `merge_group` trigger for queued `premain` and `main` merges and validates
+  the queued ref with release-cycle and supply-chain checks. On queued `main` merge groups, it accepts the same explicit
+  pending-stable-promotion state that a `premain` -> `main` promotion PR creates.
+- Pull-request provenance still rejects forks/name-spoofing and illegal release-lane source branches before checking out
+  PR-head code. The prior live-ref equality check is not required in the normal PR path because the merge queue validates
+  freshness against the protected branch tip; it remains available as the strict manual-freeze fallback.
+- Live GitHub branch-protection/ruleset changes are operator-owned and cannot be completed through a normal signed PR.
+
 ## Guard disposition map
 
 | Current guard / artifact | Current purpose | v2 disposition | Successor / rationale |
@@ -126,6 +139,17 @@ parallel promotion/release-please merges, and a fresh strict release-lane verifi
 | `gov-infra/verifiers/gov-verify-rubric.sh` COM-8 | Rubric release supply-chain gate | **Keep, update call graph only** | COM-8 remains the release-lane gate identity. |
 | `AGENTS.md` release policy | Operator/steward instructions | **Keep, update** | Must describe v2 after implementation; this design is not enough to change the live policy yet. |
 | `docs/development/planning/theorydb-branch-release-policy.md` | Current operator release policy | **Keep, update after sign-off** | Update only with the implementation PR so docs and automation change together. |
+
+THE-2450 guard disposition details:
+
+| Guard / threat | THE-2450 disposition | Rationale / successor |
+| --- | --- | --- |
+| Fork or name-spoofed release-lane PR checks out untrusted code | **Retained** | `release-hygiene.yml` still runs `verify-release-lane-provenance.sh` from the trusted base checkout before PR-head checkout. |
+| Illegal `premain`/`main` source branch or RC/stable release-please title shape | **Retained** | `verify-release-lane-provenance.sh` still allows only `staging`/generated RC heads for `premain` and `premain`/generated stable heads for `main`. |
+| Human promotion lacks release intent / lets release-please report "No user facing commits" | **Retained** | `verify-promotion-release-driver.sh` still runs on `staging` -> `premain` and `premain` -> `main` PRs. |
+| PR-event base/head SHA must equal current live branch refs | **Covered by queue semantics in normal path; retained for fallback** | The protected branch merge queue validates the queued merge ref against the target branch tip before merge. The strict live-ref check remains the default in `verify-release-lane-provenance.sh` for manual-freeze fallback; the workflow uses `--queue-freshness`. |
+| Release-cycle state, supply-chain scaffolding, main RC release-PR postcondition | **Retained and extended to queue refs** | `release-hygiene.yml` runs these checks on both PR-head checkouts and `merge_group` queue refs. |
+| Stable-promotion single-manifest RC on queued `main` merge group | **Replaced by kept pending-promotion check** | Queue validation first tries strict stable state, then accepts only explicit pending stable promotion mode for queued `main` refs. |
 
 ## Dry-run protocol for TTIP-111
 
@@ -177,15 +201,16 @@ Rollback stays PR-based and never reuses an immutable release version:
 5. `scripts/prepare-stable-promotion.sh` and the current two-manifest docs remain available until v2 completes one full
    RC-to-stable soak; remove them only in the follow-up cleanup item after the maintainer accepts the soak evidence.
 
-## Maintainer sign-off gate before TTIP-111
+## Historical maintainer sign-off gate before TTIP-111
 
-Required sign-off text before starting THE-2449 / TTIP-111:
+This sign-off text was required before starting THE-2449 / TTIP-111:
 
 > I approve TableTheory release-lane v2 implementation against
 > `docs/development/planning/tabletheory-release-lane-v2-design-2026.md`, including the single-manifest plan, generated
 > TS/Py release-build versions, merge-queue requirement, dry-run protocol, rollback plan, and between-cycles execution
 > window.
 
-Without that explicit sign-off, the correct next action is to keep THE-2449, THE-2450, and THE-2451 blocked and report the
-missing approval. Implementation pressure to consolidate release-please manifests, rewrite workflows, or remove guards
-before sign-off is scope creep and must stop.
+The Factory/operator THE-2450 assignment supersedes the remaining "do not start" language for this implementation path:
+release-cycle proof is a release execution/readiness gate, not an implementation prerequisite. If live branch-protection
+or merge-queue settings cannot be changed through PR files, the implementation reports the exact operator-owned setting
+that remains.
