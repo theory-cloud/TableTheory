@@ -23,7 +23,7 @@ pip install \
   https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/tabletheory_py-X.Y.ZrcN-py3-none-any.whl
 ```
 
-The **release wheel asset** is `tabletheory_py-X.Y.Z-py3-none-any.whl`; the **canonical importable module** inside that wheel is `tabletheory_py`. Use `from tabletheory_py import …` in your application code. The legacy `theorydb_py` import path remains only as a `DeprecationWarning` shim for transition diagnostics.
+The **release wheel asset** is `tabletheory_py-X.Y.Z-py3-none-any.whl`; the **canonical importable module** inside that wheel is `tabletheory_py`. Use `from tabletheory_py import …` in your application code. The legacy `theorydb_py` import path is removed in v2.
 
 ### Find and automate release updates
 
