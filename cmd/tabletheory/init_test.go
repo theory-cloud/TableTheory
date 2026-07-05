@@ -30,6 +30,11 @@ func TestInitScaffoldGo(t *testing.T) {
 	main := readFile(t, filepath.Join(dir, "main.go"))
 	require.Contains(t, main, "func (Note) TableName() string")
 	require.Contains(t, main, "db.Model(note).Create()")
+	require.Contains(t, main, `db.Model(&got).Update("title")`)
+	require.Contains(t, main, "does not mutate got.Version")
+	require.Contains(t, main, "read after update")
+	require.Contains(t, main, "persistedVersion=%d")
+	require.NotContains(t, main, `updated note %s (version %d)`)
 	require.Contains(t, main, "OK: TableTheory CRUD against DynamoDB Local succeeded")
 
 	// The generated DMS must be valid.

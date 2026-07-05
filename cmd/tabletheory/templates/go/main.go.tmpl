@@ -60,15 +60,21 @@ func main() {
 	fmt.Printf("read note: title=%q value=%d version=%d\n", got.Title, got.Value, got.Version)
 
 	got.Title = "Hello TableTheory (updated)"
-	if err := db.Model(&got).Update(); err != nil {
+	if err := db.Model(&got).Update("title"); err != nil {
 		log.Fatalf("update: %v", err)
 	}
-	fmt.Printf("updated note %s (version %d)\n", got.PK, got.Version)
+	// Update succeeds with the read version but does not mutate got.Version;
+	// re-read to show the persisted optimistic-lock version increment.
+	var updated Note
+	if err := db.Model(&Note{}).Where("PK", "=", got.PK).Where("SK", "=", got.SK).First(&updated); err != nil {
+		log.Fatalf("read after update: %v", err)
+	}
+	fmt.Printf("updated note: title=%q persistedVersion=%d\n", updated.Title, updated.Version)
 
-	if err := db.Model(&Note{}).Where("PK", "=", "NOTE#1").Where("SK", "=", "v1").Delete(); err != nil {
+	if err := db.Model(&Note{}).Where("PK", "=", updated.PK).Where("SK", "=", updated.SK).Delete(); err != nil {
 		log.Fatalf("delete: %v", err)
 	}
-	fmt.Printf("deleted note %s\n", got.PK)
+	fmt.Printf("deleted note %s\n", updated.PK)
 
 	fmt.Println("OK: TableTheory CRUD against DynamoDB Local succeeded")
 }
