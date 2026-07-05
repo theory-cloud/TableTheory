@@ -146,22 +146,20 @@ Migration checklist:
 4. Validate against the release candidate before stable promotion; this is an additive migration and should not require a
    data migration.
 
-## Go `MainExecutor` compatibility deprecation
+## Go `MainExecutor` removal
 
-`pkg/query.MainExecutor` and `pkg/query.NewExecutor` are deprecated in the 1.x line as a compatibility and test seam.
-Production callers should construct models through `tabletheory.New(...)`, `tabletheory.LambdaInit(...)`, and
-`DB.Model(...)`/`tabletheory.Model(...)` so operations use the maintained runtime executor path.
+`pkg/query.MainExecutor`, `pkg/query.NewExecutor`, and the legacy `pkg/query.DynamoDBAPI` executor seam were deprecated in
+the 1.x line as compatibility/test seams and are removed by the v2 readiness branch. Production callers should construct
+models through `tabletheory.New(...)`, `tabletheory.LambdaInit(...)`, and `DB.Model(...)`/`tabletheory.Model(...)` so
+operations use the maintained runtime executor path.
 
-The deprecation is additive: no 1.x API is removed, and existing tests or compatibility shims can continue to compile.
-The planned removal belongs to the next major version after the deprecation window. If application code constructs
-`query.NewExecutor(...)` directly, migrate that construction to a normal TableTheory `DB`/model flow before adopting the
-next major release.
+If application code constructs `query.NewExecutor(...)` directly, migrate that construction to a normal TableTheory
+`DB`/model flow before adopting v2. If tests used `MainExecutor` only for DynamoDB AttributeValue unmarshaling coverage,
+call `query.UnmarshalItem(...)` or `query.UnmarshalItems(...)` directly; if tests need behavior, use `NewWithClient(...)`
+with `pkg/testing/fakedb` or another implementation of the public `tabletheory.DynamoDBAPI` seam.
 
-Implementation note: the 1.x Go doc comments intentionally use compatibility-deprecation prose instead of the standard
-Go `Deprecated:` marker. Adding the marker now would make staticcheck/IDE deprecation signals fire on the in-repository
-compatibility coverage that still exercises `MainExecutor`, requiring broad test-only suppressions. Add the standard
-marker on the v2 removal train, or earlier only after those compatibility tests no longer need to call the legacy
-executor directly.
+See the v2 migration guide at [`docs/migration/v2.md`](./migration/v2.md#6-go-query-executor-mainexecutor-is-removed)
+for exact rewrites and downstream coordination.
 
 ## M6 Go Contract-Parity Compatibility Notes
 

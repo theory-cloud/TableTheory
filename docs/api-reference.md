@@ -151,13 +151,10 @@ type CostEstimate struct{ ... }
 type Cursor struct{ ... }
     func DecodeCursor(encoded string) (*Cursor, error)
 type DeleteItemExecutor interface{ ... }
-type DynamoDBAPI interface{ ... }
 type Filter struct{ ... }
 type GetItemExecutor interface{ ... }
 type GroupByQuery struct{ ... }
 type GroupedResult struct{ ... }
-type MainExecutor struct{ ... }
-    func NewExecutor(client DynamoDBAPI, ctx context.Context) *MainExecutor
 type Operator string
     const OpEqual Operator = "=" ...
     const OpEQ Operator = "EQ" ...
