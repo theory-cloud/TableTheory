@@ -37,22 +37,16 @@ type ExtendedDB interface {
 	DB
 
 	// AutoMigrateWithOptions performs enhanced auto-migration with data copy support
-	//
-	// Deprecation notice: use TypedExtendedDB.AutoMigrateWithTypedOptions when the
-	// concrete option type is available. This opts ...any compatibility surface is
-	// planned for removal in v2.
-	AutoMigrateWithOptions(model any, opts ...any) error
+	// using concrete schema.AutoMigrateOption values.
+	AutoMigrateWithOptions(model any, opts ...schema.AutoMigrateOption) error
 
 	// RegisterTypeConverter registers a custom converter for a specific Go type, allowing
 	// callers to override how values are marshaled to and unmarshaled from DynamoDB.
 	RegisterTypeConverter(typ reflect.Type, converter pkgTypes.CustomConverter) error
 
-	// CreateTable creates a DynamoDB table for the given model
-	//
-	// Deprecation notice: use TypedExtendedDB.CreateTableWithOptions when the
-	// concrete option type is available. This opts ...any compatibility surface is
-	// planned for removal in v2.
-	CreateTable(model any, opts ...any) error
+	// CreateTable creates a DynamoDB table for the given model using concrete
+	// schema.TableOption values.
+	CreateTable(model any, opts ...schema.TableOption) error
 
 	// EnsureTable checks if a table exists for the model and creates it if not
 	EnsureTable(model any) error
@@ -78,10 +72,9 @@ type ExtendedDB interface {
 	TransactWrite(ctx context.Context, fn func(TransactionBuilder) error) error
 }
 
-// TypedExtendedDB is an additive extension interface for callers that want
-// concrete option types instead of the legacy opts ...any compatibility methods.
-// It is intentionally separate from ExtendedDB so existing mocks and custom
-// implementations remain source-compatible.
+// TypedExtendedDB is a compatibility extension interface for callers that adopted
+// the v1.x typed option method names. ExtendedDB now also requires concrete
+// option types directly.
 type TypedExtendedDB interface {
 	ExtendedDB
 

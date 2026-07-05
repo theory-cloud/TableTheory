@@ -326,53 +326,21 @@ func (db *DB) AutoMigrate(models ...any) error {
 	return nil
 }
 
-// AutoMigrateWithOptions performs enhanced auto-migration with data copy support.
-//
-// Deprecation notice: use AutoMigrateWithTypedOptions when the concrete
-// schema.AutoMigrateOption type is available. This opts ...any compatibility
-// surface is planned for removal in v2.
-func (db *DB) AutoMigrateWithOptions(model any, opts ...any) error {
-	// Convert opts to the expected type
-	var options []schema.AutoMigrateOption
-	for _, opt := range opts {
-		if option, ok := opt.(schema.AutoMigrateOption); ok {
-			options = append(options, option)
-		} else {
-			return fmt.Errorf("invalid option type: expected schema.AutoMigrateOption, got %T", opt)
-		}
-	}
-
-	return db.AutoMigrateWithTypedOptions(model, options...)
-}
-
-// AutoMigrateWithTypedOptions performs enhanced auto-migration with concrete
-// schema.AutoMigrateOption values.
-func (db *DB) AutoMigrateWithTypedOptions(model any, opts ...schema.AutoMigrateOption) error {
+// AutoMigrateWithOptions performs enhanced auto-migration with data copy support
+// using concrete schema.AutoMigrateOption values.
+func (db *DB) AutoMigrateWithOptions(model any, opts ...schema.AutoMigrateOption) error {
 	manager := schema.NewManager(db.session, db.registry)
 	return manager.AutoMigrateWithOptions(model, opts...)
 }
 
-// CreateTable creates a DynamoDB table for the given model.
-//
-// Deprecation notice: use CreateTableWithOptions when the concrete
-// schema.TableOption type is available. This opts ...any compatibility surface
-// is planned for removal in v2.
-func (db *DB) CreateTable(model any, opts ...any) error {
-	// Convert opts to the expected type
-	var options []schema.TableOption
-	for _, opt := range opts {
-		if option, ok := opt.(schema.TableOption); ok {
-			options = append(options, option)
-		} else {
-			return fmt.Errorf("invalid option type: expected schema.TableOption, got %T", opt)
-		}
-	}
-
-	return db.CreateTableWithOptions(model, options...)
+// AutoMigrateWithTypedOptions preserves the v1.x typed-option method name.
+func (db *DB) AutoMigrateWithTypedOptions(model any, opts ...schema.AutoMigrateOption) error {
+	return db.AutoMigrateWithOptions(model, opts...)
 }
 
-// CreateTableWithOptions creates a DynamoDB table with concrete schema.TableOption values.
-func (db *DB) CreateTableWithOptions(model any, opts ...schema.TableOption) error {
+// CreateTable creates a DynamoDB table for the given model using concrete
+// schema.TableOption values.
+func (db *DB) CreateTable(model any, opts ...schema.TableOption) error {
 	// Register model first
 	if err := db.registry.Register(model); err != nil {
 		return fmt.Errorf("failed to register model %T: %w", model, err)
@@ -380,6 +348,11 @@ func (db *DB) CreateTableWithOptions(model any, opts ...schema.TableOption) erro
 
 	manager := schema.NewManager(db.session, db.registry)
 	return manager.CreateTable(model, opts...)
+}
+
+// CreateTableWithOptions preserves the v1.x typed-option method name.
+func (db *DB) CreateTableWithOptions(model any, opts ...schema.TableOption) error {
+	return db.CreateTable(model, opts...)
 }
 
 // EnsureTable checks if a table exists for the model and creates it if not

@@ -106,7 +106,6 @@ func TestDB_CreateTableAndEnsureTable_InvalidInputs_COV5(t *testing.T) {
 	db := mustDB(t, dbAny)
 
 	require.Error(t, db.CreateTable(123))
-	require.Error(t, db.CreateTable(&cov4RootItem{}, "not-a-table-option"))
 	require.Error(t, db.EnsureTable(123))
 }
 

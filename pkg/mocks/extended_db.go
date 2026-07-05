@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/theory-cloud/tabletheory/pkg/core"
+	"github.com/theory-cloud/tabletheory/pkg/schema"
 	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
 )
 
@@ -32,8 +33,8 @@ type MockExtendedDB struct {
 // Ensure MockExtendedDB implements ExtendedDB at compile time
 var _ core.ExtendedDB = (*MockExtendedDB)(nil)
 
-// AutoMigrateWithOptions performs enhanced auto-migration with options
-func (m *MockExtendedDB) AutoMigrateWithOptions(model any, opts ...any) error {
+// AutoMigrateWithOptions performs enhanced auto-migration with typed options
+func (m *MockExtendedDB) AutoMigrateWithOptions(model any, opts ...schema.AutoMigrateOption) error {
 	args := m.Called(model, opts)
 	return args.Error(0)
 }
@@ -45,7 +46,7 @@ func (m *MockExtendedDB) RegisterTypeConverter(typ reflect.Type, converter pkgTy
 }
 
 // CreateTable creates a DynamoDB table for the given model
-func (m *MockExtendedDB) CreateTable(model any, opts ...any) error {
+func (m *MockExtendedDB) CreateTable(model any, opts ...schema.TableOption) error {
 	args := m.Called(model, opts)
 	return args.Error(0)
 }
