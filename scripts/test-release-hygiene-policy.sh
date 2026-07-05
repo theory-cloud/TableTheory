@@ -204,7 +204,11 @@ expect_success_contains \
 
 pending_fixture="$(mktemp -d)"
 tmpdirs+=("${pending_fixture}")
-mkdir -p "${pending_fixture}/ts" "${pending_fixture}/py/src/tabletheory_py"
+mkdir -p \
+  "${pending_fixture}/.github/workflows" \
+  "${pending_fixture}/scripts" \
+  "${pending_fixture}/ts" \
+  "${pending_fixture}/py/src/tabletheory_py"
 cat >"${pending_fixture}/.release-please-manifest.json" <<'JSON'
 {".":"1.10.1-rc.1"}
 JSON
@@ -217,11 +221,31 @@ JSON
 cat >"${pending_fixture}/py/src/tabletheory_py/version.json" <<'JSON'
 {"version":"1.10.0"}
 JSON
+touch \
+  "${pending_fixture}/.github/workflows/release-hygiene.yml" \
+  "${pending_fixture}/scripts/prepare-release-package-versions.py" \
+  "${pending_fixture}/scripts/verify-release-package-version-assets.py" \
+  "${pending_fixture}/scripts/watch-release-cycle.sh"
 
 run_in_pending_fixture() (
   cd "${pending_fixture}"
   "$@"
 )
+
+expect_success_contains \
+  "rc=1.10.1-rc.1" \
+  env \
+    GITHUB_BASE_REF=main \
+    GITHUB_HEAD_REF=premain \
+    RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true \
+    RELEASE_CYCLE_REPO_ROOT="${pending_fixture}" \
+    bash "${repo_root}/scripts/verify-release-cycle-state.sh"
+
+expect_failure_contains \
+  "must be an absolute path" \
+  env \
+    RELEASE_CYCLE_REPO_ROOT=relative-target \
+    bash "${repo_root}/scripts/verify-release-cycle-state.sh"
 
 expect_success_contains \
   "premain -> main pending stable promotion 1.10.1-rc.1 -> 1.10.1" \
@@ -330,6 +354,32 @@ grep -Fq "pending stable promotion accepted on queued main merge group" "${repo_
 
 grep -Fq "../trusted-release/scripts/verify-promotion-release-driver.sh" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: promotion driver must run from trusted checkout"
+  exit 1
+}
+
+grep -Fq "Verify release-hygiene bootstrap scope" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: main bootstrap PRs must have a scoped hygiene guard"
+  exit 1
+}
+
+grep -Fq "fix/release-hygiene-main-bootstrap-" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: main bootstrap guard must be branch-scoped"
+  exit 1
+}
+
+grep -Fq "pulls/\${PR_NUMBER}/files" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: main bootstrap guard must inspect PR changed files"
+  exit 1
+}
+
+bootstrap_scope_section="$(sed -n '/Verify release-hygiene bootstrap scope/,/Verify release-lane same-repository provenance/p' "${repo_root}/.github/workflows/release-hygiene.yml")"
+grep -Fq "scripts/verify-release-cycle-state.sh" <<<"${bootstrap_scope_section}" || {
+  echo "release-hygiene-policy-test: main bootstrap guard must allow verify-release-cycle-state bootstrap repairs"
+  exit 1
+}
+
+grep -Fq 'RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr' "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release cycle state must validate the checked-out PR head"
   exit 1
 }
 
