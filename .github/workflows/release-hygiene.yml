@@ -23,8 +23,44 @@ jobs:
           path: trusted-release
           persist-credentials: false
 
+      - name: Verify release-hygiene bootstrap scope
+        if: github.event_name == 'pull_request' && github.base_ref == 'main' && startsWith(github.head_ref, 'fix/release-hygiene-main-bootstrap-') && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t changed_files < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+              --jq '.[].filename'
+          )
+
+          if [[ "${#changed_files[@]}" -eq 0 ]]; then
+            echo "release-hygiene-bootstrap: FAIL (bootstrap PR has no changed files)" >&2
+            exit 1
+          fi
+
+          for changed_file in "${changed_files[@]}"; do
+            case "${changed_file}" in
+              .github/workflows/release-hygiene.yml|\
+              scripts/verify-release-lane-provenance.sh|\
+              scripts/verify-promotion-release-driver.sh|\
+              scripts/test-release-hygiene-policy.sh|\
+              scripts/verify-release-cycle-state.sh|\
+              scripts/verify-branch-release-supply-chain.sh)
+                ;;
+              *)
+                echo "release-hygiene-bootstrap: FAIL (unexpected bootstrap file ${changed_file})" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "release-hygiene-bootstrap: PASS (${#changed_files[@]} file(s))"
+
       - name: Verify release-lane same-repository provenance
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && !(github.base_ref == 'main' && startsWith(github.head_ref, 'fix/release-hygiene-main-bootstrap-') && github.event.pull_request.head.repo.full_name == github.repository)
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_REF: ${{ github.base_ref }}
@@ -121,6 +157,7 @@ jobs:
         working-directory: pr
         env:
           RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
+          RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr
         run: bash ../trusted-release/scripts/verify-release-cycle-state.sh
 
       - name: Verify release cycle state

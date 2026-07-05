@@ -1,19 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CI-safe local release-cycle checks. This verifier is intentionally local: it
-# fails on checked-out forbidden stable state and on missing guardrails, while
-# remote branch drift is reported by scripts/watch-release-cycle.sh.
+# CI-safe local release-cycle checks. By default this verifier validates the
+# checkout that contains the trusted script. Release Hygiene may pass an explicit
+# target checkout root after same-repository provenance verification so trusted
+# base scripts inspect PR-head files without executing PR-head scripts. Remote
+# branch drift is reported by scripts/watch-release-cycle.sh.
 
-repo_root=""
+failures=0
+
+fail() {
+  echo "release-cycle-state: FAIL ($1)"
+  failures=$((failures + 1))
+}
 
 usage() {
   cat <<'USAGE'
-Usage: bash scripts/verify-release-cycle-state.sh [--repo-root PATH]
+Usage: bash scripts/verify-release-cycle-state.sh [--repo-root ABSOLUTE_PATH]
 
---repo-root PATH  Evaluate a different checkout root (used by policy self-tests).
+Options:
+  --repo-root ABSOLUTE_PATH  Validate this checkout root instead of the script checkout.
+  -h, --help                Show this help.
 USAGE
 }
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+script_repo_root="$(cd "${script_dir}/.." && pwd -P)"
+source "${script_dir}/lib/release-cycle-core.sh"
+
+repo_root="${script_repo_root}"
+explicit_repo_root="${RELEASE_CYCLE_REPO_ROOT:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,7 +38,7 @@ while [[ $# -gt 0 ]]; do
         echo "release-cycle-state: FAIL (--repo-root requires a value)" >&2
         exit 2
       fi
-      repo_root="$2"
+      explicit_repo_root="$2"
       shift 2
       ;;
     -h|--help)
@@ -37,19 +53,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -z "${repo_root}" ]]; then
-  repo_root="$(cd "${script_dir}/.." && pwd)"
+if [[ -n "${explicit_repo_root}" ]]; then
+  if [[ "${explicit_repo_root}" != /* ]]; then
+    echo "release-cycle-state: FAIL (--repo-root/RELEASE_CYCLE_REPO_ROOT must be an absolute path)" >&2
+    exit 2
+  fi
+  if [[ ! -d "${explicit_repo_root}" ]]; then
+    echo "release-cycle-state: FAIL (--repo-root/RELEASE_CYCLE_REPO_ROOT does not exist: ${explicit_repo_root})" >&2
+    exit 2
+  fi
+  repo_root="$(cd "${explicit_repo_root}" && pwd -P)"
 fi
-source "${script_dir}/lib/release-cycle-core.sh"
+
 cd "${repo_root}"
-
-failures=0
-
-fail() {
-  echo "release-cycle-state: FAIL ($1)"
-  failures=$((failures + 1))
-}
 
 require_file() {
   local path="$1"
