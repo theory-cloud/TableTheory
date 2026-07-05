@@ -76,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          bash trusted-release/scripts/verify-release-lane-provenance.sh \
+          provenance_args=(
             --repo "${GITHUB_REPOSITORY}" \
             --base "${BASE_REF}" \
             --head "${HEAD_REF}" \
@@ -84,8 +84,16 @@ jobs:
             --head-repo "${HEAD_REPOSITORY}" \
             --base-sha "${BASE_SHA}" \
             --head-sha "${HEAD_SHA}" \
-            --title "${PR_TITLE}" \
-            --queue-freshness
+            --title "${PR_TITLE}"
+          )
+
+          if bash trusted-release/scripts/verify-release-lane-provenance.sh --help | grep -Fq -- "--queue-freshness"; then
+            provenance_args+=(--queue-freshness)
+          else
+            echo "release-lane-provenance: trusted base script lacks --queue-freshness; using strict live-ref freshness"
+          fi
+
+          bash trusted-release/scripts/verify-release-lane-provenance.sh "${provenance_args[@]}"
 
       - name: Checkout pull request head after provenance verification
         if: github.event_name == 'pull_request'
