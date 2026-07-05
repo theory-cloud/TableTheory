@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -111,11 +110,6 @@ type MockDB struct {
 func (m *MockDB) Model(model any) Query {
 	args := m.Called(model)
 	return mustQuery(args.Get(0))
-}
-
-func (m *MockDB) Transaction(fn func(tx *Tx) error) error {
-	args := m.Called(fn)
-	return args.Error(0)
 }
 
 func (m *MockDB) Migrate() error {
@@ -429,111 +423,6 @@ func (m *MockUpdateBuilder) Execute() error {
 func (m *MockUpdateBuilder) ExecuteWithResult(result any) error {
 	args := m.Called(result)
 	return args.Error(0)
-}
-
-// TestTx tests the Tx transaction type
-func TestTx(t *testing.T) {
-	t.Run("Model", func(t *testing.T) {
-		mockDB := new(MockDB)
-		tx := &Tx{db: mockDB}
-		mockQuery := new(MockQuery)
-		model := struct{ ID string }{ID: "123"}
-
-		mockDB.On("Model", model).Return(mockQuery)
-
-		result := tx.Model(model)
-		assert.Equal(t, mockQuery, result)
-		mockDB.AssertExpectations(t)
-	})
-
-	t.Run("Create", func(t *testing.T) {
-		mockDB := new(MockDB)
-		tx := &Tx{db: mockDB}
-		mockQuery := new(MockQuery)
-		model := struct{ ID string }{ID: "123"}
-
-		mockDB.On("Model", model).Return(mockQuery)
-		mockQuery.On("Create").Return(nil)
-
-		err := tx.Create(model)
-		assert.NoError(t, err)
-		mockDB.AssertExpectations(t)
-		mockQuery.AssertExpectations(t)
-	})
-
-	t.Run("Create with error", func(t *testing.T) {
-		mockDB := new(MockDB)
-		tx := &Tx{db: mockDB}
-		mockQuery := new(MockQuery)
-		model := struct{ ID string }{ID: "123"}
-		expectedErr := errors.New("create failed")
-
-		mockDB.On("Model", model).Return(mockQuery)
-		mockQuery.On("Create").Return(expectedErr)
-
-		err := tx.Create(model)
-		assert.ErrorIs(t, err, expectedErr)
-	})
-
-	t.Run("Update", func(t *testing.T) {
-		mockDB := new(MockDB)
-		tx := &Tx{db: mockDB}
-		mockQuery := new(MockQuery)
-		model := struct{ ID string }{ID: "123"}
-		fields := []string{"name", "email"}
-
-		mockDB.On("Model", model).Return(mockQuery)
-		mockQuery.On("Update", fields).Return(nil)
-
-		err := tx.Update(model, fields...)
-		assert.NoError(t, err)
-		mockDB.AssertExpectations(t)
-		mockQuery.AssertExpectations(t)
-	})
-
-	t.Run("Update without fields", func(t *testing.T) {
-		mockDB := new(MockDB)
-		tx := &Tx{db: mockDB}
-		mockQuery := new(MockQuery)
-		model := struct{ ID string }{ID: "123"}
-
-		mockDB.On("Model", model).Return(mockQuery)
-		mockQuery.On("Update", mock.MatchedBy(func(fields []string) bool {
-			return len(fields) == 0
-		})).Return(nil)
-
-		err := tx.Update(model)
-		assert.NoError(t, err)
-	})
-
-	t.Run("Delete", func(t *testing.T) {
-		mockDB := new(MockDB)
-		tx := &Tx{db: mockDB}
-		mockQuery := new(MockQuery)
-		model := struct{ ID string }{ID: "123"}
-
-		mockDB.On("Model", model).Return(mockQuery)
-		mockQuery.On("Delete").Return(nil)
-
-		err := tx.Delete(model)
-		assert.NoError(t, err)
-		mockDB.AssertExpectations(t)
-		mockQuery.AssertExpectations(t)
-	})
-
-	t.Run("Delete with error", func(t *testing.T) {
-		mockDB := new(MockDB)
-		tx := &Tx{db: mockDB}
-		mockQuery := new(MockQuery)
-		model := struct{ ID string }{ID: "123"}
-		expectedErr := errors.New("delete failed")
-
-		mockDB.On("Model", model).Return(mockQuery)
-		mockQuery.On("Delete").Return(expectedErr)
-
-		err := tx.Delete(model)
-		assert.ErrorIs(t, err, expectedErr)
-	})
 }
 
 // TestPaginatedResult tests the PaginatedResult struct
@@ -892,60 +781,6 @@ func (mockWritePolicyProvider) WritePolicy() model.WritePolicy {
 func TestWritePolicyProviderInterface(t *testing.T) {
 	var provider WritePolicyProvider = mockWritePolicyProvider{}
 	assert.Equal(t, model.WritePolicyModeWriteOnce, provider.WritePolicy().Mode)
-}
-
-// TestDBTransaction tests transaction behavior
-func TestDBTransaction(t *testing.T) {
-	t.Run("Successful transaction", func(t *testing.T) {
-		mockDB := new(MockDB)
-		var txCalled bool
-		fn := func(tx *Tx) error {
-			txCalled = true
-			assert.NotNil(t, tx)
-			assert.Equal(t, mockDB, tx.db)
-			return nil
-		}
-
-		mockDB.On("Transaction", mock.MatchedBy(func(f func(tx *Tx) error) bool {
-			return f != nil
-		})).Return(nil).Run(func(args mock.Arguments) {
-			f, ok := args.Get(0).(func(tx *Tx) error)
-			if !ok {
-				t.Fatalf("expected function func(tx *Tx) error, got %T", args.Get(0))
-			}
-			if err := f(&Tx{db: mockDB}); err != nil {
-				t.Errorf("unexpected transaction error: %v", err)
-			}
-		})
-
-		err := mockDB.Transaction(fn)
-		assert.NoError(t, err)
-		assert.True(t, txCalled)
-		mockDB.AssertExpectations(t)
-	})
-
-	t.Run("Failed transaction", func(t *testing.T) {
-		mockDB := new(MockDB)
-		expectedErr := errors.New("transaction failed")
-		fn := func(tx *Tx) error {
-			return expectedErr
-		}
-
-		mockDB.On("Transaction", mock.MatchedBy(func(f func(tx *Tx) error) bool {
-			return f != nil
-		})).Return(expectedErr).Run(func(args mock.Arguments) {
-			f, ok := args.Get(0).(func(tx *Tx) error)
-			if !ok {
-				t.Fatalf("expected function func(tx *Tx) error, got %T", args.Get(0))
-			}
-			if err := f(&Tx{db: mockDB}); err != nil {
-				assert.ErrorIs(t, err, expectedErr)
-			}
-		})
-
-		err := mockDB.Transaction(fn)
-		assert.ErrorIs(t, err, expectedErr)
-	})
 }
 
 // TestQueryChaining tests the chainable nature of Query methods

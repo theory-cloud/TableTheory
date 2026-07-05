@@ -51,7 +51,7 @@ Every rubric item has exactly one verification mechanism:
 
 | ID | Points | Requirement | How to verify |
 | --- | ---: | --- | --- |
-| CON-1 | 4 | Go formatting is clean (no diffs) | `bash scripts/fmt-check.sh` |
+| CON-1 | 4 | Go formatting is clean (no diffs) | `bash scripts/verify-formatting.sh --language go` |
 | CON-2 | 6 | Lint stays green (static analysis + style budgets) | `golangci-lint run --timeout=5m --config .golangci-v2.yml` |
 
 **10/10 definition:** CON-1 and CON-2 pass.
@@ -65,7 +65,7 @@ Every rubric item has exactly one verification mechanism:
 | COM-1 | 2 | All Go modules in the repo compile (no broken nested modules) | `bash scripts/verify-go-modules.sh` |
 | COM-2 | 2 | CI toolchain aligns to repo expectations (no silent Go/lint drift) | `bash scripts/verify-ci-toolchain.sh` |
 | COM-3 | 2 | Lint configuration is schema-valid for golangci-lint v2 | `golangci-lint config verify -c .golangci-v2.yml` |
-| COM-4 | 2 | Coverage gate configuration is not diluted (default threshold ≥ 90%) | `bash scripts/verify-coverage-threshold.sh` |
+| COM-4 | 2 | Coverage gate configuration is not diluted (default threshold ≥ 90%) | `bash scripts/verify-coverage.sh --check-threshold-config` |
 | COM-5 | 1 | Security scan configuration is not diluted (no excluded high-signal gosec rules) | `bash scripts/verify-sec-gosec-config.sh` |
 | COM-6 | 1 | Logging standard enforcement stays green (Lift structured logging for app/runtime code) | `bash scripts/verify-logging-standards.sh` |
 
@@ -104,7 +104,7 @@ To keep grades stable over time, CI should run (at minimum):
 
 ```bash
 bash scripts/verify-planning-docs.sh
-bash scripts/fmt-check.sh
+bash scripts/verify-formatting.sh --language go
 golangci-lint run --timeout=5m --config .golangci-v2.yml
 golangci-lint config verify -c .golangci-v2.yml
 
@@ -114,7 +114,7 @@ bash scripts/verify-coverage.sh
 
 bash scripts/verify-go-modules.sh
 bash scripts/verify-ci-toolchain.sh
-bash scripts/verify-coverage-threshold.sh
+bash scripts/verify-coverage.sh --check-threshold-config
 bash scripts/verify-sec-gosec-config.sh
 bash scripts/verify-logging-standards.sh
 

@@ -1,0 +1,21 @@
+name: "p0.encryption.fail_closed"
+dms_version: "0.1"
+requires_capabilities: ["encryption.fail_closed"]
+model: "EncryptedRecord"
+table:
+  name: "encrypted_records_contract"
+steps:
+  - op: create
+    item:
+      PK: "ENC#fail"
+      SK: "PROFILE"
+      secret: "plaintext-must-not-write"
+    expect:
+      error: "ErrEncryptionNotConfigured"
+
+  - op: get
+    key:
+      PK: "ENC#fail"
+      SK: "PROFILE"
+    expect:
+      error: "ErrEncryptionNotConfigured"

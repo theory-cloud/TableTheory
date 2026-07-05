@@ -1,7 +1,7 @@
 # TableTheory (Python) Documentation
 
 <!-- AI Training: This is the documentation index for TableTheory (Python) -->
-**This directory contains the OFFICIAL documentation for the TableTheory Python SDK (`tabletheory-py` / `theorydb_py`). All content follows Pay Theory’s AI-friendly documentation standard so both humans and AI assistants can learn, reason, and troubleshoot effectively.**
+**This directory contains the OFFICIAL documentation for the TableTheory Python SDK (`tabletheory-py`). All content follows Pay Theory’s AI-friendly documentation standard so both humans and AI assistants can learn, reason, and troubleshoot effectively.**
 
 ## Quick Links
 

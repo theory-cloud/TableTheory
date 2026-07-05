@@ -18,7 +18,7 @@ Hard rules:
 
 Enforcement mechanism:
 
-- `bash scripts/verify-coverage-packages.sh` fails if:
+- `bash scripts/verify-coverage.sh --package-targets <targets.tsv>` fails if:
   - a package appears in `coverage.out` but is missing from the targets file (prevents omission), or
   - a package is in the targets file but missing from `coverage.out` (catches coverpkg drift).
 
@@ -26,12 +26,12 @@ Enforcement mechanism:
 
 1) Generate the coverage profile (unit + integration):
 ```bash
-bash scripts/coverage.sh
+bash scripts/verify-coverage.sh --language go --record-only
 ```
 
 2) Verify package-level milestone thresholds:
 ```bash
-bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-targets/k3-cov-1.tsv
+bash scripts/verify-coverage.sh --package-targets docs/planning/coverage-targets/k3-cov-1.tsv
 ```
 
 3) Final rubric gate (overall threshold, currently 90%):
@@ -75,8 +75,8 @@ Each milestone is “done” only when its targets file passes.
 
 **Acceptance criteria**
 ```bash
-bash scripts/coverage.sh
-bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-targets/k3-cov-1.tsv
+bash scripts/verify-coverage.sh --language go --record-only
+bash scripts/verify-coverage.sh --package-targets docs/planning/coverage-targets/k3-cov-1.tsv
 ```
 
 ---
@@ -93,8 +93,8 @@ bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-target
 
 **Acceptance criteria**
 ```bash
-bash scripts/coverage.sh
-bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-targets/k3-cov-2.tsv
+bash scripts/verify-coverage.sh --language go --record-only
+bash scripts/verify-coverage.sh --package-targets docs/planning/coverage-targets/k3-cov-2.tsv
 ```
 
 ---
@@ -111,8 +111,8 @@ bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-target
 
 **Acceptance criteria**
 ```bash
-bash scripts/coverage.sh
-bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-targets/k3-cov-3.tsv
+bash scripts/verify-coverage.sh --language go --record-only
+bash scripts/verify-coverage.sh --package-targets docs/planning/coverage-targets/k3-cov-3.tsv
 ```
 
 ---
@@ -129,8 +129,8 @@ bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-target
 
 **Acceptance criteria**
 ```bash
-bash scripts/coverage.sh
-bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-targets/k3-cov-4.tsv
+bash scripts/verify-coverage.sh --language go --record-only
+bash scripts/verify-coverage.sh --package-targets docs/planning/coverage-targets/k3-cov-4.tsv
 ```
 
 ---
@@ -147,8 +147,8 @@ bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-target
 
 **Acceptance criteria**
 ```bash
-bash scripts/coverage.sh
-bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-targets/k3-cov-5.tsv
+bash scripts/verify-coverage.sh --language go --record-only
+bash scripts/verify-coverage.sh --package-targets docs/planning/coverage-targets/k3-cov-5.tsv
 ```
 
 ---
@@ -164,7 +164,7 @@ bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-target
 
 **Acceptance criteria**
 ```bash
-bash scripts/coverage.sh
-bash scripts/verify-coverage-packages.sh --targets docs/planning/coverage-targets/k3-cov-6.tsv
+bash scripts/verify-coverage.sh --language go --record-only
+bash scripts/verify-coverage.sh --package-targets docs/planning/coverage-targets/k3-cov-6.tsv
 bash scripts/verify-coverage.sh
 ```

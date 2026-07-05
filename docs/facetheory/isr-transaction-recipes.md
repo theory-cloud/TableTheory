@@ -144,7 +144,7 @@ TableTheory exports a small helper that implements the FaceTheory ISR metadata +
 
 ```ts
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { createFaceTheoryIsrMetaStore } from '@theory-cloud/tabletheory-ts';
+import { createFaceTheoryIsrMetaStore } from '@theory-cloud/tabletheory-ts/facetheory';
 
 const ddb = new DynamoDBClient({ region: process.env.AWS_REGION ?? 'us-east-1' });
 const isr = createFaceTheoryIsrMetaStore({

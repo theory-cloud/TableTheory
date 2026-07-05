@@ -1,3 +1,4 @@
+/** Result of an in-memory client-side aggregation over an already materialized item array. */
 export interface AggregateResult {
   min?: unknown;
   max?: unknown;
@@ -6,6 +7,7 @@ export interface AggregateResult {
   average: number;
 }
 
+/** Group produced by `GroupByQuery.execute()` after all source items have been materialized in memory. */
 export interface GroupedResult<T = Record<string, unknown>> {
   key: unknown;
   count: number;
@@ -27,6 +29,10 @@ interface HavingClause {
   value: unknown;
 }
 
+/**
+ * Client-side group-by helper. `execute()` loads the full source item set into memory,
+ * then keeps grouped items and aggregates in memory; use only for bounded result sets.
+ */
 export class GroupByQuery<T extends Record<string, unknown>> {
   private readonly aggregates: AggregateOp[] = [];
   private readonly havingClauses: HavingClause[] = [];
@@ -36,36 +42,43 @@ export class GroupByQuery<T extends Record<string, unknown>> {
     private readonly groupByField: string,
   ) {}
 
+  /** Adds a count aggregate computed in memory after the full source set is materialized. */
   count(alias: string): this {
     this.aggregates.push({ function: 'COUNT', field: '*', alias });
     return this;
   }
 
+  /** Adds a sum aggregate computed in memory after the full source set is materialized. */
   sum(field: string, alias: string): this {
     this.aggregates.push({ function: 'SUM', field, alias });
     return this;
   }
 
+  /** Adds an average aggregate computed in memory after the full source set is materialized. */
   avg(field: string, alias: string): this {
     this.aggregates.push({ function: 'AVG', field, alias });
     return this;
   }
 
+  /** Adds a minimum aggregate computed in memory after the full source set is materialized. */
   min(field: string, alias: string): this {
     this.aggregates.push({ function: 'MIN', field, alias });
     return this;
   }
 
+  /** Adds a maximum aggregate computed in memory after the full source set is materialized. */
   max(field: string, alias: string): this {
     this.aggregates.push({ function: 'MAX', field, alias });
     return this;
   }
 
+  /** Adds an in-memory having filter evaluated after groups and aggregates are materialized. */
   having(aggregate: string, operator: string, value: unknown): this {
     this.havingClauses.push({ aggregate, operator, value });
     return this;
   }
 
+  /** Materializes the full source set, groups it in memory, computes aggregates, and returns all groups. */
   async execute(): Promise<Array<GroupedResult<T>>> {
     const items = await this.items();
     const groups = new Map<string, GroupedResult<T>>();
@@ -103,6 +116,7 @@ export class GroupByQuery<T extends Record<string, unknown>> {
   }
 }
 
+/** Client-side sum over an already materialized item array; use only for bounded result sets. */
 export function sumField<T extends Record<string, unknown>>(
   items: T[],
   field: string,
@@ -116,6 +130,7 @@ export function sumField<T extends Record<string, unknown>>(
   return sum;
 }
 
+/** Client-side average over an already materialized item array; use only for bounded result sets. */
 export function averageField<T extends Record<string, unknown>>(
   items: T[],
   field: string,
@@ -134,6 +149,7 @@ export function averageField<T extends Record<string, unknown>>(
   return sum / count;
 }
 
+/** Client-side minimum over an already materialized item array; use only for bounded result sets. */
 export function minField<T extends Record<string, unknown>>(
   items: T[],
   field: string,
@@ -141,6 +157,7 @@ export function minField<T extends Record<string, unknown>>(
   return extremeValue(items, field, -1);
 }
 
+/** Client-side maximum over an already materialized item array; use only for bounded result sets. */
 export function maxField<T extends Record<string, unknown>>(
   items: T[],
   field: string,
@@ -148,6 +165,7 @@ export function maxField<T extends Record<string, unknown>>(
   return extremeValue(items, field, 1);
 }
 
+/** Client-side aggregate over an already materialized item array; use only for bounded result sets. */
 export function aggregateField<T extends Record<string, unknown>>(
   items: T[],
   field?: string,
@@ -189,6 +207,7 @@ export function aggregateField<T extends Record<string, unknown>>(
   return result;
 }
 
+/** Client-side distinct count over an already materialized item array; use only for bounded result sets. */
 export function countDistinct<T extends Record<string, unknown>>(
   items: T[],
   field: string,

@@ -5,17 +5,19 @@ from dataclasses import dataclass
 import pytest
 from botocore.exceptions import ClientError
 
-from theorydb_py import (
+from tabletheory_py import (
     EncryptionNotConfiguredError,
+    FilterCondition,
     ModelDefinition,
     NotFoundError,
     SortKeyCondition,
     Table,
     ValidationError,
+    VersionConflictError,
     theorydb_field,
 )
-from theorydb_py.model import Projection, gsi
-from theorydb_py.table import _backoff_seconds, _chunked, _map_client_error, _map_transaction_error
+from tabletheory_py.model import Projection, gsi
+from tabletheory_py.table import _backoff_seconds, _chunked, _map_client_error, _map_transaction_error
 
 
 @dataclass(frozen=True)
@@ -48,16 +50,31 @@ class _StubClient:
         self._update_attrs: dict | None = None
         self._items: list[dict] = []
         self._last_key: dict | None = None
+        self._count = 0
+        self._scanned_count = 0
+        self._get_error: Exception | None = None
 
     def set_get_item(self, item: dict | None) -> None:
         self._get_item = item
 
+    def set_get_error(self, err: Exception | None) -> None:
+        self._get_error = err
+
     def set_update_attrs(self, attrs: dict | None) -> None:
         self._update_attrs = attrs
 
-    def set_query_items(self, items: list[dict], *, last_key: dict | None = None) -> None:
+    def set_query_items(
+        self,
+        items: list[dict],
+        *,
+        last_key: dict | None = None,
+        count: int | None = None,
+        scanned_count: int | None = None,
+    ) -> None:
         self._items = items
         self._last_key = last_key
+        self._count = len(items) if count is None else count
+        self._scanned_count = self._count if scanned_count is None else scanned_count
 
     def put_item(self, **req):  # noqa: ANN001
         self.put_reqs.append(req)
@@ -65,6 +82,8 @@ class _StubClient:
 
     def get_item(self, **req):  # noqa: ANN001
         self.get_reqs.append(req)
+        if self._get_error is not None:
+            raise self._get_error
         return {"Item": self._get_item} if self._get_item is not None else {}
 
     def delete_item(self, **req):  # noqa: ANN001
@@ -77,16 +96,18 @@ class _StubClient:
 
     def query(self, **req):  # noqa: ANN001
         self.query_reqs.append(req)
-        out: dict = {"Items": self._items}
+        out: dict = {"Items": self._items, "Count": self._count, "ScannedCount": self._scanned_count}
         if self._last_key is not None:
             out["LastEvaluatedKey"] = self._last_key
+            self._last_key = None
         return out
 
     def scan(self, **req):  # noqa: ANN001
         self.scan_reqs.append(req)
-        out: dict = {"Items": self._items}
+        out: dict = {"Items": self._items, "Count": self._count, "ScannedCount": self._scanned_count}
         if self._last_key is not None:
             out["LastEvaluatedKey"] = self._last_key
+            self._last_key = None
         return out
 
 
@@ -133,6 +154,25 @@ def test_table_put_get_delete_update_happy_path_and_validation() -> None:
     with pytest.raises(NotFoundError):
         table.get("A", "1")
 
+    stub.set_get_item(table._to_item(Item(pk="A", sk="1", value=1)))
+    assert table.get_or_none("A", "1") == Item(pk="A", sk="1", value=1, note="")
+
+    stub.set_get_item(None)
+    assert table.get_or_none("A", "1") is None
+
+    stub.set_get_error(
+        ClientError({"Error": {"Code": "ValidationException", "Message": "real error"}}, "GetItem")
+    )
+    with pytest.raises(ValidationError, match="real error"):
+        table.get_or_none("A", "1")
+
+    stub.set_get_error(
+        ClientError({"Error": {"Code": "ResourceNotFoundException", "Message": "missing table"}}, "GetItem")
+    )
+    with pytest.raises(NotFoundError, match="missing table"):
+        table.get_or_none("A", "1")
+    stub.set_get_error(None)
+
     table.delete("A", "1", condition_expression="attribute_exists(PK)")
     assert stub.delete_reqs[0]["ConditionExpression"] == "attribute_exists(PK)"
 
@@ -144,6 +184,39 @@ def test_table_put_get_delete_update_happy_path_and_validation() -> None:
     stub.set_update_attrs(None)
     with pytest.raises(ValidationError, match="did not return Attributes"):
         table.update("A", "1", {"value": 3})
+
+
+def test_table_query_count_and_scan_count_use_select_count_without_materialization_controls() -> None:
+    model = ModelDefinition.from_dataclass(Item, table_name="tbl")
+    stub = _StubClient()
+    table: Table[Item] = Table(model, client=stub)
+    last_key = {"PK": {"S": "A"}, "SK": {"S": "1"}}
+    stub.set_query_items(
+        [table._to_item(Item(pk="A", sk="1", value=1))], last_key=last_key, count=2, scanned_count=5
+    )
+
+    query_count = table.query_count(
+        "A",
+        sort=SortKeyCondition.begins_with("ITEM#"),
+        limit=1,
+        projection=["PK"],
+        filter=FilterCondition.eq("value", 1),
+    )
+
+    assert query_count == 4
+    assert len(stub.query_reqs) == 2
+    assert stub.query_reqs[0]["Select"] == "COUNT"
+    assert "Limit" not in stub.query_reqs[0]
+    assert "ProjectionExpression" not in stub.query_reqs[0]
+    assert stub.query_reqs[1]["ExclusiveStartKey"] == last_key
+
+    stub.set_query_items([table._to_item(Item(pk="A", sk="1", value=1))], count=3, scanned_count=7)
+    scan_count = table.scan_count(limit=1, projection=["PK"], filter=FilterCondition.eq("value", 1))
+
+    assert scan_count == 3
+    assert stub.scan_reqs[0]["Select"] == "COUNT"
+    assert "Limit" not in stub.scan_reqs[0]
+    assert "ProjectionExpression" not in stub.scan_reqs[0]
 
 
 def test_table_populates_lifecycle_fields_and_initial_version() -> None:
@@ -293,6 +366,10 @@ def test_error_mapping_helpers() -> None:
     err = ClientError({"Error": {"Code": "ConditionalCheckFailedException", "Message": "no"}}, "PutItem")
     mapped = _map_client_error(err)
     assert mapped.__class__.__name__ == "ConditionFailedError"
+
+    version_mapped = _map_client_error(err, version_conflict=True)
+    assert isinstance(version_mapped, VersionConflictError)
+    assert version_mapped.__class__.__name__ == "VersionConflictError"
 
     tx_err = ClientError(
         {"Error": {"Code": "TransactionCanceledException", "Message": "ConditionalCheckFailed"}},

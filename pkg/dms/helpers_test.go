@@ -101,10 +101,18 @@ func TestDMSMetadataHelpers_CoverJSONAndValidationBranches(t *testing.T) {
 	}
 	require.Equal(t, []string{"created_at", "pk", "ttl"}, rolesFromField(field))
 
-	require.Equal(t, "snake_case", namingConventionString(naming.SnakeCase))
-	require.Equal(t, "pascalCase", namingConventionString(naming.PascalCase))
-	require.Equal(t, "dynamorm", namingConventionString(naming.DynamORM))
-	require.Equal(t, "camelCase", namingConventionString(naming.CamelCase))
+	got, err := namingConventionString(naming.SnakeCase)
+	require.NoError(t, err)
+	require.Equal(t, "snake_case", got)
+	got, err = namingConventionString(naming.PascalCase)
+	require.Error(t, err)
+	require.Empty(t, got)
+	got, err = namingConventionString(naming.DynamORM)
+	require.NoError(t, err)
+	require.Equal(t, "dynamorm", got)
+	got, err = namingConventionString(naming.CamelCase)
+	require.NoError(t, err)
+	require.Equal(t, "camelCase", got)
 
 	require.Equal(t, "B", scalarKeyTypeFromField(reflect.TypeOf([]byte{})))
 	require.Equal(t, "S", scalarKeyTypeFromField(reflect.TypeOf((chan int)(nil))))
@@ -118,7 +126,7 @@ func TestDMSMetadataHelpers_CoverJSONAndValidationBranches(t *testing.T) {
 	require.True(t, isSupportedJSONAttributeType("M"))
 	require.False(t, isSupportedJSONAttributeType("SS"))
 
-	_, err := validateModelAttributes(Model{
+	_, err = validateModelAttributes(Model{
 		Name: "Demo",
 		Attributes: []Attribute{
 			{Attribute: "blob", Type: "S", Binary: true},

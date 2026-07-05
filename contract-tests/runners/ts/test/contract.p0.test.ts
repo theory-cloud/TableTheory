@@ -6,7 +6,10 @@ import { fileURLToPath } from "node:url";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 
 import { loadModelsDir, loadScenariosDir } from "../src/load.js";
-import { TheorydbDriver } from "../src/driver.js";
+import {
+  TheorydbDriver,
+  encryptionProviderForScenario,
+} from "../src/driver.js";
 import { pingDynamo, runScenario } from "../src/runner.js";
 import { defineModel } from "../../../../ts/src/model.js";
 import type { Driver } from "../src/driver.js";
@@ -50,10 +53,13 @@ test("P0 contract scenarios (ts runner)", async (t) => {
   }
 
   const compiled = Array.from(models.values()).map((m) => defineModel(m));
-  const driver = new TheorydbDriver(ddb, compiled);
-
   for (const s of scenarios) {
     await t.test(s.name, async (st) => {
+      const driver = new TheorydbDriver(ddb, compiled, {
+        exactNumbers:
+          s.requires_capabilities?.includes("number.precision.exact") ?? false,
+        encryption: encryptionProviderForScenario(s.encryption),
+      });
       const missing = missingCapabilities(s, driver);
       if (missing.length > 0) {
         st.skip(

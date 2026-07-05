@@ -1,0 +1,163 @@
+name: "p2.transact_write_atomicity"
+dms_version: "0.1"
+requires_capabilities: ["transact.write"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item: { PK: "USER#TXW", SK: "ITEM#001", emailHash: "txw@example", nickname: "seed" }
+    expect: { ok: true }
+
+  - op: transact_write
+    transact_write:
+      actions:
+        - kind: "update"
+          key: { PK: "USER#TXW", SK: "ITEM#001" }
+          set: { nickname: "updated" }
+          condition_expression: "attribute_exists(PK)"
+        - kind: "put"
+          item: { PK: "USER#TXW", SK: "ITEM#002", emailHash: "txw@example", nickname: "created" }
+    expect: { ok: true }
+
+  - op: get
+    key: { PK: "USER#TXW", SK: "ITEM#001" }
+    expect:
+      ok: true
+      item_contains: { PK: "USER#TXW", SK: "ITEM#001", nickname: "updated" }
+
+  - op: get
+    key: { PK: "USER#TXW", SK: "ITEM#002" }
+    expect:
+      ok: true
+      item_contains: { PK: "USER#TXW", SK: "ITEM#002", nickname: "created" }
+
+  - op: transact_write
+    transact_write:
+      actions:
+        - kind: "update"
+          key: { PK: "USER#TXW", SK: "ITEM#001" }
+          set: { nickname: "should-not-write" }
+          condition_expression: "attribute_not_exists(PK)"
+        - kind: "put"
+          item: { PK: "USER#TXW", SK: "ITEM#003", emailHash: "txw@example", nickname: "rolled-back" }
+    expect:
+      error: "ErrConditionFailed"
+
+  - op: get
+    key: { PK: "USER#TXW", SK: "ITEM#001" }
+    expect:
+      ok: true
+      item_contains: { PK: "USER#TXW", SK: "ITEM#001", nickname: "updated" }
+
+  - op: get
+    key: { PK: "USER#TXW", SK: "ITEM#003" }
+    expect:
+      error: "ErrItemNotFound"
+
+  - op: transact_write
+    transact_write:
+      actions:
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+        - { kind: "condition", key: { PK: "USER#TXW", SK: "ITEM#001" }, condition_expression: "attribute_exists(PK)" }
+    expect:
+      error: "ErrInvalidOperator"

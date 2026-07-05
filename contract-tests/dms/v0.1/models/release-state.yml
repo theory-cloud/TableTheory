@@ -24,20 +24,25 @@ models:
       - attribute: "status"
         type: "S"
         optional: true
+        omit_empty: true
       - attribute: "pinnedReleaseId"
         type: "S"
         optional: true
+        omit_empty: true
       - attribute: "previousReleaseId"
         type: "S"
         optional: true
+        omit_empty: true
       - attribute: "provenance"
         type: "M"
         json: true
         optional: true
+        omit_empty: true
       - attribute: "confidence"
         type: "M"
         json: true
         optional: true
+        omit_empty: true
       - attribute: "updatedAt"
         type: "S"
         format: "rfc3339nano"
@@ -70,21 +75,26 @@ models:
       - attribute: "releaseId"
         type: "S"
         optional: true
+        omit_empty: true
       - attribute: "eventType"
         type: "S"
         optional: true
+        omit_empty: true
       - attribute: "provenance"
         type: "M"
         json: true
         optional: true
+        omit_empty: true
       - attribute: "confidence"
         type: "M"
         json: true
         optional: true
+        omit_empty: true
       - attribute: "recordedAt"
         type: "S"
         format: "rfc3339nano"
         optional: true
+        omit_empty: true
       - attribute: "ttl"
         type: "N"
         format: "unix_seconds"

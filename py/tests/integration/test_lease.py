@@ -6,8 +6,8 @@ import uuid
 import boto3
 import pytest
 
-from theorydb_py.errors import LeaseHeldError, LeaseNotOwnedError
-from theorydb_py.lease import LeaseManager
+from tabletheory_py.errors import LeaseHeldError, LeaseNotOwnedError
+from tabletheory_py.lease import LeaseManager
 
 
 def _dynamodb_endpoint() -> str:
@@ -25,7 +25,7 @@ def _client():
 
 
 def test_lease_two_contenders() -> None:
-    table_name = f"theorydb_py_lease_{uuid.uuid4().hex[:12]}"
+    table_name = f"tabletheory_py_lease_{uuid.uuid4().hex[:12]}"
     client = _client()
 
     client.create_table(

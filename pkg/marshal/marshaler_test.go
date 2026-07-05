@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory/pkg/model"
+	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
 // Test structures
@@ -778,4 +779,246 @@ func TestMarshalItem_DeepNestedStructures(t *testing.T) {
 
 	_, err := marshaler.MarshalItem(input, metadata)
 	require.NoError(t, err)
+}
+
+func requireAVB(t testing.TB, av types.AttributeValue) *types.AttributeValueMemberB {
+	t.Helper()
+	member, ok := av.(*types.AttributeValueMemberB)
+	require.True(t, ok, "expected *types.AttributeValueMemberB, got %T", av)
+	return member
+}
+
+func requireAVNS(t testing.TB, av types.AttributeValue) *types.AttributeValueMemberNS {
+	t.Helper()
+	member, ok := av.(*types.AttributeValueMemberNS)
+	require.True(t, ok, "expected *types.AttributeValueMemberNS, got %T", av)
+	return member
+}
+
+func requireAVBS(t testing.TB, av types.AttributeValue) *types.AttributeValueMemberBS {
+	t.Helper()
+	member, ok := av.(*types.AttributeValueMemberBS)
+	require.True(t, ok, "expected *types.AttributeValueMemberBS, got %T", av)
+	return member
+}
+
+func TestMarshalers_BinaryAndNumberSetSlices(t *testing.T) {
+	type binarySetItem struct {
+		ID            string
+		Blob          []byte
+		Numbers       []int64
+		UintNumbers   []uint64
+		Float32Nums   []float32
+		Float64Nums   []float64
+		Binaries      [][]byte
+		EmptyNumbers  []int64
+		EmptyBinaries [][]byte
+	}
+
+	input := binarySetItem{
+		ID:            "id-1",
+		Blob:          []byte{1, 2, 3},
+		Numbers:       []int64{9007199254740993, 42},
+		UintNumbers:   []uint64{9007199254740994, 7},
+		Float32Nums:   []float32{1.5, 2.25},
+		Float64Nums:   []float64{3.5, 4.75},
+		Binaries:      [][]byte{{4, 5}, {6, 7}},
+		EmptyNumbers:  []int64{},
+		EmptyBinaries: [][]byte{},
+	}
+
+	metadata := createMetadata(
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "ID", "id", reflect.TypeOf("")),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Blob", "blob", reflect.TypeOf([]byte{})),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Numbers", "numbers", reflect.TypeOf([]int64{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "UintNumbers", "uint_numbers", reflect.TypeOf([]uint64{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Float32Nums", "float32_nums", reflect.TypeOf([]float32{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Float64Nums", "float64_nums", reflect.TypeOf([]float64{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "Binaries", "binaries", reflect.TypeOf([][]byte{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "EmptyNumbers", "empty_numbers", reflect.TypeOf([]int64{}), withSet()),
+		createFieldMetadata(reflect.TypeOf(binarySetItem{}), "EmptyBinaries", "empty_binaries", reflect.TypeOf([][]byte{}), withSet()),
+	)
+
+	t.Run("unsafe marshaler", func(t *testing.T) {
+		out, err := New(nil).MarshalItem(input, metadata)
+		require.NoError(t, err)
+		assertBinaryAndSetAttributes(t, out)
+	})
+
+	t.Run("safe marshaler", func(t *testing.T) {
+		out, err := NewSafeMarshaler().MarshalItem(input, metadata)
+		require.NoError(t, err)
+		assertBinaryAndSetAttributes(t, out)
+	})
+}
+
+func assertBinaryAndSetAttributes(t testing.TB, out map[string]types.AttributeValue) {
+	t.Helper()
+	require.Equal(t, []byte{1, 2, 3}, requireAVB(t, out["blob"]).Value)
+	require.ElementsMatch(t, []string{"9007199254740993", "42"}, requireAVNS(t, out["numbers"]).Value)
+	require.ElementsMatch(t, []string{"9007199254740994", "7"}, requireAVNS(t, out["uint_numbers"]).Value)
+	require.ElementsMatch(t, []string{"1.5", "2.25"}, requireAVNS(t, out["float32_nums"]).Value)
+	require.ElementsMatch(t, []string{"3.5", "4.75"}, requireAVNS(t, out["float64_nums"]).Value)
+	require.ElementsMatch(t, [][]byte{{4, 5}, {6, 7}}, requireAVBS(t, out["binaries"]).Value)
+	require.True(t, requireAVNULL(t, out["empty_numbers"]).Value)
+	require.True(t, requireAVNULL(t, out["empty_binaries"]).Value)
+}
+
+func TestMarshaler_ClearCache(t *testing.T) {
+	var nilMarshaler *Marshaler
+	require.NotPanics(t, func() { nilMarshaler.ClearCache() })
+
+	type cacheItem struct {
+		ID string
+	}
+
+	metadata := createMetadata(
+		createFieldMetadata(reflect.TypeOf(cacheItem{}), "ID", "id", reflect.TypeOf("")),
+	)
+	marshaler := New(nil)
+	out, err := marshaler.MarshalItem(cacheItem{ID: "id-1"}, metadata)
+	require.NoError(t, err)
+	require.Equal(t, "id-1", requireAVS(t, out["id"]).Value)
+
+	marshaler.ClearCache()
+	out, err = marshaler.MarshalItem(cacheItem{ID: "id-2"}, metadata)
+	require.NoError(t, err)
+	require.Equal(t, "id-2", requireAVS(t, out["id"]).Value)
+}
+
+func TestMarshalers_InvalidInputErrors(t *testing.T) {
+	type invalidInputItem struct {
+		ID string
+	}
+
+	var nilInput *invalidInputItem
+	for name, marshaler := range map[string]MarshalerInterface{
+		"unsafe": New(nil),
+		"safe":   NewSafeMarshaler(),
+	} {
+		t.Run(name+"/nil pointer", func(t *testing.T) {
+			_, err := marshaler.MarshalItem(nilInput, nil)
+			require.ErrorContains(t, err, "cannot marshal nil pointer")
+		})
+
+		t.Run(name+"/non struct", func(t *testing.T) {
+			_, err := marshaler.MarshalItem("not-a-struct", nil)
+			require.ErrorContains(t, err, "model must be a struct or pointer to struct")
+		})
+	}
+}
+
+func TestMarshalers_TimeAndNestedStructPaths(t *testing.T) {
+	type child struct {
+		Label string `json:"label"`
+	}
+	type timeNestedItem struct {
+		ID           string
+		Expires      time.Time
+		SeenAt       time.Time
+		OptionalTime time.Time
+		Optional     *child
+		Child        child
+	}
+
+	expires := time.Unix(1710000000, 0).UTC()
+	seenAt := time.Date(2026, time.July, 3, 12, 0, 0, 123, time.UTC)
+	input := timeNestedItem{
+		ID:      "id-1",
+		Expires: expires,
+		SeenAt:  seenAt,
+		Child:   child{Label: "nested"},
+	}
+	metadata := createMetadata(
+		createFieldMetadata(reflect.TypeOf(timeNestedItem{}), "ID", "id", reflect.TypeOf("")),
+		createFieldMetadata(reflect.TypeOf(timeNestedItem{}), "Expires", "expires", reflect.TypeOf(time.Time{}), withTTL()),
+		createFieldMetadata(reflect.TypeOf(timeNestedItem{}), "SeenAt", "seen_at", reflect.TypeOf(time.Time{})),
+		createFieldMetadata(reflect.TypeOf(timeNestedItem{}), "OptionalTime", "optional_time", reflect.TypeOf(time.Time{}), withOmitEmpty()),
+		createFieldMetadata(reflect.TypeOf(timeNestedItem{}), "Optional", "optional", reflect.TypeOf((*child)(nil))),
+		createFieldMetadata(reflect.TypeOf(timeNestedItem{}), "Child", "child", reflect.TypeOf(child{})),
+	)
+
+	t.Run("unsafe marshaler", func(t *testing.T) {
+		out, err := New(nil).MarshalItem(input, metadata)
+		require.NoError(t, err)
+		assertTimeAndNestedAttributes(t, out, seenAt)
+	})
+
+	t.Run("safe marshaler", func(t *testing.T) {
+		out, err := NewSafeMarshaler().MarshalItem(input, metadata)
+		require.NoError(t, err)
+		assertTimeAndNestedAttributes(t, out, seenAt)
+	})
+}
+
+func assertTimeAndNestedAttributes(t testing.TB, out map[string]types.AttributeValue, seenAt time.Time) {
+	t.Helper()
+	require.Equal(t, "1710000000", requireAVN(t, out["expires"]).Value)
+	require.Equal(t, seenAt.Format(time.RFC3339Nano), requireAVS(t, out["seen_at"]).Value)
+	require.NotContains(t, out, "optional_time")
+	require.True(t, requireAVNULL(t, out["optional"]).Value)
+
+	childValue, ok := out["child"].(*types.AttributeValueMemberM)
+	require.True(t, ok, "expected *types.AttributeValueMemberM, got %T", out["child"])
+	require.Equal(t, "nested", requireAVS(t, childValue.Value["label"]).Value)
+}
+
+func TestSafeMarshaler_NestedHelperEdges(t *testing.T) {
+	type helperItem struct {
+		ID string
+	}
+	_, ok := safeStructFieldByIndexPath(reflect.TypeOf(helperItem{}), nil)
+	require.False(t, ok)
+	_, ok = safeStructFieldByIndexPath(reflect.TypeOf(helperItem{}), []int{99})
+	require.False(t, ok)
+	require.Equal(t, safeFieldMarshaler{}, nestedFieldContext(nil))
+
+	type snakeNaming struct {
+		_ struct{} `theorydb:"naming:snake_case"`
+	}
+	type camelNaming struct {
+		_ struct{} `theorydb:"naming:camelCase"`
+	}
+	type pascalNaming struct {
+		_ struct{} `theorydb:"naming:pascal_case"`
+	}
+	type dynamormNaming struct {
+		_ struct{} `theorydb:"naming:legacyDynamORM"`
+	}
+
+	assertNestedNaming := func(name string, typ reflect.Type, want naming.Convention) {
+		t.Helper()
+		t.Run(name, func(t *testing.T) {
+			got, ok := explicitNestedNamingConvention(typ)
+			require.True(t, ok)
+			require.Equal(t, want, got)
+		})
+	}
+	assertNestedNaming("snake", reflect.TypeOf(snakeNaming{}), naming.SnakeCase)
+	assertNestedNaming("camel", reflect.TypeOf(camelNaming{}), naming.CamelCase)
+	assertNestedNaming("pascal", reflect.TypeOf(pascalNaming{}), naming.PascalCase)
+	assertNestedNaming("dynamorm", reflect.TypeOf(dynamormNaming{}), naming.DynamORM)
+}
+
+func TestMarshalers_UnsupportedSetSliceType(t *testing.T) {
+	type unsupportedSetItem struct {
+		ID    string
+		Flags []bool
+	}
+
+	input := unsupportedSetItem{ID: "id-1", Flags: []bool{true}}
+	metadata := createMetadata(
+		createFieldMetadata(reflect.TypeOf(unsupportedSetItem{}), "ID", "id", reflect.TypeOf("")),
+		createFieldMetadata(reflect.TypeOf(unsupportedSetItem{}), "Flags", "flags", reflect.TypeOf([]bool{}), withSet()),
+	)
+
+	t.Run("unsafe marshaler", func(t *testing.T) {
+		_, err := New(nil).MarshalItem(input, metadata)
+		require.ErrorContains(t, err, "unsupported set element type: bool")
+	})
+
+	t.Run("safe marshaler", func(t *testing.T) {
+		_, err := NewSafeMarshaler().MarshalItem(input, metadata)
+		require.ErrorContains(t, err, "unsupported set element type: bool")
+	})
 }

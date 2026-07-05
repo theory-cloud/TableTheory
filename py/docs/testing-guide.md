@@ -1,13 +1,13 @@
 # Testing Guide (Python)
 
-This guide documents how to test Python services that use `theorydb_py`.
+This guide documents how to test Python services that use `tabletheory_py`.
 
 ## Unit testing (recommended default)
 
-Use strict fakes from `theorydb_py.mocks` to avoid real AWS calls and to keep tests deterministic.
+Use strict fakes from `tabletheory_py.mocks` to avoid real AWS calls and to keep tests deterministic.
 
 ```python
-from theorydb_py.mocks import ANY, FakeDynamoDBClient, FakeKmsClient
+from tabletheory_py.mocks import ANY, FakeDynamoDBClient, FakeKmsClient
 
 fake_ddb = FakeDynamoDBClient()
 fake_kms = FakeKmsClient(plaintext_key=b"\x00" * 32, ciphertext_blob=b"edk")
@@ -22,6 +22,34 @@ For tests involving encryption, inject deterministic `rand_bytes`:
 ```python
 table = Table(model, client=fake_ddb, kms_key_arn="arn:aws:kms:...", kms_client=fake_kms, rand_bytes=lambda n: b"\x01" * n)
 ```
+
+## Stateful fake for behavioral unit tests
+
+Use `StatefulDynamoDBClient` from `tabletheory_py` or `tabletheory_py.testkit` when a test should exercise real
+TableTheory Python writes, queries, updates, batches, or transactions without scripting each low-level request:
+
+```python
+from tabletheory_py import StatefulDynamoDBClient, Table
+
+fake_ddb = StatefulDynamoDBClient()
+table = Table(model, client=fake_ddb, now=lambda: "2026-07-04T00:00:00.000000000Z")
+
+table.put(note)
+page = table.query("USER#1")
+
+assert len(page.items) == 1
+assert fake_ddb.items("notes")[0]["ttl"] == {"N": "1700000000"}
+```
+
+Choose the test double by intent:
+
+- `FakeDynamoDBClient`: ordered expectation mock for exact request-shape assertions and error injection.
+- `StatefulDynamoDBClient`: deterministic in-memory TableTheory behavior for write-then-query consumer tests. It honors
+  keys, basic expressions, optimistic-lock conditions, TTL attribute persistence, batches, and transactions, but it is not
+  a general DynamoDB emulator.
+- `moto`: useful only when a project already standardizes on moto-specific AWS emulation; it is outside TableTheory's
+  contract gate.
+- DynamoDB Local: authoritative choice for AWS-exact expression, index, pagination, throughput, and integration behavior.
 
 ## Integration testing (DynamoDB Local)
 
@@ -38,4 +66,3 @@ Environment variables (typical for local):
 - `DYNAMODB_ENDPOINT` (default `http://localhost:8000`)
 - `AWS_REGION` (default `us-east-1`)
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (use `dummy`)
-

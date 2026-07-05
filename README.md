@@ -76,7 +76,7 @@ Use TableTheory when you want DynamoDB-backed systems that are:
 
 - **Serverless-first** — patterns that work well in AWS Lambda: cold-start aware `LambdaInit`, batching with Lambda timeout awareness, transactions, streams, optional KMS-backed field encryption that's [fail-closed](https://tabletheory.theorycloud.ai/features/encryption/) by design.
 - **Cross-language consistent** — one table, multiple services, multiple runtimes — without schema or behavior drift. Verified on every commit by the [P0 contract scenarios](https://tabletheory.theorycloud.ai/reference/contract-scenarios/).
-- **Generative-coding friendly** — explicit schema, canonical patterns, and strict verification so AI-generated code stays correct and maintainable.
+- **Generative-coding friendly** — explicit schema, canonical patterns, strict verification, and downloadable [LLM artifacts](https://tabletheory.theorycloud.ai/ai/) (`llms.txt`, vocabulary JSON, rules template, prompt recipes) so AI-generated code stays correct and maintainable.
 
 ✅ Treat schema + semantics as a contract
 ❌ Don't redefine "the same" table shape independently per service/language
@@ -96,6 +96,7 @@ The full documentation site lives at **[tabletheory.theorycloud.ai](https://tabl
 | Architecture patterns | [tabletheory.theorycloud.ai/architecture-patterns/](https://tabletheory.theorycloud.ai/architecture-patterns/) |
 | Testing | [tabletheory.theorycloud.ai/testing-guide/](https://tabletheory.theorycloud.ai/testing-guide/) |
 | Troubleshooting | [tabletheory.theorycloud.ai/troubleshooting/](https://tabletheory.theorycloud.ai/troubleshooting/) |
+| Generative coding artifacts | [tabletheory.theorycloud.ai/ai/](https://tabletheory.theorycloud.ai/ai/) |
 
 **Per-runtime entry points:**
 

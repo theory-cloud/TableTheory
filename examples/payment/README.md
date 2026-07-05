@@ -226,89 +226,59 @@ func (s *PaymentService) TransferFunds(ctx context.Context, req *TransferRequest
         Version:       1,
     }
     
-    // Execute transfer in transaction
-    err := s.db.Transaction(func(tx *tabletheory.Tx) error {
-        // Get source account with optimistic locking
-        var fromAccount models.Account
-        err := tx.Model(&models.Account{}).
-            Where("ID", "=", req.FromAccountID).
-            ConsistentRead(). // Strong consistency for financial operations
-            First(&fromAccount)
-        if err != nil {
-            return fmt.Errorf("source account not found: %w", err)
-        }
-        
-        // Validate source account
-        if !fromAccount.CanDebit(req.Amount) {
-            s.auditor.LogFailedTransfer(payment, "insufficient_funds")
-            return fmt.Errorf("insufficient funds: available %d, requested %d", 
-                fromAccount.Balance, req.Amount)
-        }
-        
-        // Get destination account
-        var toAccount models.Account
-        err = tx.Model(&models.Account{}).
-            Where("ID", "=", req.ToAccountID).
-            ConsistentRead().
-            First(&toAccount)
-        if err != nil {
-            return fmt.Errorf("destination account not found: %w", err)
-        }
-        
-        // Validate destination account
-        if !toAccount.IsActive() {
-            s.auditor.LogFailedTransfer(payment, "inactive_destination")
-            return fmt.Errorf("destination account is not active")
-        }
-        
-        // Update balances
-        originalFromBalance := fromAccount.Balance
-        originalToBalance := toAccount.Balance
-        
-        fromAccount.Balance -= req.Amount
-        fromAccount.UpdatedAt = time.Now()
-        fromAccount.Version++
-        
-        toAccount.Balance += req.Amount
-        toAccount.UpdatedAt = time.Now()
-        toAccount.Version++
-        
-        // Save account updates with version checking
-        err = tx.Model(&fromAccount).
-            Where("Version", "=", fromAccount.Version-1). // Optimistic lock
-            Update()
-        if err != nil {
-            return fmt.Errorf("concurrent modification of source account: %w", err)
-        }
-        
-        err = tx.Model(&toAccount).
-            Where("Version", "=", toAccount.Version-1). // Optimistic lock
-            Update()
-        if err != nil {
-            return fmt.Errorf("concurrent modification of destination account: %w", err)
-        }
-        
-        // Update payment status
-        payment.Status = models.PaymentStatusProcessed
-        payment.ProcessedAt = &time.Time{}
-        *payment.ProcessedAt = time.Now()
-        payment.UpdatedAt = time.Now()
-        
-        // Save payment record
-        err = tx.Model(payment).Create()
-        if err != nil {
-            return fmt.Errorf("failed to create payment record: %w", err)
-        }
-        
-        // Create audit logs
-        s.auditor.LogAccountChange(ctx, &fromAccount, "balance_debited", 
+    // Load and validate accounts before composing the atomic writes.
+    var fromAccount models.Account
+    err := s.db.Model(&models.Account{}).
+        Where("ID", "=", req.FromAccountID).
+        ConsistentRead(). // Strong consistency for financial operations
+        First(&fromAccount)
+    if err != nil {
+        return nil, fmt.Errorf("source account not found: %w", err)
+    }
+    if !fromAccount.CanDebit(req.Amount) {
+        s.auditor.LogFailedTransfer(payment, "insufficient_funds")
+        return nil, fmt.Errorf("insufficient funds: available %d, requested %d",
+            fromAccount.Balance, req.Amount)
+    }
+
+    var toAccount models.Account
+    err = s.db.Model(&models.Account{}).
+        Where("ID", "=", req.ToAccountID).
+        ConsistentRead().
+        First(&toAccount)
+    if err != nil {
+        return nil, fmt.Errorf("destination account not found: %w", err)
+    }
+    if !toAccount.IsActive() {
+        s.auditor.LogFailedTransfer(payment, "inactive_destination")
+        return nil, fmt.Errorf("destination account is not active")
+    }
+
+    originalFromBalance := fromAccount.Balance
+    originalToBalance := toAccount.Balance
+
+    fromAccount.Balance -= req.Amount
+    fromAccount.UpdatedAt = time.Now()
+    toAccount.Balance += req.Amount
+    toAccount.UpdatedAt = time.Now()
+    payment.Status = models.PaymentStatusProcessed
+    payment.ProcessedAt = &time.Time{}
+    *payment.ProcessedAt = time.Now()
+    payment.UpdatedAt = time.Now()
+
+    // Execute the balance updates and payment creation atomically.
+    err = s.db.Transact().
+        Update(&fromAccount, []string{"Balance", "UpdatedAt"}).
+        Update(&toAccount, []string{"Balance", "UpdatedAt"}).
+        Create(payment).
+        Execute()
+    if err == nil {
+        s.auditor.LogAccountChange(ctx, &fromAccount, "balance_debited",
             originalFromBalance, fromAccount.Balance)
-        s.auditor.LogAccountChange(ctx, &toAccount, "balance_credited", 
+        s.auditor.LogAccountChange(ctx, &toAccount, "balance_credited",
             originalToBalance, toAccount.Balance)
         s.auditor.LogPaymentProcessed(ctx, payment)
-        
-        return nil
-    })
+    }
     
     if err != nil {
         // Mark payment as failed
@@ -573,39 +543,28 @@ func TestPaymentService_TransferFunds_Success(t *testing.T) {
         Version: 1,
     }
     
-    // Mock transaction execution
-    mockDB.On("Transaction", mock.AnythingOfType("func(*tabletheory.Tx) error")).
+    // Mock the strongly-consistent account reads before the transaction.
+    mockDB.On("Model", mock.AnythingOfType("*models.Account")).Return(mockQuery)
+    mockQuery.On("Where", "ID", "=", "acc1").Return(mockQuery)
+    mockQuery.On("ConsistentRead").Return(mockQuery)
+    mockQuery.On("First", mock.AnythingOfType("*models.Account")).
         Run(func(args mock.Arguments) {
-            fn := args.Get(0).(func(*tabletheory.Tx) error)
-            
-            // Mock source account query
-            mockTx.On("Model", mock.AnythingOfType("*models.Account")).Return(mockQuery)
-            mockQuery.On("Where", "ID", "=", "acc1").Return(mockQuery)
-            mockQuery.On("ConsistentRead").Return(mockQuery)
-            mockQuery.On("First", mock.AnythingOfType("*models.Account")).
-                Run(func(args mock.Arguments) {
-                    acc := args.Get(0).(*models.Account)
-                    *acc = *sourceAccount
-                }).Return(nil)
-            
-            // Mock destination account query
-            mockQuery.On("Where", "ID", "=", "acc2").Return(mockQuery)
-            mockQuery.On("First", mock.AnythingOfType("*models.Account")).
-                Run(func(args mock.Arguments) {
-                    acc := args.Get(0).(*models.Account)
-                    *acc = *destAccount
-                }).Return(nil)
-            
-            // Mock account updates
-            mockQuery.On("Where", "Version", "=", 1).Return(mockQuery)
-            mockQuery.On("Update").Return(nil)
-            
-            // Mock payment creation
-            mockQuery.On("Create").Return(nil)
-            
-            // Execute the transaction function
-            fn(mockTx)
+            acc := args.Get(0).(*models.Account)
+            *acc = *sourceAccount
         }).Return(nil)
+    mockQuery.On("Where", "ID", "=", "acc2").Return(mockQuery)
+    mockQuery.On("First", mock.AnythingOfType("*models.Account")).
+        Run(func(args mock.Arguments) {
+            acc := args.Get(0).(*models.Account)
+            *acc = *destAccount
+        }).Return(nil)
+
+    // Mock the atomic transaction builder.
+    txBuilder := new(mocks.MockTransactionBuilder)
+    mockDB.On("Transact").Return(txBuilder)
+    txBuilder.On("Update", mock.AnythingOfType("*models.Account"), []string{"Balance", "UpdatedAt"}, mock.Anything).Return(txBuilder)
+    txBuilder.On("Create", mock.AnythingOfType("*models.Payment"), mock.Anything).Return(txBuilder)
+    txBuilder.On("Execute").Return(nil)
     
     // Mock audit calls
     mockAuditor.On("LogAccountChange", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -640,7 +599,6 @@ func TestPaymentService_TransferFunds_Success(t *testing.T) {
 func TestPaymentService_TransferFunds_InsufficientFunds(t *testing.T) {
     // CANONICAL PATTERN: Test business rule validation
     mockDB := new(mocks.MockDB)
-    mockTx := new(mocks.MockTx)
     mockQuery := new(mocks.MockQuery)
     mockAuditor := new(MockAuditService)
     
@@ -652,21 +610,14 @@ func TestPaymentService_TransferFunds_InsufficientFunds(t *testing.T) {
         Version: 1,
     }
     
-    mockDB.On("Transaction", mock.AnythingOfType("func(*tabletheory.Tx) error")).
+    mockDB.On("Model", mock.AnythingOfType("*models.Account")).Return(mockQuery)
+    mockQuery.On("Where", "ID", "=", "acc1").Return(mockQuery)
+    mockQuery.On("ConsistentRead").Return(mockQuery)
+    mockQuery.On("First", mock.AnythingOfType("*models.Account")).
         Run(func(args mock.Arguments) {
-            fn := args.Get(0).(func(*tabletheory.Tx) error)
-            
-            mockTx.On("Model", mock.AnythingOfType("*models.Account")).Return(mockQuery)
-            mockQuery.On("Where", "ID", "=", "acc1").Return(mockQuery)
-            mockQuery.On("ConsistentRead").Return(mockQuery)
-            mockQuery.On("First", mock.AnythingOfType("*models.Account")).
-                Run(func(args mock.Arguments) {
-                    acc := args.Get(0).(*models.Account)
-                    *acc = *sourceAccount
-                }).Return(nil)
-            
-            fn(mockTx)
-        }).Return(fmt.Errorf("insufficient funds: available 1000, requested 2000"))
+            acc := args.Get(0).(*models.Account)
+            *acc = *sourceAccount
+        }).Return(nil)
     
     // Mock failed payment creation (outside transaction)
     mockDB.On("Model", mock.AnythingOfType("*models.Payment")).Return(mockQuery)
@@ -732,13 +683,11 @@ db.Model(account).Where("Version", "=", account.Version-1).Update()
 db.Model(fromAccount).Update() // Might succeed
 db.Model(toAccount).Update()   // Might fail - inconsistent state!
 
-// CORRECT: Single transaction
-db.Transaction(func(tx *tabletheory.Tx) error {
-    if err := tx.Model(fromAccount).Update(); err != nil {
-        return err // Automatic rollback
-    }
-    return tx.Model(toAccount).Update()
-})
+// CORRECT: Single DynamoDB transaction
+err := db.Transact().
+    Update(fromAccount, []string{"Balance", "UpdatedAt"}).
+    Update(toAccount, []string{"Balance", "UpdatedAt"}).
+    Execute()
 ```
 
 ### ❌ Consistency Mistakes

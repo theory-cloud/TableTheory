@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/pkg/model"
+	"github.com/theory-cloud/tabletheory/pkg/schema"
 	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
 )
 
@@ -16,9 +17,6 @@ import (
 type DB interface {
 	// Model returns a new query builder for the given model
 	Model(model any) Query
-
-	// Transaction executes a function within a database transaction
-	Transaction(fn func(tx *Tx) error) error
 
 	// Migrate runs all pending migrations
 	Migrate() error
@@ -39,16 +37,16 @@ type ExtendedDB interface {
 	DB
 
 	// AutoMigrateWithOptions performs enhanced auto-migration with data copy support
-	// opts should be of type schema.AutoMigrateOption
-	AutoMigrateWithOptions(model any, opts ...any) error
+	// using concrete schema.AutoMigrateOption values.
+	AutoMigrateWithOptions(model any, opts ...schema.AutoMigrateOption) error
 
 	// RegisterTypeConverter registers a custom converter for a specific Go type, allowing
 	// callers to override how values are marshaled to and unmarshaled from DynamoDB.
 	RegisterTypeConverter(typ reflect.Type, converter pkgTypes.CustomConverter) error
 
-	// CreateTable creates a DynamoDB table for the given model
-	// opts should be of type schema.TableOption
-	CreateTable(model any, opts ...any) error
+	// CreateTable creates a DynamoDB table for the given model using concrete
+	// schema.TableOption values.
+	CreateTable(model any, opts ...schema.TableOption) error
 
 	// EnsureTable checks if a table exists for the model and creates it if not
 	EnsureTable(model any) error
@@ -66,16 +64,57 @@ type ExtendedDB interface {
 	// WithLambdaTimeoutBuffer sets a custom timeout buffer for Lambda execution
 	WithLambdaTimeoutBuffer(buffer time.Duration) DB
 
-	// TransactionFunc executes a function within a full transaction context
-	// tx should be of type *transaction.Transaction
-	TransactionFunc(fn func(tx any) error) error
-
 	// Transact returns a fluent transaction builder for composing TransactWriteItems
 	Transact() TransactionBuilder
 
 	// TransactWrite executes the provided function within a transaction builder context
 	// and automatically commits the accumulated operations.
 	TransactWrite(ctx context.Context, fn func(TransactionBuilder) error) error
+}
+
+// TypedExtendedDB is a compatibility extension interface for callers that adopted
+// the v1.x typed option method names. ExtendedDB now also requires concrete
+// option types directly.
+type TypedExtendedDB interface {
+	ExtendedDB
+
+	// AutoMigrateWithTypedOptions performs enhanced auto-migration with
+	// schema.AutoMigrateOption values.
+	AutoMigrateWithTypedOptions(model any, opts ...schema.AutoMigrateOption) error
+
+	// CreateTableWithOptions creates a DynamoDB table with schema.TableOption values.
+	CreateTableWithOptions(model any, opts ...schema.TableOption) error
+}
+
+// TransactGetter is an additive extension interface for DynamoDB TransactGetItems
+// support. It is intentionally separate from DB/ExtendedDB so existing mocks and
+// implementations of those exported interfaces remain source-compatible.
+type TransactGetter interface {
+	// TransactGet retrieves up to 100 items atomically using DynamoDB TransactGetItems.
+	// Missing items are represented by a TransactGetResult with Found=false; they
+	// are not collapsed into ErrItemNotFound because DynamoDB TransactGetItems
+	// returns sparse responses for absent keys.
+	TransactGet(ctx context.Context, requests []TransactGetRequest) ([]TransactGetResult, error)
+}
+
+// TransactGetRequest describes one item in a TransactGetItems request.
+type TransactGetRequest struct {
+	// Model identifies the TableTheory model shape used to derive the table and
+	// primary-key schema. A zero value is invalid.
+	Model any
+	// Key is either a core.KeyPair, a model-shaped key struct, or a primitive
+	// partition-key value for single-key models.
+	Key any
+	// Dest is an optional pointer populated when the item exists.
+	Dest any
+	// Projection limits the returned attributes for this item when non-empty.
+	Projection []string
+}
+
+// TransactGetResult reports whether the item for a TransactGetRequest existed.
+// When Found is true and the request supplied Dest, Dest has been populated.
+type TransactGetResult struct {
+	Found bool
 }
 
 // TransactionBuilder defines the fluent DSL for composing DynamoDB transactions
@@ -296,36 +335,6 @@ type PaginatedResult struct {
 	Count            int
 	ScannedCount     int
 	HasMore          bool
-}
-
-// Tx represents a database transaction
-type Tx struct {
-	db DB
-}
-
-// SetDB sets the database reference for the transaction
-func (tx *Tx) SetDB(db DB) {
-	tx.db = db
-}
-
-// Model returns a new query builder for the given model within the transaction
-func (tx *Tx) Model(model any) Query {
-	return tx.db.Model(model)
-}
-
-// Create creates a new item within the transaction
-func (tx *Tx) Create(model any) error {
-	return tx.db.Model(model).Create()
-}
-
-// Update updates an item within the transaction
-func (tx *Tx) Update(model any, fields ...string) error {
-	return tx.db.Model(model).Update(fields...)
-}
-
-// Delete deletes an item within the transaction
-func (tx *Tx) Delete(model any) error {
-	return tx.db.Model(model).Delete()
 }
 
 // Param represents a parameter for expressions

@@ -89,6 +89,12 @@ jobs:
         if: steps.release.outputs.release_created == 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      - name: Set up Go (from go.mod)
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+
       - name: Set up Node (24)
         if: steps.release.outputs.release_created == 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -111,9 +117,18 @@ jobs:
 
       - name: Build release assets (ts npm pack + py wheel/sdist)
         if: steps.release.outputs.release_created == 'true'
+        env:
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
         run: |
+          if [[ -z "${TAG_NAME}" ]]; then
+            echo "release-assets: FAIL (missing tag_name output)"
+            exit 1
+          fi
+
           rm -rf release-assets
           mkdir -p release-assets
+
+          python3 scripts/prepare-release-package-versions.py --tag-name "${TAG_NAME}"
 
           pushd ts
           npm ci
@@ -125,6 +140,20 @@ jobs:
           uv sync --frozen --all-extras
           uv run python -m build --outdir ../release-assets
           popd
+
+          # tabletheory CLI binaries (linux/mac, amd64/arm64).
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \
+              go build -trimpath -ldflags="-s -w" \
+              -o "release-assets/tabletheory-${os}-${arch}" ./cmd/tabletheory
+          done
+          ( cd release-assets && sha256sum tabletheory-linux-* tabletheory-darwin-* > tabletheory-SHA256SUMS.txt )
+
+          python3 scripts/verify-release-package-version-assets.py \
+            --tag-name "${TAG_NAME}" \
+            --assets-dir release-assets
 
           ls -la release-assets
 

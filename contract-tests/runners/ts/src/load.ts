@@ -56,36 +56,199 @@ export async function loadScenariosDir(dir: string): Promise<Scenario[]> {
 }
 
 function validateScenario(scenario: Scenario, filePath: string): void {
-  if (!Array.isArray(scenario.steps) || scenario.steps.length === 0) {
+  if (scenario.seed_runtime) {
+    if (
+      !Array.isArray(scenario.seed_steps) ||
+      scenario.seed_steps.length === 0
+    ) {
+      throw new Error(`Scenario missing seed_steps: ${filePath}`);
+    }
+    if (
+      !Array.isArray(scenario.read_steps) ||
+      scenario.read_steps.length === 0
+    ) {
+      throw new Error(`Scenario missing read_steps: ${filePath}`);
+    }
+  } else if (!Array.isArray(scenario.steps) || scenario.steps.length === 0) {
     throw new Error(`Scenario missing steps: ${filePath}`);
   }
-  for (const [index, step] of scenario.steps.entries()) {
-    const prefix = `${filePath} step ${index} ${step.op}`;
-    switch (step.op) {
-      case "sleep":
-        break;
-      case "create":
-      case "update":
-      case "save":
-        requirePlainObject(step.item, `${prefix}: item is required`);
-        break;
-      case "get":
-      case "delete":
-        requirePlainObject(step.key, `${prefix}: key is required`);
-        break;
-      case "transition_append_event":
-        requireTransitionActual(step.actual, `${prefix}: actual`);
-        requireTransitionEvent(step.event, `${prefix}: event`);
-        break;
-      case "validate_provenance":
-        requirePlainObject(step.item, `${prefix}: item is required`);
-        break;
-      default:
-        throw new Error(
-          `${filePath} step ${index}: unsupported op ${String(step.op)}`,
-        );
+
+  for (const [label, steps] of [
+    ["steps", scenario.steps ?? []],
+    ["seed_steps", scenario.seed_steps ?? []],
+    ["read_steps", scenario.read_steps ?? []],
+  ] as const) {
+    for (const [index, step] of steps.entries()) {
+      validateStep(filePath, label, index, step);
     }
   }
+}
+
+function validateStep(
+  filePath: string,
+  label: string,
+  index: number,
+  step: Scenario["steps"][number],
+): void {
+  const prefix = `${filePath} ${label}[${index}] ${step.op}`;
+  switch (step.op) {
+    case "sleep":
+      break;
+    case "create":
+    case "update":
+    case "save":
+      requirePlainObject(step.item, `${prefix}: item is required`);
+      break;
+    case "get":
+    case "get_optional":
+    case "delete":
+      requirePlainObject(step.key, `${prefix}: key is required`);
+      break;
+    case "query":
+      requireReadRequest(step.query, `${prefix}: query`);
+      requireReadCondition(step.query?.partition, `${prefix}: query.partition`);
+      break;
+    case "scan":
+      requireReadRequest(step.scan, `${prefix}: scan`);
+      break;
+    case "count":
+      requireCountRequest(step.count, `${prefix}: count`);
+      break;
+    case "transact_get": {
+      requirePlainObject(
+        step.transact_get,
+        `${prefix}: transact_get is required`,
+      );
+      const request = step.transact_get as { items?: unknown };
+      if (!Array.isArray(request.items) || request.items.length === 0) {
+        throw new Error(`${prefix}: transact_get.items are required`);
+      }
+      for (const [itemIndex, item] of request.items.entries()) {
+        requirePlainObject(
+          (item as { key?: unknown }).key,
+          `${prefix}: transact_get.items[${itemIndex}].key is required`,
+        );
+      }
+      break;
+    }
+    case "batch_get": {
+      requirePlainObject(step.batch_get, `${prefix}: batch_get is required`);
+      const request = step.batch_get as { keys?: unknown };
+      if (!Array.isArray(request.keys) || request.keys.length === 0) {
+        throw new Error(`${prefix}: batch_get.keys are required`);
+      }
+      break;
+    }
+    case "batch_write": {
+      requirePlainObject(
+        step.batch_write,
+        `${prefix}: batch_write is required`,
+      );
+      const request = step.batch_write as { puts?: unknown; deletes?: unknown };
+      const puts = Array.isArray(request.puts) ? request.puts.length : 0;
+      const deletes = Array.isArray(request.deletes)
+        ? request.deletes.length
+        : 0;
+      if (puts + deletes === 0) {
+        throw new Error(`${prefix}: batch_write.puts or deletes are required`);
+      }
+      break;
+    }
+    case "transact_write": {
+      requirePlainObject(
+        step.transact_write,
+        `${prefix}: transact_write is required`,
+      );
+      const request = step.transact_write as { actions?: unknown };
+      if (!Array.isArray(request.actions) || request.actions.length === 0) {
+        throw new Error(`${prefix}: transact_write.actions are required`);
+      }
+      break;
+    }
+    case "transition_append_event":
+      requireTransitionActual(step.actual, `${prefix}: actual`);
+      requireTransitionEvent(step.event, `${prefix}: event`);
+      break;
+    case "validate_provenance":
+      requirePlainObject(step.item, `${prefix}: item is required`);
+      break;
+    default:
+      throw new Error(
+        `${filePath} ${label}[${index}]: unsupported op ${String(step.op)}`,
+      );
+  }
+}
+
+function requireCountRequest(value: unknown, prefix: string): void {
+  requirePlainObject(value, `${prefix} is required`);
+  const request = value as { query?: unknown; scan?: unknown };
+  const hasQuery = request.query !== undefined;
+  const hasScan = request.scan !== undefined;
+  if (hasQuery === hasScan) {
+    throw new Error(`${prefix} requires exactly one of query or scan`);
+  }
+  if (hasQuery) {
+    requireReadRequest(request.query, `${prefix}.query`);
+    requireReadCondition(
+      (request.query as { partition?: unknown }).partition,
+      `${prefix}.query.partition`,
+    );
+  } else {
+    requireReadRequest(request.scan, `${prefix}.scan`);
+  }
+}
+
+function requireReadRequest(value: unknown, prefix: string): void {
+  requirePlainObject(value, `${prefix} is required`);
+  const request = value as {
+    partition?: unknown;
+    sort?: unknown;
+    filter?: unknown;
+  };
+  if (request.sort !== undefined) {
+    requireReadCondition(request.sort, `${prefix}.sort`);
+  }
+  if (request.filter !== undefined) {
+    if (!Array.isArray(request.filter)) {
+      throw new Error(`${prefix}.filter must be an array`);
+    }
+    for (const [index, cond] of request.filter.entries()) {
+      requireReadCondition(cond, `${prefix}.filter[${index}]`);
+    }
+  }
+}
+
+function requireReadCondition(value: unknown, prefix: string): void {
+  requirePlainObject(value, `${prefix} is required`);
+  const condition = value as {
+    attribute?: unknown;
+    operator?: unknown;
+    value?: unknown;
+    values?: unknown;
+  };
+  if (typeof condition.attribute !== "string" || !condition.attribute) {
+    throw new Error(`${prefix}.attribute is required`);
+  }
+  if (typeof condition.operator !== "string" || !condition.operator) {
+    throw new Error(`${prefix}.operator is required`);
+  }
+  if (
+    condition.value === undefined &&
+    condition.values === undefined &&
+    !readOperatorAllowsNoValue(condition.operator)
+  ) {
+    throw new Error(`${prefix}.value or ${prefix}.values is required`);
+  }
+}
+
+function readOperatorAllowsNoValue(operator: unknown): boolean {
+  if (typeof operator !== "string") return false;
+  return [
+    "exists",
+    "attribute_exists",
+    "not_exists",
+    "attribute_not_exists",
+  ].includes(operator.toLowerCase());
 }
 
 function requireTransitionActual(value: unknown, prefix: string): void {

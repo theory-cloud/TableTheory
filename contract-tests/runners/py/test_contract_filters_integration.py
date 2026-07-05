@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import boto3
 import pytest
 
-from theorydb_py import FilterCondition, FilterGroup, ModelDefinition, Table, theorydb_field
+from tabletheory_py import FilterCondition, FilterGroup, ModelDefinition, Table, theorydb_field
 
 
 def _dynamodb_endpoint() -> str:

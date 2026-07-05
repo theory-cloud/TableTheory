@@ -49,7 +49,7 @@ const newImage = {
   assert.equal(item.PK, 'USER#1');
   assert.equal(item.SK, 'PROFILE');
   assert.equal(item.nickname, 'Al');
-  assert.equal(item.version, 0);
+  assert.equal(item.version, '0');
 }
 
 {
@@ -81,6 +81,6 @@ const newImage = {
     },
   });
   assert.equal(rec.keys?.PK, 'USER#1');
-  assert.equal(rec.newImage?.version, 0);
+  assert.equal(rec.newImage?.version, '0');
   assert.equal(rec.oldImage, undefined);
 }

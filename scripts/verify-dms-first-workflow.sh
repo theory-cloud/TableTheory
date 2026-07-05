@@ -17,7 +17,7 @@ import os
 import pathlib
 import sys
 
-from theorydb_py import (
+from tabletheory_py import (
     ModelDefinition,
     assert_model_definition_equivalent_to_dms,
     get_dms_model,

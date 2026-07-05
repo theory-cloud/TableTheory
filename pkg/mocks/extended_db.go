@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/theory-cloud/tabletheory/pkg/core"
+	"github.com/theory-cloud/tabletheory/pkg/schema"
 	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
 )
 
@@ -26,17 +27,14 @@ type MockExtendedDB struct {
 	// If nil, a new MockTransactionBuilder is created for each call.
 	TransactWriteBuilder core.TransactionBuilder
 
-	// TransactionFuncTx is passed to TransactionFunc when auto-executing callbacks.
-	TransactionFuncTx any
-
 	MockDB // Embed MockDB to inherit base methods
 }
 
 // Ensure MockExtendedDB implements ExtendedDB at compile time
 var _ core.ExtendedDB = (*MockExtendedDB)(nil)
 
-// AutoMigrateWithOptions performs enhanced auto-migration with options
-func (m *MockExtendedDB) AutoMigrateWithOptions(model any, opts ...any) error {
+// AutoMigrateWithOptions performs enhanced auto-migration with typed options
+func (m *MockExtendedDB) AutoMigrateWithOptions(model any, opts ...schema.AutoMigrateOption) error {
 	args := m.Called(model, opts)
 	return args.Error(0)
 }
@@ -48,7 +46,7 @@ func (m *MockExtendedDB) RegisterTypeConverter(typ reflect.Type, converter pkgTy
 }
 
 // CreateTable creates a DynamoDB table for the given model
-func (m *MockExtendedDB) CreateTable(model any, opts ...any) error {
+func (m *MockExtendedDB) CreateTable(model any, opts ...schema.TableOption) error {
 	args := m.Called(model, opts)
 	return args.Error(0)
 }
@@ -77,51 +75,19 @@ func (m *MockExtendedDB) DescribeTable(model any) (any, error) {
 // WithLambdaTimeout sets a deadline based on Lambda context
 func (m *MockExtendedDB) WithLambdaTimeout(ctx context.Context) core.DB {
 	args := m.Called(ctx)
-	return mustCoreDB(args.Get(0))
+	return mockCoreDB(&m.Mock, "WithLambdaTimeout", args.Get(0))
 }
 
 // WithLambdaTimeoutBuffer sets a custom timeout buffer
 func (m *MockExtendedDB) WithLambdaTimeoutBuffer(buffer time.Duration) core.DB {
 	args := m.Called(buffer)
-	return mustCoreDB(args.Get(0))
-}
-
-// TransactionFunc executes a function within a full transaction context
-func (m *MockExtendedDB) TransactionFunc(fn func(tx any) error) error {
-	if fn == nil {
-		args := m.Called(fn)
-		return args.Error(0)
-	}
-
-	var (
-		callbackInvoked bool
-		callbackErr     error
-	)
-
-	wrapped := func(tx any) error {
-		callbackInvoked = true
-		callbackErr = fn(tx)
-		return callbackErr
-	}
-
-	args := m.Called(wrapped)
-	if err := args.Error(0); err != nil {
-		return err
-	}
-
-	if !callbackInvoked {
-		if err := wrapped(m.TransactionFuncTx); err != nil {
-			return err
-		}
-	}
-
-	return callbackErr
+	return mockCoreDB(&m.Mock, "WithLambdaTimeoutBuffer", args.Get(0))
 }
 
 // Transact returns a transaction builder mock
 func (m *MockExtendedDB) Transact() core.TransactionBuilder {
 	args := m.Called()
-	return mustTransactionBuilder(args.Get(0))
+	return mockTransactionBuilder(&m.Mock, "Transact", args.Get(0))
 }
 
 // TransactWrite executes a function with a transaction builder
@@ -208,9 +174,6 @@ func NewMockExtendedDB() *MockExtendedDB {
 	mockDB.On("WithLambdaTimeoutBuffer", mock.Anything).
 		Return(mockDB).Maybe()
 
-	// TransactionFunc default
-	mockDB.On("TransactionFunc", mock.AnythingOfType("func(interface {}) error")).
-		Return(nil).Maybe()
 	mockDB.On("Transact").Return(nil).Maybe()
 	mockDB.On("TransactWrite", mock.Anything, mock.Anything).
 		Return(nil).Maybe()
@@ -225,4 +188,10 @@ func NewMockExtendedDB() *MockExtendedDB {
 // expectations. Use this when you want to explicitly set all expectations.
 func NewMockExtendedDBStrict() *MockExtendedDB {
 	return &MockExtendedDB{}
+}
+
+// AssertExpectations reports return type mismatches recorded by MockExtendedDB
+// in addition to testify/mock expectation failures.
+func (m *MockExtendedDB) AssertExpectations(t mock.TestingT) bool {
+	return assertMockExpectations(t, &m.Mock)
 }

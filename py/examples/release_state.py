@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from theorydb_py import (
+from tabletheory_py import (
     ModelDefinition,
     Table,
     WritePolicy,
@@ -11,7 +11,7 @@ from theorydb_py import (
     transition_release_state,
     validate_deploy_authority_metadata,
 )
-from theorydb_py.mocks import FakeDynamoDBClient
+from tabletheory_py.mocks import FakeDynamoDBClient
 
 
 @dataclass(frozen=True)

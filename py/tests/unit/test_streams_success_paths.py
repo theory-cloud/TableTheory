@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from theorydb_py import ModelDefinition, ValidationError, theorydb_field, unmarshal_stream_image
-from theorydb_py.model import AttributeDefinition
-from theorydb_py.streams import unmarshal_stream_record
+from tabletheory_py import ModelDefinition, ValidationError, theorydb_field, unmarshal_stream_image
+from tabletheory_py.model import AttributeDefinition
+from tabletheory_py.streams import unmarshal_stream_record
 
 
 @dataclass(frozen=True)

@@ -166,49 +166,15 @@ func (h *ReconcileHandler) processFile(ctx context.Context, record events.S3Even
 		Date:             time.Now().Format("2006-01-02"),
 		TotalAmount:      int64(totalProcessed) * 100, // Assuming cents
 		TransactionCount: totalProcessed,
-		Status:           "processing",
+		Status:           "completed",
 		BatchID:          key,
+		ProcessedAt:      time.Now(),
 		Transactions:     settlementDetails,
 		CreatedAt:        time.Now(),
 		UpdatedAt:        time.Now(),
 	}
 
-	// Begin transaction
-	err = h.db.Transaction(func(tx *core.Tx) error {
-		// Create settlement record
-		if err := tx.Create(settlement); err != nil {
-			return fmt.Errorf("failed to create settlement: %w", err)
-		}
-
-		// Update transactions as settled
-		for _, rec := range batch {
-			// Get the transaction to update
-			var txn payment.Transaction
-			if err := h.db.Model(&payment.Transaction{}).
-				Where("ID", "=", rec.TransactionID).
-				First(&txn); err != nil {
-				return fmt.Errorf("failed to get transaction %s: %w", rec.TransactionID, err)
-			}
-
-			// Update the transaction
-			txn.Status = "settled"
-			txn.UpdatedAt = time.Now()
-
-			if err := tx.Update(&txn, "Status", "UpdatedAt"); err != nil {
-				return fmt.Errorf("failed to update transaction %s: %w", rec.TransactionID, err)
-			}
-		}
-
-		// Update payment status
-		settlement.Status = "completed"
-		settlement.ProcessedAt = time.Now()
-		settlement.UpdatedAt = time.Now()
-		if err := tx.Update(settlement, "Status", "ProcessedAt", "UpdatedAt"); err != nil {
-			return fmt.Errorf("failed to update settlement: %w", err)
-		}
-
-		return nil
-	})
+	err = h.db.Transact().Create(settlement).Execute()
 
 	if err != nil {
 		return fmt.Errorf("failed to complete reconciliation: %w", err)
@@ -263,27 +229,15 @@ func (h *ReconcileHandler) processBatch(ctx context.Context, batch []*Reconcilia
 		UpdatedAt:        time.Now(),
 	}
 
-	// Begin transaction to update all records
-	err := h.db.Transaction(func(tx *core.Tx) error {
-		// Create settlement record
-		if err := tx.Create(settlement); err != nil {
-			return fmt.Errorf("failed to create settlement: %w", err)
-		}
+	tx := h.db.Transact().Create(settlement)
+	for _, detail := range settlementDetails {
+		// Would update transaction status here in real implementation.
+		log.Printf("Marked transaction %s as settled", detail.TransactionID)
+		// Would update payment status here in real implementation.
+		log.Printf("Marked payment %s as settled", detail.PaymentID)
+	}
 
-		// Update each transaction as settled
-		for _, detail := range settlementDetails {
-			// Would update transaction status here in real implementation
-			log.Printf("Marked transaction %s as settled", detail.TransactionID)
-		}
-
-		// Update each payment as settled
-		for _, detail := range settlementDetails {
-			// Would update payment status here in real implementation
-			log.Printf("Marked payment %s as settled", detail.PaymentID)
-		}
-
-		return nil
-	})
+	err := tx.Execute()
 
 	if err != nil {
 		return fmt.Errorf("failed to complete reconciliation: %w", err)

@@ -1,0 +1,31 @@
+# TableTheory
+
+> DynamoDB-first multi-language data contract for Go, TypeScript, and Python on DynamoDB.
+
+Use this file as the small context entrypoint for AI coding assistants. For full context, fetch `llms-full.txt`.
+
+## Required artifacts
+
+- Full LLM context: https://tabletheory.theorycloud.ai/llms-full.txt
+- Machine-readable vocabulary JSON: https://tabletheory.theorycloud.ai/reference/tabletheory-vocabulary.json
+- Consumer rules template: https://tabletheory.theorycloud.ai/ai/consumer-rules-template/
+- Prompt recipes: https://tabletheory.theorycloud.ai/ai/prompt-recipes/
+
+## Canonical docs
+
+- Getting started: https://tabletheory.theorycloud.ai/getting-started/
+- Examples: https://tabletheory.theorycloud.ai/examples/
+- Go API: https://tabletheory.theorycloud.ai/api-reference/
+- TypeScript API: https://tabletheory.theorycloud.ai/runtimes/typescript/api-reference/
+- Python API: https://tabletheory.theorycloud.ai/runtimes/python/api-reference/
+- DMS v0.1: https://tabletheory.theorycloud.ai/reference/dms-spec/
+- Contract scenarios: https://tabletheory.theorycloud.ai/reference/contract-scenarios/
+
+## Non-negotiable rules
+
+1. DynamoDB is not hidden: model access patterns explicitly with PK/SK and GSIs.
+2. Go, TypeScript, and Python are peer runtimes; do not invent behavior in one runtime only.
+3. Use canonical tags/roles: pk, sk, gsiNpk/gsiNsk, encrypted, version, created_at, updated_at, ttl, omitempty.
+4. Encrypted fields fail closed; never remove encryption or fall back to plaintext for local tests.
+5. Install from immutable GitHub Releases only; do not suggest npm or PyPI publication.
+6. Use generated API references and vocabulary JSON for signatures and tag names.

@@ -4,7 +4,7 @@ This guide covers development and contribution conventions for the Python SDK in
 
 ## Toolchain (pinned)
 
-- Python: **3.14**
+- Python: **3.12+**
 - Type checking: `mypy` (strict)
 - Lint/format: `ruff` (line length 110; target `py314`)
 - Dependency management: `uv` (pinned in CI)

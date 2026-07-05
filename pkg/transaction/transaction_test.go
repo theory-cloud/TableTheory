@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
@@ -46,6 +50,24 @@ type Order struct {
 	CustomerID string
 	Status     string
 	Total      float64
+}
+
+type SecretRecord struct {
+	ID     string `theorydb:"pk"`
+	Secret string `theorydb:"encrypted"`
+}
+
+type mockTransactGetClient struct {
+	input *dynamodb.TransactGetItemsInput
+	out   *dynamodb.TransactGetItemsOutput
+	err   error
+}
+
+func (m *mockTransactGetClient) TransactGetItems(ctx context.Context, params *dynamodb.TransactGetItemsInput, optFns ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error) {
+	_ = ctx
+	_ = optFns
+	m.input = params
+	return m.out, m.err
 }
 
 func setupTest(t *testing.T) (*Transaction, *model.Registry) {
@@ -511,7 +533,287 @@ func TestTransactionBuilderOperationLimit(t *testing.T) {
 
 	err := builder.Execute()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "25")
+	assert.ErrorIs(t, err, customerrors.ErrInvalidOperator)
+	assert.Contains(t, err.Error(), "100")
+}
+
+func TestTransactGetBuildsItemsAndCollectsResponses(t *testing.T) {
+	registry := model.NewRegistry()
+	converter := pkgTypes.NewConverter()
+
+	requests := []core.TransactGetRequest{
+		{
+			Model:      &User{},
+			Key:        map[string]any{"ID": "user-1"},
+			Projection: []string{"ID", "Email"},
+			Dest:       &User{},
+		},
+		{
+			Model: &User{},
+			Key:   core.NewKeyPair("user-2"),
+			Dest:  &User{},
+		},
+	}
+
+	items, metas, err := buildTransactGetItems(registry, converter, requests)
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	require.Len(t, metas, 2)
+	require.NotNil(t, items[0].Get)
+	assert.Equal(t, "Users", aws.ToString(items[0].Get.TableName))
+	assert.Equal(t, "#p0, #p1", aws.ToString(items[0].Get.ProjectionExpression))
+	assert.Equal(t, map[string]string{"#p0": "id", "#p1": "email"}, items[0].Get.ExpressionAttributeNames)
+	assert.Equal(t, &types.AttributeValueMemberS{Value: "user-1"}, items[0].Get.Key["id"])
+
+	results, err := collectTransactGetResults(
+		context.Background(),
+		nil,
+		requests,
+		metas,
+		[]types.ItemResponse{
+			{Item: map[string]types.AttributeValue{
+				"id":      &types.AttributeValueMemberS{Value: "user-1"},
+				"email":   &types.AttributeValueMemberS{Value: "one@example.test"},
+				"version": &types.AttributeValueMemberN{Value: "7"},
+			}},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	assert.True(t, results[0].Found)
+	assert.False(t, results[1].Found)
+	dest, ok := requests[0].Dest.(*User)
+	require.True(t, ok)
+	assert.Equal(t, "user-1", dest.ID)
+	assert.Equal(t, "one@example.test", dest.Email)
+	assert.Equal(t, 7, dest.Version)
+}
+
+func TestTransactGetWithClientExecutesRequest(t *testing.T) {
+	registry := model.NewRegistry()
+	converter := pkgTypes.NewConverter()
+	requests := []core.TransactGetRequest{
+		{Model: &User{}, Key: "user-1", Dest: &User{}},
+	}
+	items, metas, err := buildTransactGetItems(registry, converter, requests)
+	require.NoError(t, err)
+
+	client := &mockTransactGetClient{
+		out: &dynamodb.TransactGetItemsOutput{
+			Responses: []types.ItemResponse{
+				{Item: map[string]types.AttributeValue{
+					"id":    &types.AttributeValueMemberS{Value: "user-1"},
+					"email": &types.AttributeValueMemberS{Value: "one@example.test"},
+				}},
+			},
+		},
+	}
+
+	results, err := transactGetWithClient(context.Background(), client, nil, requests, metas, items)
+	require.NoError(t, err)
+	require.NotNil(t, client.input)
+	assert.Len(t, client.input.TransactItems, 1)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Found)
+}
+
+func TestTransactGetExecutesAgainstDynamoClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "DynamoDB_20120810.TransactGetItems", r.Header.Get("X-Amz-Target"))
+		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+		_, err := w.Write([]byte(`{"Responses":[{"Item":{"id":{"S":"user-1"},"email":{"S":"one@example.test"}}}]}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	sess, err := session.NewSession(&session.Config{
+		Region:   "us-east-1",
+		Endpoint: server.URL,
+		AWSConfigOptions: []func(*config.LoadOptions) error{
+			config.WithRegion("us-east-1"),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
+		},
+	})
+	require.NoError(t, err)
+
+	dest := &User{}
+	results, err := TransactGet(
+		context.Background(),
+		sess,
+		model.NewRegistry(),
+		pkgTypes.NewConverter(),
+		[]core.TransactGetRequest{{Model: &User{}, Key: "user-1", Dest: dest}},
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Found)
+	assert.Equal(t, "user-1", dest.ID)
+	assert.Equal(t, "one@example.test", dest.Email)
+}
+
+func TestTransactGetWithClientPropagatesErrors(t *testing.T) {
+	want := errors.New("transact get failed")
+	_, err := transactGetWithClient(
+		context.Background(),
+		&mockTransactGetClient{err: want},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	assert.ErrorIs(t, err, want)
+}
+
+func TestTransactGetBuildsValidationErrors(t *testing.T) {
+	registry := model.NewRegistry()
+	converter := pkgTypes.NewConverter()
+
+	_, _, err := buildTransactGetItems(registry, converter, []core.TransactGetRequest{{Key: "missing-model"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "model cannot be nil")
+
+	_, _, err = buildTransactGetItems(registry, converter, []core.TransactGetRequest{{Model: &Account{}, Key: "pk-only"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "composite key requires")
+}
+
+func TestTransactGetValidatesInputs(t *testing.T) {
+	registry := model.NewRegistry()
+	converter := pkgTypes.NewConverter()
+
+	_, err := TransactGet(context.Background(), nil, registry, converter, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one")
+
+	requests := make([]core.TransactGetRequest, maxTransactGetItems+1)
+	for i := range requests {
+		requests[i] = core.TransactGetRequest{Model: &User{}, Key: "x"}
+	}
+	_, err = TransactGet(context.Background(), nil, registry, converter, requests)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, customerrors.ErrInvalidOperator)
+
+	_, err = TransactGet(context.Background(), nil, registry, converter, []core.TransactGetRequest{
+		{Model: &User{}, Key: "x"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session is not configured")
+
+	_, err = TransactGet(context.Background(), &session.Session{}, nil, converter, []core.TransactGetRequest{
+		{Model: &User{}, Key: "x"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "registry is not configured")
+
+	_, err = TransactGet(context.Background(), &session.Session{}, registry, nil, []core.TransactGetRequest{
+		{Model: &User{}, Key: "x"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DynamoDB client is nil")
+
+	_, err = TransactGet(context.Background(), &session.Session{}, registry, nil, []core.TransactGetRequest{
+		{Model: &Account{}, Key: "pk-only"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "composite key requires")
+}
+
+func TestTransactGetKeyAndProjectionVariants(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&User{}))
+	require.NoError(t, registry.Register(&Account{}))
+	converter := pkgTypes.NewConverter()
+
+	userMeta, err := registry.GetMetadata(&User{})
+	require.NoError(t, err)
+	userKey, err := buildTransactGetKey(userMeta, converter, "user-primitive")
+	require.NoError(t, err)
+	assert.Equal(t, &types.AttributeValueMemberS{Value: "user-primitive"}, userKey["id"])
+
+	accountMeta, err := registry.GetMetadata(&Account{})
+	require.NoError(t, err)
+	accountKey, err := buildTransactGetKey(
+		accountMeta,
+		converter,
+		Account{AccountID: "acct-1", UserID: "user-1"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, &types.AttributeValueMemberS{Value: "acct-1"}, accountKey["accountID"])
+	assert.Equal(t, &types.AttributeValueMemberS{Value: "user-1"}, accountKey["userID"])
+
+	accountKey, err = buildTransactGetKey(
+		accountMeta,
+		converter,
+		map[string]any{"accountID": "acct-2", "userID": "user-2"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, &types.AttributeValueMemberS{Value: "acct-2"}, accountKey["accountID"])
+	assert.Equal(t, &types.AttributeValueMemberS{Value: "user-2"}, accountKey["userID"])
+
+	_, err = resolveProjectionField(userMeta, "email")
+	require.NoError(t, err)
+	_, err = resolveProjectionField(userMeta, "missing")
+	require.Error(t, err)
+
+	value, ok := valueFromKeyMap(map[string]any{"ACCOUNTID": "acct-upper"}, accountMeta.PrimaryKey.PartitionKey)
+	require.True(t, ok)
+	assert.Equal(t, "acct-upper", value)
+	_, ok = valueFromKeyMap(map[string]any{"other": "value"}, accountMeta.PrimaryKey.PartitionKey)
+	assert.False(t, ok)
+
+	_, err = keyFromValues(accountMeta, converter, "acct", nil, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sort key")
+
+	_, err = buildTransactGetKey(userMeta, converter, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "key cannot be nil")
+
+	var nilUser *User
+	_, err = buildTransactGetKey(userMeta, converter, nilUser)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pointer cannot be nil")
+}
+
+func TestTransactGetEncryptedMetadataFailsClosed(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&SecretRecord{}))
+	metadata, err := registry.GetMetadata(&SecretRecord{})
+	require.NoError(t, err)
+
+	err = decryptTransactGetItem(context.Background(), nil, metadata, map[string]types.AttributeValue{
+		"secret": &types.AttributeValueMemberS{Value: "ciphertext"},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, customerrors.ErrEncryptionNotConfigured)
+}
+
+func TestTransactGetDecryptsFailClosedEnvelopeErrors(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&SecretRecord{}))
+	metadata, err := registry.GetMetadata(&SecretRecord{})
+	require.NoError(t, err)
+
+	sess, err := session.NewSession(&session.Config{
+		Region:    "us-east-1",
+		KMSKeyARN: "arn:aws:kms:us-east-1:111111111111:key/test",
+		AWSConfigOptions: []func(*config.LoadOptions) error{
+			config.WithRegion("us-east-1"),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
+		},
+	})
+	require.NoError(t, err)
+
+	err = decryptTransactGetItem(context.Background(), sess, metadata, map[string]types.AttributeValue{
+		"id": &types.AttributeValueMemberS{Value: "record-1"},
+	})
+	require.NoError(t, err)
+
+	err = decryptTransactGetItem(context.Background(), sess, metadata, map[string]types.AttributeValue{
+		"secret": &types.AttributeValueMemberS{Value: "not-an-envelope"},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, customerrors.ErrInvalidEncryptedEnvelope)
 }
 
 func TestTransactionBuilderMissingKey(t *testing.T) {

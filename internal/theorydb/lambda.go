@@ -26,8 +26,9 @@ import (
 
 var (
 	// Global Lambda-optimized DB for connection reuse
-	globalLambdaDB *LambdaDB
-	lambdaOnce     sync.Once
+	globalLambdaDB    *LambdaDB
+	globalLambdaDBErr error
+	lambdaOnce        sync.Once
 
 	benchmarkLoadDefaultConfig = config.LoadDefaultConfig
 	benchmarkNewDynamoDBClient = dynamodb.NewFromConfig
@@ -92,12 +93,15 @@ func NewLambdaOptimized() (*LambdaDB, error) {
 		return globalLambdaDB, nil
 	}
 
-	var err error
 	lambdaOnce.Do(func() {
-		globalLambdaDB, err = createLambdaDB()
+		globalLambdaDB, globalLambdaDBErr = createLambdaDB()
 	})
 
-	return globalLambdaDB, err
+	if globalLambdaDBErr != nil {
+		return nil, globalLambdaDBErr
+	}
+
+	return globalLambdaDB, nil
 }
 
 // createLambdaDB creates the actual Lambda DB instance
@@ -305,6 +309,8 @@ func (ldb *LambdaDB) OptimizeForMemory() {
 	}
 
 	if ldb.db != nil {
+		ldb.db.mu.Lock()
+		defer ldb.db.mu.Unlock()
 		ldb.db.lambdaTimeoutBuffer = buffer
 	}
 }

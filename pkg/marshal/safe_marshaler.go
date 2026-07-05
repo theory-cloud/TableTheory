@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/internal/anonymous"
 	"github.com/theory-cloud/tabletheory/internal/expr"
 	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/pkg/model"
@@ -204,7 +205,7 @@ func (m *SafeMarshaler) marshalValue(v reflect.Value, fieldMeta *safeFieldMarsha
 			return nil, err
 		}
 		return expr.ConvertToAttributeValueWithOptions(normalized, expr.ConvertOptions{
-			FlatAnonymousEmbedEncoding: converterRequestsFlatAnonymousEmbeds(m.converter),
+			FlatAnonymousEmbedEncoding: anonymous.RequestsFlatEncoding(m.converter),
 		})
 	}
 
@@ -304,15 +305,13 @@ func (m *SafeMarshaler) marshalSliceValue(v reflect.Value, fieldMeta *safeFieldM
 		return &types.AttributeValueMemberNULL{Value: true}, nil
 	}
 
-	if v.Type().Elem().Kind() == reflect.String && fieldMeta.isSet {
-		if v.Len() == 0 {
-			return &types.AttributeValueMemberNULL{Value: true}, nil
-		}
-		values := make([]string, v.Len())
-		for i := 0; i < v.Len(); i++ {
-			values[i] = v.Index(i).String()
-		}
-		return &types.AttributeValueMemberSS{Value: values}, nil
+	isSet := fieldMeta != nil && fieldMeta.isSet
+	if isSet {
+		return marshalSetSliceReflect(v)
+	}
+
+	if isByteSliceType(v.Type()) {
+		return &types.AttributeValueMemberB{Value: append([]byte(nil), v.Bytes()...)}, nil
 	}
 
 	return m.marshalSlice(v, fieldMeta)
@@ -347,6 +346,57 @@ func (m *SafeMarshaler) marshalSlice(v reflect.Value, fieldMeta *safeFieldMarsha
 	return &types.AttributeValueMemberL{Value: list}, nil
 }
 
+func isByteSliceType(typ reflect.Type) bool {
+	return typ.Kind() == reflect.Slice && typ.Elem().Kind() == reflect.Uint8
+}
+
+func marshalSetSliceReflect(v reflect.Value) (types.AttributeValue, error) {
+	if v.IsNil() || v.Len() == 0 {
+		return &types.AttributeValueMemberNULL{Value: true}, nil
+	}
+
+	elemType := v.Type().Elem()
+	switch elemType.Kind() {
+	case reflect.String:
+		values := make([]string, v.Len())
+		for i := 0; i < v.Len(); i++ {
+			values[i] = v.Index(i).String()
+		}
+		return &types.AttributeValueMemberSS{Value: values}, nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+		values := make([]string, v.Len())
+		for i := 0; i < v.Len(); i++ {
+			values[i] = formatSetNumberValue(v.Index(i))
+		}
+		return &types.AttributeValueMemberNS{Value: values}, nil
+	case reflect.Slice:
+		if elemType.Elem().Kind() == reflect.Uint8 {
+			values := make([][]byte, v.Len())
+			for i := 0; i < v.Len(); i++ {
+				values[i] = append([]byte(nil), v.Index(i).Bytes()...)
+			}
+			return &types.AttributeValueMemberBS{Value: values}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("unsupported set element type: %s", elemType)
+}
+
+func formatSetNumberValue(v reflect.Value) string {
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return strconv.FormatInt(v.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return strconv.FormatUint(v.Uint(), 10)
+	case reflect.Float32:
+		return strconv.FormatFloat(v.Float(), 'f', -1, 32)
+	case reflect.Float64:
+		return strconv.FormatFloat(v.Float(), 'f', -1, 64)
+	default:
+		return fmt.Sprintf("%v", v.Interface())
+	}
+}
+
 // marshalMap safely marshals a map
 func (m *SafeMarshaler) marshalMap(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	avMap := make(map[string]types.AttributeValue, v.Len())
@@ -366,7 +416,7 @@ func (m *SafeMarshaler) marshalMap(v reflect.Value, fieldMeta *safeFieldMarshale
 func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	typ := v.Type()
 	convention := resolveNestedNamingConvention(typ, fieldMeta)
-	flattenAnonymousEmbeds := converterRequestsFlatAnonymousEmbeds(m.converter)
+	flattenAnonymousEmbeds := anonymous.RequestsFlatEncoding(m.converter)
 	fieldPlans, err := buildMarshalVisibleFieldPlans(typ, m.converter)
 	if err != nil {
 		return nil, err
@@ -394,13 +444,13 @@ func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarsh
 		if skip {
 			continue
 		}
-		containerNames, skip := marshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
+		containerNames, skip := anonymous.MarshalContainerNamesForField(typ, fieldPlan.IndexPath, func(field reflect.StructField) (string, bool) {
 			return resolveNestedFieldName(field, convention)
 		}, flattenAnonymousEmbeds)
 		if skip {
 			continue
 		}
-		if err := setMarshaledAttributeValue(structMap, containerNames, attrName, av, flattenAnonymousEmbeds); err != nil {
+		if err := anonymous.SetMarshaledAttributeValue(structMap, containerNames, attrName, av, flattenAnonymousEmbeds); err != nil {
 			return nil, fmt.Errorf("struct field %s: %w", fieldPlan.Field.Name, err)
 		}
 	}

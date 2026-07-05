@@ -20,7 +20,7 @@ This page documents TableTheory's public write-transaction surfaces, which use t
 | Limit                                             | Value / behavior                            |
 |---------------------------------------------------|---------------------------------------------|
 | DynamoDB `TransactWriteItems` item limit           | 100 items per service call                  |
-| Go `core.TransactionBuilder` operation cap         | 25 operations in the current public builder |
+| Go `core.TransactionBuilder` operation cap         | 100 operations                              |
 | TypeScript `TheorydbClient.transactWrite` cap      | DynamoDB enforces service-call limits       |
 | Python `Table.transact_write` action cap           | 100 actions                                 |
 | Maximum DynamoDB transaction payload size          | 4 MB                                        |
@@ -58,8 +58,9 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 
 > Use `db.TransactWrite(ctx, func(core.TransactionBuilder) error)` or the
 > fluent `db.Transact()` builder followed by `Execute()` for DynamoDB
-> transactions. The older `db.Transaction(func(*core.Tx) error)` helper is only
-> a compatibility wrapper and is not the canonical full-transaction API.
+> transactions. In v2, the removed `db.Transaction(func(*core.Tx) error)` and
+> `db.TransactionFunc(...)` compatibility helpers no longer exist; migrate to
+> the atomic `Transact()` surface.
 
 ## TypeScript
 
@@ -100,10 +101,10 @@ See [`ts/src/transaction.ts`](https://github.com/theory-cloud/tabletheory/blob/m
 ## Python
 
 `Table.transact_write(actions)` accepts a list of dataclass actions —
-`TransactPut`, `TransactUpdate`, `TransactDelete`, `TransactConditionCheck` — all importable from `theorydb_py`.
+`TransactPut`, `TransactUpdate`, `TransactDelete`, `TransactConditionCheck` — all importable from `tabletheory_py`.
 
 ```python
-from theorydb_py import TransactPut, TransactUpdate
+from tabletheory_py import TransactPut, TransactUpdate
 
 table.transact_write([
     TransactUpdate(
@@ -118,7 +119,7 @@ table.transact_write([
 ])
 ```
 
-See [`py/src/theorydb_py/transaction.py`](https://github.com/theory-cloud/tabletheory/blob/main/py/src/theorydb_py/transaction.py) for the full action-dataclass shapes.
+See [`py/src/tabletheory_py/transaction.py`](https://github.com/theory-cloud/tabletheory/blob/main/py/src/tabletheory_py/transaction.py) for the full action-dataclass shapes.
 
 ## Common patterns
 

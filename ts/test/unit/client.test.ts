@@ -15,7 +15,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 
 import { TheorydbClient } from '../../src/client.js';
-import { TheorydbError } from '../../src/errors.js';
+import { hasTheorydbErrorCode, TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
 import { createDeterministicEncryptionProvider } from '../../src/testkit/index.js';
 import type { TransactAction } from '../../src/transaction.js';
@@ -167,7 +167,34 @@ class StubDdb {
   );
   await assert.rejects(
     () => client.create('User', { PK: 'A', SK: 'B' }, { ifNotExists: true }),
-    (e) => e instanceof TheorydbError && e.code === 'ErrConditionFailed',
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrConditionFailed' &&
+      !hasTheorydbErrorCode(e, 'ErrVersionConflict'),
+  );
+}
+
+{
+  const err = new ConditionalCheckFailedException({
+    $metadata: {},
+    message: 'stale',
+  });
+  const ddb = new StubDdb(() => {
+    throw err;
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  await assert.rejects(
+    () =>
+      client.update('User', { PK: 'A', SK: 'B', nickname: 'x', version: 0 }, [
+        'nickname',
+      ]),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrConditionFailed' &&
+      hasTheorydbErrorCode(e, 'ErrConditionFailed') &&
+      hasTheorydbErrorCode(e, 'ErrVersionConflict'),
   );
 }
 
@@ -183,7 +210,7 @@ class StubDdb {
   );
   const got = await client.get('User', { PK: 'A', SK: 'B' });
   assert.equal(got.PK, 'A');
-  assert.equal(got.version, 1);
+  assert.equal(got.version, '1');
 }
 
 {
@@ -197,6 +224,47 @@ class StubDdb {
   await assert.rejects(
     () => client.get('User', { PK: 'A', SK: 'B' }),
     (e) => e instanceof TheorydbError && e.code === 'ErrItemNotFound',
+  );
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof GetItemCommand) {
+      return { Item: { PK: { S: 'A' }, SK: { S: 'B' }, version: { N: '1' } } };
+    }
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  const got = await client.getOrNull('User', { PK: 'A', SK: 'B' });
+  assert.ok(got);
+  assert.equal(got.PK, 'A');
+  assert.equal(got.version, '1');
+}
+
+{
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof GetItemCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  const got = await client.getOrNull('User', { PK: 'A', SK: 'B' });
+  assert.equal(got, null);
+}
+
+{
+  const ddb = new StubDdb(() => {
+    throw new TheorydbError('ErrInvalidModel', 'boom');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  await assert.rejects(
+    () => client.getOrNull('User', { PK: 'A', SK: 'B' }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
   );
 }
 

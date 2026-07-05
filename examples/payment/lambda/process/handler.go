@@ -171,37 +171,21 @@ func (h *Handler) processPayment(ctx context.Context, merchantID string, req *Pr
 		},
 	})
 
-	// Begin transaction
-	err := h.db.Transaction(func(tx *core.Tx) error {
-		if err := tx.Create(paymentRecord); err != nil {
-			return fmt.Errorf("failed to create payment: %w", err)
-		}
+	// Simulate payment processing before composing the atomic writes.
+	// In real implementation, this would call the payment processor.
+	paymentRecord.Status = payment.PaymentStatusSucceeded
+	paymentRecord.UpdatedAt = time.Now()
 
-		if err := tx.Create(txRecord); err != nil {
-			return fmt.Errorf("failed to create transaction: %w", err)
-		}
+	txRecord.Status = "succeeded"
+	txRecord.ProcessorID = "PROC-" + uuid.New().String()
+	txRecord.ResponseCode = "00"
+	txRecord.ResponseText = "Approved"
+	txRecord.UpdatedAt = time.Now()
 
-		// Simulate payment processing
-		// In real implementation, this would call the payment processor
-		paymentRecord.Status = payment.PaymentStatusSucceeded
-		paymentRecord.UpdatedAt = time.Now()
-
-		txRecord.Status = "succeeded"
-		txRecord.ProcessorID = "PROC-" + uuid.New().String()
-		txRecord.ResponseCode = "00"
-		txRecord.ResponseText = "Approved"
-		txRecord.UpdatedAt = time.Now()
-
-		if err := tx.Update(paymentRecord, "Status", "UpdatedAt"); err != nil {
-			return fmt.Errorf("failed to update payment: %w", err)
-		}
-
-		if err := tx.Update(txRecord, "Status", "ProcessorID", "ResponseCode", "ResponseText", "UpdatedAt"); err != nil {
-			return fmt.Errorf("failed to update transaction: %w", err)
-		}
-
-		return nil
-	})
+	err := h.db.Transact().
+		Create(paymentRecord).
+		Create(txRecord).
+		Execute()
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to process payment: %w", err)

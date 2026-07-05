@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import pytest
 
-from theorydb_py.model import (
+from tabletheory_py.model import (
     IndexSpec,
     ModelDefinition,
     ModelDefinitionError,

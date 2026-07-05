@@ -65,8 +65,8 @@ See also:
 
 **Evidence**
 - New scripts:
-  - `bash scripts/coverage-ts.sh`
-  - `bash scripts/coverage-py.sh`
+  - `bash scripts/verify-coverage.sh --language typescript --record-only`
+  - `bash scripts/verify-coverage.sh --language python --record-only`
 - CI workflow logs show generated summaries and artifacts.
 
 ---
@@ -77,8 +77,8 @@ See also:
 
 **Acceptance criteria**
 - New verifiers exist and are included in `make rubric`:
-  - `bash scripts/verify-typescript-coverage.sh` (threshold default 90%, raise-only override)
-  - `bash scripts/verify-python-coverage.sh` (threshold default 90%, raise-only override)
+  - `bash scripts/verify-coverage.sh --language typescript` (threshold default 90%, raise-only override)
+  - `bash scripts/verify-coverage.sh --language python` (threshold default 90%, raise-only override)
 - Coverage “denominator games” are prevented:
   - cannot exclude additional production directories to inflate %
   - cannot move logic into `examples/` or `tests/` to avoid measurement

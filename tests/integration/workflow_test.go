@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/transaction"
 	"github.com/theory-cloud/tabletheory/tests"
 )
 
@@ -142,32 +141,20 @@ func TestCompleteWorkflow(t *testing.T) {
 
 		// Perform atomic fund transfer
 		transferAmount := 25.0
-		err = testCtx.DB.TransactionFunc(func(tx any) error {
-			txTyped, ok := tx.(*transaction.Transaction)
-			if !ok {
-				return errors.New("expected *transaction.Transaction")
-			}
-			// Fetch current balances
-			var u1, u2 User
-			fetchErr := testCtx.DB.Model(&User{ID: "tx-user-1"}).First(&u1)
-			if fetchErr != nil {
-				return fetchErr
-			}
-			fetchErr = testCtx.DB.Model(&User{ID: "tx-user-2"}).First(&u2)
-			if fetchErr != nil {
-				return fetchErr
-			}
+		// Fetch current balances before composing the transactional writes.
+		var u1, u2 User
+		err = testCtx.DB.Model(&User{ID: "tx-user-1"}).First(&u1)
+		require.NoError(t, err)
+		err = testCtx.DB.Model(&User{ID: "tx-user-2"}).First(&u2)
+		require.NoError(t, err)
 
-			// Update balances
-			u1.Balance -= transferAmount
-			u2.Balance += transferAmount
+		u1.Balance -= transferAmount
+		u2.Balance += transferAmount
 
-			// Add updates to transaction
-			if updateErr := txTyped.Update(&u1); updateErr != nil {
-				return updateErr
-			}
-			return txTyped.Update(&u2)
-		})
+		err = testCtx.DB.Transact().
+			Update(&u1, []string{"Balance"}).
+			Update(&u2, []string{"Balance"}).
+			Execute()
 		require.NoError(t, err)
 
 		// Verify balances after transaction
@@ -188,29 +175,20 @@ func TestCompleteWorkflow(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create order and update inventory atomically
-		err = testCtx.DB.TransactionFunc(func(tx any) error {
-			txTyped, ok := tx.(*transaction.Transaction)
-			if !ok {
-				return errors.New("expected *transaction.Transaction")
-			}
-			// Create a new order
-			order := &User{
-				ID:      "order-1",
-				Name:    "Order for prod-1",
-				Email:   "order@example.com",
-				Balance: 999.99,
-				Status:  "pending",
-			}
-			if createErr := txTyped.Create(order); createErr != nil {
-				return createErr
-			}
+		newOrder := &User{
+			ID:      "order-1",
+			Name:    "Order for prod-1",
+			Email:   "order@example.com",
+			Balance: 999.99,
+			Status:  "pending",
+		}
+		product.Stock -= 1
+		product.LastSold = time.Now()
 
-			// Update product stock
-			product.Stock -= 1
-			product.LastSold = time.Now()
-
-			return txTyped.Update(&product)
-		})
+		err = testCtx.DB.Transact().
+			Create(newOrder).
+			Update(&product, []string{"Stock", "LastSold"}).
+			Execute()
 		require.NoError(t, err)
 
 		// Verify order was created
@@ -228,17 +206,11 @@ func TestCompleteWorkflow(t *testing.T) {
 
 	t.Run("ConditionalTransactionFailure", func(t *testing.T) {
 		// Try to create a user that already exists
-		err := testCtx.DB.TransactionFunc(func(tx any) error {
-			txTyped, ok := tx.(*transaction.Transaction)
-			if !ok {
-				return errors.New("expected *transaction.Transaction")
-			}
-			duplicate := &User{
-				ID:   "user-1",
-				Name: "Duplicate User",
-			}
-			return txTyped.Create(duplicate)
-		})
+		duplicate := &User{
+			ID:   "user-1",
+			Name: "Duplicate User",
+		}
+		err := testCtx.DB.Transact().Create(duplicate).Execute()
 		// Should fail due to conditional check
 		assert.Error(t, err)
 	})
@@ -316,26 +288,18 @@ func TestBatchOperationsWithTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create multiple users in a transaction
-	err = testCtx.DB.TransactionFunc(func(tx any) error {
-		txTyped, ok := tx.(*transaction.Transaction)
-		if !ok {
-			return errors.New("expected *transaction.Transaction")
-		}
-		users := []User{
-			{ID: "batch-1", Name: "User 1", Email: "user1@example.com", Balance: 100},
-			{ID: "batch-2", Name: "User 2", Email: "user2@example.com", Balance: 200},
-			{ID: "batch-3", Name: "User 3", Email: "user3@example.com", Balance: 300},
-			{ID: "batch-4", Name: "User 4", Email: "user4@example.com", Balance: 400},
-			{ID: "batch-5", Name: "User 5", Email: "user5@example.com", Balance: 500},
-		}
-
-		for _, u := range users {
-			if createErr := txTyped.Create(&u); createErr != nil {
-				return createErr
-			}
-		}
-		return nil
-	})
+	users := []User{
+		{ID: "batch-1", Name: "User 1", Email: "user1@example.com", Balance: 100},
+		{ID: "batch-2", Name: "User 2", Email: "user2@example.com", Balance: 200},
+		{ID: "batch-3", Name: "User 3", Email: "user3@example.com", Balance: 300},
+		{ID: "batch-4", Name: "User 4", Email: "user4@example.com", Balance: 400},
+		{ID: "batch-5", Name: "User 5", Email: "user5@example.com", Balance: 500},
+	}
+	tx := testCtx.DB.Transact()
+	for i := range users {
+		tx.Create(&users[i])
+	}
+	err = tx.Execute()
 	require.NoError(t, err)
 
 	// Verify all users were created

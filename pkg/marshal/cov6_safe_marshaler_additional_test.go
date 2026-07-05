@@ -3,6 +3,7 @@ package marshal
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,23 @@ func TestSafeMarshaler_getOrBuildSafeStructMarshaler_RebuildsOnBadCache_COV6(t *
 	sm := m.getOrBuildSafeStructMarshaler(typ, meta)
 	require.NotNil(t, sm)
 	require.NotEmpty(t, sm.fields)
+}
+
+func TestSafeMarshaler_MarshalStructValue_TimeBranches_THE2551(t *testing.T) {
+	m := NewSafeMarshaler()
+	stamp := time.Date(2026, time.July, 4, 12, 30, 0, 123, time.UTC)
+
+	asString, err := m.marshalStructValue(reflect.ValueOf(stamp), &safeFieldMarshaler{})
+	require.NoError(t, err)
+	asStringValue, ok := asString.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, stamp.Format(time.RFC3339Nano), asStringValue.Value)
+
+	asTTL, err := m.marshalStructValue(reflect.ValueOf(stamp), &safeFieldMarshaler{isTTL: true})
+	require.NoError(t, err)
+	asTTLValue, ok := asTTL.(*types.AttributeValueMemberN)
+	require.True(t, ok)
+	require.Equal(t, "1783168200", asTTLValue.Value)
 }
 
 func TestSafeMarshaler_MarshalItem_NilMapAndInterface_COV6(t *testing.T) {

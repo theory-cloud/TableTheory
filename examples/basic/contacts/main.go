@@ -22,28 +22,28 @@ import (
 // Contact represents a contact with composite keys for organization
 type Contact struct {
 	// Composite primary key: OrgID#ContactID
-	ID string `theorydb:"pk"`
+	ID string `theorydb:"pk" json:"id"`
 
 	// Organization ID (extracted from composite key)
-	OrgID string
+	OrgID string `json:"org_id"`
 
 	// Contact's unique ID
-	ContactID string
+	ContactID string `json:"contact_id"`
 
 	// GSI for searching by email across all orgs
-	Email string `theorydb:"index:gsi-email,pk;required"`
+	Email string `theorydb:"index:gsi-email,pk" json:"email"`
 
 	// GSI for searching by phone
-	Phone string `theorydb:"index:gsi-phone,pk"`
+	Phone string `theorydb:"index:gsi-phone,pk" json:"phone"`
 
 	// Contact details
-	FirstName string `theorydb:"required"`
-	LastName  string `theorydb:"required"`
-	Company   string
-	JobTitle  string
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Company   string `json:"company"`
+	JobTitle  string `json:"job_title"`
 
 	// GSI for full name search (LastName#FirstName)
-	FullName string `theorydb:"index:gsi-name,pk"`
+	FullName string `theorydb:"index:gsi-name,pk" json:"full_name"`
 
 	// Address information
 	Address struct {
@@ -55,17 +55,17 @@ type Contact struct {
 	}
 
 	// Contact metadata
-	Tags       []string `theorydb:"set"`
-	Notes      string
-	IsFavorite bool
+	Tags       []string `theorydb:"set" json:"tags"`
+	Notes      string   `json:"notes"`
+	IsFavorite bool     `json:"is_favorite"`
 
 	// Timestamps
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastContactedAt *time.Time
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	LastContactedAt *time.Time `json:"last_contacted_at,omitempty"`
 
 	// Custom fields as a map
-	CustomFields map[string]string
+	CustomFields map[string]string `json:"custom_fields,omitempty"`
 }
 
 // ContactsApp manages contact operations

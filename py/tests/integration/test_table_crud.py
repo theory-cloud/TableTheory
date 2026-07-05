@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import boto3
 import pytest
 
-from theorydb_py import ConditionFailedError, ModelDefinition, NotFoundError, Table, theorydb_field
+from tabletheory_py import ConditionFailedError, ModelDefinition, NotFoundError, Table, theorydb_field
 
 
 def _dynamodb_endpoint() -> str:
@@ -34,7 +34,7 @@ class Note:
 
 
 def test_table_crud_round_trip_and_conditions() -> None:
-    table_name = f"theorydb_py_table_{uuid.uuid4().hex[:12]}"
+    table_name = f"tabletheory_py_table_{uuid.uuid4().hex[:12]}"
     client = _client()
     client.create_table(
         TableName=table_name,

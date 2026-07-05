@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py import (
+from tabletheory_py import (
     ModelDefinition,
     ValidationError,
     theorydb_field,

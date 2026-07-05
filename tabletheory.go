@@ -17,6 +17,7 @@ import (
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	"github.com/theory-cloud/tabletheory/pkg/schema"
 	"github.com/theory-cloud/tabletheory/pkg/session"
+	"github.com/theory-cloud/tabletheory/pkg/typed"
 )
 
 type (
@@ -31,9 +32,11 @@ type (
 
 	// Re-export types for convenience.
 	Config            = session.Config
+	DynamoDBAPI       = session.DynamoDBAPI
 	AutoMigrateOption = schema.AutoMigrateOption
 	BatchGetOptions   = core.BatchGetOptions
 	KeyPair           = core.KeyPair
+	TypedExtendedDB   = core.TypedExtendedDB
 )
 
 // Re-export AutoMigrate options for convenience.
@@ -61,12 +64,26 @@ func New(config session.Config) (core.ExtendedDB, error) {
 	return internaltheorydb.New(config)
 }
 
+// NewWithClient creates a TableTheory instance backed by an injected DynamoDBAPI.
+// It is intended for deterministic consumer tests and local fakes.
+func NewWithClient(config session.Config, client session.DynamoDBAPI) (core.ExtendedDB, error) {
+	return internaltheorydb.NewWithClient(config, client)
+}
+
 func NewBasic(config session.Config) (core.DB, error) {
 	return internaltheorydb.NewBasic(config)
 }
 
 func NewKeyPair(partitionKey any, sortKey ...any) core.KeyPair {
 	return internaltheorydb.NewKeyPair(partitionKey, sortKey...)
+}
+
+func ModelOf[T any](db core.DB) typed.Model[T] {
+	return typed.ModelOf[T](db)
+}
+
+func NewTypedKey[T any](partitionKey any, sortKey ...any) typed.Key[T] {
+	return typed.NewKey[T](partitionKey, sortKey...)
 }
 
 func DefaultBatchGetOptions() *core.BatchGetOptions {

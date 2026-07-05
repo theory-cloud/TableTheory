@@ -1,0 +1,134 @@
+name: "p2.batch_write_chunking"
+dms_version: "0.1"
+requires_capabilities: ["batch.write", "batch.get"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: batch_write
+    batch_write:
+      puts:
+        - { PK: "USER#BW", SK: "ITEM#001", emailHash: "bw@example", nickname: "w001" }
+        - { PK: "USER#BW", SK: "ITEM#002", emailHash: "bw@example", nickname: "w002" }
+        - { PK: "USER#BW", SK: "ITEM#003", emailHash: "bw@example", nickname: "w003" }
+        - { PK: "USER#BW", SK: "ITEM#004", emailHash: "bw@example", nickname: "w004" }
+        - { PK: "USER#BW", SK: "ITEM#005", emailHash: "bw@example", nickname: "w005" }
+        - { PK: "USER#BW", SK: "ITEM#006", emailHash: "bw@example", nickname: "w006" }
+        - { PK: "USER#BW", SK: "ITEM#007", emailHash: "bw@example", nickname: "w007" }
+        - { PK: "USER#BW", SK: "ITEM#008", emailHash: "bw@example", nickname: "w008" }
+        - { PK: "USER#BW", SK: "ITEM#009", emailHash: "bw@example", nickname: "w009" }
+        - { PK: "USER#BW", SK: "ITEM#010", emailHash: "bw@example", nickname: "w010" }
+        - { PK: "USER#BW", SK: "ITEM#011", emailHash: "bw@example", nickname: "w011" }
+        - { PK: "USER#BW", SK: "ITEM#012", emailHash: "bw@example", nickname: "w012" }
+        - { PK: "USER#BW", SK: "ITEM#013", emailHash: "bw@example", nickname: "w013" }
+        - { PK: "USER#BW", SK: "ITEM#014", emailHash: "bw@example", nickname: "w014" }
+        - { PK: "USER#BW", SK: "ITEM#015", emailHash: "bw@example", nickname: "w015" }
+        - { PK: "USER#BW", SK: "ITEM#016", emailHash: "bw@example", nickname: "w016" }
+        - { PK: "USER#BW", SK: "ITEM#017", emailHash: "bw@example", nickname: "w017" }
+        - { PK: "USER#BW", SK: "ITEM#018", emailHash: "bw@example", nickname: "w018" }
+        - { PK: "USER#BW", SK: "ITEM#019", emailHash: "bw@example", nickname: "w019" }
+        - { PK: "USER#BW", SK: "ITEM#020", emailHash: "bw@example", nickname: "w020" }
+        - { PK: "USER#BW", SK: "ITEM#021", emailHash: "bw@example", nickname: "w021" }
+        - { PK: "USER#BW", SK: "ITEM#022", emailHash: "bw@example", nickname: "w022" }
+        - { PK: "USER#BW", SK: "ITEM#023", emailHash: "bw@example", nickname: "w023" }
+        - { PK: "USER#BW", SK: "ITEM#024", emailHash: "bw@example", nickname: "w024" }
+        - { PK: "USER#BW", SK: "ITEM#025", emailHash: "bw@example", nickname: "w025" }
+        - { PK: "USER#BW", SK: "ITEM#026", emailHash: "bw@example", nickname: "w026" }
+    expect: { ok: true }
+
+  - op: batch_get
+    batch_get:
+      keys:
+        - { PK: "USER#BW", SK: "ITEM#001" }
+        - { PK: "USER#BW", SK: "ITEM#002" }
+        - { PK: "USER#BW", SK: "ITEM#003" }
+        - { PK: "USER#BW", SK: "ITEM#004" }
+        - { PK: "USER#BW", SK: "ITEM#005" }
+        - { PK: "USER#BW", SK: "ITEM#006" }
+        - { PK: "USER#BW", SK: "ITEM#007" }
+        - { PK: "USER#BW", SK: "ITEM#008" }
+        - { PK: "USER#BW", SK: "ITEM#009" }
+        - { PK: "USER#BW", SK: "ITEM#010" }
+        - { PK: "USER#BW", SK: "ITEM#011" }
+        - { PK: "USER#BW", SK: "ITEM#012" }
+        - { PK: "USER#BW", SK: "ITEM#013" }
+        - { PK: "USER#BW", SK: "ITEM#014" }
+        - { PK: "USER#BW", SK: "ITEM#015" }
+        - { PK: "USER#BW", SK: "ITEM#016" }
+        - { PK: "USER#BW", SK: "ITEM#017" }
+        - { PK: "USER#BW", SK: "ITEM#018" }
+        - { PK: "USER#BW", SK: "ITEM#019" }
+        - { PK: "USER#BW", SK: "ITEM#020" }
+        - { PK: "USER#BW", SK: "ITEM#021" }
+        - { PK: "USER#BW", SK: "ITEM#022" }
+        - { PK: "USER#BW", SK: "ITEM#023" }
+        - { PK: "USER#BW", SK: "ITEM#024" }
+        - { PK: "USER#BW", SK: "ITEM#025" }
+        - { PK: "USER#BW", SK: "ITEM#026" }
+    expect:
+      ok: true
+      item_count: 26
+
+  - op: get
+    key: { PK: "USER#BW", SK: "ITEM#001" }
+    expect:
+      ok: true
+      item_contains: { PK: "USER#BW", SK: "ITEM#001", nickname: "w001" }
+
+  - op: get
+    key: { PK: "USER#BW", SK: "ITEM#026" }
+    expect:
+      ok: true
+      item_contains: { PK: "USER#BW", SK: "ITEM#026", nickname: "w026" }
+
+  - op: batch_write
+    batch_write:
+      deletes:
+        - { PK: "USER#BW", SK: "ITEM#001" }
+        - { PK: "USER#BW", SK: "ITEM#002" }
+        - { PK: "USER#BW", SK: "ITEM#003" }
+    expect: { ok: true }
+
+  - op: batch_get
+    batch_get:
+      keys:
+        - { PK: "USER#BW", SK: "ITEM#001" }
+        - { PK: "USER#BW", SK: "ITEM#002" }
+        - { PK: "USER#BW", SK: "ITEM#003" }
+        - { PK: "USER#BW", SK: "ITEM#004" }
+        - { PK: "USER#BW", SK: "ITEM#005" }
+        - { PK: "USER#BW", SK: "ITEM#006" }
+        - { PK: "USER#BW", SK: "ITEM#007" }
+        - { PK: "USER#BW", SK: "ITEM#008" }
+        - { PK: "USER#BW", SK: "ITEM#009" }
+        - { PK: "USER#BW", SK: "ITEM#010" }
+        - { PK: "USER#BW", SK: "ITEM#011" }
+        - { PK: "USER#BW", SK: "ITEM#012" }
+        - { PK: "USER#BW", SK: "ITEM#013" }
+        - { PK: "USER#BW", SK: "ITEM#014" }
+        - { PK: "USER#BW", SK: "ITEM#015" }
+        - { PK: "USER#BW", SK: "ITEM#016" }
+        - { PK: "USER#BW", SK: "ITEM#017" }
+        - { PK: "USER#BW", SK: "ITEM#018" }
+        - { PK: "USER#BW", SK: "ITEM#019" }
+        - { PK: "USER#BW", SK: "ITEM#020" }
+        - { PK: "USER#BW", SK: "ITEM#021" }
+        - { PK: "USER#BW", SK: "ITEM#022" }
+        - { PK: "USER#BW", SK: "ITEM#023" }
+        - { PK: "USER#BW", SK: "ITEM#024" }
+        - { PK: "USER#BW", SK: "ITEM#025" }
+        - { PK: "USER#BW", SK: "ITEM#026" }
+    expect:
+      ok: true
+      item_count: 23
+
+  - op: get
+    key: { PK: "USER#BW", SK: "ITEM#001" }
+    expect:
+      error: "ErrItemNotFound"
+
+  - op: get
+    key: { PK: "USER#BW", SK: "ITEM#026" }
+    expect:
+      ok: true
+      item_contains: { PK: "USER#BW", SK: "ITEM#026", nickname: "w026" }

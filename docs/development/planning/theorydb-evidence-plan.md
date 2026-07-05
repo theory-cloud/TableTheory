@@ -41,7 +41,7 @@ report, or CI artifact is possible.
 | COM-2 | CI alignment check output | `bash scripts/verify-ci-toolchain.sh` |
 | COM-3 | Planning docs verification output | `bash scripts/verify-planning-docs.sh` |
 | COM-4 | golangci-lint config verification output | `golangci-lint config verify -c .golangci-v2.yml` |
-| COM-5 | Coverage threshold verification output | `bash scripts/verify-coverage-threshold.sh` |
+| COM-5 | Coverage threshold verification output | `bash scripts/verify-coverage.sh --check-threshold-config` |
 | COM-6 | CI rubric enforcement verification output | `bash scripts/verify-ci-rubric-enforced.sh` |
 | COM-7 | DynamoDB Local pin verification output | `bash scripts/verify-dynamodb-local-pin.sh` |
 | COM-8 | Branch/release policy + automation artifacts | `bash scripts/verify-branch-release-supply-chain.sh` |

@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { TheorydbError } from '../../src/errors.js';
-import { getDmsModel, parseDmsDocument } from '../../src/dms.js';
+import {
+  assertModelsEquivalent,
+  getDmsModel,
+  modelToDmsModel,
+  parseDmsDocument,
+} from '../../src/dms.js';
 import { defineModel } from '../../src/model.js';
+import {
+  DMSNoteModel,
+  DMSNoteSchema,
+} from '../fixtures/dms-codegen/generated-dms-note.js';
 
 {
   const raw = `
@@ -54,6 +64,71 @@ models: []
     (err) => {
       assert.ok(err instanceof TheorydbError);
       assert.equal(err.code, 'ErrInvalidModel');
+      return true;
+    },
+  );
+}
+
+{
+  const raw = readFileSync(
+    new URL('../../../pkg/dms/testdata/codegen/dms-note.yml', import.meta.url),
+    'utf8',
+  );
+  const doc = parseDmsDocument(raw);
+  const dmsModel = getDmsModel(doc, 'DMSNote');
+
+  assertModelsEquivalent(DMSNoteModel, dmsModel);
+  assertModelsEquivalent(DMSNoteSchema, dmsModel);
+  assert.equal(modelToDmsModel(DMSNoteModel).name, 'DMSNote');
+  assert.equal(DMSNoteModel.roles.createdAt, 'createdAt');
+  assert.deepEqual(DMSNoteModel.writePolicy.protectedAttributes, ['title']);
+}
+
+{
+  const raw = readFileSync(
+    new URL('../../../pkg/dms/testdata/codegen/dms-note.yml', import.meta.url),
+    'utf8',
+  );
+  const doc = parseDmsDocument(raw);
+  const dmsModel = getDmsModel(doc, 'DMSNote');
+  const drifted = defineModel({
+    ...DMSNoteSchema,
+    write_policy: { mode: 'mutable', protected_attributes: ['count'] },
+  });
+
+  assert.throws(
+    () => assertModelsEquivalent(drifted, dmsModel),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(err.message, /models not equivalent/);
+      return true;
+    },
+  );
+}
+
+{
+  const raw = `
+dms_version: "0.1"
+models:
+  - name: "BadNaming"
+    table: { name: "tbl" }
+    naming: { convention: "pascalCase" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+`;
+
+  assert.throws(
+    () => parseDmsDocument(raw),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(err.message, /unsupported naming\.convention/);
       return true;
     },
   );

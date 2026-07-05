@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from theorydb_py.mocks import FakeDynamoDBClient
-from theorydb_py.model import ModelDefinition, theorydb_field
-from theorydb_py.runtime import (
+from tabletheory_py.mocks import FakeDynamoDBClient
+from tabletheory_py.model import ModelDefinition, theorydb_field
+from tabletheory_py.runtime import (
     DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS,
     LambdaTimeoutConfig,
     _reset_lambda_clients_for_tests,
@@ -18,7 +18,7 @@ from theorydb_py.runtime import (
     is_lambda_environment,
     with_lambda_timeout,
 )
-from theorydb_py.table import Table
+from tabletheory_py.table import Table
 
 
 @dataclass(frozen=True)

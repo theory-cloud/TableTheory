@@ -2,13 +2,17 @@ package runner
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,10 +26,11 @@ import (
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/scenario"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/spec"
 	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
+	"github.com/theory-cloud/tabletheory/pkg/session"
 )
 
 type Runner struct {
-	ddb    *dynamodb.Client
+	ddb    session.DynamoDBAPI
 	driver driver.Driver
 	vars   map[string]any
 }
@@ -62,6 +67,17 @@ func New(driver driver.Driver) (*Runner, error) {
 	}, nil
 }
 
+func NewWithDynamoDBAPI(driver driver.Driver, ddb session.DynamoDBAPI) (*Runner, error) {
+	if ddb == nil {
+		return nil, fmt.Errorf("dynamodb api is required")
+	}
+	return &Runner{
+		ddb:    ddb,
+		driver: driver,
+		vars:   make(map[string]any),
+	}, nil
+}
+
 func (r *Runner) Ping(ctx context.Context) error {
 	_, err := r.ddb.ListTables(ctx, &dynamodb.ListTablesInput{Limit: aws.Int32(1)})
 	return err
@@ -78,12 +94,28 @@ func (r *Runner) RunScenario(t require.TestingT, ctx context.Context, s *scenari
 
 	require.NotEmpty(t, tableName, "table name required")
 
-	require.NoError(t, r.recreateTable(ctx, tableName, model))
+	steps, recreate := stepsForRuntime(s, "go")
+	if recreate {
+		require.NoError(t, r.recreateTable(ctx, tableName, model))
+	}
 
-	for i := range s.Steps {
-		step := s.Steps[i]
+	for i := range steps {
+		step := steps[i]
 		r.runStep(t, ctx, s, models, tableName, step)
 	}
+}
+
+func stepsForRuntime(s *scenario.Scenario, runtimeName string) ([]scenario.Step, bool) {
+	if s.SeedRuntime == "" {
+		return s.Steps, true
+	}
+	if strings.EqualFold(s.SeedRuntime, runtimeName) {
+		steps := make([]scenario.Step, 0, len(s.SeedSteps)+len(s.ReadSteps))
+		steps = append(steps, s.SeedSteps...)
+		steps = append(steps, s.ReadSteps...)
+		return steps, true
+	}
+	return s.ReadSteps, false
 }
 
 func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Scenario, models map[string]spec.Model, tableName string, step scenario.Step) {
@@ -134,6 +166,75 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		r.assertStepResult(t, step.Expect, item, err, raw, model)
 		return
 
+	case "get_optional":
+		item, found, err := r.driver.GetOptional(ctx, modelName, step.Key)
+		var raw map[string]types.AttributeValue
+		if err == nil && found {
+			var rawErr error
+			raw, rawErr = r.getRawItem(ctx, tableName, model, step.Key)
+			if rawErr != nil {
+				err = rawErr
+			}
+		}
+
+		if err == nil && found && len(step.Save) > 0 {
+			for varName, attrName := range step.Save {
+				r.vars[varName] = item[attrName]
+			}
+		}
+
+		r.assertStepResult(t, step.Expect, item, err, raw, model)
+		return
+
+	case "query":
+		require.NotNil(t, step.Query, "query request is required")
+		result, err := r.driver.Query(ctx, modelName, readRequestFromScenario(step.Query))
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
+	case "scan":
+		require.NotNil(t, step.Scan, "scan request is required")
+		result, err := r.driver.Scan(ctx, modelName, readRequestFromScenario(step.Scan))
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
+	case "count":
+		require.NotNil(t, step.Count, "count request is required")
+		var result driver.ReadResult
+		var err error
+		if step.Count.Query != nil {
+			result, err = r.driver.CountQuery(ctx, modelName, readRequestFromScenario(step.Count.Query))
+		} else {
+			require.NotNil(t, step.Count.Scan, "count.scan request is required")
+			result, err = r.driver.CountScan(ctx, modelName, readRequestFromScenario(step.Count.Scan))
+		}
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
+	case "transact_get":
+		require.NotNil(t, step.TransactGet, "transact_get request is required")
+		result, err := r.driver.TransactGet(ctx, modelName, transactGetItemsFromScenario(step.TransactGet))
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
+	case "batch_get":
+		require.NotNil(t, step.BatchGet, "batch_get request is required")
+		result, err := r.driver.BatchGet(ctx, modelName, cloneKeyMaps(step.BatchGet.Keys))
+		r.assertReadResult(t, step.Expect, result, err, model)
+		return
+
+	case "batch_write":
+		require.NotNil(t, step.BatchWrite, "batch_write request is required")
+		err := r.driver.BatchWrite(ctx, modelName, cloneKeyMaps(step.BatchWrite.Puts), cloneKeyMaps(step.BatchWrite.Deletes))
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "transact_write":
+		require.NotNil(t, step.TransactWrite, "transact_write request is required")
+		err := r.driver.TransactWrite(ctx, modelName, transactWriteActionsFromScenario(step.TransactWrite.Actions))
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
 	case "transition_append_event":
 		require.NotNil(t, step.Actual, "transition_append_event actual is required")
 		require.NotNil(t, step.Event, "transition_append_event event is required")
@@ -159,6 +260,103 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 	}
 }
 
+func readRequestFromScenario(req *scenario.ReadRequest) driver.ReadRequest {
+	if req == nil {
+		return driver.ReadRequest{}
+	}
+	out := driver.ReadRequest{
+		Index:          req.Index,
+		SortDirection:  req.SortDirection,
+		Limit:          req.Limit,
+		Projection:     append([]string(nil), req.Projection...),
+		Cursor:         req.Cursor,
+		ConsistentRead: req.ConsistentRead,
+	}
+	if req.Partition != nil {
+		partition := readConditionFromScenario(*req.Partition)
+		out.Partition = &partition
+	}
+	if req.Sort != nil {
+		sortCond := readConditionFromScenario(*req.Sort)
+		out.Sort = &sortCond
+	}
+	for _, filter := range req.Filter {
+		out.Filter = append(out.Filter, readConditionFromScenario(filter))
+	}
+	return out
+}
+
+func readConditionFromScenario(cond scenario.ReadCondition) driver.ReadCondition {
+	return driver.ReadCondition{
+		Attribute: cond.Attribute,
+		Operator:  cond.Operator,
+		Value:     cond.Value,
+		Values:    append([]any(nil), cond.Values...),
+	}
+}
+
+func transactGetItemsFromScenario(req *scenario.TransactGetRequest) []driver.KeyedItem {
+	if req == nil {
+		return nil
+	}
+	items := make([]driver.KeyedItem, 0, len(req.Items))
+	for _, item := range req.Items {
+		items = append(items, driver.KeyedItem{
+			Model: item.Model,
+			Key:   cloneMap(item.Key),
+		})
+	}
+	return items
+}
+
+func transactWriteActionsFromScenario(actions []scenario.TransactWriteAction) []driver.TransactWriteAction {
+	out := make([]driver.TransactWriteAction, 0, len(actions))
+	for _, action := range actions {
+		out = append(out, driver.TransactWriteAction{
+			Kind:                      action.Kind,
+			Model:                     action.Model,
+			Item:                      cloneMap(action.Item),
+			Key:                       cloneMap(action.Key),
+			Set:                       cloneMap(action.Set),
+			ConditionExpression:       action.ConditionExpression,
+			ExpressionAttributeNames:  cloneStringMap(action.ExpressionAttributeNames),
+			ExpressionAttributeValues: cloneMap(action.ExpressionAttributeValues),
+			IfNotExists:               action.IfNotExists,
+		})
+	}
+	return out
+}
+
+func cloneKeyMaps(values []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, cloneMap(value))
+	}
+	return out
+}
+
+func cloneMap(value map[string]any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	out := make(map[string]any, len(value))
+	for k, v := range value {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneStringMap(value map[string]string) map[string]string {
+	if value == nil {
+		return nil
+	}
+	out := make(map[string]string, len(value))
+	for k, v := range value {
+		out[k] = v
+	}
+	return out
+}
+
 func stepModelName(s *scenario.Scenario, step scenario.Step) string {
 	if step.Model != "" {
 		return step.Model
@@ -167,10 +365,28 @@ func stepModelName(s *scenario.Scenario, step scenario.Step) string {
 }
 
 func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectation, item map[string]any, err error, raw map[string]types.AttributeValue, model spec.Model) {
+	hasItemAssertion := expectationHasItemAssertion(expect)
+	hasRawAssertion := expectationHasRawItemAssertion(expect)
+
 	if expect.Error != "" {
 		require.Error(t, err)
 		require.Equal(t, driver.ErrorCode(expect.Error), driver.MapError(err))
+		require.False(t, hasItemAssertion, "item assertions cannot be combined with error expectations")
 		return
+	}
+	if len(expect.Errors) > 0 {
+		require.Error(t, err)
+		require.ElementsMatch(t, errorCodesFromExpectation(expect.Errors), driver.MapErrors(err))
+		require.False(t, hasItemAssertion, "item assertions cannot be combined with error expectations")
+		return
+	}
+	if hasItemAssertion {
+		require.NoError(t, err, "expected successful operation for item assertions")
+		require.NotNil(t, item, "expected item for item assertions")
+	}
+	if hasRawAssertion {
+		require.NoError(t, err, "expected successful operation for raw-item assertions")
+		require.NotNil(t, raw, "expected raw item for raw assertions")
 	}
 	if expect.Ok != nil {
 		if *expect.Ok {
@@ -182,6 +398,13 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 	if err != nil {
 		return
 	}
+	if expect.ItemAbsent != nil {
+		if *expect.ItemAbsent {
+			require.Nil(t, item, "expected absent item")
+		} else {
+			require.NotNil(t, item, "expected present item")
+		}
+	}
 
 	if len(expect.ItemContains) > 0 {
 		for attr, want := range expect.ItemContains {
@@ -189,7 +412,23 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 			require.True(t, ok, "missing attr %s in item", attr)
 			attrDef := model.AttributeByName(attr)
 			require.NotNil(t, attrDef, "unknown attr %s in model %s", attr, model.Name)
-			assertValueMatches(t, *attrDef, want, have)
+			rawValue := raw[attr]
+			if attrDef.Encryption != nil {
+				rawValue = nil
+			}
+			assertValueMatches(t, *attrDef, want, have, rawValue)
+		}
+	}
+
+	if len(expect.ItemEquals) > 0 {
+		assertItemEquals(t, expect.ItemEquals, item, raw, model)
+	}
+
+	if len(expect.RawItemContains) > 0 {
+		for attr, want := range expect.RawItemContains {
+			rawValue, ok := raw[attr]
+			require.True(t, ok, "missing raw attr %s", attr)
+			require.Equal(t, normalizeComparableDocument(want), attributeValueToComparable(rawValue), "raw attr %s", attr)
 		}
 	}
 
@@ -227,42 +466,322 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 	}
 }
 
-func assertValueMatches(t require.TestingT, attr spec.Attribute, want any, have any) {
+func (r *Runner) assertReadResult(t require.TestingT, expect scenario.Expectation, result driver.ReadResult, err error, model spec.Model) {
+	hasReadAssertion := expectationHasReadAssertion(expect)
+
+	if expect.Error != "" {
+		require.Error(t, err)
+		require.Equal(t, driver.ErrorCode(expect.Error), driver.MapError(err))
+		require.False(t, hasReadAssertion, "read assertions cannot be combined with error expectations")
+		return
+	}
+	if len(expect.Errors) > 0 {
+		require.Error(t, err)
+		require.ElementsMatch(t, errorCodesFromExpectation(expect.Errors), driver.MapErrors(err))
+		require.False(t, hasReadAssertion, "read assertions cannot be combined with error expectations")
+		return
+	}
+	if hasReadAssertion {
+		require.NoError(t, err, "expected successful read for read assertions")
+	}
+	if expect.Ok != nil {
+		if *expect.Ok {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+		}
+	}
+	if err != nil {
+		return
+	}
+
+	if expect.ItemCount != nil {
+		require.Len(t, result.Items, *expect.ItemCount)
+	}
+
+	if expect.Count != nil {
+		require.NotNil(t, result.Count, "expected count result")
+		require.Equal(t, int64(*expect.Count), *result.Count)
+	}
+
+	if len(expect.ItemsContains) > 0 {
+		require.GreaterOrEqual(t, len(result.Items), len(expect.ItemsContains), "not enough result items")
+		for i, wantItem := range expect.ItemsContains {
+			haveItem := result.Items[i]
+			for attr, want := range wantItem {
+				have, ok := haveItem[attr]
+				require.True(t, ok, "missing attr %s in result item %d", attr, i)
+				attrDef := model.AttributeByName(attr)
+				require.NotNil(t, attrDef, "unknown attr %s in model %s", attr, model.Name)
+				assertValueMatches(t, *attrDef, want, have, nil)
+			}
+		}
+	}
+	if len(expect.ItemsMissingFields) > 0 {
+		for i, item := range result.Items {
+			for _, attr := range expect.ItemsMissingFields {
+				have, ok := item[attr]
+				require.True(t, semanticallyMissingReadField(have, ok), "expected missing attr %s in result item %d", attr, i)
+			}
+		}
+	}
+	if expect.CursorEquals != nil {
+		require.Equal(t, *expect.CursorEquals, result.Cursor)
+	}
+}
+
+func semanticallyMissingReadField(value any, ok bool) bool {
+	if !ok || value == nil {
+		return true
+	}
+	switch v := value.(type) {
+	case string:
+		return v == ""
+	case int:
+		return v == 0
+	case int8:
+		return v == 0
+	case int16:
+		return v == 0
+	case int32:
+		return v == 0
+	case int64:
+		return v == 0
+	case uint:
+		return v == 0
+	case uint8:
+		return v == 0
+	case uint16:
+		return v == 0
+	case uint32:
+		return v == 0
+	case uint64:
+		return v == 0
+	case float32:
+		return v == 0
+	case float64:
+		return v == 0
+	case bool:
+		return !v
+	}
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Map:
+		return rv.Len() == 0
+	}
+	return false
+}
+
+func expectationHasItemAssertion(expect scenario.Expectation) bool {
+	return len(expect.ItemContains) > 0 ||
+		len(expect.ItemEquals) > 0 ||
+		len(expect.ItemHasFields) > 0 ||
+		len(expect.ItemMissingFields) > 0 ||
+		len(expect.RawAttributeTypes) > 0 ||
+		len(expect.ItemFieldEqualsVar) > 0 ||
+		len(expect.ItemFieldNotEqualsVar) > 0
+}
+
+func expectationHasRawItemAssertion(expect scenario.Expectation) bool {
+	return len(expect.ItemMissingFields) > 0 ||
+		len(expect.RawAttributeTypes) > 0 ||
+		len(expect.RawItemContains) > 0
+}
+
+func expectationHasReadAssertion(expect scenario.Expectation) bool {
+	return expect.ItemCount != nil ||
+		expect.Count != nil ||
+		len(expect.ItemsContains) > 0 ||
+		len(expect.ItemsMissingFields) > 0 ||
+		expect.CursorEquals != nil
+}
+
+func errorCodesFromExpectation(values []string) []driver.ErrorCode {
+	out := make([]driver.ErrorCode, 0, len(values))
+	for _, value := range values {
+		out = append(out, driver.ErrorCode(value))
+	}
+	return out
+}
+
+func assertItemEquals(t require.TestingT, want map[string]any, item map[string]any, raw map[string]types.AttributeValue, model spec.Model) {
+	if raw != nil {
+		require.Len(t, raw, len(want), "raw item should contain exactly the expected attributes")
+		for attr, wantValue := range want {
+			rawValue, ok := raw[attr]
+			require.True(t, ok, "missing raw attr %s", attr)
+			attrDef := model.AttributeByName(attr)
+			require.NotNil(t, attrDef, "unknown attr %s in model %s", attr, model.Name)
+			assertValueMatches(t, *attrDef, wantValue, item[attr], rawValue)
+		}
+		return
+	}
+
+	require.Len(t, item, len(want), "item should contain exactly the expected attributes")
+	for attr, wantValue := range want {
+		have, ok := item[attr]
+		require.True(t, ok, "missing attr %s", attr)
+		attrDef := model.AttributeByName(attr)
+		require.NotNil(t, attrDef, "unknown attr %s in model %s", attr, model.Name)
+		assertValueMatches(t, *attrDef, wantValue, have, nil)
+	}
+}
+
+func assertValueMatches(t require.TestingT, attr spec.Attribute, want any, have any, raw types.AttributeValue) {
 	switch attr.Type {
 	case "S":
+		if raw != nil {
+			rawS, ok := raw.(*types.AttributeValueMemberS)
+			require.True(t, ok, "expected raw S for %s, got %T", attr.Attribute, raw)
+			require.Equal(t, fmt.Sprintf("%v", want), rawS.Value)
+			return
+		}
 		require.Equal(t, fmt.Sprintf("%v", want), fmt.Sprintf("%v", have))
 	case "N":
-		wantN, err := asInt64(want)
+		wantN, err := canonicalDecimalString(want)
 		require.NoError(t, err)
-		haveN, err := asInt64(have)
+		if raw != nil {
+			rawN, ok := raw.(*types.AttributeValueMemberN)
+			require.True(t, ok, "expected raw N for %s, got %T", attr.Attribute, raw)
+			require.Equal(t, wantN, rawN.Value)
+			return
+		}
+		haveN, err := canonicalDecimalString(have)
 		require.NoError(t, err)
 		require.Equal(t, wantN, haveN)
+	case "B":
+		wantB, err := asBase64String(want)
+		require.NoError(t, err)
+		if raw != nil {
+			rawB, ok := raw.(*types.AttributeValueMemberB)
+			require.True(t, ok, "expected raw B for %s, got %T", attr.Attribute, raw)
+			require.Equal(t, wantB, base64.StdEncoding.EncodeToString(rawB.Value))
+			return
+		}
+		haveB, err := asBase64String(have)
+		require.NoError(t, err)
+		require.Equal(t, wantB, haveB)
+	case "BOOL":
+		wantBool, ok := want.(bool)
+		require.True(t, ok, "expected bool expectation for %s", attr.Attribute)
+		if raw != nil {
+			rawBool, ok := raw.(*types.AttributeValueMemberBOOL)
+			require.True(t, ok, "expected raw BOOL for %s, got %T", attr.Attribute, raw)
+			require.Equal(t, wantBool, rawBool.Value)
+			return
+		}
+		haveBool, ok := have.(bool)
+		require.True(t, ok, "expected bool value for %s, got %T", attr.Attribute, have)
+		require.Equal(t, wantBool, haveBool)
+	case "NULL":
+		if raw != nil {
+			rawNull, ok := raw.(*types.AttributeValueMemberNULL)
+			require.True(t, ok, "expected raw NULL for %s, got %T", attr.Attribute, raw)
+			require.True(t, rawNull.Value)
+			return
+		}
+		require.Nil(t, have)
 	case "SS":
 		wantSS, err := asStringSet(want)
 		require.NoError(t, err)
+		if raw != nil {
+			rawSS, ok := raw.(*types.AttributeValueMemberSS)
+			require.True(t, ok, "expected raw SS for %s, got %T", attr.Attribute, raw)
+			haveSS := append([]string(nil), rawSS.Value...)
+			sort.Strings(haveSS)
+			require.Equal(t, wantSS, haveSS)
+			return
+		}
 		haveSS, err := asStringSet(have)
 		require.NoError(t, err)
 		require.Equal(t, wantSS, haveSS)
+	case "NS":
+		wantNS, err := asNumberSet(want)
+		require.NoError(t, err)
+		if raw != nil {
+			if rawNull, ok := raw.(*types.AttributeValueMemberNULL); ok && rawNull.Value {
+				require.Empty(t, wantNS, "expected empty NS for raw NULL")
+				return
+			}
+			rawNS, ok := raw.(*types.AttributeValueMemberNS)
+			require.True(t, ok, "expected raw NS for %s, got %T", attr.Attribute, raw)
+			haveNS := append([]string(nil), rawNS.Value...)
+			sort.Strings(haveNS)
+			require.Equal(t, wantNS, haveNS)
+			return
+		}
+		haveNS, err := asNumberSet(have)
+		require.NoError(t, err)
+		require.Equal(t, wantNS, haveNS)
+	case "BS":
+		wantBS, err := asBinarySet(want)
+		require.NoError(t, err)
+		if raw != nil {
+			if rawNull, ok := raw.(*types.AttributeValueMemberNULL); ok && rawNull.Value {
+				require.Empty(t, wantBS, "expected empty BS for raw NULL")
+				return
+			}
+			rawBS, ok := raw.(*types.AttributeValueMemberBS)
+			require.True(t, ok, "expected raw BS for %s, got %T", attr.Attribute, raw)
+			haveBS := base64Set(rawBS.Value)
+			require.Equal(t, wantBS, haveBS)
+			return
+		}
+		haveBS, err := asBinarySet(have)
+		require.NoError(t, err)
+		require.Equal(t, wantBS, haveBS)
+	case "L", "M":
+		wantDoc := normalizeComparableDocument(want)
+		if raw != nil {
+			require.Equal(t, wantDoc, attributeValueToComparable(raw))
+			return
+		}
+		require.Equal(t, wantDoc, normalizeComparableDocument(have))
 	default:
 		require.Equal(t, want, have, "unhandled type %s", attr.Type)
 	}
 }
 
-func asInt64(v any) (int64, error) {
+func canonicalDecimalString(v any) (string, error) {
 	if v == nil {
-		return 0, nil
+		return "0", nil
 	}
 	switch n := v.(type) {
 	case int:
-		return int64(n), nil
+		return strconv.FormatInt(int64(n), 10), nil
+	case int8:
+		return strconv.FormatInt(int64(n), 10), nil
+	case int16:
+		return strconv.FormatInt(int64(n), 10), nil
+	case int32:
+		return strconv.FormatInt(int64(n), 10), nil
 	case int64:
-		return n, nil
+		return strconv.FormatInt(n, 10), nil
+	case uint:
+		return strconv.FormatUint(uint64(n), 10), nil
+	case uint8:
+		return strconv.FormatUint(uint64(n), 10), nil
+	case uint16:
+		return strconv.FormatUint(uint64(n), 10), nil
+	case uint32:
+		return strconv.FormatUint(uint64(n), 10), nil
+	case uint64:
+		return strconv.FormatUint(n, 10), nil
 	case float64:
-		return int64(n), nil
+		if math.IsInf(n, 0) || math.IsNaN(n) {
+			return "", fmt.Errorf("non-finite number %v", n)
+		}
+		return strconv.FormatFloat(n, 'f', -1, 64), nil
+	case float32:
+		f := float64(n)
+		if math.IsInf(f, 0) || math.IsNaN(f) {
+			return "", fmt.Errorf("non-finite number %v", n)
+		}
+		return strconv.FormatFloat(f, 'f', -1, 32), nil
 	case string:
-		return strconv.ParseInt(n, 10, 64)
+		return n, nil
 	default:
-		return 0, fmt.Errorf("expected number, got %T", v)
+		return "", fmt.Errorf("expected DynamoDB decimal string, got %T", v)
 	}
 }
 
@@ -280,6 +799,150 @@ func asStringSet(v any) ([]string, error) {
 	}
 	sort.Strings(items)
 	return items, nil
+}
+
+func asNumberSet(v any) ([]string, error) {
+	if v == nil {
+		return []string{}, nil
+	}
+	items := []string{}
+	switch s := v.(type) {
+	case []string:
+		items = append(items, s...)
+	case []int64:
+		for _, item := range s {
+			items = append(items, strconv.FormatInt(item, 10))
+		}
+	case []any:
+		for _, item := range s {
+			text, err := canonicalDecimalString(item)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, text)
+		}
+	default:
+		return nil, fmt.Errorf("expected number set slice, got %T", v)
+	}
+	sort.Strings(items)
+	return items, nil
+}
+
+func asBase64String(v any) (string, error) {
+	switch b := v.(type) {
+	case string:
+		return b, nil
+	case []byte:
+		return base64.StdEncoding.EncodeToString(b), nil
+	default:
+		return "", fmt.Errorf("expected base64 string or bytes, got %T", v)
+	}
+}
+
+func asBinarySet(v any) ([]string, error) {
+	if v == nil {
+		return []string{}, nil
+	}
+	switch s := v.(type) {
+	case []string:
+		out := append([]string{}, s...)
+		sort.Strings(out)
+		return out, nil
+	case [][]byte:
+		return base64Set(s), nil
+	case []any:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			encoded, err := asBase64String(item)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, encoded)
+		}
+		sort.Strings(out)
+		return out, nil
+	default:
+		return nil, fmt.Errorf("expected binary set slice, got %T", v)
+	}
+}
+
+func base64Set(values [][]byte) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, base64.StdEncoding.EncodeToString(value))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeComparableDocument(v any) any {
+	switch value := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(value))
+		for key, child := range value {
+			out[key] = normalizeComparableDocument(child)
+		}
+		return out
+	case map[any]any:
+		out := make(map[string]any, len(value))
+		for key, child := range value {
+			out[fmt.Sprintf("%v", key)] = normalizeComparableDocument(child)
+		}
+		return out
+	case []any:
+		out := make([]any, len(value))
+		for i, child := range value {
+			out[i] = normalizeComparableDocument(child)
+		}
+		return out
+	case []string:
+		out := make([]any, len(value))
+		for i, child := range value {
+			out[i] = child
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func attributeValueToComparable(av types.AttributeValue) any {
+	switch v := av.(type) {
+	case *types.AttributeValueMemberS:
+		return v.Value
+	case *types.AttributeValueMemberN:
+		return v.Value
+	case *types.AttributeValueMemberB:
+		return base64.StdEncoding.EncodeToString(v.Value)
+	case *types.AttributeValueMemberBOOL:
+		return v.Value
+	case *types.AttributeValueMemberNULL:
+		return nil
+	case *types.AttributeValueMemberSS:
+		out := append([]string(nil), v.Value...)
+		sort.Strings(out)
+		return out
+	case *types.AttributeValueMemberNS:
+		out := append([]string(nil), v.Value...)
+		sort.Strings(out)
+		return out
+	case *types.AttributeValueMemberBS:
+		return base64Set(v.Value)
+	case *types.AttributeValueMemberL:
+		out := make([]any, len(v.Value))
+		for i, child := range v.Value {
+			out[i] = attributeValueToComparable(child)
+		}
+		return out
+	case *types.AttributeValueMemberM:
+		out := make(map[string]any, len(v.Value))
+		for key, child := range v.Value {
+			out[key] = attributeValueToComparable(child)
+		}
+		return out
+	default:
+		return fmt.Sprintf("%T", av)
+	}
 }
 
 func attributeValueTypeName(av types.AttributeValue) string {
@@ -327,8 +990,9 @@ func (r *Runner) getRawItem(ctx context.Context, tableName string, model spec.Mo
 	}
 
 	out, err := r.ddb.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(tableName),
-		Key:       keyAV,
+		TableName:      aws.String(tableName),
+		Key:            keyAV,
+		ConsistentRead: aws.Bool(true),
 	})
 	if err != nil {
 		return nil, err

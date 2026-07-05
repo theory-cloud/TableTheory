@@ -100,9 +100,11 @@ func TestLambdaInitAndMetricsString_COV4(t *testing.T) {
 	})
 
 	globalLambdaDB = nil
+	globalLambdaDBErr = nil
 	lambdaOnce = sync.Once{}
 	t.Cleanup(func() {
 		globalLambdaDB = nil
+		globalLambdaDBErr = nil
 		lambdaOnce = sync.Once{}
 	})
 

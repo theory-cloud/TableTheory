@@ -42,6 +42,17 @@ models:
 - **Validation rules** — required attributes, omitempty semantics, naming strategies.
 - **Portability boundaries** — what is shared across runtimes and what is runtime-specific (very little).
 
+## Naming conventions
+
+DMS v0.1 recognizes exactly these `naming.convention` values:
+
+- `camelCase`
+- `snake_case`
+- `dynamorm`
+
+`pascalCase` remains a Go struct-tag naming mode for legacy runtime models, but it is not a DMS v0.1 convention and
+DMS emitters/validators fail closed rather than writing that unspec'd convention into a portable DMS document.
+
 ## What DMS does not specify
 
 - **Access patterns.** DMS describes shape, not how consumers query. Access patterns are the consumer's design choice.

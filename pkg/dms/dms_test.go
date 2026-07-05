@@ -67,6 +67,26 @@ func TestParseDocumentRejectsUnsupportedVersion(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParseDocumentRejectsUnsupportedNamingConvention(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseDocument([]byte(`
+dms_version: "0.1"
+models:
+  - name: "Demo"
+    table: { name: "tbl" }
+    naming: { convention: "pascalCase" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+`))
+	require.ErrorContains(t, err, "unsupported naming.convention")
+}
+
 func TestParseDocumentRejectsNonJSONValues(t *testing.T) {
 	t.Parallel()
 
@@ -573,6 +593,20 @@ func TestFromMetadata_DynamORMNamingConvention(t *testing.T) {
 	got, err := FromMetadata(meta)
 	require.NoError(t, err)
 	require.Equal(t, "dynamorm", got.Naming.Convention)
+}
+
+func TestFromMetadata_RejectsPascalCaseNamingConvention(t *testing.T) {
+	t.Parallel()
+
+	reg := model.NewRegistry()
+	require.NoError(t, reg.Register(indexKeyTypeModel{}))
+	meta, err := reg.GetMetadata(indexKeyTypeModel{})
+	require.NoError(t, err)
+
+	meta.NamingConvention = naming.PascalCase
+
+	_, err = FromMetadata(meta)
+	require.ErrorContains(t, err, "unsupported DMS naming convention")
 }
 
 func TestScalarKeyTypeFromField(t *testing.T) {

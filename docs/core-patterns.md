@@ -235,7 +235,7 @@ TableTheory is designed to provide significant business value by improving devel
 ### Developer Efficiency & Team Velocity
 
 - **Reduced Boilerplate:** TableTheory eliminates approximately **80% of the boilerplate code** typically required for DynamoDB interactions with the raw AWS SDK. This frees developers to focus on business logic.
-- **Type Safety:** Compile-time type safety with Go generics prevents common runtime errors, leading to fewer bugs and faster development cycles.
+- **Model-aware validation:** Go struct types, `theorydb` tags, and runtime model validation keep marshaling predictable without claiming a generic or compile-time field-name API that does not exist yet.
 - **Intuitive API:** The fluent, chainable API makes code more readable and easier to maintain, reducing the learning curve for new team members.
 
 ### Performance & Reliability
@@ -255,7 +255,7 @@ TableTheory is designed to provide significant business value by improving devel
 TableTheory is ideal for:
 
 - **Serverless Backends:** Building highly scalable and performant APIs with AWS Lambda and API Gateway.
-- **Event-Driven Architectures:** Processing DynamoDB Streams with type-safe model transformations.
+- **Event-Driven Architectures:** Processing DynamoDB Streams with struct-based model transformations.
 - **High-Throughput Microservices:** Services requiring fast, efficient interactions with DynamoDB.
 - **Financial & Critical Systems:** Leveraging atomic transactions for data consistency.
 - **Real-time Data Processing:** Applications needing low-latency access to DynamoDB data.
@@ -319,7 +319,9 @@ func init() {
 - **Recommendation:**
   - **Avoid Scans:** Unless absolutely necessary for infrequent analytics on small tables, never use `Scan()` for primary access patterns. Always prefer `Query()` with appropriate Partition and Sort Key conditions.
   - **Batch Operations:** Use `BatchGet`, `BatchCreate`, `BatchDelete` for multiple items to reduce network overhead and potentially consumed capacity compared to individual operations.
-  - **Consistent Reads:** Only enable `ConsistentRead()` when strong consistency is strictly required, as it consumes 2x RCUs.
+  - **Consistent Reads:** Only enable `ConsistentRead()` when strong consistency is strictly required on the base table or
+    an applicable LSI, as it consumes 2x RCUs. Do not use it on GSI access patterns: TableTheory now returns
+    `ErrInvalidOperator` when an explicit or optimizer-selected GSI is combined with `ConsistentRead()`.
   - **GSI Projection:** Use `KEYS_ONLY` or `INCLUDE` projections on GSIs to reduce the size of items read from the index, minimizing RCU consumption.
 
 **Example (Efficient Query vs. Scan):**

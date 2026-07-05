@@ -7,6 +7,8 @@ header_nav:
   - { label: API,          url: /api-reference/,                active_paths: ["/api-reference/"] }
   - { label: Runtimes,     url: /runtimes/go/,                  active_paths: ["/runtimes/"] }
   - { label: Features,     url: /features/crud/,                active_paths: ["/features/"] }
+  - { label: Examples,     url: /examples/,                     active_paths: ["/examples/"] }
+  - { label: AI,           url: /ai/,                           active_paths: ["/ai/", "/llms"] }
   - { label: Integrations, url: /integrations/mcp-memory/,      active_paths: ["/integrations/"] }
   - { label: Reference,    url: /reference/dms-spec/,           active_paths: ["/reference/"] }
 

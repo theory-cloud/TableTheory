@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from theorydb_py import SortKeyCondition
+from tabletheory_py import SortKeyCondition
 
 
 def test_sort_key_condition_constructors() -> None:

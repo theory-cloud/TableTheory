@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 from botocore.exceptions import ClientError
 
-from theorydb_py import (
+from tabletheory_py import (
     AwsError,
     EncryptionNotConfiguredError,
     ModelDefinition,
@@ -19,9 +19,9 @@ from theorydb_py import (
     ValidationError,
     theorydb_field,
 )
-from theorydb_py.model import AttributeDefinition, Projection, gsi
-from theorydb_py.table import _coerce_value, _is_empty, _map_client_error, _map_transaction_error
-from theorydb_py.transaction import (
+from tabletheory_py.model import AttributeDefinition, Projection, gsi
+from tabletheory_py.table import _coerce_value, _is_empty, _map_client_error, _map_transaction_error
+from tabletheory_py.transaction import (
     TransactConditionCheck,
     TransactDelete,
     TransactPut,
@@ -179,7 +179,7 @@ def test_query_scan_success_paths_include_index_limit_cursor_and_projection() ->
     cursor = SortKeyCondition.begins_with("x")  # not used here; just ensure available
     del cursor
 
-    from theorydb_py.query import encode_cursor
+    from tabletheory_py.query import encode_cursor
 
     start_cursor = encode_cursor(last_key)
 

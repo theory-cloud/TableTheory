@@ -3,6 +3,7 @@ package mocks_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,39 +68,6 @@ func TestMockExtendedDB_TransactWrite_DoesNotDoubleRunCallback(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, 1, callbackCalls)
-	db.AssertExpectations(t)
-}
-
-func TestMockDB_Transaction_AutoRunsCallback(t *testing.T) {
-	db := new(mocks.MockDB)
-	db.On("Transaction", mock.Anything).Return(nil).Once()
-
-	var calls int
-	err := db.Transaction(func(*core.Tx) error {
-		calls++
-		return nil
-	})
-
-	assert.NoError(t, err)
-	assert.Equal(t, 1, calls)
-	db.AssertExpectations(t)
-}
-
-func TestMockDB_Transaction_DoesNotDoubleRunCallback(t *testing.T) {
-	db := new(mocks.MockDB)
-	db.On("Transaction", mock.Anything).Run(func(args mock.Arguments) {
-		fn := args.Get(0).(func(*core.Tx) error)
-		_ = fn(&core.Tx{})
-	}).Return(nil).Once()
-
-	var calls int
-	err := db.Transaction(func(*core.Tx) error {
-		calls++
-		return nil
-	})
-
-	assert.NoError(t, err)
-	assert.Equal(t, 1, calls)
 	db.AssertExpectations(t)
 }
 
@@ -261,12 +229,17 @@ func TestMockExtendedDB_DescribeTable_ReturnsNilWhenValueIsNil(t *testing.T) {
 	db.AssertExpectations(t)
 }
 
-func TestMockExtendedDB_Transact_PanicsOnUnexpectedReturnType(t *testing.T) {
+func TestMockExtendedDB_Transact_WrongReturnTypeRecordsAssertionFailure(t *testing.T) {
 	db := mocks.NewMockExtendedDBStrict()
 	db.On("Transact").Return("not-a-builder").Once()
 
-	assert.Panics(t, func() { _ = db.Transact() })
-	db.AssertExpectations(t)
+	assert.NotPanics(t, func() { assert.Nil(t, db.Transact()) })
+
+	recorder := &recordingTestingT{}
+	assert.False(t, db.AssertExpectations(recorder))
+	assert.Contains(t, strings.Join(recorder.errors, "\n"), "Transact")
+	assert.Contains(t, strings.Join(recorder.errors, "\n"), "core.TransactionBuilder")
+	assert.False(t, recorder.failed)
 }
 
 func TestMockExtendedDB_TransactWrite_ReturnsCallbackError(t *testing.T) {
@@ -278,17 +251,6 @@ func TestMockExtendedDB_TransactWrite_ReturnsCallbackError(t *testing.T) {
 
 	expectedErr := errors.New("tx failed")
 	err := db.TransactWrite(ctx, func(core.TransactionBuilder) error { return expectedErr })
-
-	assert.ErrorIs(t, err, expectedErr)
-	db.AssertExpectations(t)
-}
-
-func TestMockDB_Transaction_ReturnsExpectationError(t *testing.T) {
-	db := new(mocks.MockDB)
-	expectedErr := errors.New("tx failed")
-
-	db.On("Transaction", mock.Anything).Return(expectedErr).Once()
-	err := db.Transaction(func(*core.Tx) error { return nil })
 
 	assert.ErrorIs(t, err, expectedErr)
 	db.AssertExpectations(t)

@@ -21,6 +21,7 @@ func TestBenchmarkColdStart_CoversSuccessAndErrorPaths_COV6(t *testing.T) {
 
 	t.Cleanup(func() {
 		globalLambdaDB = nil
+		globalLambdaDBErr = nil
 		lambdaOnce = sync.Once{}
 		benchmarkLoadDefaultConfig = origLoad
 		benchmarkNewDynamoDBClient = origNewClient
@@ -28,6 +29,7 @@ func TestBenchmarkColdStart_CoversSuccessAndErrorPaths_COV6(t *testing.T) {
 
 	resetGlobals := func() {
 		globalLambdaDB = nil
+		globalLambdaDBErr = nil
 		lambdaOnce = sync.Once{}
 	}
 
@@ -101,10 +103,12 @@ func TestBenchmarkColdStart_CoversSuccessAndErrorPaths_COV6(t *testing.T) {
 func TestNewLambdaOptimized_WarmStartReturnsGlobal_COV6(t *testing.T) {
 	t.Cleanup(func() {
 		globalLambdaDB = nil
+		globalLambdaDBErr = nil
 		lambdaOnce = sync.Once{}
 	})
 
 	globalLambdaDB = &LambdaDB{}
+	globalLambdaDBErr = nil
 	lambdaOnce = sync.Once{}
 
 	got, err := NewLambdaOptimized()
@@ -112,13 +116,47 @@ func TestNewLambdaOptimized_WarmStartReturnsGlobal_COV6(t *testing.T) {
 	require.Same(t, globalLambdaDB, got)
 }
 
-func TestNewLambdaOptimized_ReadsKMSKeyARNFromEnv_COV6(t *testing.T) {
+func TestNewLambdaOptimized_ReturnsCachedInitErrorAfterFailedColdStart_COV6(t *testing.T) {
 	t.Cleanup(func() {
 		globalLambdaDB = nil
+		globalLambdaDBErr = nil
 		lambdaOnce = sync.Once{}
 	})
 
 	globalLambdaDB = nil
+	globalLambdaDBErr = nil
+	lambdaOnce = sync.Once{}
+
+	initErr := errors.New("session boom")
+	calls := 0
+	stubSessionConfigLoad(t, func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
+		calls++
+		if calls == 1 {
+			return aws.Config{}, initErr
+		}
+		return minimalAWSConfig(nil), nil
+	})
+
+	first, firstErr := NewLambdaOptimized()
+	require.Nil(t, first)
+	require.ErrorIs(t, firstErr, initErr)
+
+	second, secondErr := NewLambdaOptimized()
+	require.Nil(t, second)
+	require.Error(t, secondErr)
+	require.EqualError(t, secondErr, firstErr.Error())
+	require.Equal(t, 1, calls, "failed Lambda init must be cached by sync.Once")
+}
+
+func TestNewLambdaOptimized_ReadsKMSKeyARNFromEnv_COV6(t *testing.T) {
+	t.Cleanup(func() {
+		globalLambdaDB = nil
+		globalLambdaDBErr = nil
+		lambdaOnce = sync.Once{}
+	})
+
+	globalLambdaDB = nil
+	globalLambdaDBErr = nil
 	lambdaOnce = sync.Once{}
 
 	t.Setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
@@ -250,6 +288,131 @@ func TestLambdaDB_WithLambdaTimeoutConfig_AppliesConfiguredBufferOnce_COV6(t *te
 	soonTimed := configured.WithLambdaTimeout(soonCtx)
 	require.NotNil(t, soonTimed)
 	require.Error(t, (&queryExecutor{db: soonTimed.db}).checkLambdaTimeout())
+}
+
+func TestLambdaDB_OptimizeForMemorySynchronizesTimeoutBufferWithLambdaTimeout_COV6(t *testing.T) {
+	db := &DB{}
+	ldb := &LambdaDB{
+		ExtendedDB:     db,
+		db:             db,
+		modelCache:     &sync.Map{},
+		lambdaMemoryMB: 1024,
+	}
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(5*time.Second))
+	t.Cleanup(cancel)
+
+	const workers = 8
+	const iterations = 100
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				ldb.OptimizeForMemory()
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				if got := ldb.WithLambdaTimeout(ctx); got == nil {
+					t.Errorf("WithLambdaTimeout returned nil")
+				}
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+}
+
+func TestLambdaDB_OptimizeForMemorySynchronizesTimeoutBufferWithDBTimeout_COV6(t *testing.T) {
+	db := &DB{}
+	ldb := &LambdaDB{
+		ExtendedDB:     db,
+		db:             db,
+		modelCache:     &sync.Map{},
+		lambdaMemoryMB: 1024,
+	}
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(5*time.Second))
+	t.Cleanup(cancel)
+
+	const workers = 8
+	const iterations = 100
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				ldb.OptimizeForMemory()
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				gotAny := db.WithLambdaTimeout(ctx)
+				got, ok := gotAny.(*DB)
+				if !ok || got == nil {
+					t.Errorf("WithLambdaTimeout returned %T", gotAny)
+				}
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+}
+
+func TestLambdaDB_OptimizeForMemorySynchronizesTimeoutBufferWithQueryTimeoutCheck_COV6(t *testing.T) {
+	db := &DB{lambdaDeadline: time.Now().Add(30 * time.Second)}
+	ldb := &LambdaDB{
+		ExtendedDB:     db,
+		db:             db,
+		modelCache:     &sync.Map{},
+		lambdaMemoryMB: 1024,
+	}
+
+	const workers = 8
+	const iterations = 100
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				ldb.OptimizeForMemory()
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < iterations; j++ {
+				if err := (&queryExecutor{db: db}).checkLambdaTimeout(); err != nil {
+					t.Errorf("checkLambdaTimeout returned unexpected error: %v", err)
+				}
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
 }
 
 func TestLambdaDB_WithLambdaTimeoutConfig_NonPositiveBufferUsesDefault_COV6(t *testing.T) {

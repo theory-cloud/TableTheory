@@ -35,6 +35,24 @@ func TestGenerateTSCommandRequiresArguments(t *testing.T) {
 	err := run([]string{"generate-ts"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "requires --contract")
+
+	err = run([]string{"generate-ts", "--contract", filepath.Join("..", "..", "contract-tests", "key-contracts", "v0.1", "theorymcp-derived-keys.yml")})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "requires --out")
+}
+
+func TestContractCommandUsageAndUnknownCommand(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, run([]string{"help"}))
+
+	err := run(nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing command")
+
+	err = run([]string{"unknown"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown command")
 }
 
 func readTestFileScoped(path string) (data []byte, err error) {

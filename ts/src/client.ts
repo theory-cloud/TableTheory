@@ -6,11 +6,13 @@ import {
   DynamoDBClient,
   GetItemCommand,
   PutItemCommand,
+  TransactGetItemsCommand,
   TransactWriteItemsCommand,
   UpdateItemCommand,
   type ConditionCheck,
   type Delete,
   type Put,
+  type TransactGetItem,
   type Update,
   type TransactWriteItem,
   type WriteRequest,
@@ -24,8 +26,8 @@ import {
   type RetryOptions,
 } from './batch.js';
 import { mapDynamoError } from './dynamo-error.js';
-import { TheorydbError } from './errors.js';
-import type { Model } from './model.js';
+import { hasTheorydbErrorCode, TheorydbError } from './errors.js';
+import type { Model, ModelItem } from './model.js';
 import type { SendOptions } from './send-options.js';
 import {
   isEmpty,
@@ -34,9 +36,11 @@ import {
   marshalScalar,
   nowRfc3339Nano,
   unmarshalItem,
+  type NumberUnmarshalMode,
+  type UnmarshalOptions,
 } from './marshal.js';
 import { QueryBuilder, ScanBuilder } from './query.js';
-import type { TransactAction } from './transaction.js';
+import type { TransactAction, TransactGetAction } from './transaction.js';
 import { UpdateBuilder } from './update-builder.js';
 import {
   decryptItemAttributes,
@@ -53,23 +57,114 @@ import {
   type WritePolicyOptions,
 } from './write-policy.js';
 
+export interface TheorydbClientOptions {
+  encryption?: EncryptionProvider;
+  now?: () => string;
+  sendOptions?: SendOptions;
+  /**
+   * Controls how DynamoDB N/NS values are unmarshaled.
+   *
+   * The default, 'string', returns canonical DynamoDB decimal strings so reads
+   * are precision-safe for integers outside the safe range and high-precision
+   * decimals. Use 'number' only when lossy JavaScript Number conversion is
+   * acceptable for a specific client.
+   */
+  numberUnmarshalMode?: NumberUnmarshalMode;
+}
+
+type ModelKey<TItem extends Record<string, unknown>> = Partial<TItem>;
+type ModelField<TItem extends Record<string, unknown>> = Extract<
+  keyof TItem,
+  string
+>;
+
+export class ModelRepository<
+  TItem extends Record<string, unknown> = Record<string, unknown>,
+> {
+  constructor(
+    private readonly client: TheorydbClient,
+    private readonly modelDef: Model<TItem>,
+  ) {}
+
+  create(item: TItem, opts: { ifNotExists?: boolean } = {}): Promise<void> {
+    return this.client.create(this.modelDef.name, item, opts);
+  }
+
+  save(item: TItem): Promise<void> {
+    return this.client.save(this.modelDef.name, item);
+  }
+
+  async get(key: ModelKey<TItem>): Promise<TItem> {
+    return (await this.client.get(this.modelDef.name, key)) as TItem;
+  }
+
+  async getOrNull(key: ModelKey<TItem>): Promise<TItem | null> {
+    return (await this.client.getOrNull(
+      this.modelDef.name,
+      key,
+    )) as TItem | null;
+  }
+
+  update(
+    item: TItem,
+    fields: readonly ModelField<TItem>[],
+    opts: WritePolicyOptions = {},
+  ): Promise<void> {
+    return this.client.update(this.modelDef.name, item, [...fields], opts);
+  }
+
+  delete(key: ModelKey<TItem>): Promise<void> {
+    return this.client.delete(this.modelDef.name, key);
+  }
+
+  async batchGet(
+    keys: Array<ModelKey<TItem>>,
+    opts: RetryOptions & { consistentRead?: boolean } = {},
+  ): Promise<BatchGetResult<TItem>> {
+    const result = await this.client.batchGet(this.modelDef.name, keys, opts);
+    return result as BatchGetResult<TItem>;
+  }
+
+  batchWrite(
+    req: {
+      puts?: TItem[];
+      deletes?: Array<ModelKey<TItem>>;
+    },
+    opts: RetryOptions = {},
+  ): Promise<BatchWriteResult> {
+    return this.client.batchWrite(this.modelDef.name, req, opts);
+  }
+
+  query(): QueryBuilder<TItem> {
+    return this.client.query(this.modelDef.name) as QueryBuilder<TItem>;
+  }
+
+  scan(): ScanBuilder<TItem> {
+    return this.client.scan(this.modelDef.name) as ScanBuilder<TItem>;
+  }
+
+  updateBuilder(key: ModelKey<TItem>): UpdateBuilder {
+    return this.client.updateBuilder(this.modelDef.name, key);
+  }
+}
+
 export class TheorydbClient {
   private readonly models = new Map<string, Model>();
   private encryption: EncryptionProvider | undefined;
   private readonly now: () => string;
   private readonly sendOptions: SendOptions | undefined;
+  private readonly unmarshalOptions: UnmarshalOptions;
 
   constructor(
     private readonly ddb: DynamoDBClient,
-    opts: {
-      encryption?: EncryptionProvider;
-      now?: () => string;
-      sendOptions?: SendOptions;
-    } = {},
+    opts: TheorydbClientOptions = {},
   ) {
     this.encryption = opts.encryption;
     this.now = opts.now ?? (() => nowRfc3339Nano());
     this.sendOptions = opts.sendOptions;
+    this.unmarshalOptions = {
+      numberMode: opts.numberUnmarshalMode ?? 'string',
+    };
   }
 
   withEncryption(provider: EncryptionProvider): this {
@@ -82,6 +177,7 @@ export class TheorydbClient {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(sendOptions ? { sendOptions } : {}),
+      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
     });
     next.register(...this.models.values());
     return next;
@@ -92,6 +188,7 @@ export class TheorydbClient {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
+      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
     });
     next.register(...this.models.values());
     return next;
@@ -102,6 +199,16 @@ export class TheorydbClient {
       this.models.set(model.name, model);
     }
     return this;
+  }
+
+  model<M extends Model>(model: M): ModelRepository<ModelItem<M>>;
+  model(modelName: string): ModelRepository<Record<string, unknown>>;
+  model(modelOrName: string | Model): ModelRepository<Record<string, unknown>> {
+    const model =
+      typeof modelOrName === 'string'
+        ? this.requireModel(modelOrName)
+        : this.register(modelOrName).requireModel(modelOrName.name);
+    return new ModelRepository(this, model);
   }
 
   private requireModel(name: string): Model {
@@ -211,9 +318,21 @@ export class TheorydbClient {
       const item = provider
         ? await decryptItemAttributes(model, resp.Item, provider)
         : resp.Item;
-      return unmarshalItem(model, item);
+      return unmarshalItem(model, item, this.unmarshalOptions);
     } catch (err) {
       throw mapDynamoError(err);
+    }
+  }
+
+  async getOrNull(
+    modelName: string,
+    key: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null> {
+    try {
+      return await this.get(modelName, key);
+    } catch (err) {
+      if (hasTheorydbErrorCode(err, 'ErrItemNotFound')) return null;
+      throw err;
     }
   }
 
@@ -345,7 +464,7 @@ export class TheorydbClient {
     try {
       await this.ddb.send(cmd, this.sendOptions);
     } catch (err) {
-      throw mapDynamoError(err);
+      throw mapDynamoError(err, { versionConflict: true });
     }
   }
 
@@ -403,9 +522,15 @@ export class TheorydbClient {
           const decrypted = await Promise.all(
             got.map((it) => decryptItemAttributes(model, it, provider)),
           );
-          allItems.push(...decrypted.map((it) => unmarshalItem(model, it)));
+          allItems.push(
+            ...decrypted.map((it) =>
+              unmarshalItem(model, it, this.unmarshalOptions),
+            ),
+          );
         } else {
-          allItems.push(...got.map((it) => unmarshalItem(model, it)));
+          allItems.push(
+            ...got.map((it) => unmarshalItem(model, it, this.unmarshalOptions)),
+          );
         }
 
         const next = resp.UnprocessedKeys?.[model.tableName]?.Keys ?? [];
@@ -504,7 +629,72 @@ export class TheorydbClient {
     return { unprocessed };
   }
 
+  async transactGet(
+    actions: TransactGetAction[],
+  ): Promise<Array<Record<string, unknown> | undefined>> {
+    if (actions.length === 0) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'TransactGetItems requires at least one item',
+      );
+    }
+    if (actions.length > 100) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'DynamoDB TransactGetItems supports up to 100 items',
+      );
+    }
+
+    const models = actions.map((action) => this.requireModel(action.model));
+    const transactItems: TransactGetItem[] = actions.map((action, index) => {
+      const model = models[index]!;
+      const get: NonNullable<TransactGetItem['Get']> = {
+        TableName: model.tableName,
+        Key: marshalKey(model, action.key),
+      };
+      if (action.projection && action.projection.length > 0) {
+        const projection = buildProjectionExpression(model, action.projection);
+        get.ProjectionExpression = projection.expression;
+        get.ExpressionAttributeNames = projection.names;
+      }
+      return { Get: get };
+    });
+
+    let resp;
+    try {
+      resp = await this.ddb.send(
+        new TransactGetItemsCommand({ TransactItems: transactItems }),
+        this.sendOptions,
+      );
+    } catch (err) {
+      throw mapDynamoError(err);
+    }
+
+    const responses = resp.Responses ?? [];
+    return Promise.all(
+      actions.map(async (_, index) => {
+        const item = responses[index]?.Item;
+        if (!item || Object.keys(item).length === 0) return undefined;
+        const model = models[index]!;
+        const provider = modelHasEncryptedAttributes(model)
+          ? this.requireEncryption(model)
+          : undefined;
+        const plain = provider
+          ? await decryptItemAttributes(model, item, provider)
+          : item;
+        return unmarshalItem(model, plain, this.unmarshalOptions);
+      }),
+    );
+  }
+
   async transactWrite(actions: TransactAction[]): Promise<void> {
+    if (actions.length > 100) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'DynamoDB TransactWriteItems supports up to 100 actions',
+      );
+    }
+
     const transactItems: TransactWriteItem[] = [];
 
     for (const a of actions) {
@@ -623,12 +813,24 @@ export class TheorydbClient {
 
   query(modelName: string): QueryBuilder {
     const model = this.requireModel(modelName);
-    return new QueryBuilder(this.ddb, model, this.encryption, this.sendOptions);
+    return new QueryBuilder(
+      this.ddb,
+      model,
+      this.encryption,
+      this.sendOptions,
+      this.unmarshalOptions,
+    );
   }
 
   scan(modelName: string): ScanBuilder {
     const model = this.requireModel(modelName);
-    return new ScanBuilder(this.ddb, model, this.encryption, this.sendOptions);
+    return new ScanBuilder(
+      this.ddb,
+      model,
+      this.encryption,
+      this.sendOptions,
+      this.unmarshalOptions,
+    );
   }
 
   updateBuilder(
@@ -642,6 +844,7 @@ export class TheorydbClient {
       key,
       this.encryption,
       this.sendOptions,
+      this.unmarshalOptions,
     );
   }
 }
@@ -654,6 +857,21 @@ function policyFieldsForUpdate(
   if (model.roles.updatedAt) out.push(model.roles.updatedAt);
   if (model.roles.version) out.push(model.roles.version);
   return out;
+}
+
+function buildProjectionExpression(
+  model: Model,
+  fields: readonly string[],
+): { expression: string; names: Record<string, string> } {
+  const names: Record<string, string> = {};
+  const parts: string[] = [];
+  fields.forEach((field, index) => {
+    const attr = model.attributes.get(field)?.attribute ?? field;
+    const placeholder = `#p${index}`;
+    names[placeholder] = attr;
+    parts.push(placeholder);
+  });
+  return { expression: parts.join(', '), names };
 }
 
 function hasProtectedAttributes(model: Model): boolean {

@@ -62,7 +62,7 @@ See [TypeScript Development Guidelines](../ts/docs/development-guidelines.md).
   - `uv --directory py run ruff check`
   - `uv --directory py run pytest -q tests/unit`
 - Prefer dataclasses with explicit roles via `theorydb_field(...)`.
-- Do not weaken strict fakes (`theorydb_py.mocks`); unit tests must not call real AWS.
+- Do not weaken strict fakes (`tabletheory_py.mocks`); unit tests must not call real AWS.
 
 See [Python Development Guidelines](../py/docs/development-guidelines.md).
 

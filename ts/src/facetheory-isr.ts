@@ -154,8 +154,8 @@ export class FaceTheoryIsrMetaStore {
       });
       return {
         htmlPointer: item.s3_key as string,
-        generatedAtMs: Math.floor((item.generated_at as number) * 1000),
-        revalidateSeconds: item.revalidate_seconds as number,
+        generatedAtMs: Math.floor(Number(item.generated_at) * 1000),
+        revalidateSeconds: Number(item.revalidate_seconds),
         ...(typeof item.etag === 'string' ? { etag: item.etag } : {}),
       };
     } catch (err) {

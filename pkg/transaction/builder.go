@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	maxTransactOperations = 25
+	maxTransactOperations = 100
 )
 
 var retrySchedule = []time.Duration{
@@ -193,7 +193,7 @@ func (b *Builder) addOperation(opType operationType, model any, fields []string,
 		return
 	}
 	if len(b.operations) >= maxTransactOperations {
-		b.recordError(fmt.Errorf("dynamodb transactions support up to %d operations", maxTransactOperations))
+		b.recordError(fmt.Errorf("%w: dynamodb transactions support up to %d operations", customerrors.ErrInvalidOperator, maxTransactOperations))
 		return
 	}
 
@@ -822,7 +822,7 @@ func (b *Builder) executeWithRetry(ctx context.Context, input *dynamodb.Transact
 			if b.session == nil {
 				return errors.New("dynamodb session is not configured")
 			}
-			client, err := b.session.Client()
+			client, err := b.session.API()
 			if err != nil {
 				return err
 			}

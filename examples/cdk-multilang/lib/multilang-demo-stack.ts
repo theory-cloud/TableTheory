@@ -144,7 +144,7 @@ export class MultilangDemoStack extends Stack {
     });
 
     const pyHandlerDir = path.join(repoRoot, 'examples/cdk-multilang/lambdas/python');
-    const theorydbPySrc = path.join(repoRoot, 'py/src/theorydb_py');
+    const theorydbPySrc = path.join(repoRoot, 'py/src/tabletheory_py');
     const pyFn = new lambda.Function(this, 'PythonDemoFn', {
       runtime: lambda.Runtime.PYTHON_3_14,
       architecture: lambda.Architecture.X86_64,
@@ -160,14 +160,14 @@ export class MultilangDemoStack extends Stack {
             [
               'set -euo pipefail',
               'cp -R /asset-input/* /asset-output/',
-              'cp -R /theorydb_py /asset-output/theorydb_py',
+              'cp -R /tabletheory_py /asset-output/tabletheory_py',
               'python -m pip install -r /asset-input/requirements.txt -t /asset-output',
             ].join('\n'),
           ],
           local: {
             tryBundle(outputDir: string): boolean {
               fs.cpSync(pyHandlerDir, outputDir, { recursive: true });
-              fs.cpSync(theorydbPySrc, path.join(outputDir, 'theorydb_py'), {
+              fs.cpSync(theorydbPySrc, path.join(outputDir, 'tabletheory_py'), {
                 recursive: true,
               });
               try {
@@ -193,7 +193,7 @@ export class MultilangDemoStack extends Stack {
               }
             },
           },
-          volumes: [{ hostPath: theorydbPySrc, containerPath: '/theorydb_py' }],
+          volumes: [{ hostPath: theorydbPySrc, containerPath: '/tabletheory_py' }],
         },
       }),
       environment: {

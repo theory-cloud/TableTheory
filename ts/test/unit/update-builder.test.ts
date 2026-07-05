@@ -7,8 +7,9 @@ import {
 
 import { TheorydbClient } from '../../src/client.js';
 import { encryptAttributeValue } from '../../src/encryption.js';
-import { TheorydbError } from '../../src/errors.js';
+import { hasTheorydbErrorCode, TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
+import { unsafeOperator } from '../../src/query.js';
 import {
   createDeterministicEncryptionProvider,
   createMockDynamoDBClient,
@@ -417,6 +418,68 @@ import {
 }
 
 {
+  const model = defineModel({
+    name: 'T',
+    table: { name: 't' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'count', type: 'N', optional: true },
+      { attribute: 'nums', type: 'NS', optional: true },
+    ],
+  });
+
+  const exactMock = createMockDynamoDBClient();
+  exactMock.when(UpdateItemCommand, async (cmd) => {
+    assert.equal(cmd.input.ReturnValues, 'ALL_NEW');
+    return {
+      $metadata: {},
+      Attributes: {
+        PK: { S: 'A' },
+        count: { N: '9007199254740993' },
+        nums: { NS: ['9007199254740993'] },
+      },
+    };
+  });
+
+  const exactClient = new TheorydbClient(exactMock.client).register(model);
+  const exactOut = await exactClient
+    .updateBuilder('T', { PK: 'A' })
+    .set('count', 1)
+    .returnValues('ALL_NEW')
+    .execute();
+  assert.deepEqual(exactOut, {
+    PK: 'A',
+    count: '9007199254740993',
+    nums: ['9007199254740993'],
+  });
+
+  const lossyMock = createMockDynamoDBClient();
+  lossyMock.when(UpdateItemCommand, async () => ({
+    $metadata: {},
+    Attributes: {
+      PK: { S: 'A' },
+      count: { N: '9007199254740993' },
+      nums: { NS: ['9007199254740993'] },
+    },
+  }));
+
+  const lossyClient = new TheorydbClient(lossyMock.client, {
+    numberUnmarshalMode: 'number',
+  }).register(model);
+  const lossyOut = await lossyClient
+    .updateBuilder('T', { PK: 'A' })
+    .set('count', 1)
+    .returnValues('ALL_NEW')
+    .execute();
+  assert.deepEqual(lossyOut, {
+    PK: 'A',
+    count: 9007199254740992,
+    nums: [9007199254740992],
+  });
+}
+
+{
   const mock = createMockDynamoDBClient();
 
   mock.when(UpdateItemCommand, async (cmd) => {
@@ -734,7 +797,7 @@ import {
       client
         .updateBuilder('T', { PK: 'A' })
         .set('name', 'x')
-        .condition('count', 'bogus', 1)
+        .condition('count', unsafeOperator('bogus'), 1)
         .execute(),
     (e) => e instanceof TheorydbError && e.code === 'ErrInvalidOperator',
   );
@@ -759,7 +822,42 @@ import {
   const client = new TheorydbClient(mock.client).register(model);
   await assert.rejects(
     () => client.updateBuilder('T', { PK: 'A' }).set('name', 'x').execute(),
-    (e) => e instanceof TheorydbError && e.code === 'ErrConditionFailed',
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrConditionFailed' &&
+      !hasTheorydbErrorCode(e, 'ErrVersionConflict'),
+  );
+}
+
+{
+  const mock = createMockDynamoDBClient();
+  mock.when(UpdateItemCommand, async () => {
+    throw { name: 'ConditionalCheckFailedException' };
+  });
+
+  const model = defineModel({
+    name: 'T',
+    table: { name: 't' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'name', type: 'S', optional: true },
+      { attribute: 'version', type: 'N', roles: ['version'] },
+    ],
+  });
+
+  const client = new TheorydbClient(mock.client).register(model);
+  await assert.rejects(
+    () =>
+      client
+        .updateBuilder('T', { PK: 'A' })
+        .set('name', 'x')
+        .conditionVersion(1)
+        .execute(),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrConditionFailed' &&
+      hasTheorydbErrorCode(e, 'ErrVersionConflict'),
   );
 }
 

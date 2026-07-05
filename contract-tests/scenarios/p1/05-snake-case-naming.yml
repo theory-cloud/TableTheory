@@ -1,0 +1,26 @@
+name: "p1.naming.snake_case"
+dms_version: "0.1"
+requires_capabilities: ["crud"]
+model: "SnakeCaseRecord"
+table:
+  name: "snake_case_contract"
+steps:
+  - op: create
+    item:
+      pk: "SNAKE#1"
+      sk: "PROFILE"
+      display_name: "Ada Lovelace"
+      email_hash: "hash_snake"
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      pk: "SNAKE#1"
+      sk: "PROFILE"
+    expect:
+      item_equals:
+        pk: "SNAKE#1"
+        sk: "PROFILE"
+        display_name: "Ada Lovelace"
+        email_hash: "hash_snake"

@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py import ModelDefinition, Table, ValidationError, theorydb_field
-from theorydb_py.mocks import FakeDynamoDBClient, FakeKmsClient
+from tabletheory_py import ModelDefinition, Table, ValidationError, theorydb_field
+from tabletheory_py.mocks import FakeDynamoDBClient, FakeKmsClient
 
 
 @dataclass(frozen=True)

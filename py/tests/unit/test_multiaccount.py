@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from theorydb_py.multiaccount import AccountConfig, MultiAccountSessions
+from tabletheory_py.multiaccount import AccountConfig, MultiAccountSessions
 
 
 class FakeSTS:

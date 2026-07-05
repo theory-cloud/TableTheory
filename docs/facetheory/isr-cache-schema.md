@@ -198,7 +198,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from theorydb_py.model import ModelDefinition, theorydb_field
+from tabletheory_py.model import ModelDefinition, theorydb_field
 
 
 @dataclass
@@ -225,7 +225,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from theorydb_py.model import ModelDefinition, theorydb_field
+from tabletheory_py.model import ModelDefinition, theorydb_field
 
 
 @dataclass

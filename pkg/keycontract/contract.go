@@ -11,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ParseDocument parses YAML or JSON tabletheory_model_contract v0.1 sidecars.
+// ParseDocument parses YAML or JSON tabletheory_model_contract sidecars.
 func ParseDocument(data []byte) (*Contract, error) {
 	var contract Contract
 	if err := yaml.Unmarshal(data, &contract); err != nil {
@@ -84,7 +84,7 @@ func (c *Contract) Validate() error {
 	if c == nil {
 		return fmt.Errorf("tabletheory model contract is nil")
 	}
-	if c.Version != ContractVersion {
+	if !isSupportedContractVersion(c.Version) {
 		return fmt.Errorf("unsupported tabletheory_model_contract_version: %q", c.Version)
 	}
 	if len(c.DerivedKeys) == 0 {
@@ -195,12 +195,21 @@ func validateSegment(keyName string, index int, segment Segment, inputNames map[
 	}
 	for _, transform := range segment.Transforms {
 		switch transform {
-		case TransformTrim, TransformWildcardEmpty:
+		case TransformTrim, TransformWildcardEmpty, TransformLowercase, TransformURLEncode:
 		default:
 			return fmt.Errorf("derived key %s segment %s: unsupported transform %q", keyName, label, transform)
 		}
 	}
 	return nil
+}
+
+func isSupportedContractVersion(version string) bool {
+	switch version {
+	case ContractVersionV01, ContractVersionV02:
+		return true
+	default:
+		return false
+	}
 }
 
 // DerivedKeyNames returns sorted derived-key names for diagnostics.
