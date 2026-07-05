@@ -9,8 +9,8 @@ from importlib.resources import files
 
 import tabletheory_py
 from tabletheory_py.errors import ValidationError
-from tabletheory_py.model import ModelDefinition, theorydb_field
 from tabletheory_py.mocks import FakeDynamoDBClient
+from tabletheory_py.model import ModelDefinition, theorydb_field
 from tabletheory_py.query import SortKeyCondition
 from tabletheory_py.table import Table
 

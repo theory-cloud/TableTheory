@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from importlib.resources import files
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .errors import (
@@ -20,13 +21,6 @@ from .errors import (
     TransactionCanceledError,
     ValidationError,
     VersionConflictError,
-)
-from .key_contract import (
-    evaluate_derived_key,
-    evaluate_derived_key_definition,
-    load_key_contract_file,
-    parse_derived_key_contract,
-    verify_derived_key_fixtures,
 )
 from .model import (
     AttributeConverter,
@@ -146,6 +140,46 @@ def _normalize_repo_version(repo_version: str) -> str:
 
 __repo_version__ = _read_repo_version()
 __version__ = _normalize_repo_version(__repo_version__)
+
+
+KeyContractInputValue = str | int | float | bool
+
+
+def parse_derived_key_contract(raw: str) -> dict[str, Any]:
+    from .key_contract import parse_derived_key_contract as _parse_derived_key_contract
+
+    return _parse_derived_key_contract(raw)
+
+
+def load_key_contract_file(path: str | Path) -> dict[str, Any]:
+    from .key_contract import load_key_contract_file as _load_key_contract_file
+
+    return _load_key_contract_file(path)
+
+
+def evaluate_derived_key(
+    contract: dict[str, Any],
+    name: str,
+    input: dict[str, KeyContractInputValue] | None = None,
+) -> str:
+    from .key_contract import evaluate_derived_key as _evaluate_derived_key
+
+    return _evaluate_derived_key(contract, name, input)
+
+
+def evaluate_derived_key_definition(
+    key: dict[str, Any],
+    input: dict[str, KeyContractInputValue] | None = None,
+) -> str:
+    from .key_contract import evaluate_derived_key_definition as _evaluate_derived_key_definition
+
+    return _evaluate_derived_key_definition(key, input)
+
+
+def verify_derived_key_fixtures(contract: dict[str, Any]) -> None:
+    from .key_contract import verify_derived_key_fixtures as _verify_derived_key_fixtures
+
+    _verify_derived_key_fixtures(contract)
 
 
 def __getattr__(name: str) -> Any:
