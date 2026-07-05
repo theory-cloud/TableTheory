@@ -10,6 +10,7 @@ const packageRoot = fileURLToPath(new URL('../../', import.meta.url));
 const packageJson = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
 ) as {
+  name: string;
   exports: Record<
     string,
     {
@@ -18,6 +19,7 @@ const packageJson = JSON.parse(
     }
   >;
 };
+const rootPackageSpecifier: string = packageJson.name;
 
 const domainSubpaths = [
   {
@@ -108,11 +110,8 @@ void test('domain subpath exports resolve and load ESM and CommonJS artifacts', 
 });
 
 void test('root package excludes domain helper exports', async () => {
-  const cjsModule = require('@theory-cloud/tabletheory-ts') as Record<
-    string,
-    unknown
-  >;
-  const esmModule = (await import('@theory-cloud/tabletheory-ts')) as Record<
+  const cjsModule = require(rootPackageSpecifier) as Record<string, unknown>;
+  const esmModule = (await import(rootPackageSpecifier)) as Record<
     string,
     unknown
   >;

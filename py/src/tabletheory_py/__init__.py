@@ -21,6 +21,13 @@ from .errors import (
     ValidationError,
     VersionConflictError,
 )
+from .key_contract import (
+    evaluate_derived_key,
+    evaluate_derived_key_definition,
+    load_key_contract_file,
+    parse_derived_key_contract,
+    verify_derived_key_fixtures,
+)
 from .model import (
     AttributeConverter,
     IndexDefinition,
