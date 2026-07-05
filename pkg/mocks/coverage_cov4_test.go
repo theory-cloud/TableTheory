@@ -60,7 +60,6 @@ func TestMockExtendedDB_MethodCoverage(t *testing.T) {
 	db.On("DescribeTable", mock.Anything).Return(desc, nil).Once()
 	db.On("WithLambdaTimeout", mock.Anything).Return(db).Once()
 	db.On("WithLambdaTimeoutBuffer", mock.Anything).Return(db).Once()
-	db.On("TransactionFunc", mock.Anything).Return(nil).Once()
 	db.On("Transact").Return(nil).Once()
 	db.On("TransactWrite", mock.Anything, mock.Anything).Return(nil).Once()
 
@@ -82,7 +81,6 @@ func TestMockExtendedDB_MethodCoverage(t *testing.T) {
 	require.True(t, ok)
 	require.Same(t, db, bufferedDB)
 
-	require.NoError(t, db.TransactionFunc(func(any) error { return nil }))
 	require.Nil(t, db.Transact())
 	require.NoError(t, db.TransactWrite(context.Background(), func(core.TransactionBuilder) error { return nil }))
 

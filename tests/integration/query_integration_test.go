@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
 	"github.com/theory-cloud/tabletheory/tests/models"
 )
 
@@ -312,21 +311,18 @@ func TestTransactionQueries(t *testing.T) {
 	// Seed test data
 	seedQueryTestData(t, testCtx)
 
-	// Test query within transaction
-	err := testCtx.DB.Transaction(func(tx *core.Tx) error {
-		var user models.TestUser
-		err := tx.Model(&models.TestUser{}).
-			Where("ID", "=", "user-1").
-			Where("Email", "=", "john@example.com").
-			First(&user)
-		if err != nil {
-			return err
-		}
+	// Read the item before composing the atomic transactional write.
+	var user models.TestUser
+	err := testCtx.DB.Model(&models.TestUser{}).
+		Where("ID", "=", "user-1").
+		Where("Email", "=", "john@example.com").
+		First(&user)
+	require.NoError(t, err)
 
-		// Update within same transaction
-		user.Status = "premium"
-		return tx.Model(&user).Update("Status")
-	})
+	user.Status = "premium"
+	err = testCtx.DB.Transact().
+		Update(&user, []string{"Status"}).
+		Execute()
 
 	assert.NoError(t, err)
 

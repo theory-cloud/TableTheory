@@ -3,7 +3,6 @@ package testing
 import (
 	"github.com/stretchr/testify/mock"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
 	"github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/mocks"
 )
@@ -107,38 +106,6 @@ func (t *TestDB) ExpectAll(results interface{}) *TestDB {
 // ExpectCount sets up expectations for count operations
 func (t *TestDB) ExpectCount(count int64) *TestDB {
 	t.MockQuery.On("Count").Return(count, nil).Once()
-	return t
-}
-
-// ExpectTransaction sets up transaction expectations
-func (t *TestDB) ExpectTransaction(setupFunc func(tx *core.Tx)) *TestDB {
-	t.MockDB.On("Transaction", mock.AnythingOfType("func(*core.Tx) error")).
-		Run(func(args mock.Arguments) {
-			txFn, ok := args.Get(0).(func(*core.Tx) error)
-			if !ok {
-				panic("unexpected Transaction callback type")
-			}
-
-			// Create a mock transaction
-			mockTx := &core.Tx{}
-
-			// Let the test setup the transaction expectations
-			if setupFunc != nil {
-				setupFunc(mockTx)
-			}
-
-			// Execute the transaction function
-			if err := txFn(mockTx); err != nil {
-				panic(err)
-			}
-		}).Return(nil).Once()
-	return t
-}
-
-// ExpectTransactionError sets up expectations for a failed transaction
-func (t *TestDB) ExpectTransactionError(err error) *TestDB {
-	t.MockDB.On("Transaction", mock.AnythingOfType("func(*core.Tx) error")).
-		Return(err).Once()
 	return t
 }
 

@@ -20,7 +20,7 @@ This page documents TableTheory's public write-transaction surfaces, which use t
 | Limit                                             | Value / behavior                            |
 |---------------------------------------------------|---------------------------------------------|
 | DynamoDB `TransactWriteItems` item limit           | 100 items per service call                  |
-| Go `core.TransactionBuilder` operation cap         | 25 operations in the current public builder |
+| Go `core.TransactionBuilder` operation cap         | 100 operations                              |
 | TypeScript `TheorydbClient.transactWrite` cap      | DynamoDB enforces service-call limits       |
 | Python `Table.transact_write` action cap           | 100 actions                                 |
 | Maximum DynamoDB transaction payload size          | 4 MB                                        |
@@ -58,11 +58,9 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 
 > Use `db.TransactWrite(ctx, func(core.TransactionBuilder) error)` or the
 > fluent `db.Transact()` builder followed by `Execute()` for DynamoDB
-> transactions. The older `db.Transaction(func(*core.Tx) error)` helper is
-> non-atomic (writes issued through `*core.Tx` are independent DynamoDB
-> requests). `db.Transaction(...)` and `db.TransactionFunc(...)` are deprecated
-> compatibility helpers; use `Transact()` instead. Both helpers are planned for
-> removal in v2.
+> transactions. In v2, the removed `db.Transaction(func(*core.Tx) error)` and
+> `db.TransactionFunc(...)` compatibility helpers no longer exist; migrate to
+> the atomic `Transact()` surface.
 
 ## TypeScript
 

@@ -2,15 +2,12 @@ package theorydb
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	"github.com/theory-cloud/tabletheory/pkg/model"
 	"github.com/theory-cloud/tabletheory/pkg/schema"
 	"github.com/theory-cloud/tabletheory/pkg/session"
-	"github.com/theory-cloud/tabletheory/pkg/transaction"
 )
 
 // errorQuery is a query that always returns an error.
@@ -146,24 +143,6 @@ func NewKeyPair(partitionKey any, sortKey ...any) core.KeyPair {
 // DefaultBatchGetOptions returns the library defaults for BatchGet operations.
 func DefaultBatchGetOptions() *core.BatchGetOptions {
 	return core.DefaultBatchGetOptions()
-}
-
-// TransactionFunc executes fn with the legacy transaction context.
-//
-// Deprecation notice: use Transact() for DynamoDB TransactWriteItems atomicity. This
-// compatibility helper is planned for removal in v2.
-func (db *DB) TransactionFunc(fn func(tx any) error) error {
-	tx := transaction.NewTransaction(db.session, db.registry, db.converter)
-	tx = tx.WithContext(db.ctx)
-
-	if err := fn(tx); err != nil {
-		if rbErr := tx.Rollback(); rbErr != nil {
-			return errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
-		}
-		return err
-	}
-
-	return tx.Commit()
 }
 
 type metadataAdapter struct {

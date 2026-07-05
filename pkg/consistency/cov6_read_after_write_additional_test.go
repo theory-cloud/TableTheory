@@ -17,12 +17,11 @@ type cov6ConsistencyDB struct {
 	query core.Query
 }
 
-func (d cov6ConsistencyDB) Model(any) core.Query                      { return d.query }
-func (d cov6ConsistencyDB) Transaction(func(tx *core.Tx) error) error { return nil }
-func (d cov6ConsistencyDB) Migrate() error                            { return nil }
-func (d cov6ConsistencyDB) AutoMigrate(...any) error                  { return nil }
-func (d cov6ConsistencyDB) Close() error                              { return nil }
-func (d cov6ConsistencyDB) WithContext(context.Context) core.DB       { return d }
+func (d cov6ConsistencyDB) Model(any) core.Query                { return d.query }
+func (d cov6ConsistencyDB) Migrate() error                      { return nil }
+func (d cov6ConsistencyDB) AutoMigrate(...any) error            { return nil }
+func (d cov6ConsistencyDB) Close() error                        { return nil }
+func (d cov6ConsistencyDB) WithContext(context.Context) core.DB { return d }
 
 func TestConsistentQueryBuilder_First_RetryBranches_COV6(t *testing.T) {
 	t.Run("uses verification helper when VerifyFunc provided", func(t *testing.T) {

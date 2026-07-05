@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
 	theorydberrors "github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/mocks"
 	"github.com/theory-cloud/tabletheory/pkg/session"
@@ -157,15 +156,6 @@ func TestTestDB_ExpectationHelpers(t *testing.T) {
 			Offset(20).
 			OrderBy("id", "ASC").
 			Index("by-id")
-	})
-
-	t.Run("transaction helpers", func(t *testing.T) {
-		testDB.ExpectTransaction(func(_ *core.Tx) {})
-		require.NoError(t, testDB.MockDB.Transaction(func(_ *core.Tx) error { return nil }))
-
-		expectedErr := errors.New("tx failed")
-		testDB.ExpectTransactionError(expectedErr)
-		require.ErrorIs(t, testDB.MockDB.Transaction(func(_ *core.Tx) error { return nil }), expectedErr)
 	})
 
 	t.Run("batch helpers", func(t *testing.T) {

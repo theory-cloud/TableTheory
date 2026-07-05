@@ -100,7 +100,6 @@ type TransactGetRequest struct{ ... }
 type TransactGetResult struct{ ... }
 type TransactGetter interface{ ... }
 type TransactionBuilder interface{ ... }
-type Tx struct{ ... }
 type TypedExtendedDB interface{ ... }
 type UpdateBuilder interface{ ... }
 type UpdateExecutor struct{ ... }

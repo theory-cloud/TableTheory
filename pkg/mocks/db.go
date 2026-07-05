@@ -28,44 +28,6 @@ func (m *MockDB) Model(model any) core.Query {
 	return mockCoreQuery(&m.Mock, "Model", args.Get(0))
 }
 
-// Transaction executes a mocked legacy transaction callback.
-//
-// Deprecation notice: use Transact() in new code. The production compatibility helper is
-// planned for removal in v2.
-func (m *MockDB) Transaction(fn func(tx *core.Tx) error) error {
-	if fn == nil {
-		args := m.Called(fn)
-		return args.Error(0)
-	}
-
-	var (
-		callbackInvoked bool
-		callbackErr     error
-	)
-
-	wrapped := func(tx *core.Tx) error {
-		callbackInvoked = true
-		callbackErr = fn(tx)
-		return callbackErr
-	}
-
-	args := m.Called(wrapped)
-
-	if err := args.Error(0); err != nil {
-		return err
-	}
-
-	if !callbackInvoked {
-		tx := &core.Tx{}
-		tx.SetDB(m)
-		if err := wrapped(tx); err != nil {
-			return err
-		}
-	}
-
-	return callbackErr
-}
-
 // Migrate runs all pending migrations
 func (m *MockDB) Migrate() error {
 	args := m.Called()

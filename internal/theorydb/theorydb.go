@@ -255,18 +255,6 @@ func (db *DB) Model(model any) core.Query {
 	return q
 }
 
-// Transaction executes fn with a legacy Tx wrapper. It is not atomic: operations
-// performed through the Tx are sent as independent DynamoDB requests.
-//
-// Deprecation notice: use Transact() for DynamoDB TransactWriteItems atomicity. This
-// compatibility helper is planned for removal in v2.
-func (db *DB) Transaction(fn func(tx *core.Tx) error) error {
-	tx := &core.Tx{}
-	// Set the db field to avoid nil pointer panic
-	tx.SetDB(db)
-	return fn(tx)
-}
-
 // Transact returns a fluent transaction builder for composing TransactWriteItems requests.
 func (db *DB) Transact() core.TransactionBuilder {
 	builder := transaction.NewBuilder(db.session, db.registry, db.converter)

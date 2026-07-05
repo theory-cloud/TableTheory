@@ -26,9 +26,6 @@ type MockExtendedDB struct {
 	// If nil, a new MockTransactionBuilder is created for each call.
 	TransactWriteBuilder core.TransactionBuilder
 
-	// TransactionFuncTx is passed to TransactionFunc when auto-executing callbacks.
-	TransactionFuncTx any
-
 	MockDB // Embed MockDB to inherit base methods
 }
 
@@ -84,41 +81,6 @@ func (m *MockExtendedDB) WithLambdaTimeout(ctx context.Context) core.DB {
 func (m *MockExtendedDB) WithLambdaTimeoutBuffer(buffer time.Duration) core.DB {
 	args := m.Called(buffer)
 	return mockCoreDB(&m.Mock, "WithLambdaTimeoutBuffer", args.Get(0))
-}
-
-// TransactionFunc executes a mocked legacy transaction callback.
-//
-// Deprecation notice: use Transact() in new code. The production compatibility helper is
-// planned for removal in v2.
-func (m *MockExtendedDB) TransactionFunc(fn func(tx any) error) error {
-	if fn == nil {
-		args := m.Called(fn)
-		return args.Error(0)
-	}
-
-	var (
-		callbackInvoked bool
-		callbackErr     error
-	)
-
-	wrapped := func(tx any) error {
-		callbackInvoked = true
-		callbackErr = fn(tx)
-		return callbackErr
-	}
-
-	args := m.Called(wrapped)
-	if err := args.Error(0); err != nil {
-		return err
-	}
-
-	if !callbackInvoked {
-		if err := wrapped(m.TransactionFuncTx); err != nil {
-			return err
-		}
-	}
-
-	return callbackErr
 }
 
 // Transact returns a transaction builder mock
@@ -211,9 +173,6 @@ func NewMockExtendedDB() *MockExtendedDB {
 	mockDB.On("WithLambdaTimeoutBuffer", mock.Anything).
 		Return(mockDB).Maybe()
 
-	// TransactionFunc default
-	mockDB.On("TransactionFunc", mock.AnythingOfType("func(interface {}) error")).
-		Return(nil).Maybe()
 	mockDB.On("Transact").Return(nil).Maybe()
 	mockDB.On("TransactWrite", mock.Anything, mock.Anything).
 		Return(nil).Maybe()

@@ -90,7 +90,8 @@ concepts:
       - New: "Standard initialization"
       - NewLambdaOptimized: "Lambda-optimized initialization"
       - Model: "Start a query for a specific struct"
-      - Transaction: "Start an ACID transaction"
+      - Transact: "Start an ACID transaction builder"
+      - TransactWrite: "Run a transactional write callback"
 
   query_builder:
     type: component
