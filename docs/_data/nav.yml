@@ -101,6 +101,7 @@ groups:
       - { id: testing-guide,         title: Testing,                 url: /testing-guide/,                    icon: check }
       - { id: troubleshooting,       title: Troubleshooting,         url: /troubleshooting/,                  icon: life-buoy }
       - { id: migration-guide,       title: Migration,               url: /migration-guide/,                  icon: arrow-right }
+      - { id: migration-v2,          title: v2 Migration,            url: /migration/v2/,                     icon: git-branch,  tag: major }
       - { id: llm-faq,               title: LLM FAQ,                 url: /llm-faq/module-faq/,               icon: help-circle }
 
   - label: Reference
@@ -162,6 +163,7 @@ order:
   - testing-guide
   - troubleshooting
   - migration-guide
+  - migration-v2
   - llm-faq
   - ref-dms
   - ref-scenarios
@@ -222,6 +224,7 @@ url_to_id:
   /testing-guide/:                         testing-guide
   /troubleshooting/:                       troubleshooting
   /migration-guide/:                       migration-guide
+  /migration/v2/:                          migration-v2
   /llm-faq/module-faq/:                    llm-faq
   /reference/dms-spec/:                    ref-dms
   /reference/contract-scenarios/:          ref-scenarios

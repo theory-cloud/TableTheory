@@ -13,7 +13,7 @@ TheoryCloud TableTheory subtree.
 | **Release State** | [Release-State Safety Patterns](./release-state-patterns.md) |
 | **FaceTheory** | [ISR Cache Schema](./facetheory/isr-cache-schema.md) &#124; [ISR Transaction Recipes](./facetheory/isr-transaction-recipes.md) &#124; [TTL Cache Patterns](./facetheory/ttl-cache-patterns.md) &#124; [ISR Idempotency](./facetheory/isr-idempotency.md) |
 | **CDK** | [CDK Integration](./cdk/README.md) |
-| **Migration** | [Migration Guide](./migration-guide.md) |
+| **Migration** | [Migration Guide](./migration-guide.md) &#124; [v2 Migration Guide](./migration/v2.md) |
 
 ---
 
@@ -44,6 +44,7 @@ TheoryCloud TableTheory subtree.
 - [FaceTheory TTL Cache Patterns](./facetheory/ttl-cache-patterns.md) – Freshness vs expiry, TTL lag, and operational guidance for ISR tables
 - [FaceTheory ISR Idempotency Patterns](./facetheory/isr-idempotency.md) – Request-id driven regeneration guidance and replay safety
 - [Testing Guide](./testing-guide.md) – Repo-wide testing strategy (Go + TS + Python)
+- [v2 Migration Guide](./migration/v2.md) – Breaking-change rewrites, deprecation audit, and downstream coordination checklist
 - [Troubleshooting (Go)](./troubleshooting.md) – Go SDK troubleshooting (TypeScript/Python have their own)
 - [Struct Definition Guide (Go)](./struct-definition-guide.md) – Canonical guide for defining DynamoDB models in Go
 
