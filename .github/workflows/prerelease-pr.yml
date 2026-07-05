@@ -4,11 +4,8 @@ on:
   push:
     branches: ["premain"]
     paths-ignore:
-      - ".release-please-manifest.premain.json"
+      - ".release-please-manifest.json"
       - "CHANGELOG.md"
-      - "py/src/theorydb_py/version.json"
-      - "ts/package.json"
-      - "ts/package-lock.json"
   workflow_dispatch: {}
 
 permissions:
@@ -35,7 +32,7 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           target-branch: premain
           config-file: release-please-config.premain.json
-          manifest-file: .release-please-manifest.premain.json
+          manifest-file: .release-please-manifest.json
           skip-github-release: true
 
       - name: Verify prerelease Release PR postcondition

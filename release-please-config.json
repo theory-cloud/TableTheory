@@ -4,34 +4,6 @@
   "draft": true,
   "bootstrap-sha": "dff961b8d72406f72e15758edd25ae6943975bb7",
   "packages": {
-    ".": {
-      "extra-files": [
-        {
-          "type": "json",
-          "path": "py/src/theorydb_py/version.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": ".release-please-manifest.premain.json",
-          "jsonpath": "$['.']"
-        },
-        {
-          "type": "json",
-          "path": "ts/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "ts/package-lock.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "ts/package-lock.json",
-          "jsonpath": "$.packages[''].version"
-        }
-      ]
-    }
+    ".": {}
   }
 }

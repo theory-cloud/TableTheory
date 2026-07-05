@@ -13,16 +13,15 @@ TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` 
 ## Ownership
 
 - `staging` owns integration-ready code, docs, security/toolchain updates, and release-cycle guardrails before they enter
-  the RC or stable phases. After a stable release, `staging` must receive the latest stable baseline from `main` so the
-  next cycle starts from the released state. During active RC reconciliation, `staging` may temporarily carry the current
-  `premain` RC phase in `.release-please-manifest.premain.json` and SDK version files, but only while the stable manifest
-  remains aligned with `main` and the RC files are internally consistent and ahead of that stable baseline.
-- `premain` owns prerelease state. The prerelease manifest `.release-please-manifest.premain.json` and SDK version files
-  (`ts/package.json`, `ts/package-lock.json`, `py/src/theorydb_py/version.json`) may carry `X.Y.Z-rc.N` while an RC is in
-  progress. Its stable manifest `.release-please-manifest.json` must stay aligned with the latest stable baseline.
-- `main` owns stable state only. Outside explicit pending stable promotion, `.release-please-manifest.json`,
-  `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
-  `py/src/theorydb_py/version.json` must not contain `-rc` on `main`.
+  the RC or stable phases. After a stable release, `staging` must receive the latest stable baseline from `main` through a
+  normal PR backmerge.
+- `premain` owns prerelease state. Release-please runs in prerelease mode on `premain` and writes RC versions to the
+  single manifest `.release-please-manifest.json`.
+- `main` owns stable releases. Outside the short, explicit single-manifest pending stable-promotion state immediately
+  after a `premain` -> `main` promotion, `.release-please-manifest.json` must be stable on `main`.
+- `ts/package.json`, `ts/package-lock.json`, and `py/src/theorydb_py/version.json` are package metadata, not release-cycle
+  state. Release workflows stamp them from `tag_name` in the release-build workspace before packaging; release automation
+  must not commit RC churn to those files solely to publish assets.
 
 ## Merge flow (expected)
 
@@ -32,41 +31,29 @@ TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` 
   conventional commit or RC-shaped `Release-As:` footer so release-please can open the generated RC PR. If release-please
   would report "No user facing commits", the gate is failing and the fix must happen through normal `staging` PR content
   or the promotion PR squash title/body/footer.
-- A **release** is prepared by verifying the intended RC release, then opening and merging the `premain` -> `main`
-  promotion PR.
-- A `premain` -> `main` PR is also a release-intent gate. It is valid only when it carries an RC/pending stable promotion
-  state that can become stable. The follow-up generated release-please PR targeting `main` must be stable-shaped; RC-shaped
-  main release PRs and releases are forbidden.
-- The `main` release workflow skips publishing while pending stable promotion is present, and `release-pr.yml` opens the
-  stable release-please PR with `release-as` computed from the premain RC baseline. Pull-request quality checks for the
-  `premain` -> `main` promotion may verify this state with explicit pending stable-promotion mode.
-- A **release** is cut by merging the stable release-please PR, which normalizes the stable manifest, prerelease manifest,
-  and SDK version files to stable state before the stable release workflow publishes `vX.Y.Z`.
+- A **stable release** is prepared by verifying the intended RC release, then opening and merging the `premain` -> `main`
+  promotion PR. The promoted single manifest may briefly be RC-shaped on `main`; `release.yml` must skip publication in
+  that state and `release-pr.yml` must open the generated stable release-please PR with `release-as` computed from the RC
+  base.
+- A `premain` -> `main` PR is valid only when the single manifest carries a numbered RC that can become stable. The
+  follow-up generated release-please PR targeting `main` must be stable-shaped; RC-shaped main release PRs and releases
+  are forbidden.
+- A **release** is cut by merging the stable release-please PR, which normalizes `.release-please-manifest.json` and
+  `CHANGELOG.md` to stable state before the stable release workflow publishes `vX.Y.Z`.
 - After the stable release publishes, the next operator step is a normal PR backmerge from `main` to `staging`; `premain`
   receives the new baseline through the next `staging` -> `premain` promotion.
-- Hotfixes should still follow `staging` -> `premain` -> `main` so version lines stay aligned.
+- Hotfixes should still follow `staging` -> `premain` -> `main` so the release lane stays linear.
 
 ## Post-release backmerge (operator PR)
 
 After a stable release is published on `main`, CI must not push baseline sync commits to `premain` or `staging`. The
 post-release lane step is a normal PR backmerge from `main` to `staging` so the next cycle starts from the released
-stable state:
+stable state. Do not direct-push from CI to `premain` or `staging`, do not run a workflow that mutates protected branch
+refs through the GitHub API, and do not sync `main` directly to `premain` after stable publication.
 
-- `.release-please-manifest.json`
-- `.release-please-manifest.premain.json`
-- `CHANGELOG.md`
-- `py/src/theorydb_py/version.json`
-- `ts/package.json`
-- `ts/package-lock.json`
-
-Do not direct-push from CI to `premain` or `staging`, do not run a workflow that mutates protected branch refs through the
-GitHub API, and do not sync `main` directly to `premain` after stable publication. The next `staging` -> `premain`
-promotion carries the stable baseline into `premain`.
-
-The normal stable promotion path does not use a local stable-normalization branch. `release-please-config.json` must keep
-`.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
-`py/src/theorydb_py/version.json` wired as stable release-please extra-files so the generated stable Release PR owns all
-version-file normalization.
+The normal stable promotion path does not use a local stable-normalization branch. Release-please owns manifest and
+changelog updates; the TypeScript/Python release asset versions are generated from the release tag in the release-build
+workspace and verified inside the tarball/wheel/sdist before upload.
 
 `scripts/sync-post-stable-release-baselines.sh` is deprecated, dry-run-only, and operator-only. It must not be called from
 release workflows and must not push sync commits. Recovery remains PR-based: if a branch is stranded, create a new PR
@@ -114,7 +101,7 @@ This repo should publish:
 
 Recommended approach: **release-please** (merge-driven versioning + changelog updates) with:
 
-- prerelease workflow producing tags like `vX.Y.Z-rc.N` (or an agreed convention), and
+- prerelease workflow producing tags like `vX.Y.Z-rc.N`, and
 - release workflow producing stable `vX.Y.Z` tags and updating `CHANGELOG.md`.
 
 ### Release triggers (required)
@@ -141,6 +128,10 @@ GitHub Releases must attach build artifacts for the non-Go SDKs:
 - **TypeScript:** `npm pack` output from `ts/` (tarball)
 - **Python:** wheel + sdist from `py/` (`python -m build`)
 
+Release workflows must derive the package version from the release `tag_name`, stamp `ts/package.json`,
+`ts/package-lock.json`, and `py/src/theorydb_py/version.json` in the workflow workspace, build assets, and verify the
+packed TypeScript and Python metadata matches the tag before upload. These workspace edits are not committed.
+
 If a release workflow was expected to publish but `release_created` is false, pause before trying to patch files by hand.
 If an asset upload or publish step has no `tag_name`, fail the workflow. If a GitHub release exists but TypeScript/Python
 assets are missing, use a documented asset recovery workflow only after confirming the tag and release are immutable and
@@ -159,13 +150,12 @@ not sufficient evidence that a release is healthy.
 ## Multi-language versioning (required)
 
 - **Single shared repo version:** Go, TypeScript, and Python use the same GitHub tag/release version.
-- **No registry publishing:** TypeScript is not published to npm and Python is not published to PyPI; GitHub releases are the source of truth.
-- **Release automation must update TypeScript versions:** if `ts/package.json` exists, the prerelease/release workflows must
-  update `ts/package.json` and `ts/package-lock.json` to match the repo version.
-- **Release automation must update Python versions:** if `py/pyproject.toml` exists, the prerelease/release workflows must
-  update `py/src/theorydb_py/version.json` to match the repo version.
-- **Stable release automation must normalize prerelease state:** `release-please-config.json` must update
-  `.release-please-manifest.premain.json` to the stable version in the generated stable Release PR.
+- **Single release-please manifest:** `.release-please-manifest.json` is the only release-please manifest. `premain` may
+  carry `X.Y.Z-rc.N`; `main` must normalize to stable through the generated stable release-please PR.
+- **No registry publishing:** TypeScript is not published to npm and Python is not published to PyPI; GitHub releases are
+  the source of truth.
+- **Tag-derived package versions:** release workflows, not release-please manifests, stamp TypeScript/Python package
+  metadata from `tag_name` immediately before building assets.
 
 ## Required workflow artifacts (Rubric COM-8)
 
@@ -175,10 +165,12 @@ These files are required to exist and be kept current:
 - `.github/workflows/release.yml`
 - `scripts/verify-release-cycle-state.sh`
 - `scripts/watch-release-cycle.sh`
+- `scripts/prepare-release-package-versions.py`
+- `scripts/verify-release-package-version-assets.py`
 - `scripts/prepare-stable-promotion.sh`
 
-`scripts/prepare-stable-promotion.sh` is retained as a diagnostic/fallback helper. It is not the normal stable promotion
-path, and it must not replace release-please-owned stable version/changelog updates.
+`scripts/prepare-stable-promotion.sh` is retained as a deprecated diagnostic helper. It is not the normal stable
+promotion path, and it must not replace release-please-owned stable version/changelog updates.
 
 Release-lane quality workflow expectations:
 
@@ -198,11 +190,11 @@ Release-lane quality workflow expectations:
 
 Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--strict` before merge/release gates. Pause on:
 
-- `origin/main` stable files containing `-rc` outside explicit pending stable promotion.
-- `.release-please-manifest.json` set to an RC version.
-- `origin/premain` stable manifest behind `origin/main`.
-- `origin/staging` missing the latest stable baseline after a stable release, or carrying RC reconciliation files after
-  the active RC phase has been normalized to stable.
+- `origin/main` carrying an RC manifest outside the explicit single-manifest pending stable-promotion window.
+- `.release-please-manifest.json` set to an RC version on `staging`.
+- the retired `.release-please-manifest.premain.json` appearing on release branches.
+- `origin/premain` release track behind `origin/main`.
+- `origin/staging` missing the latest stable baseline after a stable release.
 - SEC-2/govulncheck still observing Go `1.26.3`.
 - COM-8 branch/version sync failing.
 - release-please opening a stable PR for an RC version.

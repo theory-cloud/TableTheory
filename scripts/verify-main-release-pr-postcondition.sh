@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Read-only postcondition for the main Release PR workflow. It verifies that
 # pending stable promotion produced a stable release-please PR, not an RC PR,
-# and that the PR includes the files that normalize prerelease SDK state.
+# and that the PR includes the files that normalize the single manifest.
 
 usage() {
   cat <<'USAGE'
@@ -233,10 +233,6 @@ pr = json.loads(Path(path).read_text(encoding="utf-8"))
 expected_title = f"chore({base}): release {expected_version}"
 required_paths = {
     ".release-please-manifest.json",
-    ".release-please-manifest.premain.json",
-    "py/src/theorydb_py/version.json",
-    "ts/package.json",
-    "ts/package-lock.json",
     "CHANGELOG.md",
 }
 
@@ -261,10 +257,10 @@ if "-rc" in pr.get("title", ""):
 paths = {entry.get("path", "") for entry in pr.get("files", [])}
 missing = sorted(required_paths - paths)
 if missing:
-    fail(f"PR #{pr.get('number')} missing normalization files: {', '.join(missing)}")
+    fail(f"PR #{pr.get('number')} missing single-manifest normalization files: {', '.join(missing)}")
 
 print(
     "release-pr-postcondition: PASS "
-    f"(#{pr.get('number')} {expected_title}; normalization files present)"
+    f"(#{pr.get('number')} {expected_title}; single-manifest normalization files present)"
 )
 PY

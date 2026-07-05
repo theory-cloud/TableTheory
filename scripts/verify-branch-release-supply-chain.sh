@@ -53,9 +53,11 @@ required_files=(
   ".github/workflows/release-pr.yml"
   "release-please-config.premain.json"
   "release-please-config.json"
-  ".release-please-manifest.premain.json"
   ".release-please-manifest.json"
   "scripts/sync-post-stable-release-baselines.sh"
+  "scripts/prepare-release-package-versions.py"
+  "scripts/verify-release-package-version-assets.py"
+  "scripts/verify-release-package-version-build.sh"
   "scripts/verify-main-release-pr-postcondition.sh"
   "scripts/verify-prerelease-pr-postcondition.sh"
   "scripts/verify-release-lane-provenance.sh"
@@ -196,8 +198,8 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
     "prerelease workflow must request contents: write"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${p}" \
     "prerelease workflow must reference release-please-config.premain.json"
-  require_regex 'manifest-file:\s*\.release-please-manifest\.premain\.json' "${p}" \
-    "prerelease workflow must reference .release-please-manifest.premain.json"
+  require_regex 'manifest-file:\s*\.release-please-manifest\.json' "${p}" \
+    "prerelease workflow must reference the single release-please manifest"
   require_fixed "scripts/verify-release-cycle-state.sh" "${p}" \
     "prerelease workflow must verify release-cycle state before release-please"
   require_fixed "scripts/verify-branch-version-sync.sh" "${p}" \
@@ -214,6 +216,10 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
     "prerelease publish postcondition must classify plain staging -> premain merges as PR-generation setup"
   require_regex 'pushd ts' "${p}" \
     "prerelease workflow must package TypeScript from ts/"
+  require_fixed "scripts/prepare-release-package-versions.py --tag-name" "${p}" \
+    "prerelease workflow must stamp TS/Py versions from tag_name before packaging"
+  require_fixed "scripts/verify-release-package-version-assets.py" "${p}" \
+    "prerelease workflow must verify TS/Py asset metadata matches tag_name"
   require_regex 'npm pack --pack-destination \.\./release-assets' "${p}" \
     "prerelease workflow must attach TypeScript npm pack artifact"
   require_regex 'python -m build --outdir \.\./release-assets' "${p}" \
@@ -238,8 +244,8 @@ if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
     "prerelease-pr workflow must pin release-please v4 by commit SHA"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${pp}" \
     "prerelease-pr workflow must reference release-please-config.premain.json"
-  require_regex 'manifest-file:\s*\.release-please-manifest\.premain\.json' "${pp}" \
-    "prerelease-pr workflow must reference .release-please-manifest.premain.json"
+  require_regex 'manifest-file:\s*\.release-please-manifest\.json' "${pp}" \
+    "prerelease-pr workflow must reference the single release-please manifest"
   require_fixed "scripts/verify-release-cycle-state.sh" "${pp}" \
     "prerelease-pr workflow must verify release-cycle state before release-please"
   require_fixed "scripts/verify-branch-version-sync.sh" "${pp}" \
@@ -288,6 +294,10 @@ if [[ -f ".github/workflows/release.yml" ]]; then
     "stable publish postcondition must forbid RC-shaped main releases"
   require_regex 'pushd ts' "${r}" \
     "release workflow must package TypeScript from ts/"
+  require_fixed "scripts/prepare-release-package-versions.py --tag-name" "${r}" \
+    "release workflow must stamp TS/Py versions from tag_name before packaging"
+  require_fixed "scripts/verify-release-package-version-assets.py" "${r}" \
+    "release workflow must verify TS/Py asset metadata matches tag_name"
   require_regex 'npm pack --pack-destination \.\./release-assets' "${r}" \
     "release workflow must attach TypeScript npm pack artifact"
   require_regex 'python -m build --outdir \.\./release-assets' "${r}" \
@@ -323,8 +333,9 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
   if grep -Fq "googleapis/release-please-action" "${rp}"; then
     fail "release-pr workflow must use pinned release-please CLI, not release-please-action"
   fi
-  require_fixed '.release-please-manifest.premain.json' "${rp}" \
-    "release-pr paths-ignore must include .release-please-manifest.premain.json and compute RC baseline"
+  if grep -Fq ".release-please-manifest.premain.json" "${rp}"; then
+    fail "release-pr workflow must not reference retired .release-please-manifest.premain.json"
+  fi
   require_fixed 'RELEASE_PLEASE_CLI_VERSION: "17.3.0"' "${rp}" \
     "release-pr workflow must pin release-please CLI to v17.3.0"
   require_fixed "npm ci --prefix scripts/release-please-cli --ignore-scripts" "${rp}" \
@@ -349,9 +360,9 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
     "release-pr workflow must document pending promotion PR generation"
   require_fixed "PENDING_STABLE_PROMOTION" "${rp}" \
     "release-pr workflow must gate release-please on pending promotion"
-  require_fixed "strict stable state; no release-as computed and no release-please call needed" "${rp}" \
+  require_fixed "strict stable state; no single-manifest RC to normalize" "${rp}" \
     "release-pr workflow must no-op when main is already strict/stable"
-  require_fixed "pending stable promotion did not compute a stable release-as" "${rp}" \
+  require_fixed "single-manifest pending stable promotion did not compute a stable release-as" "${rp}" \
     "release-pr workflow must fail if pending promotion has no stable release-as"
   require_fixed "--release-as" "${rp}" \
     "release-pr workflow must pass release-as to the pinned CLI"
@@ -375,10 +386,6 @@ if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
     "main Release PR postcondition must support read-only RC-only checks"
   for path in \
     ".release-please-manifest.json" \
-    ".release-please-manifest.premain.json" \
-    "py/src/theorydb_py/version.json" \
-    "ts/package.json" \
-    "ts/package-lock.json" \
     "CHANGELOG.md"; do
     require_fixed "${path}" "${postcondition}" \
       "main Release PR postcondition must require ${path}"
@@ -421,8 +428,8 @@ if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
     "prerelease PR postcondition must require RC-shaped release titles"
   require_fixed "-rc\\.\\d+" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require numbered RC version syntax"
-  require_fixed ".release-please-manifest.premain.json" "${prerelease_postcondition}" \
-    "prerelease PR postcondition must require the prerelease manifest"
+  require_fixed ".release-please-manifest.json" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must require the single manifest"
 fi
 
 if [[ -f "scripts/release-please-cli/package-lock.json" ]]; then
@@ -455,8 +462,6 @@ if [[ -f "scripts/sync-post-stable-release-baselines.sh" ]]; then
     "post-stable sync helper must be dry-run only"
   require_fixed "normal PR backmerge from main to staging" "${sync_script}" \
     "post-stable sync helper must point operators to main -> staging PR backmerge"
-  require_fixed ".release-please-manifest.premain.json" "${sync_script}" \
-    "post-stable sync helper must still name the prerelease manifest"
   if grep -Eq 'git[[:space:]].*push|gh[[:space:]]+api[[:space:]].*(git/refs|contents)' "${sync_script}"; then
     fail "deprecated post-stable sync helper must not contain branch mutation commands"
   fi
@@ -481,48 +486,37 @@ if [[ -f "ts/package.json" ]]; then
 
   for cfg in "release-please-config.premain.json" "release-please-config.json"; do
     [[ -f "${cfg}" ]] || continue
-    require_regex '"extra-files"\s*:' "${cfg}" \
-      "${cfg}: must define extra-files for multi-language versioning"
-    require_regex '"path"\s*:\s*"ts/package\.json"' "${cfg}" \
-      "${cfg}: must bump ts/package.json version"
-    require_regex '"path"\s*:\s*"ts/package-lock\.json"' "${cfg}" \
-      "${cfg}: must bump ts/package-lock.json version"
-    require_regex "\\$\\.packages\\[''\\]\\.version" "${cfg}" \
-      "${cfg}: must bump ts/package-lock.json packages[''].version"
+    if grep -Fq '"extra-files"' "${cfg}"; then
+      fail "${cfg}: must not use extra-files for tag-derived SDK package versions"
+    fi
+    if grep -Eq 'ts/package(-lock)?\.json|py/src/theorydb_py/version\.json|\.release-please-manifest\.premain\.json' "${cfg}"; then
+      fail "${cfg}: must not list SDK versions or retired prerelease manifest as release-please extra files"
+    fi
   done
 fi
 
-if [[ -f "release-please-config.json" ]]; then
-  if ! python3 - <<'PY'
+for cfg in "release-please-config.json" "release-please-config.premain.json"; do
+  [[ -f "${cfg}" ]] || continue
+  if ! CFG="${cfg}" python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 
-config = json.loads(Path("release-please-config.json").read_text(encoding="utf-8"))
-extra_files = config.get("packages", {}).get(".", {}).get("extra-files", [])
-
-for entry in extra_files:
-    if (
-        isinstance(entry, dict)
-        and entry.get("type") == "json"
-        and entry.get("path") == ".release-please-manifest.premain.json"
-        and entry.get("jsonpath") == "$['.']"
-    ):
-        raise SystemExit(0)
-
-raise SystemExit(1)
+config = json.loads(Path(os.environ["CFG"]).read_text(encoding="utf-8"))
+if config.get("packages", {}).get(".") != {}:
+    raise SystemExit(1)
 PY
   then
-    fail "release-please-config.json must normalize .release-please-manifest.premain.json through stable release-please"
+    fail "${cfg} must leave SDK/package versioning to tag-derived release-build scripts"
   fi
-fi
+done
 
 if [[ -f "py/pyproject.toml" ]]; then
   for cfg in "release-please-config.premain.json" "release-please-config.json"; do
     [[ -f "${cfg}" ]] || continue
-    require_regex '"extra-files"\s*:' "${cfg}" \
-      "${cfg}: must define extra-files for multi-language versioning"
-    require_regex '"path"\s*:\s*"py/src/theorydb_py/version\.json"' "${cfg}" \
-      "${cfg}: must bump py/src/theorydb_py/version.json version"
+    if grep -Fq "py/src/theorydb_py/version.json" "${cfg}"; then
+      fail "${cfg}: must not bump py/src/theorydb_py/version.json through release-please"
+    fi
   done
 fi
 

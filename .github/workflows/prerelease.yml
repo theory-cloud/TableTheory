@@ -30,7 +30,7 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           target-branch: premain
           config-file: release-please-config.premain.json
-          manifest-file: .release-please-manifest.premain.json
+          manifest-file: .release-please-manifest.json
           # Prevent release-please from opening the *next* prerelease PR on release commits.
           # PR generation runs in prerelease-pr.yml.
           skip-github-pull-request: true
@@ -80,9 +80,18 @@ jobs:
 
       - name: Build release assets (ts npm pack + py wheel/sdist)
         if: steps.release.outputs.release_created == 'true'
+        env:
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
         run: |
+          if [[ -z "${TAG_NAME}" ]]; then
+            echo "release-assets: FAIL (missing tag_name output)"
+            exit 1
+          fi
+
           rm -rf release-assets
           mkdir -p release-assets
+
+          python3 scripts/prepare-release-package-versions.py --tag-name "${TAG_NAME}"
 
           pushd ts
           npm ci
@@ -104,6 +113,10 @@ jobs:
               -o "release-assets/tabletheory-${os}-${arch}" ./cmd/tabletheory
           done
           ( cd release-assets && sha256sum tabletheory-linux-* tabletheory-darwin-* > tabletheory-SHA256SUMS.txt )
+
+          python3 scripts/verify-release-package-version-assets.py \
+            --tag-name "${TAG_NAME}" \
+            --assets-dir release-assets
 
           ls -la release-assets
 

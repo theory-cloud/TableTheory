@@ -80,21 +80,21 @@ never receive an RC-shaped release PR or release.
 
 Multi-language versioning:
 
-- **Stable manifest**: `.release-please-manifest.json`
-- **Prerelease manifest**: `.release-please-manifest.premain.json`
-- **TypeScript**: `ts/package.json`, `ts/package-lock.json`
-- **Python**: `py/src/theorydb_py/version.json`
+- **Single release-please manifest**: `.release-please-manifest.json` is the only release-please manifest.
+- **TypeScript/Python package metadata**: `ts/package.json`, `ts/package-lock.json`, and
+  `py/src/theorydb_py/version.json` remain package metadata, but release workflows stamp them from `tag_name` in the
+  release-build workspace before packaging instead of committing RC churn through release-please extra-files.
+- **Asset proof**: release workflows must verify the TypeScript tarball and Python wheel/sdist metadata match `tag_name`
+  before upload.
 
 Release ownership:
 
 - `staging` owns integration-ready code, docs, security/toolchain updates, and the latest stable baseline returned from
-  `main`. It must not pretend to cut a release. During active RC reconciliation, it may temporarily carry the current
-  `premain` RC phase in prerelease/SDK files only when the stable manifest stays aligned with `main` and the RC files are
-  internally consistent and ahead of that stable baseline.
-- `premain` owns RC generation. It may carry `X.Y.Z-rc.N` in the prerelease manifest and SDK version files only while
-  the RC phase is active.
-- `main` owns stable state only. Outside explicit pending stable promotion, the stable manifest, prerelease manifest, and
-  SDK version files on `main` must not contain `-rc`.
+  `main`. It must not pretend to cut a release.
+- `premain` owns RC generation. It may carry `X.Y.Z-rc.N` in `.release-please-manifest.json` while the RC phase is
+  active.
+- `main` owns stable state. Outside explicit single-manifest pending stable promotion, `.release-please-manifest.json` on
+  `main` must not contain `-rc`.
 
 Immutable version reuse:
 
@@ -117,35 +117,33 @@ Stable promotion path:
   assets.
 - Open and merge the promotion PR from `premain` to `main`; do not create a local stable-normalization branch as the
   normal path.
-- After the `premain` -> `main` promotion merges, the release cycle may enter a short **pending stable promotion** state:
-  `.release-please-manifest.json` remains at the prior stable version while prerelease/SDK files still reflect the
-  promoted RC phase. This state is allowed only until `.github/workflows/release-pr.yml` opens the stable release-please PR
-  and that PR merges.
+- After the `premain` -> `main` promotion merges, `main` may briefly contain a single-manifest RC. This state is allowed
+  only until `.github/workflows/release-pr.yml` opens the stable release-please PR and that PR merges.
 - Pending stable promotion is explicit automation state only:
-  `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true` may be used by the release workflows to verify the promotion
-  commit, and `.github/workflows/release.yml` must skip stable release creation while that state is present.
-- `.github/workflows/release-pr.yml` computes the stable `release-as` value from the premain RC baseline (for THE-1869,
-  `1.9.3`) and opens the stable release-please PR.
-- The stable release-please PR must normalize `.release-please-manifest.json`,
-  `.release-please-manifest.premain.json`, `ts/package.json`, `ts/package-lock.json`, and
-  `py/src/theorydb_py/version.json` to the stable version; `release-please-config.json` owns those version-file changes.
-- After the stable release-please PR merges, strict stable equality is required again: run
-  `bash scripts/verify-release-cycle-state.sh` without the pending env var, and confirm the stable manifest and SDK files
-  match.
+  `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true` may be used by the release workflows to verify the single-manifest
+  RC on `main`, and `.github/workflows/release.yml` must skip stable release creation while that state is present.
+- `.github/workflows/release-pr.yml` computes the stable `release-as` value from the single-manifest RC baseline (for
+  THE-1869, `1.9.3`) and opens the stable release-please PR.
+- The stable release-please PR must normalize `.release-please-manifest.json` and `CHANGELOG.md` to stable state.
+  TypeScript/Python asset versions are generated from `tag_name` at release-build time and must not be committed by the
+  release workflow.
+- After the stable release-please PR merges, strict stable state is required again: run
+  `bash scripts/verify-release-cycle-state.sh` without the pending env var, and confirm the single manifest is stable.
 - If pending state persists because release-please did not open the stable PR, pause and investigate the workflow/check
   failure. Do not patch `main`, retag, edit releases, or hand-edit manifests to advance the cycle.
 - After the stable release is published, do not let CI push sync commits to `premain` or `staging`. The next operator step
   is a normal PR backmerge from `main` to `staging`; `premain` receives that baseline through the next
   `staging` -> `premain` promotion.
-- `scripts/prepare-stable-promotion.sh` is diagnostic/fallback tooling only. It is not the normal stable release path and
+- `scripts/prepare-stable-promotion.sh` is deprecated diagnostic tooling only. It is not the normal stable release path and
   must not replace release-please-owned stable version/changelog updates.
 
 Release watchpoints and stop conditions:
 
-- Stop if `main` stable files contain `-rc` outside explicit pending stable promotion, or if
-  `.release-please-manifest.json` is an RC version.
-- Stop if `premain` stable manifest is behind `origin/main`, or if `staging` lacks the latest stable baseline after a
-  stable release, or if `staging` keeps RC reconciliation files after the active RC phase has normalized to stable.
+- Stop if `main` carries an RC manifest outside explicit single-manifest pending stable promotion.
+- Stop if `.release-please-manifest.json` is an RC version on `staging`, or if the retired
+  `.release-please-manifest.premain.json` appears on release branches.
+- Stop if `premain` release track is behind `origin/main`, or if `staging` lacks the latest stable baseline after a stable
+  release.
 - Stop if SEC-2/govulncheck still observes Go `1.26.3`, COM-8 branch/version sync fails, or release-please opens a
   stable PR for an RC version.
 - Stop if `main` remains in pending stable promotion and no stable release-please PR opens for the computed stable
@@ -173,12 +171,9 @@ Useful checks:
 - `bash scripts/watch-release-cycle.sh` for read-only PASS/WARN/FAIL branch and release watchpoints; add `--strict`
   before merge/release gates.
 
-Every PR to `staging` must check both release and release-candidate version alignment before it is opened or updated.
-The stable release baseline and prerelease/RC baseline must agree with the current `main` line so release-please never
-generates an older RC (for example `v1.6.0-rc.N`) after a newer stable release (for example `v1.7.0`) has shipped.
-
-Release automation must keep these files coherent so the stable line never lags the prerelease line on promotion.
-The rubric enforces this via:
+Every PR to `staging` must keep the single-manifest release lane coherent so release-please never generates an older RC
+(for example `v1.6.0-rc.N`) after a newer stable release (for example `v1.7.0`) has shipped. Release asset package
+versions are generated from tags and verified at build time. The rubric enforces this via:
 
 - `bash scripts/verify-branch-release-supply-chain.sh`
 - `bash scripts/verify-branch-version-sync.sh`

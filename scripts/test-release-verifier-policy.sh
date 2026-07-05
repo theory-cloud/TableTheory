@@ -38,7 +38,7 @@ expect_absent() {
 write_version_files() {
   local root="$1"
   local stable="$2"
-  local premain="$3"
+  local _retired_premain="$3"
   local ts="$4"
   local py="$5"
   local toolchain="${6:-go1.26.4}"
@@ -51,7 +51,6 @@ write_version_files() {
     "${root}/examples/multi-tenant"
 
   printf '{".":"%s"}\n' "${stable}" >"${root}/.release-please-manifest.json"
-  printf '{".":"%s"}\n' "${premain}" >"${root}/.release-please-manifest.premain.json"
   printf '{"version":"%s"}\n' "${ts}" >"${root}/ts/package.json"
   printf '{"version":"%s","packages":{"":{"version":"%s"}}}\n' "${ts}" "${ts}" >"${root}/ts/package-lock.json"
   printf '{"version":"%s"}\n' "${py}" >"${root}/py/src/theorydb_py/version.json"
@@ -62,6 +61,14 @@ write_version_files() {
 #!/usr/bin/env bash
 set -euo pipefail
 echo "prepare-stable-promotion: PASS (fixture)"
+STUB
+  cat >"${root}/scripts/prepare-release-package-versions.py" <<'STUB'
+#!/usr/bin/env python3
+print("release-package-versions: PASS (fixture)")
+STUB
+  cat >"${root}/scripts/verify-release-package-version-assets.py" <<'STUB'
+#!/usr/bin/env python3
+print("release-package-version-assets: PASS (fixture)")
 STUB
   cat >"${root}/scripts/watch-release-cycle.sh" <<'STUB'
 #!/usr/bin/env bash
@@ -117,7 +124,7 @@ commit_watch_branch() {
   git -C "${repo}" rm -r --quiet . >/dev/null 2>&1 || true
   write_version_files "${repo}" "${stable}" "${premain}" "${ts}" "${py}" "${toolchain}"
   git -C "${repo}" add .
-  git -C "${repo}" commit -q -m "fixture ${branch}"
+  git -C "${repo}" commit -q --allow-empty -m "fixture ${branch}"
   git -C "${repo}" update-ref "refs/remotes/origin/${branch}" HEAD
 }
 
@@ -134,7 +141,7 @@ run_watch_fixture() {
   git -C "${work}" config user.name "Release Fixture"
 
   commit_watch_branch "${work}" main "${main_stable}" "${main_premain}" "${main_ts}" "${main_py}" "${toolchain}"
-  commit_watch_branch "${work}" premain "${premain_stable}" "${premain_prerelease}" "${premain_prerelease}" "${premain_prerelease}" "${toolchain}"
+  commit_watch_branch "${work}" premain "${premain_prerelease}" "" "${main_ts}" "${main_py}" "${toolchain}"
   commit_watch_branch "${work}" staging "${staging_stable}" "${staging_stable}" "${staging_stable}" "${staging_stable}" "${toolchain}"
 
   if [[ "${strict}" == "true" ]]; then

@@ -1,36 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Diagnostic/fallback helper for inspecting or normalizing RC-owned files during stable-promotion recovery.
-#
-# Normal stable releases are CI/release-please driven:
-#   staging -> premain -> generated/published RC -> main -> generated/published stable release.
-#
-# Use this script only for diagnostics, or as an explicitly documented fallback when release automation is blocked.
-#
-# This script does not create branches, merge refs, push, tag, or publish releases.
+# DEPRECATED / DIAGNOSTIC-ONLY DRY RUN.
+# Release-lane v2 uses one release-please manifest. A premain -> main
+# promotion may briefly put an RC in .release-please-manifest.json on main;
+# release-pr.yml then opens the stable release-please PR that normalizes the
+# manifest and changelog. This helper remains only as a read-only diagnostic
+# until the release-lane-v2 soak completes.
 
 usage() {
   cat <<'USAGE'
-Usage: bash scripts/prepare-stable-promotion.sh [--check|--write] [--expected-version X.Y.Z]
+Usage: bash scripts/prepare-stable-promotion.sh [--check] [--write] [--expected-version X.Y.Z]
 
-Diagnostic/fallback helper only. The normal stable release path leaves version and changelog edits to release-please.
+Deprecated diagnostic/fallback helper only. The normal stable release path leaves
+version and changelog edits to release-please. In the single-manifest lane this
+script is dry-run only; --write is rejected.
 
 Options:
-  --check                 Print the normalization plan only. This is the default.
-  --write                 Rewrite RC-owned files to the stable baseline.
+  --check                 Print the normalization target only. This is the default.
+  --write                 Rejected in release-lane v2; use release-please PRs.
   --expected-version VER  Require the derived stable baseline to equal VER.
   -h, --help              Show this help.
-
-Files normalized with --write:
-  .release-please-manifest.premain.json
-  ts/package.json
-  ts/package-lock.json
-  py/src/theorydb_py/version.json
-
-The stable manifest (.release-please-manifest.json) is validated but not advanced here.
-Release Please must advance it in the stable release PR so the immutable release remains
-traceable to the release workflow.
 USAGE
 }
 
@@ -67,23 +57,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "${mode}" != "check" && "${mode}" != "write" ]]; then
-  echo "stable-promotion: FAIL (invalid mode: ${mode})" >&2
-  exit 2
+if [[ "${mode}" == "write" ]]; then
+  echo "stable-promotion: FAIL (--write is retired in release-lane v2; use the generated stable release-please PR)"
+  exit 1
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
-python3 - "${mode}" "${expected_version}" <<'PY'
+python3 - "${expected_version}" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
-mode = sys.argv[1]
-expected_version = sys.argv[2].strip()
-
+expected_version = sys.argv[1].strip()
 semver_re = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
 
 
@@ -92,107 +80,34 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-def load_json(path: str) -> object:
-    p = Path(path)
-    if not p.is_file():
-        fail(f"missing {path}")
-    return json.loads(p.read_text(encoding="utf-8"))
-
-
-def semver_info(version: str) -> tuple[tuple[int, int, int], str, bool]:
+def semver_base(version: str) -> tuple[tuple[int, int, int], str, bool]:
     match = semver_re.match(version.strip())
     if not match:
         fail(f"invalid semver: {version}")
     base_tuple = tuple(int(part) for part in match.group(1, 2, 3))
     base = ".".join(str(part) for part in base_tuple)
-    prerelease = match.group(4) or ""
-    return base_tuple, base, bool(prerelease)
+    return base_tuple, base, bool(match.group(4))
 
+if Path(".release-please-manifest.premain.json").exists():
+    fail("retired .release-please-manifest.premain.json is still present")
 
-stable_manifest = load_json(".release-please-manifest.json")
-premain_manifest = load_json(".release-please-manifest.premain.json")
-ts_package = load_json("ts/package.json")
-ts_lock = load_json("ts/package-lock.json")
-py_version = load_json("py/src/theorydb_py/version.json")
+manifest = json.loads(Path(".release-please-manifest.json").read_text(encoding="utf-8")).get(".", "")
+if not isinstance(manifest, str) or not manifest:
+    fail("missing version in .release-please-manifest.json")
 
-versions = {
-    ".release-please-manifest.json": stable_manifest.get(".", ""),
-    ".release-please-manifest.premain.json": premain_manifest.get(".", ""),
-    "ts/package.json": ts_package.get("version", ""),
-    "ts/package-lock.json": ts_lock.get("version", ""),
-    "ts/package-lock.json packages['']": ts_lock.get("packages", {}).get("", {}).get("version", ""),
-    "py/src/theorydb_py/version.json": py_version.get("version", ""),
-}
-
-for path, version in versions.items():
-    if not isinstance(version, str) or not version.strip():
-        fail(f"missing version in {path}")
-
-parsed = {path: semver_info(version) for path, version in versions.items()}
-
-stable_version = versions[".release-please-manifest.json"]
-if parsed[".release-please-manifest.json"][2]:
-    fail(f"stable manifest is a prerelease: {stable_version}")
-
-target_tuple, target_version = max((info[0], info[1]) for info in parsed.values())
+_, target_version, is_prerelease = semver_base(manifest)
 
 if expected_version:
-    expected_tuple, expected_base, expected_is_prerelease = semver_info(expected_version)
+    _, expected_base, expected_is_prerelease = semver_base(expected_version)
     if expected_is_prerelease:
         fail(f"--expected-version must be stable, got {expected_version}")
-    if expected_tuple != target_tuple:
+    if expected_base != target_version:
         fail(f"derived stable baseline {target_version} != expected {expected_base}")
-    target_version = expected_base
 
-if parsed[".release-please-manifest.json"][0] > target_tuple:
-    fail(
-        "stable manifest is ahead of derived promotion baseline "
-        f"({stable_version} > {target_version})"
-    )
-
-changes: list[tuple[str, str, str]] = []
-
-
-def plan(path: str, current: str, desired: str) -> None:
-    if current != desired:
-        changes.append((path, current, desired))
-
-
-plan(".release-please-manifest.premain.json", versions[".release-please-manifest.premain.json"], target_version)
-plan("ts/package.json", versions["ts/package.json"], target_version)
-plan("ts/package-lock.json", versions["ts/package-lock.json"], target_version)
-plan("ts/package-lock.json packages['']", versions["ts/package-lock.json packages['']"], target_version)
-plan("py/src/theorydb_py/version.json", versions["py/src/theorydb_py/version.json"], target_version)
-
-print(f"stable-promotion: target={target_version}")
-print(f"stable-promotion: stable-manifest={stable_version} (validated, not advanced)")
-
-if not changes:
-    print("stable-promotion: PASS (no normalization needed)")
-    raise SystemExit(0)
-
-for path, current, desired in changes:
-    print(f"stable-promotion: PLAN {path}: {current} -> {desired}")
-
-if mode == "check":
-    print("stable-promotion: PASS (dry-run)")
-    raise SystemExit(0)
-
-premain_manifest["."] = target_version
-ts_package["version"] = target_version
-ts_lock["version"] = target_version
-ts_lock.setdefault("packages", {}).setdefault("", {})["version"] = target_version
-py_version["version"] = target_version
-
-files = {
-    ".release-please-manifest.premain.json": premain_manifest,
-    "ts/package.json": ts_package,
-    "ts/package-lock.json": ts_lock,
-    "py/src/theorydb_py/version.json": py_version,
-}
-
-for path, data in files.items():
-    Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-print("stable-promotion: PASS (files normalized)")
+print("stable-promotion: DEPRECATED dry-run only")
+if is_prerelease:
+    print(f"stable-promotion: single-manifest RC {manifest} would normalize to {target_version}")
+else:
+    print(f"stable-promotion: single manifest already stable at {manifest}")
+print("stable-promotion: PASS")
 PY

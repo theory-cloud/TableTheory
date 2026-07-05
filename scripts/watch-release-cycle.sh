@@ -101,49 +101,43 @@ for ref in "${refs[@]}"; do
 done
 
 main_stable=""
-premain_stable=""
-premain_prerelease=""
+premain_version=""
 staging_stable=""
 main_pending_promotion=0
 main_pending_version=""
 
+check_source_version() {
+  local ref="$1"
+  local label="$2"
+  local version="$3"
+  if [[ -z "${version}" ]]; then
+    fail "${ref} ${label} version is missing"
+  elif [[ "${version}" == *-rc* ]]; then
+    fail "${ref} ${label} source version remains prerelease (${version}); release assets must be tag-derived instead"
+  elif [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    pass "${ref} ${label} source version is stable (${version})"
+  else
+    fail "${ref} ${label} source version is invalid (${version})"
+  fi
+}
+
 if git rev-parse --verify --quiet origin/main >/dev/null; then
   main_stable="$(release_cycle_json_value_at_ref origin/main .release-please-manifest.json '.')"
-  main_premain="$(release_cycle_json_value_at_ref origin/main .release-please-manifest.premain.json '.')"
   main_ts="$(release_cycle_json_value_at_ref origin/main ts/package.json version)"
   main_ts_lock="$(release_cycle_json_value_at_ref origin/main ts/package-lock.json version)"
   main_ts_lock_pkg="$(git show origin/main:ts/package-lock.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("packages", {}).get("", {}).get("version", ""))')"
   main_py="$(release_cycle_json_value_at_ref origin/main py/src/theorydb_py/version.json version)"
 
-  main_pending_candidate=1
-  main_pending_version="${main_premain}"
-  for version in "${main_premain}" "${main_ts}" "${main_ts_lock}" "${main_ts_lock_pkg}" "${main_py}"; do
-    if [[ -z "${version}" || "${version}" == *-* || "${version}" != "${main_pending_version}" ]]; then
-      main_pending_candidate=0
-    fi
-  done
-
-  if [[ "${main_pending_candidate}" -eq 1 && -n "${main_stable}" && "${main_stable}" != *-* ]] && release_cycle_semver_lt "${main_stable}" "${main_pending_version}"; then
-    main_pending_promotion=1
-    warn "origin/main pending stable promotion: stable manifest ${main_stable}, normalized files ${main_pending_version}"
+  if git show origin/main:.release-please-manifest.premain.json >/dev/null 2>&1; then
+    fail "origin/main still contains retired .release-please-manifest.premain.json"
   fi
 
   if [[ "${main_stable}" == *-rc* ]]; then
-    fail "origin/main stable manifest is prerelease (${main_stable})"
+    main_pending_promotion=1
+    main_pending_version="$(release_cycle_semver_base "${main_stable}" || true)"
+    warn "origin/main pending stable promotion: single manifest ${main_stable}, expected stable PR ${main_pending_version:-<unknown>}"
   else
-    pass "origin/main stable manifest is ${main_stable:-<missing>}"
-  fi
-
-  if [[ -z "${main_premain}" ]]; then
-    fail "origin/main .release-please-manifest.premain.json version is missing"
-  elif [[ "${main_pending_promotion}" -eq 1 && "${main_premain}" == "${main_pending_version}" ]]; then
-    warn "origin/main .release-please-manifest.premain.json is pending stable promotion (${main_premain}; stable manifest ${main_stable})"
-  elif [[ "${main_premain}" == *-rc* ]]; then
-    fail "origin/main .release-please-manifest.premain.json remains prerelease (${main_premain})"
-  elif [[ -n "${main_stable}" && "${main_premain}" != "${main_stable}" ]]; then
-    fail "origin/main .release-please-manifest.premain.json ${main_premain} != stable manifest ${main_stable}"
-  else
-    pass "origin/main .release-please-manifest.premain.json is stable (${main_premain})"
+    pass "origin/main single manifest is stable (${main_stable:-<missing>})"
   fi
 
   for item in \
@@ -151,19 +145,7 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
     "ts/package-lock.json:${main_ts_lock}" \
     "ts/package-lock.json packages['']:${main_ts_lock_pkg}" \
     "py/src/theorydb_py/version.json:${main_py}"; do
-    label="${item%%:*}"
-    version="${item#*:}"
-    if [[ -z "${version}" ]]; then
-      fail "origin/main ${label} version is missing"
-    elif [[ "${version}" == *-rc* ]]; then
-      fail "origin/main ${label} remains prerelease (${version})"
-    elif [[ "${main_pending_promotion}" -eq 1 && "${version}" == "${main_pending_version}" ]]; then
-      warn "origin/main ${label} is pending stable promotion (${version}; stable manifest ${main_stable})"
-    elif [[ -n "${main_stable}" && "${version}" != "${main_stable}" ]]; then
-      fail "origin/main ${label} ${version} != stable manifest ${main_stable}"
-    else
-      pass "origin/main ${label} is stable (${version})"
-    fi
+    check_source_version "origin/main" "${item%%:*}" "${item#*:}"
   done
 
   main_go="$(release_cycle_toolchain_at_ref origin/main go.mod)"
@@ -182,23 +164,22 @@ if git rev-parse --verify --quiet origin/main >/dev/null; then
 fi
 
 if git rev-parse --verify --quiet origin/premain >/dev/null; then
-  premain_stable="$(release_cycle_json_value_at_ref origin/premain .release-please-manifest.json '.')"
-  premain_prerelease="$(release_cycle_json_value_at_ref origin/premain .release-please-manifest.premain.json '.')"
+  premain_version="$(release_cycle_json_value_at_ref origin/premain .release-please-manifest.json '.')"
 
-  if [[ -n "${main_stable}" && -n "${premain_stable}" && "${premain_stable}" != "${main_stable}" ]]; then
-    fail "origin/premain stable manifest ${premain_stable} != origin/main ${main_stable}"
-  else
-    pass "origin/premain stable manifest matches origin/main (${premain_stable:-<missing>})"
+  if git show origin/premain:.release-please-manifest.premain.json >/dev/null 2>&1; then
+    fail "origin/premain still contains retired .release-please-manifest.premain.json"
   fi
 
-  if [[ -n "${main_stable}" && -n "${premain_prerelease}" ]]; then
-    premain_base="$(release_cycle_semver_base "${premain_prerelease}" || true)"
+  if [[ -n "${main_stable}" && -n "${premain_version}" ]]; then
+    premain_base="$(release_cycle_semver_base "${premain_version}" || true)"
     main_base="$(release_cycle_semver_base "${main_stable}" || true)"
     if [[ -n "${premain_base}" && -n "${main_base}" ]] && release_cycle_semver_lt "${premain_base}" "${main_base}"; then
-      fail "origin/premain prerelease track ${premain_prerelease} is behind origin/main ${main_stable}"
+      fail "origin/premain release track ${premain_version} is behind origin/main ${main_stable}"
     else
-      pass "origin/premain prerelease track is ${premain_prerelease}"
+      pass "origin/premain release track is ${premain_version}"
     fi
+  else
+    fail "origin/premain single manifest is missing"
   fi
 
   premain_go="$(release_cycle_toolchain_at_ref origin/premain go.mod)"
@@ -213,10 +194,19 @@ fi
 
 if git rev-parse --verify --quiet origin/staging >/dev/null; then
   staging_stable="$(release_cycle_json_value_at_ref origin/staging .release-please-manifest.json '.')"
-  if [[ -n "${main_stable}" && -n "${staging_stable}" && "${staging_stable}" != "${main_stable}" ]]; then
-    fail "origin/staging stable manifest ${staging_stable} != origin/main ${main_stable}"
+
+  if git show origin/staging:.release-please-manifest.premain.json >/dev/null 2>&1; then
+    fail "origin/staging still contains retired .release-please-manifest.premain.json"
+  fi
+
+  if [[ "${staging_stable}" == *-rc* ]]; then
+    fail "origin/staging single manifest is prerelease (${staging_stable})"
+  elif [[ "${main_pending_promotion}" -eq 1 ]]; then
+    warn "origin/staging remains at ${staging_stable:-<missing>} while origin/main awaits stable Release PR ${main_pending_version:-<unknown>}"
+  elif [[ -n "${main_stable}" && -n "${staging_stable}" && "${staging_stable}" != "${main_stable}" ]]; then
+    fail "origin/staging single manifest ${staging_stable} != origin/main ${main_stable}"
   else
-    pass "origin/staging stable manifest matches origin/main (${staging_stable:-<missing>})"
+    pass "origin/staging single manifest matches origin/main (${staging_stable:-<missing>})"
   fi
 
   staging_go="$(release_cycle_toolchain_at_ref origin/staging go.mod)"

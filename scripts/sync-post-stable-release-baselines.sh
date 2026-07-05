@@ -38,7 +38,6 @@ fi
 
 required_files=(
   ".release-please-manifest.json"
-  ".release-please-manifest.premain.json"
   "CHANGELOG.md"
   "py/src/theorydb_py/version.json"
   "ts/package.json"

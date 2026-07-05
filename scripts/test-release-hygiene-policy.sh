@@ -178,19 +178,16 @@ pending_fixture="$(mktemp -d)"
 tmpdirs+=("${pending_fixture}")
 mkdir -p "${pending_fixture}/ts" "${pending_fixture}/py/src/theorydb_py"
 cat >"${pending_fixture}/.release-please-manifest.json" <<'JSON'
-{".":"1.10.0"}
-JSON
-cat >"${pending_fixture}/.release-please-manifest.premain.json" <<'JSON'
 {".":"1.10.1-rc.1"}
 JSON
 cat >"${pending_fixture}/ts/package.json" <<'JSON'
-{"version":"1.10.1-rc.1"}
+{"version":"1.10.0"}
 JSON
 cat >"${pending_fixture}/ts/package-lock.json" <<'JSON'
-{"version":"1.10.1-rc.1","packages":{"":{"version":"1.10.1-rc.1"}}}
+{"version":"1.10.0","packages":{"":{"version":"1.10.0"}}}
 JSON
 cat >"${pending_fixture}/py/src/theorydb_py/version.json" <<'JSON'
-{"version":"1.10.1-rc.1"}
+{"version":"1.10.0"}
 JSON
 
 run_in_pending_fixture() (

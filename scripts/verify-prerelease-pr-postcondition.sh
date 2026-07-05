@@ -183,10 +183,7 @@ path, base, head = sys.argv[1:4]
 pr = json.loads(Path(path).read_text(encoding="utf-8"))
 rc_title_re = re.compile(rf"^chore\({re.escape(base)}\): release \d+\.\d+\.\d+-rc\.\d+$")
 required_paths = {
-    ".release-please-manifest.premain.json",
-    "py/src/theorydb_py/version.json",
-    "ts/package.json",
-    "ts/package-lock.json",
+    ".release-please-manifest.json",
     "CHANGELOG.md",
 }
 
@@ -208,10 +205,10 @@ if not rc_title_re.fullmatch(pr.get("title", "")):
 paths = {entry.get("path", "") for entry in pr.get("files", [])}
 missing = sorted(required_paths - paths)
 if missing:
-    fail(f"PR #{pr.get('number')} missing prerelease files: {', '.join(missing)}")
+    fail(f"PR #{pr.get('number')} missing single-manifest prerelease files: {', '.join(missing)}")
 
 print(
     "prerelease-pr-postcondition: PASS "
-    f"(#{pr.get('number')} {pr.get('title')}; prerelease files present)"
+    f"(#{pr.get('number')} {pr.get('title')}; single-manifest prerelease files present)"
 )
 PY

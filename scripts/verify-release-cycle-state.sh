@@ -60,9 +60,10 @@ require_file() {
 
 required_files=(
   "scripts/prepare-stable-promotion.sh"
+  "scripts/prepare-release-package-versions.py"
+  "scripts/verify-release-package-version-assets.py"
   "scripts/watch-release-cycle.sh"
   ".release-please-manifest.json"
-  ".release-please-manifest.premain.json"
   "ts/package.json"
   "ts/package-lock.json"
   "py/src/theorydb_py/version.json"
