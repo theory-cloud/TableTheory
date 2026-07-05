@@ -3,12 +3,11 @@ import {
   type DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 
+import { TheorydbClient, defineModel } from '../src/index.js';
 import {
-  TheorydbClient,
-  defineModel,
   transitionReleaseState,
   validateDeployAuthorityMetadata,
-} from '../src/index.js';
+} from '../src/release-state.js';
 
 const tableName = 'release_state_contract';
 

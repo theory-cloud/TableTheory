@@ -94,9 +94,8 @@ import { transitionReleaseState } from '@theory-cloud/tabletheory-ts/release-sta
 import { LeaseManager } from '@theory-cloud/tabletheory-ts/lease';
 ```
 
-The root package still re-exports these symbols for backward compatibility, but new FaceTheory ISR, release-state,
-and lease integrations should use the subpaths above. Treat root imports for these domain modules as deprecated in docs,
-not removed from the public API.
+The root package no longer re-exports these domain helpers in v2. FaceTheory ISR, release-state,
+and lease integrations must use the subpaths above; keep the root package for generic ORM APIs.
 
 ### Option B: Develop from source (this monorepo)
 

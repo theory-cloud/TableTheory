@@ -71,6 +71,15 @@ const domainSubpaths = [
   },
 ] as const;
 
+const rootExcludedDomainSymbols = [
+  'defineFaceTheoryCacheMetadataModel',
+  'FaceTheoryIsrMetaStore',
+  'createFaceTheoryIsrMetaStore',
+  'transitionReleaseState',
+  'validateDeployAuthorityMetadata',
+  'LeaseManager',
+] as const;
+
 void test('package exposes domain subpath exports', () => {
   for (const entry of domainSubpaths) {
     assert.deepEqual(packageJson.exports[entry.subpath], entry.expected);
@@ -95,5 +104,32 @@ void test('domain subpath exports resolve and load ESM and CommonJS artifacts', 
       assert.equal(typeof cjsModule[symbol], 'function');
       assert.equal(typeof esmModule[symbol], 'function');
     }
+  }
+});
+
+void test('root package excludes domain helper exports', async () => {
+  const cjsModule = require('@theory-cloud/tabletheory-ts') as Record<
+    string,
+    unknown
+  >;
+  const esmModule = (await import('@theory-cloud/tabletheory-ts')) as Record<
+    string,
+    unknown
+  >;
+
+  assert.equal(typeof cjsModule.TheorydbClient, 'function');
+  assert.equal(typeof esmModule.TheorydbClient, 'function');
+
+  for (const symbol of rootExcludedDomainSymbols) {
+    assert.equal(
+      Object.hasOwn(cjsModule, symbol),
+      false,
+      `${symbol} leaked from CJS root`,
+    );
+    assert.equal(
+      Object.hasOwn(esmModule, symbol),
+      false,
+      `${symbol} leaked from ESM root`,
+    );
   }
 });
