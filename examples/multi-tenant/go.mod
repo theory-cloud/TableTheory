@@ -10,7 +10,7 @@ require (
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
 	github.com/theory-cloud/tabletheory v1.8.3
-	golang.org/x/crypto v0.52.0
+	golang.org/x/crypto v0.53.0
 )
 
 require (
