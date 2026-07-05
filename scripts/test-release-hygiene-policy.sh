@@ -51,6 +51,70 @@ expect_failure_contains() {
   fi
 }
 
+write_prerelease_postcondition_fixture() {
+  local root="$1"
+  local version="$2"
+  local title="${3:-chore(premain): release ${version}}"
+  local include_manifest="${4:-true}"
+  local include_changelog="${5:-true}"
+  local manifest_version="${6:-${version}}"
+
+  mkdir -p "${root}"
+  cat >"${root}/open-prs.json" <<JSON
+[
+  {
+    "number": 353,
+    "title": "${title}",
+    "headRefName": "release-please--branches--premain",
+    "url": "https://github.example.test/theory-cloud/TableTheory/pull/353"
+  }
+]
+JSON
+
+  python3 - "${root}/details.json" "${title}" "${include_manifest}" "${include_changelog}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path, title, include_manifest, include_changelog = sys.argv[1:5]
+files = []
+if include_manifest == "true":
+    files.append({"path": ".release-please-manifest.json"})
+if include_changelog == "true":
+    files.append({"path": "CHANGELOG.md"})
+Path(path).write_text(
+    json.dumps(
+        {
+            "number": 353,
+            "title": title,
+            "headRefName": "release-please--branches--premain",
+            "baseRefName": "premain",
+            "headRefOid": "2222222222222222222222222222222222222222",
+            "url": "https://github.example.test/theory-cloud/TableTheory/pull/353",
+            "files": files,
+        }
+    ),
+    encoding="utf-8",
+)
+PY
+
+  printf '{".":"%s"}\n' "${manifest_version}" >"${root}/manifest.json"
+}
+
+run_prerelease_postcondition_fixture() {
+  local fixture="$1"
+  shift
+
+  bash "${repo_root}/scripts/verify-prerelease-pr-postcondition.sh" \
+    --repo "${repo}" \
+    --base premain \
+    --open-prs-file "${fixture}/open-prs.json" \
+    --details-file "${fixture}/details.json" \
+    --manifest-file "${fixture}/manifest.json" \
+    --dry-run \
+    "$@"
+}
+
 extract_workflow_step_run() {
   local step_name="$1"
 
@@ -302,8 +366,8 @@ expect_failure_contains \
     --title "Promote staging to premain" \
     --queue-freshness
 
-expect_failure_contains \
-  "numbered RC version" \
+expect_success_contains \
+  "release-lane-provenance: PASS" \
   bash "${checker}" \
     --repo "${repo}" \
     --base premain \
@@ -313,6 +377,20 @@ expect_failure_contains \
     --base-sha "${base_sha}" \
     --head-sha "${head_sha}" \
     --title "chore(premain): release 1.9.3-rc" \
+    --ref "refs/heads/premain=${base_sha}" \
+    --ref "refs/heads/release-please--branches--premain=${head_sha}"
+
+expect_failure_contains \
+  "must advertise an RC version" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base premain \
+    --head release-please--branches--premain \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "chore(premain): release 1.9.3-beta.1" \
     --ref "refs/heads/premain=${base_sha}" \
     --ref "refs/heads/release-please--branches--premain=${head_sha}"
 
@@ -348,8 +426,8 @@ expect_failure_contains \
     --ref "refs/heads/premain=${advanced_base_sha}" \
     --ref "refs/heads/release-please--branches--premain=${head_sha}"
 
-expect_failure_contains \
-  "X.Y.Z-rc.N" \
+expect_success_contains \
+  "RC Release-As 1.9.3-rc" \
   bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
     --base premain \
     --head staging \
@@ -364,6 +442,31 @@ expect_success_contains \
     --head staging \
     --title "Promote staging to premain" \
     --body "Release-As: 1.9.3-rc.1" \
+    --dry-run
+
+expect_failure_contains \
+  "X.Y.Z-rc or X.Y.Z-rc.N" \
+  bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+    --base premain \
+    --head staging \
+    --title "Promote staging to premain" \
+    --body "Release-As: 1.9.3" \
+    --dry-run
+
+expect_success_contains \
+  "generated premain RC PR" \
+  bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+    --base premain \
+    --head release-please--branches--premain \
+    --title "chore(premain): release 1.9.3-rc" \
+    --dry-run
+
+expect_failure_contains \
+  "must be RC-shaped" \
+  bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+    --base premain \
+    --head release-please--branches--premain \
+    --title "chore(premain): release 1.9.3-beta.1" \
     --dry-run
 
 pending_fixture="$(mktemp -d)"
@@ -462,11 +565,68 @@ expect_failure_contains \
       --body "" \
       --dry-run
 
+prerelease_fixture="$(mktemp -d)"
+tmpdirs+=("${prerelease_fixture}")
+write_prerelease_postcondition_fixture "${prerelease_fixture}" "2.0.0-rc"
+expect_success_contains \
+  "manifest 2.0.0-rc" \
+  run_prerelease_postcondition_fixture "${prerelease_fixture}" \
+    --expected-version 2.0.0-rc
+
+prerelease_numbered_fixture="$(mktemp -d)"
+tmpdirs+=("${prerelease_numbered_fixture}")
+write_prerelease_postcondition_fixture "${prerelease_numbered_fixture}" "2.0.0-rc.1"
+expect_success_contains \
+  "manifest 2.0.0-rc.1" \
+  run_prerelease_postcondition_fixture "${prerelease_numbered_fixture}" \
+    --expected-version 2.0.0-rc.1
+
+prerelease_bad_title_fixture="$(mktemp -d)"
+tmpdirs+=("${prerelease_bad_title_fixture}")
+write_prerelease_postcondition_fixture \
+  "${prerelease_bad_title_fixture}" \
+  "2.0.0-beta.1" \
+  "chore(premain): release 2.0.0-beta.1"
 expect_failure_contains \
-  "numbered RC-shaped X.Y.Z-rc.N" \
-  bash "${repo_root}/scripts/verify-prerelease-pr-postcondition.sh" \
-    --expected-version 1.9.3-rc \
-    --dry-run
+  "not RC-shaped" \
+  run_prerelease_postcondition_fixture "${prerelease_bad_title_fixture}"
+
+prerelease_missing_manifest_fixture="$(mktemp -d)"
+tmpdirs+=("${prerelease_missing_manifest_fixture}")
+write_prerelease_postcondition_fixture \
+  "${prerelease_missing_manifest_fixture}" \
+  "2.0.0-rc" \
+  "chore(premain): release 2.0.0-rc" \
+  false \
+  true
+expect_failure_contains \
+  "missing single-manifest prerelease files" \
+  run_prerelease_postcondition_fixture "${prerelease_missing_manifest_fixture}"
+
+prerelease_missing_changelog_fixture="$(mktemp -d)"
+tmpdirs+=("${prerelease_missing_changelog_fixture}")
+write_prerelease_postcondition_fixture \
+  "${prerelease_missing_changelog_fixture}" \
+  "2.0.0-rc" \
+  "chore(premain): release 2.0.0-rc" \
+  true \
+  false
+expect_failure_contains \
+  "missing single-manifest prerelease files" \
+  run_prerelease_postcondition_fixture "${prerelease_missing_changelog_fixture}"
+
+prerelease_non_rc_manifest_fixture="$(mktemp -d)"
+tmpdirs+=("${prerelease_non_rc_manifest_fixture}")
+write_prerelease_postcondition_fixture \
+  "${prerelease_non_rc_manifest_fixture}" \
+  "2.0.0-rc" \
+  "chore(premain): release 2.0.0-rc" \
+  true \
+  true \
+  "2.0.0-beta.1"
+expect_failure_contains \
+  "manifest version is not RC-shaped" \
+  run_prerelease_postcondition_fixture "${prerelease_non_rc_manifest_fixture}"
 
 expect_failure_contains \
   "non-numbered-RC tag_name" \
@@ -505,6 +665,28 @@ grep -Fq "merge_group:" "${repo_root}/.github/workflows/release-hygiene.yml" || 
   echo "release-hygiene-policy-test: release hygiene must support merge_group for release queue"
   exit 1
 }
+
+for workflow in \
+  "${repo_root}/.github/workflows/typescript.yml" \
+  "${repo_root}/.github/workflows/python.yml" \
+  "${repo_root}/.github/workflows/unit-cover.yml"; do
+  grep -Fq "paths-ignore:" "${workflow}" || {
+    echo "release-hygiene-policy-test: ${workflow} must use trigger-level paths-ignore for release-please PRs"
+    exit 1
+  }
+  grep -Fq '".release-please-manifest.json"' "${workflow}" || {
+    echo "release-hygiene-policy-test: ${workflow} must ignore manifest-only release-please PR changes"
+    exit 1
+  }
+  grep -Fq '"CHANGELOG.md"' "${workflow}" || {
+    echo "release-hygiene-policy-test: ${workflow} must ignore changelog-only release-please PR changes"
+    exit 1
+  }
+  if grep -Eq '^[[:space:]]*paths:' "${workflow}"; then
+    echo "release-hygiene-policy-test: ${workflow} must not replace normal PR validation with a paths allowlist"
+    exit 1
+  fi
+done
 
 grep -Fq -- "--queue-freshness" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release hygiene PR provenance must delegate live ref freshness to merge queue"

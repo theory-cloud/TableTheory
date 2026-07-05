@@ -225,7 +225,7 @@ pr_is_merged() {
 is_premain_release_please_rc_pr() {
   [[ "${base}" == "premain" ]] &&
     [[ "${head}" == "release-please--branches--premain" ]] &&
-    [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+    [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc(\.[0-9]+)?$ ]]
 }
 
 stale_merged_rc_pr_allowed=0
@@ -260,8 +260,8 @@ if [[ "${base}" == "premain" ]]; then
   if [[ "${head}" == "staging" ]]; then
     :
   elif [[ "${head}" == "release-please--branches--premain" ]]; then
-    [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] ||
-      fail "premain release-please PR must advertise a numbered RC version, got ${title@Q}"
+    [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc(\.[0-9]+)?$ ]] ||
+      fail "premain release-please PR must advertise an RC version (X.Y.Z-rc or X.Y.Z-rc.N), got ${title@Q}"
   else
     fail "premain PR head must be staging or release-please--branches--premain, got ${head@Q}"
   fi

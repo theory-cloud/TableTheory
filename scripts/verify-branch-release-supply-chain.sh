@@ -185,6 +185,23 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   fi
 fi
 
+for workflow in \
+  ".github/workflows/typescript.yml" \
+  ".github/workflows/python.yml" \
+  ".github/workflows/unit-cover.yml"; do
+  if [[ -f "${workflow}" ]]; then
+    require_fixed "paths-ignore:" "${workflow}" \
+      "${workflow} pull_request trigger must suppress manifest/changelog-only release-please PR fan-out"
+    require_fixed '".release-please-manifest.json"' "${workflow}" \
+      "${workflow} must ignore release-please manifest-only PR changes"
+    require_fixed '"CHANGELOG.md"' "${workflow}" \
+      "${workflow} must ignore release-please changelog-only PR changes"
+    if grep -Eq '^[[:space:]]*paths:' "${workflow}"; then
+      fail "${workflow} must not replace normal PR validation with a paths allowlist"
+    fi
+  fi
+done
+
 for doc in \
   "AGENTS.md" \
   "docs/development/planning/theorydb-branch-release-policy.md" \
@@ -434,8 +451,8 @@ if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
     "promotion release driver guard must name release-please no-op as a failed precondition"
   require_fixed "do not use tags, resets, manual manifests" "${driver}" \
     "promotion release driver guard must instruct normal PR-flow remediation"
-  require_fixed "X.Y.Z-rc.N" "${driver}" \
-    "promotion release driver guard must require numbered RC syntax"
+  require_fixed "X.Y.Z-rc or X.Y.Z-rc.N" "${driver}" \
+    "promotion release driver guard must accept release-please first RC and numbered later RC syntax"
 fi
 
 if [[ -f "scripts/verify-release-lane-provenance.sh" ]]; then
@@ -446,8 +463,8 @@ if [[ -f "scripts/verify-release-lane-provenance.sh" ]]; then
     "release-lane provenance guard must retain exact branch SHA verification for manual fallback"
   require_fixed "live ref freshness covered by merge queue" "${provenance}" \
     "release-lane provenance guard must document queue-covered live ref freshness"
-  require_fixed "-rc\\.[0-9]+" "${provenance}" \
-    "release-lane provenance guard must require numbered RC release-please PR titles"
+  require_fixed "-rc(\\.[0-9]+)?" "${provenance}" \
+    "release-lane provenance guard must accept release-please first RC and numbered later RC PR titles"
 fi
 
 if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
@@ -456,8 +473,8 @@ if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
     "prerelease PR postcondition must require the generated premain head branch"
   require_fixed "rc_title_re = re.compile" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require RC-shaped release titles"
-  require_fixed "-rc\\.\\d+" "${prerelease_postcondition}" \
-    "prerelease PR postcondition must require numbered RC version syntax"
+  require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"
   require_fixed ".release-please-manifest.json" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require the single manifest"
 fi
