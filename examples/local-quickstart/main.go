@@ -62,12 +62,16 @@ func main() {
 	if err := db.Model(&got).Update("title"); err != nil {
 		log.Fatalf("update: %v", err)
 	}
-	fmt.Printf("updated note %s (version %d)\n", got.PK, got.Version)
+	var updated Note
+	if err := db.Model(&Note{}).Where("PK", "=", note.PK).Where("SK", "=", note.SK).First(&updated); err != nil {
+		log.Fatalf("read after update: %v", err)
+	}
+	fmt.Printf("updated note: title=%q persistedVersion=%d\n", updated.Title, updated.Version)
 
 	if err := db.Model(&Note{}).Where("PK", "=", note.PK).Where("SK", "=", note.SK).Delete(); err != nil {
 		log.Fatalf("delete: %v", err)
 	}
-	fmt.Printf("deleted note %s\n", got.PK)
+	fmt.Printf("deleted note %s\n", updated.PK)
 
 	fmt.Println("OK: TableTheory Go quickstart CRUD against DynamoDB Local succeeded")
 }

@@ -12,9 +12,13 @@ make docker-up
 make example-local
 ```
 
-Expected final line:
+Expected output:
 
 ```text
+created note NOTE#local (version 0)
+read note: title="Hello TableTheory" value=42 version=0
+updated note: title="Hello TableTheory (updated)" persistedVersion=1
+deleted note NOTE#local
 OK: TableTheory Go quickstart CRUD against DynamoDB Local succeeded
 ```
 
@@ -22,5 +26,6 @@ The target runs the checked-in program at
 [`examples/local-quickstart/main.go`](https://github.com/theory-cloud/TableTheory/blob/main/examples/local-quickstart/main.go).
 It sets dummy local credentials, points the runtime at `DYNAMODB_ENDPOINT=http://localhost:8000`, creates the demo table
 idempotently, writes a note, reads it back, updates it, deletes it, and fails the process if any step returns an error.
+After the update, it re-reads the item so the output shows DynamoDB's persisted optimistic-lock version increment.
 
 For the complete walkthrough and source listing, see [Getting Started](../getting-started.md#two-command-local-quickstart).

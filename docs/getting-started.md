@@ -37,11 +37,18 @@ make example-local
 ```
 
 `make example-local` runs [`examples/local-quickstart/main.go`](https://github.com/theory-cloud/TableTheory/blob/main/examples/local-quickstart/main.go) against DynamoDB
-Local with dummy local credentials and expects this final line:
+Local with dummy local credentials. Its output includes the persisted optimistic-lock version after the update:
 
 ```text
+created note NOTE#local (version 0)
+read note: title="Hello TableTheory" value=42 version=0
+updated note: title="Hello TableTheory (updated)" persistedVersion=1
+deleted note NOTE#local
 OK: TableTheory Go quickstart CRUD against DynamoDB Local succeeded
 ```
+
+The update step re-reads the item before printing `persistedVersion` because TableTheory's `Update` call does not mutate
+the caller's struct in memory.
 
 If Docker is unavailable in your environment, use the deterministic fake-backed testing APIs from
 [`pkg/testing/fakedb`](https://github.com/theory-cloud/TableTheory/tree/main/pkg/testing/fakedb) for unit tests, but keep this DynamoDB Local proof for onboarding and
@@ -100,20 +107,28 @@ func main() {
     if err := db.Model(note).IfNotExists().Create(); err != nil {
         log.Fatalf("create: %v", err)
     }
+    fmt.Printf("created note %s (version %d)\n", note.PK, note.Version)
 
     var got Note
     if err := db.Model(&Note{}).Where("PK", "=", note.PK).Where("SK", "=", note.SK).First(&got); err != nil {
         log.Fatalf("read: %v", err)
     }
+    fmt.Printf("read note: title=%q value=%d version=%d\n", got.Title, got.Value, got.Version)
 
     got.Title = "Hello TableTheory (updated)"
     if err := db.Model(&got).Update("title"); err != nil {
         log.Fatalf("update: %v", err)
     }
+    var updated Note
+    if err := db.Model(&Note{}).Where("PK", "=", note.PK).Where("SK", "=", note.SK).First(&updated); err != nil {
+        log.Fatalf("read after update: %v", err)
+    }
+    fmt.Printf("updated note: title=%q persistedVersion=%d\n", updated.Title, updated.Version)
 
     if err := db.Model(&Note{}).Where("PK", "=", note.PK).Where("SK", "=", note.SK).Delete(); err != nil {
         log.Fatalf("delete: %v", err)
     }
+    fmt.Printf("deleted note %s\n", updated.PK)
 
     fmt.Println("OK: TableTheory Go quickstart CRUD against DynamoDB Local succeeded")
 }
