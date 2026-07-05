@@ -1,1 +1,12 @@
-from tabletheory_py.fakedb import *  # noqa: F401,F403
+from __future__ import annotations
+
+from ._compat import reexport as _reexport
+
+__all__ = _reexport(
+    "tabletheory_py.fakedb",
+    globals(),
+    (
+        "Item",
+        "StatefulDynamoDBClient",
+    ),
+)
