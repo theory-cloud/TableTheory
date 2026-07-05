@@ -207,7 +207,7 @@ void test('createStatefulDynamoDBClient stores, queries, and checks versions', a
     .all();
   assert.equal(page.length, 1);
   assert.equal(page[0]?.name, 'one');
-  assert.equal(page[0]?.version, 0);
+  assert.equal(page[0]?.version, '0');
   assert.equal(page[0]?.createdAt, now);
 
   await client.update(
@@ -229,7 +229,7 @@ void test('createStatefulDynamoDBClient stores, queries, and checks versions', a
 
   const got = await client.get('T', { PK: 'USER#1', SK: 'PROFILE' });
   assert.equal(got.name, 'two');
-  assert.equal(got.version, 1);
+  assert.equal(got.version, '1');
 });
 
 void test('StatefulDynamoDBFake supports admin, batches, scans, and transactions', async () => {

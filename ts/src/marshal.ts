@@ -369,7 +369,7 @@ function unmarshalNumberText(
   value: string,
   opts: UnmarshalOptions,
 ): number | string {
-  return opts.numberMode === 'string' ? value : Number(value);
+  return opts.numberMode === 'number' ? Number(value) : value;
 }
 
 function marshalJsonScalar(
@@ -444,7 +444,7 @@ function unmarshalNativeJsonNumber(
       `JSON value does not match type N for ${schema.attribute}`,
     );
   }
-  return opts.numberMode === 'string' ? value : numeric;
+  return opts.numberMode === 'number' ? numeric : value;
 }
 
 function isJsonStringCarrier(schema: Readonly<AttributeSchema>): boolean {

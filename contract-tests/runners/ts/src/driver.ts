@@ -115,7 +115,6 @@ export interface TransitionEvent {
 
 export class TheorydbDriver implements Driver {
   private readonly client: TheorydbClient;
-  private readonly exactNumbers: boolean;
   private readonly models: Map<string, Model>;
 
   constructor(
@@ -123,10 +122,8 @@ export class TheorydbDriver implements Driver {
     models: Model[],
     opts: { exactNumbers?: boolean; encryption?: EncryptionProvider } = {},
   ) {
-    this.exactNumbers = opts.exactNumbers ?? false;
     this.models = new Map(models.map((model) => [model.name, model]));
     this.client = new TheorydbClient(ddb, {
-      ...(this.exactNumbers ? { numberUnmarshalMode: "string" } : {}),
       ...(opts.encryption ? { encryption: opts.encryption } : {}),
     }).register(...models);
   }
@@ -139,7 +136,7 @@ export class TheorydbDriver implements Driver {
       "optimistic_lock.version",
       "error.version_conflict",
       "ttl.epoch_seconds",
-      ...(this.exactNumbers ? ["number.precision.exact"] : []),
+      "number.precision.exact",
       "type.matrix",
       "query.basic",
       "scan.basic",

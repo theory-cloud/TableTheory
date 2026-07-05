@@ -442,9 +442,7 @@ import {
     };
   });
 
-  const exactClient = new TheorydbClient(exactMock.client, {
-    numberUnmarshalMode: 'string',
-  }).register(model);
+  const exactClient = new TheorydbClient(exactMock.client).register(model);
   const exactOut = await exactClient
     .updateBuilder('T', { PK: 'A' })
     .set('count', 1)
@@ -456,8 +454,8 @@ import {
     nums: ['9007199254740993'],
   });
 
-  const defaultMock = createMockDynamoDBClient();
-  defaultMock.when(UpdateItemCommand, async () => ({
+  const lossyMock = createMockDynamoDBClient();
+  lossyMock.when(UpdateItemCommand, async () => ({
     $metadata: {},
     Attributes: {
       PK: { S: 'A' },
@@ -466,13 +464,15 @@ import {
     },
   }));
 
-  const defaultClient = new TheorydbClient(defaultMock.client).register(model);
-  const defaultOut = await defaultClient
+  const lossyClient = new TheorydbClient(lossyMock.client, {
+    numberUnmarshalMode: 'number',
+  }).register(model);
+  const lossyOut = await lossyClient
     .updateBuilder('T', { PK: 'A' })
     .set('count', 1)
     .returnValues('ALL_NEW')
     .execute();
-  assert.deepEqual(defaultOut, {
+  assert.deepEqual(lossyOut, {
     PK: 'A',
     count: 9007199254740992,
     nums: [9007199254740992],

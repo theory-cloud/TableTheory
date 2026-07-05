@@ -210,7 +210,7 @@ class StubDdb {
   );
   const got = await client.get('User', { PK: 'A', SK: 'B' });
   assert.equal(got.PK, 'A');
-  assert.equal(got.version, 1);
+  assert.equal(got.version, '1');
 }
 
 {
@@ -240,7 +240,7 @@ class StubDdb {
   const got = await client.getOrNull('User', { PK: 'A', SK: 'B' });
   assert.ok(got);
   assert.equal(got.PK, 'A');
-  assert.equal(got.version, 1);
+  assert.equal(got.version, '1');
 }
 
 {

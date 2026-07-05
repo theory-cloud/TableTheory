@@ -12,7 +12,10 @@ import { defineModel } from "../../../../ts/src/model.js";
 import { TheorydbDriver } from "../src/driver.js";
 import { pingDynamo } from "../src/runner.js";
 
-async function recreateTable(ddb: DynamoDBClient, tableName: string): Promise<void> {
+async function recreateTable(
+  ddb: DynamoDBClient,
+  tableName: string,
+): Promise<void> {
   try {
     await ddb.send(new DeleteTableCommand({ TableName: tableName }));
   } catch (err) {
@@ -45,10 +48,15 @@ function isResourceNotFound(err: unknown): boolean {
   );
 }
 
-async function waitTableExists(ddb: DynamoDBClient, tableName: string): Promise<void> {
+async function waitTableExists(
+  ddb: DynamoDBClient,
+  tableName: string,
+): Promise<void> {
   for (let i = 0; i < 60; i++) {
     try {
-      const resp = await ddb.send(new DescribeTableCommand({ TableName: tableName }));
+      const resp = await ddb.send(
+        new DescribeTableCommand({ TableName: tableName }),
+      );
       if (resp.Table?.TableStatus === "ACTIVE") return;
     } catch (err) {
       if (!isResourceNotFound(err)) throw err;
@@ -58,7 +66,10 @@ async function waitTableExists(ddb: DynamoDBClient, tableName: string): Promise<
   throw new Error(`timeout waiting for table exists: ${tableName}`);
 }
 
-async function waitTableNotExists(ddb: DynamoDBClient, tableName: string): Promise<void> {
+async function waitTableNotExists(
+  ddb: DynamoDBClient,
+  tableName: string,
+): Promise<void> {
   for (let i = 0; i < 40; i++) {
     try {
       await ddb.send(new DescribeTableCommand({ TableName: tableName }));
@@ -72,7 +83,9 @@ async function waitTableNotExists(ddb: DynamoDBClient, tableName: string): Promi
 
 test("reserved word update escapes attribute names", async (t) => {
   const endpoint = process.env.DYNAMODB_ENDPOINT ?? "http://localhost:8000";
-  const skipIntegration = process.env.SKIP_INTEGRATION === "true" || process.env.SKIP_INTEGRATION === "1";
+  const skipIntegration =
+    process.env.SKIP_INTEGRATION === "true" ||
+    process.env.SKIP_INTEGRATION === "1";
   const ddb = new DynamoDBClient({
     region: process.env.AWS_REGION ?? "us-east-1",
     endpoint,
@@ -86,7 +99,9 @@ test("reserved word update escapes attribute names", async (t) => {
     await pingDynamo(ddb);
   } catch (err) {
     if (skipIntegration) {
-      t.skip(`DynamoDB Local not reachable (SKIP_INTEGRATION set; endpoint: ${endpoint})`);
+      t.skip(
+        `DynamoDB Local not reachable (SKIP_INTEGRATION set; endpoint: ${endpoint})`,
+      );
       return;
     }
     throw err;
@@ -113,11 +128,18 @@ test("reserved word update escapes attribute names", async (t) => {
 
   const driver = new TheorydbDriver(ddb, [model]);
 
-  await driver.create("Reserved", { PK: "A", SK: "B", name: "v0", version: 0 }, {});
-  await driver.update("Reserved", { PK: "A", SK: "B", name: "v1", version: 0 }, ["name"]);
+  await driver.create(
+    "Reserved",
+    { PK: "A", SK: "B", name: "v0", version: 0 },
+    {},
+  );
+  await driver.update(
+    "Reserved",
+    { PK: "A", SK: "B", name: "v1", version: 0 },
+    ["name"],
+  );
 
   const got = await driver.get("Reserved", { PK: "A", SK: "B" });
   assert.equal(got.name, "v1");
-  assert.equal(got.version, 1);
+  assert.equal(got.version, "1");
 });
-

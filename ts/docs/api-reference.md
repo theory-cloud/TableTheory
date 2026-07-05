@@ -51,9 +51,10 @@ export interface TheorydbClientOptions {
     /**
      * Controls how DynamoDB N/NS values are unmarshaled.
      *
-     * The default, 'number', preserves the historical JavaScript Number behavior and
-     * can be lossy for integers outside the safe range or high-precision decimals.
-     * Use 'string' to receive canonical DynamoDB decimal strings for exact reads.
+     * The default, 'string', returns canonical DynamoDB decimal strings so reads
+     * are precision-safe for integers outside the safe range and high-precision
+     * decimals. Use 'number' only when lossy JavaScript Number conversion is
+     * acceptable for a specific client.
      */
     numberUnmarshalMode?: NumberUnmarshalMode;
 }
