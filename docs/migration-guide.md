@@ -157,6 +157,12 @@ The planned removal belongs to the next major version after the deprecation wind
 `query.NewExecutor(...)` directly, migrate that construction to a normal TableTheory `DB`/model flow before adopting the
 next major release.
 
+Implementation note: the 1.x Go doc comments intentionally use compatibility-deprecation prose instead of the standard
+Go `Deprecated:` marker. Adding the marker now would make staticcheck/IDE deprecation signals fire on the in-repository
+compatibility coverage that still exercises `MainExecutor`, requiring broad test-only suppressions. Add the standard
+marker on the v2 removal train, or earlier only after those compatibility tests no longer need to call the legacy
+executor directly.
+
 ## M6 Go Contract-Parity Compatibility Notes
 
 M6 pins additional cross-runtime contract scenarios for number precision, GSI/projection behavior, pagination, and the

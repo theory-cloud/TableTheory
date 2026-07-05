@@ -28,3 +28,4 @@ await import('./unit/release-state.test.js');
 await import('./unit/lease.test.js');
 await import('./unit/facetheory-isr.test.js');
 await import('./unit/package-exports.test.js');
+await import('./unit/eslint-config.test.js');

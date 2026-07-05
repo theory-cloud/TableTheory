@@ -38,10 +38,13 @@ type DynamoDBAPI interface {
 
 // MainExecutor is the legacy executor that implements the low-level query executor interfaces.
 //
-// Compatibility deprecation notice: MainExecutor is retained in 1.x as a test and
-// compatibility seam only. Production code should use tabletheory.Model() / DB.Model()
-// so reads and writes flow through the maintained runtime executor path. MainExecutor
-// is scheduled for removal in the next major version after the deprecation window.
+// Compatibility-deprecated notice: MainExecutor is retained in 1.x as a test
+// and compatibility seam only. Production code should use tabletheory.Model() /
+// DB.Model() so reads and writes flow through the maintained runtime executor
+// path. The standard Go deprecation marker is intentionally deferred until the
+// v2 removal train so in-repo compatibility tests do not need broad SA1019
+// suppressions; MainExecutor is scheduled for removal in the next major version
+// after the deprecation window.
 type MainExecutor struct {
 	client DynamoDBAPI
 	ctx    context.Context
@@ -335,9 +338,11 @@ func executeCompiledRead(
 
 // NewExecutor creates a legacy MainExecutor instance.
 //
-// Compatibility deprecation notice: NewExecutor is retained for tests and existing
-// compatibility callers only. Production code should use tabletheory.Model() /
-// DB.Model() instead of constructing MainExecutor directly.
+// Compatibility-deprecated notice: NewExecutor is retained for tests and
+// existing compatibility callers only. Production code should use
+// tabletheory.Model() / DB.Model() instead of constructing MainExecutor
+// directly. The standard Go deprecation marker is deferred with MainExecutor
+// until the v2 removal train to avoid broad test-only SA1019 suppressions.
 func NewExecutor(client DynamoDBAPI, ctx context.Context) *MainExecutor { //nolint:revive // context-as-argument: keep signature for compatibility
 	return &MainExecutor{
 		client: client,
