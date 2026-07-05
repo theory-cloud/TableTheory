@@ -1051,12 +1051,103 @@ def test_assert_read_expectation_fails_closed_on_read_assertion_error_without_ok
         )
 
 
+def test_assert_expectation_preserves_canonical_decimal_strings_for_raw_numbers() -> None:
+    model = _minimal_number_precision_model()
+    expect = {
+        "item_contains": {
+            "largeInteger": "9007199254740993",
+            "preciseDecimal": "0.12345678901234567",
+        }
+    }
+    item = {
+        "largeInteger": "9007199254740993",
+        "preciseDecimal": "0.12345678901234567",
+    }
+
+    _assert_expectation(
+        expect,
+        error=None,
+        item=item,
+        raw={
+            "largeInteger": {"N": "9007199254740993"},
+            "preciseDecimal": {"N": "0.12345678901234567"},
+        },
+        model=model,
+        variables={},
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_expectation(
+            expect,
+            error=None,
+            item=item,
+            raw={
+                "largeInteger": {"N": "9007199254740992"},
+                "preciseDecimal": {"N": "0.12345678901234566"},
+            },
+            model=model,
+            variables={},
+        )
+
+
+def test_assert_read_expectation_preserves_canonical_decimal_strings_for_query_numbers() -> None:
+    model = _minimal_number_precision_model()
+    expect = {
+        "item_count": 1,
+        "items_contains": [
+            {
+                "largeInteger": "9007199254740993",
+                "preciseDecimal": "0.12345678901234567",
+            }
+        ],
+    }
+
+    _assert_read_expectation(
+        expect,
+        error=None,
+        result={
+            "items": [
+                {
+                    "largeInteger": "9007199254740993",
+                    "preciseDecimal": "0.12345678901234567",
+                }
+            ]
+        },
+        model=model,
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_read_expectation(
+            expect,
+            error=None,
+            result={
+                "items": [
+                    {
+                        "largeInteger": "9007199254740992",
+                        "preciseDecimal": "0.12345678901234566",
+                    }
+                ]
+            },
+            model=model,
+        )
+
+
 def _minimal_user_model() -> dict[str, Any]:
     return {
         "name": "User",
         "attributes": [
             {"attribute": "PK", "type": "S"},
             {"attribute": "SK", "type": "S"},
+        ],
+    }
+
+
+def _minimal_number_precision_model() -> dict[str, Any]:
+    return {
+        "name": "NumberPrecision",
+        "attributes": [
+            {"attribute": "largeInteger", "type": "N"},
+            {"attribute": "preciseDecimal", "type": "N"},
         ],
     }
 
@@ -1141,7 +1232,7 @@ def _normalize_contract_value(value: Any) -> Any:
             return sorted(_base64_string(item) for item in value)
         return sorted(str(item) for item in value)
     if isinstance(value, Decimal):
-        return int(value) if value == value.to_integral_value() else float(value)
+        return format(value, "f")
     if isinstance(value, dict):
         return {key: _normalize_contract_value(val) for key, val in value.items()}
     if isinstance(value, list):

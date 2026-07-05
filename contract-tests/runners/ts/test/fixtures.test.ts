@@ -130,6 +130,115 @@ test("interop read assertions fail closed on query errors without ok", async () 
   );
 });
 
+test("number read assertions compare canonical decimal strings from raw items", async () => {
+  const item = {
+    PK: "NUM#unit",
+    SK: "CASE#raw",
+    largeInteger: "9007199254740993",
+    preciseDecimal: "0.12345678901234567",
+  };
+  const expect = {
+    item_contains: {
+      largeInteger: "9007199254740993",
+      preciseDecimal: "0.12345678901234567",
+    },
+  };
+
+  await runScenario({
+    ddb: stubDdbWithRawItem({
+      PK: { S: "NUM#unit" },
+      SK: { S: "CASE#raw" },
+      largeInteger: { N: "9007199254740993" },
+      preciseDecimal: { N: "0.12345678901234567" },
+    }),
+    driver: stubDriver({ get: async () => item }),
+    scenario: scenarioWithNumberReadStep({
+      op: "get",
+      key: { PK: "NUM#unit", SK: "CASE#raw" },
+      expect,
+    }),
+    models: new Map([[numberPrecisionModel.name, numberPrecisionModel]]),
+  });
+
+  await assert.rejects(
+    () =>
+      runScenario({
+        ddb: stubDdbWithRawItem({
+          PK: { S: "NUM#unit" },
+          SK: { S: "CASE#raw" },
+          largeInteger: { N: "9007199254740992" },
+          preciseDecimal: { N: "0.12345678901234566" },
+        }),
+        driver: stubDriver({ get: async () => item }),
+        scenario: scenarioWithNumberReadStep({
+          op: "get",
+          key: { PK: "NUM#unit", SK: "CASE#raw" },
+          expect,
+        }),
+        models: new Map([[numberPrecisionModel.name, numberPrecisionModel]]),
+      }),
+    /Expected values to be strictly equal/,
+  );
+});
+
+test("number query assertions compare canonical decimal strings", async () => {
+  const exactItem = {
+    PK: "NUM#unit",
+    SK: "CASE#query",
+    largeInteger: "9007199254740993",
+    preciseDecimal: "0.12345678901234567",
+  };
+  const queryStep: Step = {
+    op: "query",
+    query: {
+      partition: {
+        attribute: "PK",
+        operator: "=",
+        value: "NUM#unit",
+      },
+    },
+    expect: {
+      item_count: 1,
+      items_contains: [
+        {
+          largeInteger: "9007199254740993",
+          preciseDecimal: "0.12345678901234567",
+        },
+      ],
+    },
+  };
+
+  await runScenario({
+    ddb: {} as never,
+    driver: stubDriver({
+      query: async () => ({ items: [exactItem] }),
+    }),
+    scenario: scenarioWithNumberReadStep(queryStep),
+    models: new Map([[numberPrecisionModel.name, numberPrecisionModel]]),
+  });
+
+  await assert.rejects(
+    () =>
+      runScenario({
+        ddb: {} as never,
+        driver: stubDriver({
+          query: async () => ({
+            items: [
+              {
+                ...exactItem,
+                largeInteger: "9007199254740992",
+                preciseDecimal: "0.12345678901234566",
+              },
+            ],
+          }),
+        }),
+        scenario: scenarioWithNumberReadStep(queryStep),
+        models: new Map([[numberPrecisionModel.name, numberPrecisionModel]]),
+      }),
+    /Expected values to be strictly equal/,
+  );
+});
+
 const userModel: DmsModel = {
   name: "User",
   table: { name: "users_contract" },
@@ -140,6 +249,21 @@ const userModel: DmsModel = {
   attributes: [
     { attribute: "PK", type: "S", required: true, roles: ["pk"] },
     { attribute: "SK", type: "S", required: true, roles: ["sk"] },
+  ],
+};
+
+const numberPrecisionModel: DmsModel = {
+  name: "NumberPrecision",
+  table: { name: "number_precision_contract" },
+  keys: {
+    partition: { attribute: "PK", type: "S" },
+    sort: { attribute: "SK", type: "S" },
+  },
+  attributes: [
+    { attribute: "PK", type: "S", required: true, roles: ["pk"] },
+    { attribute: "SK", type: "S", required: true, roles: ["sk"] },
+    { attribute: "largeInteger", type: "N", format: "decimal_string" },
+    { attribute: "preciseDecimal", type: "N", format: "decimal_string" },
   ],
 };
 
@@ -163,6 +287,37 @@ function scenarioWithReadStep(step: Step): Scenario {
   };
 }
 
+function scenarioWithNumberReadStep(step: Step): Scenario {
+  return {
+    name: "unit.number_precision.canonical_decimal_assertions",
+    dms_version: "0.1",
+    requires_capabilities: ["number.precision.exact"],
+    model: numberPrecisionModel.name,
+    table: { name: numberPrecisionModel.table.name },
+    steps: [],
+    seed_runtime: "go",
+    seed_steps: [
+      {
+        op: "create",
+        item: {
+          PK: "unused",
+          SK: "unused",
+          largeInteger: "0",
+          preciseDecimal: "0",
+        },
+        expect: { ok: true },
+      },
+    ],
+    read_steps: [step],
+  };
+}
+
+function stubDdbWithRawItem(item: Record<string, unknown>): never {
+  return {
+    send: async () => ({ Item: item }),
+  } as never;
+}
+
 function stubDriver(overrides: Partial<Driver>): Driver {
   const fail = async (): Promise<never> => {
     throw new Error("unexpected stub driver call");
@@ -171,11 +326,18 @@ function stubDriver(overrides: Partial<Driver>): Driver {
     capabilities: () => [],
     create: fail,
     get: fail,
+    getOptional: fail,
     update: fail,
     save: fail,
     delete: fail,
     query: fail,
     scan: fail,
+    countQuery: fail,
+    countScan: fail,
+    transactGet: fail,
+    batchGet: fail,
+    batchWrite: fail,
+    transactWrite: fail,
     transitionAppendEvent: fail,
     validateProvenance: fail,
     ...overrides,

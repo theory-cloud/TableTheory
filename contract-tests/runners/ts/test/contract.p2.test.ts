@@ -56,7 +56,8 @@ test("P2 contract scenarios (ts runner)", async (t) => {
   for (const s of scenarios) {
     await t.test(s.name, async (st) => {
       const driver = new TheorydbDriver(ddb, compiled, {
-        exactNumbers: true,
+        exactNumbers:
+          s.requires_capabilities?.includes("number.precision.exact") ?? false,
         encryption: encryptionProviderForScenario(s.encryption),
       });
       const missing = missingCapabilities(s, driver);

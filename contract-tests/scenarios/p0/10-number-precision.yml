@@ -40,3 +40,39 @@ steps:
           SK: "CASE#1"
           largeInteger: "9007199254740993"
           preciseDecimal: "1234567890.125"
+
+  - op: create
+    item:
+      PK: "NUM#2"
+      SK: "CASE#lossy-decimal"
+      largeInteger: "9007199254740993"
+      preciseDecimal: "0.12345678901234567"
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "NUM#2"
+      SK: "CASE#lossy-decimal"
+    expect:
+      raw_attribute_types:
+        largeInteger: "N"
+        preciseDecimal: "N"
+      item_contains:
+        PK: "NUM#2"
+        SK: "CASE#lossy-decimal"
+        largeInteger: "9007199254740993"
+        preciseDecimal: "0.12345678901234567"
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "NUM#2" }
+      sort: { attribute: "SK", operator: "=", value: "CASE#lossy-decimal" }
+      projection: ["PK", "SK", "largeInteger", "preciseDecimal"]
+    expect:
+      item_count: 1
+      items_contains:
+        - PK: "NUM#2"
+          SK: "CASE#lossy-decimal"
+          largeInteger: "9007199254740993"
+          preciseDecimal: "0.12345678901234567"

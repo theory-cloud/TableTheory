@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/driver"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/scenario"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/spec"
@@ -100,4 +101,71 @@ func TestAssertReadResult_FailsClosedWhenReadAssertionHasErrorWithoutOk(t *testi
 			model,
 		)
 	})
+}
+
+func TestAssertStepResult_UsesCanonicalDecimalStringsForRawNumberAssertions(t *testing.T) {
+	r := &Runner{vars: map[string]any{}}
+	model := numberPrecisionModel()
+	expect := scenario.Expectation{ItemContains: map[string]any{
+		"largeInteger":   "9007199254740993",
+		"preciseDecimal": "0.12345678901234567",
+	}}
+	item := map[string]any{
+		"largeInteger":   "9007199254740993",
+		"preciseDecimal": "0.12345678901234567",
+	}
+	raw := map[string]ddbtypes.AttributeValue{
+		"largeInteger":   &ddbtypes.AttributeValueMemberN{Value: "9007199254740993"},
+		"preciseDecimal": &ddbtypes.AttributeValueMemberN{Value: "0.12345678901234567"},
+	}
+
+	r.assertStepResult(t, expect, item, nil, raw, model)
+
+	lossyRaw := map[string]ddbtypes.AttributeValue{
+		"largeInteger":   &ddbtypes.AttributeValueMemberN{Value: "9007199254740992"},
+		"preciseDecimal": &ddbtypes.AttributeValueMemberN{Value: "0.12345678901234566"},
+	}
+	requireFails(t, func(requireT *requireCaptureT) {
+		r.assertStepResult(requireT, expect, item, nil, lossyRaw, model)
+	})
+}
+
+func TestAssertReadResult_UsesCanonicalDecimalStringsForQueryNumberAssertions(t *testing.T) {
+	r := &Runner{vars: map[string]any{}}
+	model := numberPrecisionModel()
+	expect := scenario.Expectation{
+		ItemCount: intPtr(1),
+		ItemsContains: []map[string]any{{
+			"largeInteger":   "9007199254740993",
+			"preciseDecimal": "0.12345678901234567",
+		}},
+	}
+	exactResult := driver.ReadResult{Items: []map[string]any{{
+		"largeInteger":   "9007199254740993",
+		"preciseDecimal": "0.12345678901234567",
+	}}}
+
+	r.assertReadResult(t, expect, exactResult, nil, model)
+
+	lossyResult := driver.ReadResult{Items: []map[string]any{{
+		"largeInteger":   "9007199254740992",
+		"preciseDecimal": "0.12345678901234566",
+	}}}
+	requireFails(t, func(requireT *requireCaptureT) {
+		r.assertReadResult(requireT, expect, lossyResult, nil, model)
+	})
+}
+
+func numberPrecisionModel() spec.Model {
+	return spec.Model{
+		Name: "NumberPrecision",
+		Attributes: []spec.Attribute{
+			{Attribute: "largeInteger", Type: "N"},
+			{Attribute: "preciseDecimal", Type: "N"},
+		},
+	}
+}
+
+func intPtr(value int) *int {
+	return &value
 }
