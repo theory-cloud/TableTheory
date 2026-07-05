@@ -1,0 +1,50 @@
+dms_version: "0.1"
+namespace: "theorydb.contract"
+models:
+  - name: "TypeMatrix"
+    table:
+      name: "type_matrix_contract"
+    naming:
+      convention: "camelCase"
+    keys:
+      partition: { attribute: "PK", type: "S" }
+      sort: { attribute: "SK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "SK"
+        type: "S"
+        required: true
+        roles: ["sk"]
+      - attribute: "numberSet"
+        type: "NS"
+        optional: true
+      - attribute: "binaryBlob"
+        type: "B"
+        optional: true
+      - attribute: "binarySet"
+        type: "BS"
+        optional: true
+      - attribute: "flag"
+        type: "BOOL"
+        optional: true
+      - attribute: "nothing"
+        type: "NULL"
+        optional: true
+      - attribute: "items"
+        type: "L"
+        optional: true
+      - attribute: "metadata"
+        type: "M"
+        optional: true
+      - attribute: "emptyNumberSet"
+        type: "NS"
+        optional: true
+      - attribute: "emptyBinarySet"
+        type: "BS"
+        optional: true
+      - attribute: "optionalString"
+        type: "S"
+        optional: true

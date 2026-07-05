@@ -91,7 +91,7 @@ service.GetUserContacts("user123")                // Uses main table
 
 ### Prerequisites
 ```bash
-# Ensure you have Go 1.21+
+# Ensure you have the root-pinned Go toolchain (`go1.26.4`)
 go version
 
 # Ensure you have Docker for DynamoDB Local
@@ -106,13 +106,13 @@ cd basic/todo  # or notes/ or contacts/
 # Start DynamoDB Local
 make docker-up
 
-# Create tables and run the application
+# Run the CLI application; it creates its table on startup
 make run
 
 # Run comprehensive tests
 make test
 
-# Stop DynamoDB Local
+# Stop DynamoDB Local and discard in-memory state
 make docker-down
 ```
 

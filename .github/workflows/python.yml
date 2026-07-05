@@ -4,7 +4,8 @@ on:
   push:
     branches: ["staging", "premain", "main"]
   pull_request:
-    branches: ["staging", "premain", "main"]
+    # Staging PRs run Python through Quality Gates to avoid duplicate suites.
+    branches: ["premain", "main"]
   workflow_dispatch: {}
 
 permissions:
@@ -13,6 +14,20 @@ permissions:
 jobs:
   py:
     runs-on: ubuntu-latest
+    services:
+      dynamodb-local:
+        image: amazon/dynamodb-local:3.1.0
+        ports:
+          - 8000:8000
+        options: >-
+          --health-cmd "curl -s http://localhost:8000 >/dev/null || exit 1"
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 24
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -20,7 +35,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv (pinned)
         run: |
@@ -43,10 +58,7 @@ jobs:
         run: uv --directory py run python -m build
 
       - name: Unit tests + coverage (unit)
-        run: bash scripts/coverage-py.sh unit
-
-      - name: Start DynamoDB Local (pinned)
-        run: make docker-up
+        run: bash scripts/verify-coverage.sh --language python --suite unit --record-only
 
       - name: Integration test
         env:
@@ -57,15 +69,11 @@ jobs:
           DYNAMODB_ENDPOINT: http://localhost:8000
         run: uv --directory py run pytest -q tests/integration
 
-      - name: Stop DynamoDB Local
-        if: always()
-        run: make docker-down
-
       - name: Upload coverage artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: py_coverage
+          name: py_coverage-${{ matrix.python-version }}
           path: |
             py/coverage.xml
             py/coverage-unit.txt

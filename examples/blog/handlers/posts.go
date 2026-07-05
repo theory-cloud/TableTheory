@@ -328,36 +328,28 @@ func (h *PostHandler) createPost(ctx context.Context, request events.APIGatewayP
 		post.PublishedAt = time.Now()
 	}
 
-	// Start transaction
-	err = h.db.Transaction(func(tx *core.Tx) error {
-		// Create post
-		if err := tx.Model(post).Create(); err != nil {
-			return fmt.Errorf("failed to create post: %w", err)
-		}
-
-		// Create search index
-		if post.Status == models.PostStatusPublished {
-			searchIndex := &models.SearchIndex{
-				ID:          fmt.Sprintf("post-%s", post.ID),
-				ContentType: "post",
-				SearchTerms: strings.ToLower(fmt.Sprintf("%s %s", post.Title, strings.Join(post.Tags, " "))),
-				PostID:      post.ID,
-				Title:       post.Title,
-				Excerpt:     post.Excerpt,
-				Tags:        post.Tags,
-				UpdatedAt:   time.Now(),
-			}
-			if err := tx.Model(searchIndex).Create(); err != nil {
-				// Non-critical, don't rollback
-				fmt.Printf("Failed to create search index: %v\n", err)
-			}
-		}
-
-		return nil
-	})
-
+	// Create the post through the atomic transaction builder.
+	err = h.db.Transact().Create(post).Execute()
 	if err != nil {
 		return errorResponse(http.StatusInternalServerError, fmt.Sprintf("Failed to create post: %v", err)), nil
+	}
+
+	// Create search index separately; it is non-critical and should not roll
+	// back the committed post.
+	if post.Status == models.PostStatusPublished {
+		searchIndex := &models.SearchIndex{
+			ID:          fmt.Sprintf("post-%s", post.ID),
+			ContentType: "post",
+			SearchTerms: strings.ToLower(fmt.Sprintf("%s %s", post.Title, strings.Join(post.Tags, " "))),
+			PostID:      post.ID,
+			Title:       post.Title,
+			Excerpt:     post.Excerpt,
+			Tags:        post.Tags,
+			UpdatedAt:   time.Now(),
+		}
+		if err := h.db.Model(searchIndex).Create(); err != nil {
+			fmt.Printf("Failed to create search index: %v\n", err)
+		}
 	}
 
 	// Update author and category post counts using atomic increments with UpdateBuilder

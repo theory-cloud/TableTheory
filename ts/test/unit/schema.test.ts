@@ -54,7 +54,7 @@ const ttlSchema: ModelSchema = {
   ],
 };
 
-test('createTable sends CreateTableCommand with model schema', async () => {
+void test('createTable sends CreateTableCommand with model schema', async () => {
   const model = defineModel(baseSchema);
   const calls: unknown[] = [];
   const ddb = {
@@ -84,7 +84,7 @@ test('createTable sends CreateTableCommand with model schema', async () => {
   assert.equal(cmd.input.LocalSecondaryIndexes, undefined);
 });
 
-test('ensureTable creates when DescribeTable is missing', async () => {
+void test('ensureTable creates when DescribeTable is missing', async () => {
   const model = defineModel(baseSchema);
   const calls: unknown[] = [];
   const ddb = {
@@ -103,7 +103,7 @@ test('ensureTable creates when DescribeTable is missing', async () => {
   assert.ok(calls[1] instanceof CreateTableCommand);
 });
 
-test('describeTable maps ResourceNotFoundException to ErrTableNotFound', async () => {
+void test('describeTable maps ResourceNotFoundException to ErrTableNotFound', async () => {
   const model = defineModel(baseSchema);
   const ddb = {
     send: async () => {
@@ -121,7 +121,7 @@ test('describeTable maps ResourceNotFoundException to ErrTableNotFound', async (
   );
 });
 
-test('deleteTable ignores missing tables when ignoreMissing=true', async () => {
+void test('deleteTable ignores missing tables when ignoreMissing=true', async () => {
   const model = defineModel(baseSchema);
   const calls: unknown[] = [];
   const ddb = {
@@ -136,7 +136,7 @@ test('deleteTable ignores missing tables when ignoreMissing=true', async () => {
   assert.ok(calls[0] instanceof DeleteTableCommand);
 });
 
-test('createTable treats ResourceInUseException as ok', async () => {
+void test('createTable treats ResourceInUseException as ok', async () => {
   const model = defineModel(baseSchema);
   const ddb = {
     send: async (cmd: unknown) => {
@@ -149,7 +149,7 @@ test('createTable treats ResourceInUseException as ok', async () => {
   await createTable(ddb, model, { waitForActive: false });
 });
 
-test('createTable rejects invalid LSI partition keys early', async () => {
+void test('createTable rejects invalid LSI partition keys early', async () => {
   const model = defineModel({
     ...baseSchema,
     indexes: [
@@ -173,7 +173,7 @@ test('createTable rejects invalid LSI partition keys early', async () => {
   );
 });
 
-test('createTable requires throughput when billingMode=PROVISIONED', async () => {
+void test('createTable requires throughput when billingMode=PROVISIONED', async () => {
   const model = defineModel(baseSchema);
   const ddb = { send: async () => ({}) } as unknown as DynamoDBClient;
 
@@ -191,7 +191,7 @@ test('createTable requires throughput when billingMode=PROVISIONED', async () =>
   );
 });
 
-test('createTable syncs TTL when the model declares a ttl role', async () => {
+void test('createTable syncs TTL when the model declares a ttl role', async () => {
   const model = defineModel(ttlSchema);
   const calls: unknown[] = [];
   const ddb = {
@@ -219,7 +219,7 @@ test('createTable syncs TTL when the model declares a ttl role', async () => {
   });
 });
 
-test('ensureTable syncs TTL for an existing table', async () => {
+void test('ensureTable syncs TTL for an existing table', async () => {
   const model = defineModel(ttlSchema);
   const calls: unknown[] = [];
   const ddb = {

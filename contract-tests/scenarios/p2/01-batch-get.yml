@@ -1,0 +1,430 @@
+name: "p2.batch_get_chunking"
+dms_version: "0.1"
+requires_capabilities: ["batch.get"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#001", emailHash: "bg@example", nickname: "n001" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#002", emailHash: "bg@example", nickname: "n002" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#003", emailHash: "bg@example", nickname: "n003" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#004", emailHash: "bg@example", nickname: "n004" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#005", emailHash: "bg@example", nickname: "n005" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#006", emailHash: "bg@example", nickname: "n006" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#007", emailHash: "bg@example", nickname: "n007" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#008", emailHash: "bg@example", nickname: "n008" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#009", emailHash: "bg@example", nickname: "n009" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#010", emailHash: "bg@example", nickname: "n010" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#011", emailHash: "bg@example", nickname: "n011" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#012", emailHash: "bg@example", nickname: "n012" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#013", emailHash: "bg@example", nickname: "n013" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#014", emailHash: "bg@example", nickname: "n014" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#015", emailHash: "bg@example", nickname: "n015" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#016", emailHash: "bg@example", nickname: "n016" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#017", emailHash: "bg@example", nickname: "n017" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#018", emailHash: "bg@example", nickname: "n018" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#019", emailHash: "bg@example", nickname: "n019" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#020", emailHash: "bg@example", nickname: "n020" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#021", emailHash: "bg@example", nickname: "n021" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#022", emailHash: "bg@example", nickname: "n022" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#023", emailHash: "bg@example", nickname: "n023" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#024", emailHash: "bg@example", nickname: "n024" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#025", emailHash: "bg@example", nickname: "n025" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#026", emailHash: "bg@example", nickname: "n026" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#027", emailHash: "bg@example", nickname: "n027" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#028", emailHash: "bg@example", nickname: "n028" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#029", emailHash: "bg@example", nickname: "n029" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#030", emailHash: "bg@example", nickname: "n030" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#031", emailHash: "bg@example", nickname: "n031" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#032", emailHash: "bg@example", nickname: "n032" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#033", emailHash: "bg@example", nickname: "n033" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#034", emailHash: "bg@example", nickname: "n034" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#035", emailHash: "bg@example", nickname: "n035" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#036", emailHash: "bg@example", nickname: "n036" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#037", emailHash: "bg@example", nickname: "n037" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#038", emailHash: "bg@example", nickname: "n038" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#039", emailHash: "bg@example", nickname: "n039" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#040", emailHash: "bg@example", nickname: "n040" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#041", emailHash: "bg@example", nickname: "n041" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#042", emailHash: "bg@example", nickname: "n042" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#043", emailHash: "bg@example", nickname: "n043" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#044", emailHash: "bg@example", nickname: "n044" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#045", emailHash: "bg@example", nickname: "n045" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#046", emailHash: "bg@example", nickname: "n046" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#047", emailHash: "bg@example", nickname: "n047" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#048", emailHash: "bg@example", nickname: "n048" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#049", emailHash: "bg@example", nickname: "n049" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#050", emailHash: "bg@example", nickname: "n050" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#051", emailHash: "bg@example", nickname: "n051" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#052", emailHash: "bg@example", nickname: "n052" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#053", emailHash: "bg@example", nickname: "n053" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#054", emailHash: "bg@example", nickname: "n054" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#055", emailHash: "bg@example", nickname: "n055" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#056", emailHash: "bg@example", nickname: "n056" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#057", emailHash: "bg@example", nickname: "n057" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#058", emailHash: "bg@example", nickname: "n058" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#059", emailHash: "bg@example", nickname: "n059" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#060", emailHash: "bg@example", nickname: "n060" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#061", emailHash: "bg@example", nickname: "n061" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#062", emailHash: "bg@example", nickname: "n062" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#063", emailHash: "bg@example", nickname: "n063" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#064", emailHash: "bg@example", nickname: "n064" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#065", emailHash: "bg@example", nickname: "n065" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#066", emailHash: "bg@example", nickname: "n066" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#067", emailHash: "bg@example", nickname: "n067" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#068", emailHash: "bg@example", nickname: "n068" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#069", emailHash: "bg@example", nickname: "n069" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#070", emailHash: "bg@example", nickname: "n070" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#071", emailHash: "bg@example", nickname: "n071" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#072", emailHash: "bg@example", nickname: "n072" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#073", emailHash: "bg@example", nickname: "n073" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#074", emailHash: "bg@example", nickname: "n074" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#075", emailHash: "bg@example", nickname: "n075" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#076", emailHash: "bg@example", nickname: "n076" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#077", emailHash: "bg@example", nickname: "n077" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#078", emailHash: "bg@example", nickname: "n078" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#079", emailHash: "bg@example", nickname: "n079" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#080", emailHash: "bg@example", nickname: "n080" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#081", emailHash: "bg@example", nickname: "n081" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#082", emailHash: "bg@example", nickname: "n082" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#083", emailHash: "bg@example", nickname: "n083" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#084", emailHash: "bg@example", nickname: "n084" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#085", emailHash: "bg@example", nickname: "n085" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#086", emailHash: "bg@example", nickname: "n086" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#087", emailHash: "bg@example", nickname: "n087" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#088", emailHash: "bg@example", nickname: "n088" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#089", emailHash: "bg@example", nickname: "n089" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#090", emailHash: "bg@example", nickname: "n090" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#091", emailHash: "bg@example", nickname: "n091" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#092", emailHash: "bg@example", nickname: "n092" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#093", emailHash: "bg@example", nickname: "n093" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#094", emailHash: "bg@example", nickname: "n094" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#095", emailHash: "bg@example", nickname: "n095" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#096", emailHash: "bg@example", nickname: "n096" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#097", emailHash: "bg@example", nickname: "n097" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#098", emailHash: "bg@example", nickname: "n098" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#099", emailHash: "bg@example", nickname: "n099" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#100", emailHash: "bg@example", nickname: "n100" }
+    expect: { ok: true }
+  - op: create
+    item: { PK: "USER#BG", SK: "ITEM#101", emailHash: "bg@example", nickname: "n101" }
+    expect: { ok: true }
+
+  - op: batch_get
+    batch_get:
+      keys:
+        - { PK: "USER#BG", SK: "ITEM#001" }
+        - { PK: "USER#BG", SK: "ITEM#002" }
+        - { PK: "USER#BG", SK: "ITEM#003" }
+        - { PK: "USER#BG", SK: "ITEM#004" }
+        - { PK: "USER#BG", SK: "ITEM#005" }
+        - { PK: "USER#BG", SK: "ITEM#006" }
+        - { PK: "USER#BG", SK: "ITEM#007" }
+        - { PK: "USER#BG", SK: "ITEM#008" }
+        - { PK: "USER#BG", SK: "ITEM#009" }
+        - { PK: "USER#BG", SK: "ITEM#010" }
+        - { PK: "USER#BG", SK: "ITEM#011" }
+        - { PK: "USER#BG", SK: "ITEM#012" }
+        - { PK: "USER#BG", SK: "ITEM#013" }
+        - { PK: "USER#BG", SK: "ITEM#014" }
+        - { PK: "USER#BG", SK: "ITEM#015" }
+        - { PK: "USER#BG", SK: "ITEM#016" }
+        - { PK: "USER#BG", SK: "ITEM#017" }
+        - { PK: "USER#BG", SK: "ITEM#018" }
+        - { PK: "USER#BG", SK: "ITEM#019" }
+        - { PK: "USER#BG", SK: "ITEM#020" }
+        - { PK: "USER#BG", SK: "ITEM#021" }
+        - { PK: "USER#BG", SK: "ITEM#022" }
+        - { PK: "USER#BG", SK: "ITEM#023" }
+        - { PK: "USER#BG", SK: "ITEM#024" }
+        - { PK: "USER#BG", SK: "ITEM#025" }
+        - { PK: "USER#BG", SK: "ITEM#026" }
+        - { PK: "USER#BG", SK: "ITEM#027" }
+        - { PK: "USER#BG", SK: "ITEM#028" }
+        - { PK: "USER#BG", SK: "ITEM#029" }
+        - { PK: "USER#BG", SK: "ITEM#030" }
+        - { PK: "USER#BG", SK: "ITEM#031" }
+        - { PK: "USER#BG", SK: "ITEM#032" }
+        - { PK: "USER#BG", SK: "ITEM#033" }
+        - { PK: "USER#BG", SK: "ITEM#034" }
+        - { PK: "USER#BG", SK: "ITEM#035" }
+        - { PK: "USER#BG", SK: "ITEM#036" }
+        - { PK: "USER#BG", SK: "ITEM#037" }
+        - { PK: "USER#BG", SK: "ITEM#038" }
+        - { PK: "USER#BG", SK: "ITEM#039" }
+        - { PK: "USER#BG", SK: "ITEM#040" }
+        - { PK: "USER#BG", SK: "ITEM#041" }
+        - { PK: "USER#BG", SK: "ITEM#042" }
+        - { PK: "USER#BG", SK: "ITEM#043" }
+        - { PK: "USER#BG", SK: "ITEM#044" }
+        - { PK: "USER#BG", SK: "ITEM#045" }
+        - { PK: "USER#BG", SK: "ITEM#046" }
+        - { PK: "USER#BG", SK: "ITEM#047" }
+        - { PK: "USER#BG", SK: "ITEM#048" }
+        - { PK: "USER#BG", SK: "ITEM#049" }
+        - { PK: "USER#BG", SK: "ITEM#050" }
+        - { PK: "USER#BG", SK: "ITEM#051" }
+        - { PK: "USER#BG", SK: "ITEM#052" }
+        - { PK: "USER#BG", SK: "ITEM#053" }
+        - { PK: "USER#BG", SK: "ITEM#054" }
+        - { PK: "USER#BG", SK: "ITEM#055" }
+        - { PK: "USER#BG", SK: "ITEM#056" }
+        - { PK: "USER#BG", SK: "ITEM#057" }
+        - { PK: "USER#BG", SK: "ITEM#058" }
+        - { PK: "USER#BG", SK: "ITEM#059" }
+        - { PK: "USER#BG", SK: "ITEM#060" }
+        - { PK: "USER#BG", SK: "ITEM#061" }
+        - { PK: "USER#BG", SK: "ITEM#062" }
+        - { PK: "USER#BG", SK: "ITEM#063" }
+        - { PK: "USER#BG", SK: "ITEM#064" }
+        - { PK: "USER#BG", SK: "ITEM#065" }
+        - { PK: "USER#BG", SK: "ITEM#066" }
+        - { PK: "USER#BG", SK: "ITEM#067" }
+        - { PK: "USER#BG", SK: "ITEM#068" }
+        - { PK: "USER#BG", SK: "ITEM#069" }
+        - { PK: "USER#BG", SK: "ITEM#070" }
+        - { PK: "USER#BG", SK: "ITEM#071" }
+        - { PK: "USER#BG", SK: "ITEM#072" }
+        - { PK: "USER#BG", SK: "ITEM#073" }
+        - { PK: "USER#BG", SK: "ITEM#074" }
+        - { PK: "USER#BG", SK: "ITEM#075" }
+        - { PK: "USER#BG", SK: "ITEM#076" }
+        - { PK: "USER#BG", SK: "ITEM#077" }
+        - { PK: "USER#BG", SK: "ITEM#078" }
+        - { PK: "USER#BG", SK: "ITEM#079" }
+        - { PK: "USER#BG", SK: "ITEM#080" }
+        - { PK: "USER#BG", SK: "ITEM#081" }
+        - { PK: "USER#BG", SK: "ITEM#082" }
+        - { PK: "USER#BG", SK: "ITEM#083" }
+        - { PK: "USER#BG", SK: "ITEM#084" }
+        - { PK: "USER#BG", SK: "ITEM#085" }
+        - { PK: "USER#BG", SK: "ITEM#086" }
+        - { PK: "USER#BG", SK: "ITEM#087" }
+        - { PK: "USER#BG", SK: "ITEM#088" }
+        - { PK: "USER#BG", SK: "ITEM#089" }
+        - { PK: "USER#BG", SK: "ITEM#090" }
+        - { PK: "USER#BG", SK: "ITEM#091" }
+        - { PK: "USER#BG", SK: "ITEM#092" }
+        - { PK: "USER#BG", SK: "ITEM#093" }
+        - { PK: "USER#BG", SK: "ITEM#094" }
+        - { PK: "USER#BG", SK: "ITEM#095" }
+        - { PK: "USER#BG", SK: "ITEM#096" }
+        - { PK: "USER#BG", SK: "ITEM#097" }
+        - { PK: "USER#BG", SK: "ITEM#098" }
+        - { PK: "USER#BG", SK: "ITEM#099" }
+        - { PK: "USER#BG", SK: "ITEM#100" }
+        - { PK: "USER#BG", SK: "ITEM#101" }
+    expect:
+      ok: true
+      item_count: 101
+
+  - op: get
+    key: { PK: "USER#BG", SK: "ITEM#001" }
+    expect:
+      ok: true
+      item_contains: { PK: "USER#BG", SK: "ITEM#001", nickname: "n001" }
+
+  - op: get
+    key: { PK: "USER#BG", SK: "ITEM#101" }
+    expect:
+      ok: true
+      item_contains: { PK: "USER#BG", SK: "ITEM#101", nickname: "n101" }

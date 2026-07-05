@@ -23,19 +23,19 @@ import (
 // This is the simplest possible TableTheory model
 type Todo struct {
 	// ID is our primary key - every DynamoDB item needs one
-	ID string `theorydb:"pk"`
+	ID string `theorydb:"pk" json:"id"`
 
-	// Title is required - we use the required tag to ensure it's not empty
-	Title string `theorydb:"required"`
+	// Title is validated in application code before writes.
+	Title string `json:"title"`
 
 	// Completed tracks whether the task is done
-	Completed bool
+	Completed bool `json:"completed"`
 
 	// CreatedAt helps us sort todos by creation time
-	CreatedAt time.Time
+	CreatedAt time.Time `json:"created_at"`
 
 	// UpdatedAt tracks when the todo was last modified
-	UpdatedAt time.Time
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TodoApp manages our todo list operations
@@ -89,7 +89,7 @@ func (app *TodoApp) Create(title string) (*Todo, error) {
 	}
 
 	// Save to DynamoDB
-	// The Create method validates required fields and saves the item
+	// Application validation should run before saving required business fields.
 	if err := app.db.Model(todo).Create(); err != nil {
 		return nil, fmt.Errorf("failed to create todo: %v", err)
 	}

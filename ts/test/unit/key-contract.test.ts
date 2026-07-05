@@ -18,9 +18,19 @@ const fixturePath = fileURLToPath(
   ),
 );
 const fixture = parseDerivedKeyContract(readFileSync(fixturePath, 'utf8'));
+const v02FixturePath = fileURLToPath(
+  new URL(
+    '../../../contract-tests/key-contracts/v0.2/derived-key-transforms.yml',
+    import.meta.url,
+  ),
+);
+const v02Fixture = parseDerivedKeyContract(
+  readFileSync(v02FixturePath, 'utf8'),
+);
 
 {
   verifyDerivedKeyFixtures(fixture);
+  verifyDerivedKeyFixtures(v02Fixture);
 
   const counts = new Map(
     fixture.derived_keys.map((key) => [key.name, key.fixtures?.length ?? 0]),
@@ -35,6 +45,20 @@ const fixture = parseDerivedKeyContract(readFileSync(fixturePath, 'utf8'));
   assert.equal(counts.get('GitHubRepositoryLookupKey'), 1);
   assert.equal(counts.get('ImportSessionScopeKey'), 1);
   assert.equal(counts.get('ScalarNumberKey'), 3);
+}
+
+{
+  assert.equal(
+    evaluateDerivedKey(v02Fixture, 'LowercaseLookupKey', {
+      namespace: ' İSTANBUL ',
+      repository: 'CAFÉ/Docs',
+    }),
+    'ns=%C4%B0stanbul|repo=caf%C3%89%2Fdocs',
+  );
+  assert.equal(
+    evaluateDerivedKey(v02Fixture, 'LiteralUrlEncodedKey', {}),
+    'marker=region%2Fus-east-1|space=a%20b',
+  );
 }
 
 {

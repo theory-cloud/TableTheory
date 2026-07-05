@@ -1,0 +1,28 @@
+dms_version: "0.1"
+namespace: "quickstart"
+models:
+  - name: "Note"
+    table:
+      name: "notes"
+    naming:
+      convention: "camelCase"
+    keys:
+      partition: { attribute: "PK", type: "S" }
+      sort: { attribute: "SK", type: "S" }
+    attributes:
+      - { attribute: "PK", type: "S", required: true, roles: ["pk"] }
+      - { attribute: "SK", type: "S", required: true, roles: ["sk"] }
+      - { attribute: "title", type: "S", optional: true }
+      - { attribute: "value", type: "N", optional: true }
+      - attribute: "createdAt"
+        type: "S"
+        format: "rfc3339nano"
+        roles: ["created_at"]
+      - attribute: "updatedAt"
+        type: "S"
+        format: "rfc3339nano"
+        roles: ["updated_at"]
+      - attribute: "version"
+        type: "N"
+        format: "int"
+        roles: ["version"]

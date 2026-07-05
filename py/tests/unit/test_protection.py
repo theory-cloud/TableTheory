@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from theorydb_py.protection import ConcurrencyLimiter, SimpleLimiter
+from tabletheory_py.protection import ConcurrencyLimiter, SimpleLimiter
 
 
 def test_simple_limiter_refills_tokens() -> None:

@@ -5,13 +5,18 @@ import {
 
 import { TheorydbError } from './errors.js';
 
-export function mapDynamoError(err: unknown): unknown {
+export interface DynamoErrorMappingOptions {
+  readonly versionConflict?: boolean;
+}
+
+export function mapDynamoError(
+  err: unknown,
+  options: DynamoErrorMappingOptions = {},
+): unknown {
   if (err instanceof TheorydbError) return err;
 
   if (err instanceof ConditionalCheckFailedException) {
-    return new TheorydbError('ErrConditionFailed', 'Condition failed', {
-      cause: err,
-    });
+    return conditionFailedError('Condition failed', err, options);
   }
 
   if (err instanceof TransactionCanceledException) {
@@ -23,9 +28,7 @@ export function mapDynamoError(err: unknown): unknown {
   if (typeof err === 'object' && err !== null && 'name' in err) {
     const name = (err as { name?: unknown }).name;
     if (name === 'ConditionalCheckFailedException') {
-      return new TheorydbError('ErrConditionFailed', 'Condition failed', {
-        cause: err,
-      });
+      return conditionFailedError('Condition failed', err, options);
     }
     if (name === 'TransactionCanceledException') {
       return new TheorydbError('ErrConditionFailed', 'Transaction canceled', {
@@ -35,4 +38,15 @@ export function mapDynamoError(err: unknown): unknown {
   }
 
   return err;
+}
+
+function conditionFailedError(
+  message: string,
+  cause: unknown,
+  options: DynamoErrorMappingOptions,
+): TheorydbError {
+  return new TheorydbError('ErrConditionFailed', message, {
+    cause,
+    ...(options.versionConflict ? { codes: ['ErrVersionConflict'] } : {}),
+  });
 }

@@ -1,0 +1,27 @@
+name: "p1.gsi.status_include_projection"
+dms_version: "0.1"
+requires_capabilities: ["query.basic"]
+model: "Order"
+table:
+  name: "orders_contract"
+steps:
+  - op: create
+    item:
+      PK: "ORDER#GSI#1"
+      SK: "META#1"
+      status: "paid"
+      amount: 4200
+      ttl: 1890000000
+    expect:
+      ok: true
+
+  - op: query
+    query:
+      index: "gsi-status"
+      partition: { attribute: "status", operator: "=", value: "paid" }
+      projection: ["PK", "SK", "status", "createdAt", "amount"]
+    expect:
+      item_count: 1
+      items_contains:
+        - { PK: "ORDER#GSI#1", SK: "META#1", status: "paid", amount: 4200 }
+      items_missing_fields: ["ttl"]

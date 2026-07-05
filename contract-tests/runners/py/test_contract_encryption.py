@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from theorydb_py.encryption import decrypt_attribute_value, encrypt_attribute_value
-from theorydb_py.errors import ValidationError
+from tabletheory_py.encryption import decrypt_attribute_value, encrypt_attribute_value
+from tabletheory_py.errors import ValidationError
 
 
 class _StubKms:

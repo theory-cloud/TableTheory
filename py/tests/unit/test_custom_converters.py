@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from theorydb_py.model import ModelDefinition, theorydb_field
-from theorydb_py.table import Table
+from tabletheory_py.model import ModelDefinition, theorydb_field
+from tabletheory_py.table import Table
 
 
 class UserID:

@@ -3,36 +3,111 @@ package scenario
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Scenario struct {
-	Name                 string   `yaml:"name"`
-	DMSVersion           string   `yaml:"dms_version"`
-	RequiresCapabilities []string `yaml:"requires_capabilities"`
-	Model                string   `yaml:"model"`
-	Table                Table    `yaml:"table"`
-	Steps                []Step   `yaml:"steps"`
+	Name                 string           `yaml:"name"`
+	DMSVersion           string           `yaml:"dms_version"`
+	RequiresCapabilities []string         `yaml:"requires_capabilities"`
+	Model                string           `yaml:"model"`
+	Table                Table            `yaml:"table"`
+	Encryption           EncryptionConfig `yaml:"encryption"`
+	Steps                []Step           `yaml:"steps"`
+	SeedRuntime          string           `yaml:"seed_runtime"`
+	SeedSteps            []Step           `yaml:"seed_steps"`
+	ReadSteps            []Step           `yaml:"read_steps"`
 }
 
 type Table struct {
 	Name string `yaml:"name"`
 }
 
+type EncryptionConfig struct {
+	Provider string `yaml:"provider"`
+	Seed     string `yaml:"seed"`
+}
+
 type Step struct {
-	Op                  string            `yaml:"op"`
-	Model               string            `yaml:"model"`
-	IfNotExists         bool              `yaml:"if_not_exists"`
-	Fields              []string          `yaml:"fields"`
-	ProtectedAttributes []string          `yaml:"protected_attributes"`
-	Item                map[string]any    `yaml:"item"`
-	Key                 map[string]any    `yaml:"key"`
-	Actual              *TransitionActual `yaml:"actual"`
-	Event               *TransitionEvent  `yaml:"event"`
-	Ms                  int               `yaml:"ms"`
-	Save                map[string]string `yaml:"save"`
-	Expect              Expectation       `yaml:"expect"`
+	Op                  string                `yaml:"op"`
+	Model               string                `yaml:"model"`
+	IfNotExists         bool                  `yaml:"if_not_exists"`
+	Fields              []string              `yaml:"fields"`
+	ProtectedAttributes []string              `yaml:"protected_attributes"`
+	Item                map[string]any        `yaml:"item"`
+	Key                 map[string]any        `yaml:"key"`
+	Query               *ReadRequest          `yaml:"query"`
+	Scan                *ReadRequest          `yaml:"scan"`
+	Count               *CountRequest         `yaml:"count"`
+	TransactGet         *TransactGetRequest   `yaml:"transact_get"`
+	BatchGet            *BatchGetRequest      `yaml:"batch_get"`
+	BatchWrite          *BatchWriteRequest    `yaml:"batch_write"`
+	TransactWrite       *TransactWriteRequest `yaml:"transact_write"`
+	Actual              *TransitionActual     `yaml:"actual"`
+	Event               *TransitionEvent      `yaml:"event"`
+	Ms                  int                   `yaml:"ms"`
+	Save                map[string]string     `yaml:"save"`
+	Expect              Expectation           `yaml:"expect"`
+}
+
+type CountRequest struct {
+	Query *ReadRequest `yaml:"query"`
+	Scan  *ReadRequest `yaml:"scan"`
+}
+
+type TransactGetRequest struct {
+	Items []KeyedItem `yaml:"items"`
+}
+
+type BatchGetRequest struct {
+	Keys []map[string]any `yaml:"keys"`
+}
+
+type BatchWriteRequest struct {
+	Puts    []map[string]any `yaml:"puts"`
+	Deletes []map[string]any `yaml:"deletes"`
+}
+
+type TransactWriteRequest struct {
+	Actions []TransactWriteAction `yaml:"actions"`
+}
+
+type KeyedItem struct {
+	Model string         `yaml:"model"`
+	Key   map[string]any `yaml:"key"`
+}
+
+type TransactWriteAction struct {
+	Kind                      string            `yaml:"kind"`
+	Model                     string            `yaml:"model"`
+	Item                      map[string]any    `yaml:"item"`
+	Key                       map[string]any    `yaml:"key"`
+	Set                       map[string]any    `yaml:"set"`
+	ConditionExpression       string            `yaml:"condition_expression"`
+	ExpressionAttributeNames  map[string]string `yaml:"expression_attribute_names"`
+	ExpressionAttributeValues map[string]any    `yaml:"expression_attribute_values"`
+	IfNotExists               bool              `yaml:"if_not_exists"`
+}
+
+type ReadRequest struct {
+	Index          string          `yaml:"index"`
+	Partition      *ReadCondition  `yaml:"partition"`
+	Sort           *ReadCondition  `yaml:"sort"`
+	Filter         []ReadCondition `yaml:"filter"`
+	SortDirection  string          `yaml:"sort_direction"`
+	Limit          int             `yaml:"limit"`
+	Projection     []string        `yaml:"projection"`
+	Cursor         string          `yaml:"cursor"`
+	ConsistentRead *bool           `yaml:"consistent_read"`
+}
+
+type ReadCondition struct {
+	Attribute string `yaml:"attribute"`
+	Operator  string `yaml:"operator"`
+	Value     any    `yaml:"value"`
+	Values    []any  `yaml:"values"`
 }
 
 type TransitionActual struct {
@@ -50,7 +125,16 @@ type TransitionEvent struct {
 type Expectation struct {
 	Ok                    *bool             `yaml:"ok"`
 	Error                 string            `yaml:"error"`
+	Errors                []string          `yaml:"errors"`
 	ItemContains          map[string]any    `yaml:"item_contains"`
+	ItemEquals            map[string]any    `yaml:"item_equals"`
+	RawItemContains       map[string]any    `yaml:"raw_item_contains"`
+	ItemsContains         []map[string]any  `yaml:"items_contains"`
+	ItemsMissingFields    []string          `yaml:"items_missing_fields"`
+	ItemCount             *int              `yaml:"item_count"`
+	Count                 *int              `yaml:"count"`
+	ItemAbsent            *bool             `yaml:"item_absent"`
+	CursorEquals          *string           `yaml:"cursor_equals"`
 	ItemHasFields         []string          `yaml:"item_has_fields"`
 	ItemMissingFields     []string          `yaml:"item_missing_fields"`
 	RawAttributeTypes     map[string]string `yaml:"raw_attribute_types"`
@@ -82,52 +166,181 @@ func LoadFile(path string) (*Scenario, error) {
 }
 
 func validateSteps(s *Scenario) error {
-	for i, step := range s.Steps {
-		if step.Op == "" {
-			return fmt.Errorf("step %d: op is required", i)
+	if s.SeedRuntime != "" {
+		if len(s.SeedSteps) == 0 {
+			return fmt.Errorf("seed_steps are required when seed_runtime is set")
 		}
-		switch step.Op {
-		case "sleep":
-			continue
-		case "create", "update", "save":
-			if len(step.Item) == 0 {
-				return fmt.Errorf("step %d %s: item is required", i, step.Op)
+		if len(s.ReadSteps) == 0 {
+			return fmt.Errorf("read_steps are required when seed_runtime is set")
+		}
+	}
+	if s.SeedRuntime == "" && len(s.Steps) == 0 {
+		return fmt.Errorf("scenario steps are required")
+	}
+
+	for label, steps := range map[string][]Step{
+		"steps":      s.Steps,
+		"seed_steps": s.SeedSteps,
+		"read_steps": s.ReadSteps,
+	} {
+		for i, step := range steps {
+			if err := validateStep(label, i, step); err != nil {
+				return err
 			}
-		case "get", "delete":
-			if len(step.Key) == 0 {
-				return fmt.Errorf("step %d %s: key is required", i, step.Op)
-			}
-		case "transition_append_event":
-			if step.Actual == nil {
-				return fmt.Errorf("step %d transition_append_event: actual is required", i)
-			}
-			if step.Actual.Model == "" {
-				return fmt.Errorf("step %d transition_append_event: actual.model is required", i)
-			}
-			if len(step.Actual.Key) == 0 {
-				return fmt.Errorf("step %d transition_append_event: actual.key is required", i)
-			}
-			if len(step.Actual.Set) == 0 {
-				return fmt.Errorf("step %d transition_append_event: actual.set is required", i)
-			}
-			if step.Event == nil {
-				return fmt.Errorf("step %d transition_append_event: event is required", i)
-			}
-			if step.Event.Model == "" {
-				return fmt.Errorf("step %d transition_append_event: event.model is required", i)
-			}
-			if len(step.Event.Item) == 0 {
-				return fmt.Errorf("step %d transition_append_event: event.item is required", i)
-			}
-		case "validate_provenance":
-			if len(step.Item) == 0 {
-				return fmt.Errorf("step %d validate_provenance: item is required", i)
-			}
-		default:
-			return fmt.Errorf("step %d: unsupported op %q", i, step.Op)
 		}
 	}
 	return nil
+}
+
+func validateStep(label string, i int, step Step) error {
+	prefix := fmt.Sprintf("%s[%d]", label, i)
+	if step.Op == "" {
+		return fmt.Errorf("%s: op is required", prefix)
+	}
+	switch step.Op {
+	case "sleep":
+		return nil
+	case "create", "update", "save":
+		if len(step.Item) == 0 {
+			return fmt.Errorf("%s %s: item is required", prefix, step.Op)
+		}
+	case "get", "get_optional", "delete":
+		if len(step.Key) == 0 {
+			return fmt.Errorf("%s %s: key is required", prefix, step.Op)
+		}
+	case "query":
+		return validateQueryReadRequest(step.Query, fmt.Sprintf("%s query", prefix))
+	case "scan":
+		return validateScanReadRequest(step.Scan, fmt.Sprintf("%s scan", prefix))
+	case "count":
+		if step.Count == nil {
+			return fmt.Errorf("%s count: count is required", prefix)
+		}
+		hasQuery := step.Count.Query != nil
+		hasScan := step.Count.Scan != nil
+		if hasQuery == hasScan {
+			return fmt.Errorf("%s count: exactly one of count.query or count.scan is required", prefix)
+		}
+		if hasQuery {
+			return validateQueryReadRequest(step.Count.Query, fmt.Sprintf("%s count.query", prefix))
+		}
+		return validateScanReadRequest(step.Count.Scan, fmt.Sprintf("%s count.scan", prefix))
+	case "transact_get":
+		if step.TransactGet == nil || len(step.TransactGet.Items) == 0 {
+			return fmt.Errorf("%s transact_get: transact_get.items are required", prefix)
+		}
+		for j, item := range step.TransactGet.Items {
+			if len(item.Key) == 0 {
+				return fmt.Errorf("%s transact_get.items[%d]: key is required", prefix, j)
+			}
+		}
+	case "batch_get":
+		if step.BatchGet == nil || len(step.BatchGet.Keys) == 0 {
+			return fmt.Errorf("%s batch_get: batch_get.keys are required", prefix)
+		}
+	case "batch_write":
+		if step.BatchWrite == nil || (len(step.BatchWrite.Puts) == 0 && len(step.BatchWrite.Deletes) == 0) {
+			return fmt.Errorf("%s batch_write: batch_write.puts or batch_write.deletes are required", prefix)
+		}
+	case "transact_write":
+		if step.TransactWrite == nil || len(step.TransactWrite.Actions) == 0 {
+			return fmt.Errorf("%s transact_write: transact_write.actions are required", prefix)
+		}
+		for j, action := range step.TransactWrite.Actions {
+			if action.Kind == "" {
+				return fmt.Errorf("%s transact_write.actions[%d]: kind is required", prefix, j)
+			}
+		}
+	case "transition_append_event":
+		if step.Actual == nil {
+			return fmt.Errorf("%s transition_append_event: actual is required", prefix)
+		}
+		if step.Actual.Model == "" {
+			return fmt.Errorf("%s transition_append_event: actual.model is required", prefix)
+		}
+		if len(step.Actual.Key) == 0 {
+			return fmt.Errorf("%s transition_append_event: actual.key is required", prefix)
+		}
+		if len(step.Actual.Set) == 0 {
+			return fmt.Errorf("%s transition_append_event: actual.set is required", prefix)
+		}
+		if step.Event == nil {
+			return fmt.Errorf("%s transition_append_event: event is required", prefix)
+		}
+		if step.Event.Model == "" {
+			return fmt.Errorf("%s transition_append_event: event.model is required", prefix)
+		}
+		if len(step.Event.Item) == 0 {
+			return fmt.Errorf("%s transition_append_event: event.item is required", prefix)
+		}
+	case "validate_provenance":
+		if len(step.Item) == 0 {
+			return fmt.Errorf("%s validate_provenance: item is required", prefix)
+		}
+	default:
+		return fmt.Errorf("%s: unsupported op %q", prefix, step.Op)
+	}
+	return nil
+}
+
+func validateQueryReadRequest(req *ReadRequest, prefix string) error {
+	if req == nil {
+		return fmt.Errorf("%s: query is required", prefix)
+	}
+	if req.Partition == nil {
+		return fmt.Errorf("%s: query.partition is required", prefix)
+	}
+	if err := validateReadCondition(req.Partition, fmt.Sprintf("%s.partition", prefix)); err != nil {
+		return err
+	}
+	if req.Sort != nil {
+		if err := validateReadCondition(req.Sort, fmt.Sprintf("%s.sort", prefix)); err != nil {
+			return err
+		}
+	}
+	for j := range req.Filter {
+		if err := validateReadCondition(&req.Filter[j], fmt.Sprintf("%s.filter[%d]", prefix, j)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateScanReadRequest(req *ReadRequest, prefix string) error {
+	if req == nil {
+		return fmt.Errorf("%s: scan is required", prefix)
+	}
+	for j := range req.Filter {
+		if err := validateReadCondition(&req.Filter[j], fmt.Sprintf("%s.filter[%d]", prefix, j)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateReadCondition(cond *ReadCondition, prefix string) error {
+	if cond == nil {
+		return fmt.Errorf("%s is required", prefix)
+	}
+	if cond.Attribute == "" {
+		return fmt.Errorf("%s.attribute is required", prefix)
+	}
+	if cond.Operator == "" {
+		return fmt.Errorf("%s.operator is required", prefix)
+	}
+	if cond.Value == nil && len(cond.Values) == 0 && !readOperatorAllowsNoValue(cond.Operator) {
+		return fmt.Errorf("%s.value or %s.values is required", prefix, prefix)
+	}
+	return nil
+}
+
+func readOperatorAllowsNoValue(operator string) bool {
+	switch strings.ToLower(operator) {
+	case "exists", "attribute_exists", "not_exists", "attribute_not_exists":
+		return true
+	default:
+		return false
+	}
 }
 
 func MissingCapabilities(required []string, supported []string) []string {

@@ -7,8 +7,8 @@ from boto3.dynamodb.types import Binary
 from botocore.exceptions import ClientError
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from theorydb_py.encryption import decrypt_attribute_value, encrypt_attribute_value
-from theorydb_py.errors import AwsError, ValidationError
+from tabletheory_py.encryption import decrypt_attribute_value, encrypt_attribute_value
+from tabletheory_py.errors import AwsError, ValidationError
 
 
 class _GoodKms:

@@ -5,13 +5,25 @@
 
 ## Prerequisites
 
-- Python **3.14+**
+- Python **3.12+**
 - AWS credentials (for AWS) or DynamoDB Local
 - Basic DynamoDB concepts (PK/SK, GSIs, condition expressions)
 
 ## Installation
 
-This repo does **not** publish to PyPI. GitHub Releases are the source of truth.
+This repo does **not** publish to PyPI. GitHub Releases are the source of truth. The canonical import package is
+`tabletheory_py`. The legacy `theorydb_py` import path is removed in v2; update all application imports to
+`tabletheory_py`.
+
+Find the current version before replacing `X.Y.Z`:
+
+```bash
+gh release view --repo theory-cloud/TableTheory --json tagName,publishedAt,url
+gh release list --repo theory-cloud/TableTheory --exclude-drafts --limit 10
+```
+
+The release tag includes the leading `v` (`vX.Y.Z`), while the Python wheel omits it
+(`tabletheory_py-X.Y.Z-py3-none-any.whl`).
 
 ### Option A: Install from GitHub Release assets (recommended for consumers)
 
@@ -32,7 +44,53 @@ pip install \
   https://github.com/theory-cloud/tabletheory/releases/download/vX.Y.Z-rc.N/tabletheory_py-X.Y.ZrcN-py3-none-any.whl
 ```
 
-### Option B: Develop from source (this monorepo)
+To keep pinned GitHub Release wheel URLs current, copy this Renovate regex manager into the consuming repository's
+`renovate.json`:
+
+```json
+{
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update TableTheory Python wheel GitHub Release asset URLs",
+      "managerFilePatterns": ["/(^|/)requirements.*\\.txt$/", "/(^|/)README\\.md$/", "/(^|/)docs/.+\\.md$/"],
+      "matchStrings": [
+        "https://github\\.com/theory-cloud/[Tt]able[Tt]heory/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/tabletheory_py-(?<assetVersion>\\d+\\.\\d+\\.\\d+)-py3-none-any\\.whl"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "theory-cloud/TableTheory",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "autoReplaceStringTemplate": "https://github.com/theory-cloud/TableTheory/releases/download/v{{{newValue}}}/tabletheory_py-{{{newValue}}}-py3-none-any.whl"
+    }
+  ]
+}
+```
+
+For combined TypeScript + Python automation, see the published
+[Consumer update automation](https://tabletheory.theorycloud.ai/guides/consumer-updates/) guide.
+
+### Option B: Install from the pip find-links index
+
+The documentation site publishes a static pip find-links index generated from the Python wheel assets attached to
+TableTheory GitHub Releases:
+
+```bash
+# Latest stable version visible to pip.
+pip install --find-links https://tabletheory.theorycloud.ai/python/find-links/ tabletheory-py
+
+# Exact stable version selection.
+pip install --find-links https://tabletheory.theorycloud.ai/python/find-links/ "tabletheory-py==X.Y.Z"
+
+# Exact release-candidate selection. Python versions use PEP 440 form.
+pip install --pre --find-links https://tabletheory.theorycloud.ai/python/find-links/ "tabletheory-py==X.Y.ZrcN"
+```
+
+`--find-links` supplements your normal package indexes so `boto3` and other transitive dependencies still resolve from
+your configured Python index. If you also use `--no-index`, mirror those transitive dependencies alongside the
+TableTheory wheel.
+
+### Option C: Develop from source (this monorepo)
 
 ```bash
 # from repo root
@@ -55,7 +113,7 @@ import os
 
 import boto3
 
-from theorydb_py import ModelDefinition, Table, theorydb_field
+from tabletheory_py import ModelDefinition, Table, theorydb_field
 
 
 @dataclass(frozen=True)
@@ -83,7 +141,6 @@ table.delete("NOTE#1", "v1")
 
 ## Next Steps
 
+- Use [API Reference](./api-reference.md) for exact signatures; for example, `put` uses condition-expression kwargs rather than `if_not_exists`, and `transact_write` takes an `actions` sequence.
 - Read [Core Patterns](./core-patterns.md) for cursor pagination, batch, transactions, streams, and encryption.
 - Use [Testing Guide](./testing-guide.md) for strict fakes and deterministic encryption tests.
-- Use [API Reference](./api-reference.md) when you need signature-level detail.
-

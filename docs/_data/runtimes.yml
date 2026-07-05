@@ -89,7 +89,7 @@
     from dataclasses import dataclass
 
     import boto3
-    from theorydb_py import ModelDefinition, Table, theorydb_field
+    from tabletheory_py import ModelDefinition, Table, theorydb_field
 
 
     # Models are plain dataclasses with theorydb_field roles.

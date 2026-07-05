@@ -122,8 +122,8 @@ const User = defineModel({
 
   const items = await client.query('UserAgg').partitionKey('A').all();
   assert.equal(items.length, 2);
-  assert.deepEqual(items[0]?.version, 1);
-  assert.deepEqual(items[1]?.version, 2);
+  assert.deepEqual(items[0]?.version, '1');
+  assert.deepEqual(items[1]?.version, '2');
 }
 
 {
@@ -150,6 +150,6 @@ const User = defineModel({
 
   const items = await client.scan('UserAgg').all();
   assert.equal(items.length, 2);
-  assert.deepEqual(items[0]?.version, 1);
-  assert.deepEqual(items[1]?.version, 2);
+  assert.deepEqual(items[0]?.version, '1');
+  assert.deepEqual(items[1]?.version, '2');
 }

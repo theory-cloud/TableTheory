@@ -1,0 +1,74 @@
+name: "p1.native_count"
+dms_version: "0.1"
+requires_capabilities: ["count.native"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item: { PK: "USER#COUNT", SK: "ITEM#001", emailHash: "count@example", nickname: "active" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#COUNT", SK: "ITEM#002", emailHash: "count@example", nickname: "active" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#COUNT", SK: "ITEM#003", emailHash: "count@example", nickname: "inactive" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#OTHER_COUNT", SK: "ITEM#001", emailHash: "other-count@example", nickname: "active" }
+    expect: { ok: true }
+
+  - op: count
+    count:
+      query:
+        partition: { attribute: "PK", operator: "=", value: "USER#COUNT" }
+        sort: { attribute: "SK", operator: "begins_with", value: "ITEM#" }
+        filter:
+          - { attribute: "nickname", operator: "=", value: "active" }
+        projection: ["PK", "SK", "nickname"]
+    expect:
+      ok: true
+      count: 2
+      item_count: 0
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#COUNT" }
+      sort: { attribute: "SK", operator: "begins_with", value: "ITEM#" }
+      filter:
+        - { attribute: "nickname", operator: "=", value: "active" }
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      ok: true
+      item_count: 2
+      items_contains:
+        - { PK: "USER#COUNT", SK: "ITEM#001", nickname: "active" }
+        - { PK: "USER#COUNT", SK: "ITEM#002", nickname: "active" }
+
+  - op: count
+    count:
+      scan:
+        filter:
+          - { attribute: "emailHash", operator: "=", value: "count@example" }
+          - { attribute: "nickname", operator: "=", value: "active" }
+        projection: ["PK", "SK", "emailHash", "nickname"]
+    expect:
+      ok: true
+      count: 2
+      item_count: 0
+
+  - op: scan
+    scan:
+      filter:
+        - { attribute: "emailHash", operator: "=", value: "count@example" }
+        - { attribute: "nickname", operator: "=", value: "active" }
+      projection: ["PK", "SK", "emailHash", "nickname"]
+    expect:
+      ok: true
+      item_count: 2
+      items_contains:
+        - { PK: "USER#COUNT", SK: "ITEM#001", emailHash: "count@example", nickname: "active" }
+        - { PK: "USER#COUNT", SK: "ITEM#002", emailHash: "count@example", nickname: "active" }

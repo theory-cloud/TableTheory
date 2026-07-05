@@ -1,0 +1,95 @@
+name: "p1.query.semantics"
+dms_version: "0.1"
+requires_capabilities: ["query.basic"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item: { PK: "USER#QUERY", SK: "ITEM#001", emailHash: "query-semantics@example", nickname: "one" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#QUERY", SK: "ITEM#002", emailHash: "query-semantics@example", nickname: "two" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#QUERY", SK: "ITEM#003", emailHash: "query-semantics@example", nickname: "three" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#QUERY", SK: "ITEM#010", emailHash: "query-semantics@example", nickname: "ten" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#OTHER", SK: "ITEM#001", emailHash: "query-semantics-other@example", nickname: "other" }
+    expect: { ok: true }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#QUERY" }
+      sort: { attribute: "SK", operator: "=", value: "ITEM#002" }
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      item_count: 1
+      items_contains:
+        - { PK: "USER#QUERY", SK: "ITEM#002", nickname: "two" }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#QUERY" }
+      sort: { attribute: "SK", operator: "begins_with", value: "ITEM#00" }
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      item_count: 3
+      items_contains:
+        - { PK: "USER#QUERY", SK: "ITEM#001", nickname: "one" }
+        - { PK: "USER#QUERY", SK: "ITEM#002", nickname: "two" }
+        - { PK: "USER#QUERY", SK: "ITEM#003", nickname: "three" }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#QUERY" }
+      sort: { attribute: "SK", operator: "<", value: "ITEM#003" }
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      item_count: 2
+      items_contains:
+        - { PK: "USER#QUERY", SK: "ITEM#001", nickname: "one" }
+        - { PK: "USER#QUERY", SK: "ITEM#002", nickname: "two" }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#QUERY" }
+      sort: { attribute: "SK", operator: ">", value: "ITEM#002" }
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      item_count: 2
+      items_contains:
+        - { PK: "USER#QUERY", SK: "ITEM#003", nickname: "three" }
+        - { PK: "USER#QUERY", SK: "ITEM#010", nickname: "ten" }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#QUERY" }
+      sort: { attribute: "SK", operator: "between", values: ["ITEM#002", "ITEM#010"] }
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      item_count: 3
+      items_contains:
+        - { PK: "USER#QUERY", SK: "ITEM#002", nickname: "two" }
+        - { PK: "USER#QUERY", SK: "ITEM#003", nickname: "three" }
+        - { PK: "USER#QUERY", SK: "ITEM#010", nickname: "ten" }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#QUERY" }
+      sort: { attribute: "SK", operator: "begins_with", value: "ITEM#" }
+      sort_direction: "DESC"
+      limit: 2
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      item_count: 2
+      items_contains:
+        - { PK: "USER#QUERY", SK: "ITEM#010", nickname: "ten" }
+        - { PK: "USER#QUERY", SK: "ITEM#003", nickname: "three" }

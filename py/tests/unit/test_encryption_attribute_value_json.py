@@ -4,8 +4,8 @@ import base64
 
 import pytest
 
-from theorydb_py.encryption import marshal_attribute_value_json, unmarshal_attribute_value_json
-from theorydb_py.errors import ValidationError
+from tabletheory_py.encryption import marshal_attribute_value_json, unmarshal_attribute_value_json
+from tabletheory_py.errors import ValidationError
 
 
 def test_marshal_attribute_value_json_supported_types() -> None:

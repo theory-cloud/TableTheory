@@ -277,44 +277,14 @@ def read_json(path: str) -> object:
 
 
 def pending_stable_promotion_version() -> str:
-    stable = read_json(".release-please-manifest.json").get(".", "")
-    premain = read_json(".release-please-manifest.premain.json").get(".", "")
-    ts_package = read_json("ts/package.json").get("version", "")
-    ts_lock = read_json("ts/package-lock.json")
-    ts_lock_root = ts_lock.get("version", "")
-    ts_lock_pkg = ts_lock.get("packages", {}).get("", {}).get("version", "")
-    py_version = read_json("py/src/theorydb_py/version.json").get("version", "")
+    manifest = read_json(".release-please-manifest.json").get(".", "")
 
-    if not stable or not isinstance(stable, str):
-        fail(".release-please-manifest.json is missing a stable version")
-    if "-rc" in stable:
-        fail(f"main stable manifest must not be RC-shaped ({stable})")
-
-    pending_files = {
-        ".release-please-manifest.premain.json": premain,
-        "ts/package.json": ts_package,
-        "ts/package-lock.json": ts_lock_root,
-        "ts/package-lock.json packages['']": ts_lock_pkg,
-        "py/src/theorydb_py/version.json": py_version,
-    }
-    first_label, first_version = next(iter(pending_files.items()))
-    if not isinstance(first_version, str) or not rc_version_re.match(first_version):
+    if not isinstance(manifest, str) or not rc_version_re.match(manifest):
         fail(
-            "premain -> main promotion must carry an RC pending stable "
-            f"promotion state with numbered -rc.N syntax; {first_label} is {first_version!r}"
+            "premain -> main promotion must carry a single-manifest RC "
+            f"with numbered -rc.N syntax; .release-please-manifest.json is {manifest!r}"
         )
-    for label, version in pending_files.items():
-        if version != first_version:
-            fail(
-                "pending stable promotion files are inconsistent "
-                f"({label} {version!r} != {first_version!r})"
-            )
-    if parse_base(first_version) <= parse_base(stable):
-        fail(
-            "pending stable promotion RC must be ahead of the stable manifest "
-            f"({first_version} <= {stable})"
-        )
-    return first_version
+    return manifest
 
 
 title, body, commits = read_metadata()

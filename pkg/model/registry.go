@@ -107,6 +107,7 @@ type Metadata struct {
 	UpdatedAtField   *FieldMetadata
 	TableName        string
 	Indexes          []IndexSchema
+	Warnings         []string
 	WritePolicy      WritePolicy
 	NamingConvention naming.Convention
 }
@@ -180,6 +181,8 @@ func parseMetadata(modelType reflect.Type) (*Metadata, error) {
 	if err := registerIndexes(metadata, indexMap); err != nil {
 		return nil, err
 	}
+
+	applyIndexProjectionOverrides(modelType, metadata)
 
 	if err := applyWritePolicy(modelType, metadata); err != nil {
 		return nil, err
@@ -322,6 +325,42 @@ func registerIndexes(metadata *Metadata, indexMap map[string]*IndexSchema) error
 	return nil
 }
 
+type indexProjectionProvider interface {
+	TableTheoryIndexProjections() map[string]struct {
+		Type   string
+		Fields []string
+	}
+}
+
+func applyIndexProjectionOverrides(modelType reflect.Type, metadata *Metadata) {
+	projections, ok := indexProjectionsFromModel(modelType)
+	if !ok || len(projections) == 0 {
+		return
+	}
+	for i := range metadata.Indexes {
+		projection, ok := projections[metadata.Indexes[i].Name]
+		if !ok {
+			continue
+		}
+		metadata.Indexes[i].ProjectionType = strings.TrimSpace(projection.Type)
+		metadata.Indexes[i].ProjectedFields = append([]string(nil), projection.Fields...)
+		sort.Strings(metadata.Indexes[i].ProjectedFields)
+	}
+}
+
+func indexProjectionsFromModel(modelType reflect.Type) (map[string]struct {
+	Type   string
+	Fields []string
+}, bool) {
+	if provider, ok := reflect.New(modelType).Elem().Interface().(indexProjectionProvider); ok {
+		return provider.TableTheoryIndexProjections(), true
+	}
+	if provider, ok := reflect.New(modelType).Interface().(indexProjectionProvider); ok {
+		return provider.TableTheoryIndexProjections(), true
+	}
+	return nil, false
+}
+
 // parseFields recursively parses fields including embedded structs
 func parseFields(modelType reflect.Type, metadata *Metadata, indexMap map[string]*IndexSchema, indexPath []int) error {
 	for i := 0; i < modelType.NumField(); i++ {
@@ -354,7 +393,7 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 
 	fieldMeta, err := parseFieldMetadata(field, indexPath, metadata.NamingConvention)
 	if err != nil {
-		return fmt.Errorf("field validation failed: %w", err)
+		return fmt.Errorf("field %s validation failed: %w", field.Name, err)
 	}
 	if fieldMeta == nil {
 		return nil
@@ -362,7 +401,11 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 
 	if fieldMeta.IsEncrypted {
 		if fieldMeta.IsPK || fieldMeta.IsSK || len(fieldMeta.IndexInfo) > 0 {
-			return fmt.Errorf("%w: encrypted fields cannot be used as primary or index keys", errors.ErrInvalidTag)
+			return fmt.Errorf(
+				"%w: field %s: encrypted fields cannot be used as primary or index keys",
+				errors.ErrInvalidTag,
+				fieldMeta.Name,
+			)
 		}
 	}
 
@@ -373,7 +416,19 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 	}
 
 	applySpecialFields(metadata, fieldMeta)
-	return applyFieldIndexes(fieldMeta, indexMap)
+	return applyFieldIndexes(metadata, fieldMeta, indexMap)
+}
+
+func (m *Metadata) addWarning(warning string) {
+	if m == nil || warning == "" {
+		return
+	}
+	for _, existing := range m.Warnings {
+		if existing == warning {
+			return
+		}
+	}
+	m.Warnings = append(m.Warnings, warning)
 }
 
 func isEmbeddedStruct(field reflect.StructField) bool {
@@ -424,8 +479,16 @@ func applySpecialFields(metadata *Metadata, fieldMeta *FieldMetadata) {
 	}
 }
 
-func applyFieldIndexes(fieldMeta *FieldMetadata, indexMap map[string]*IndexSchema) error {
+func applyFieldIndexes(metadata *Metadata, fieldMeta *FieldMetadata, indexMap map[string]*IndexSchema) error {
 	for indexName, role := range fieldMeta.IndexInfo {
+		if _, explicitLSI := fieldMeta.Tags["lsi:"+indexName]; !explicitLSI && determineIndexType(indexName) == LocalSecondaryIndex {
+			metadata.addWarning(fmt.Sprintf(
+				"field %s uses legacy LSI prefix inference for index %q; prefer theorydb:\"lsi:%s\"",
+				fieldMeta.Name,
+				indexName,
+				indexName,
+			))
+		}
 		index := getOrCreateIndexSchema(fieldMeta, indexName, indexMap)
 
 		if role.IsPK {

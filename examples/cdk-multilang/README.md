@@ -8,6 +8,9 @@ Deploys **two DynamoDB tables** and **four Lambdas**:
 This is the deployable “proof” that the multi-language TableTheory stack can share a single table without drift while
 also supporting TTL-based retention pipelines.
 
+> **No AWS account?** The [`local/`](./local/README.md) variant proves the same cross-language no-drift property against
+> DynamoDB Local with `bash examples/cdk-multilang/local/run-local.sh` — no credentials or cloud mutation required.
+
 This demo also exercises:
 
 - **Encryption** (KMS envelope, cross-language decrypt)
@@ -37,7 +40,7 @@ Additional endpoints:
 
 ## Dependency audit note
 
-As of the May 2026 dependency refresh, `aws-cdk-lib@2.257.0` removes the previous bundled `fast-uri` high-severity audit finding. `npm audit` may still report a moderate `brace-expansion@5.0.5` finding bundled inside `aws-cdk-lib`; keep that visible rather than suppressing it, and refresh CDK again once AWS publishes a bundle with `brace-expansion >=5.0.6`.
+As of the current dependency pin, `aws-cdk-lib@2.260.0` removes the previous bundled `fast-uri` high-severity audit finding. `npm audit` may still report a moderate `brace-expansion@5.0.5` finding bundled inside `aws-cdk-lib`; keep that visible rather than suppressing it, and refresh CDK again once AWS publishes a bundle with `brace-expansion >=5.0.6`.
 
 SEC-2 records that advisory in `gov-infra/planning/theorydb-visible-npm-audit-findings.json`, not in the supply-chain
 suppression allowlist. The verifier therefore stays green only while the finding remains explicitly printed in SEC-2
@@ -51,4 +54,10 @@ envelope in DynamoDB.
 
 ```bash
 AWS_PROFILE=... bash examples/cdk-multilang/scripts/smoke.sh
+```
+
+For a no-AWS cross-language check, use the [`local/`](./local/README.md) variant instead:
+
+```bash
+bash examples/cdk-multilang/local/run-local.sh
 ```

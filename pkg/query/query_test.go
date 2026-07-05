@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/model"
 	"github.com/theory-cloud/tabletheory/pkg/query"
 )
@@ -245,6 +246,21 @@ func TestQuery_IndexSelection(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "Query", compiled.Operation)
 	assert.Equal(t, "status-index", compiled.IndexName)
+}
+
+func TestQuery_ConsistentReadRejectsGSI(t *testing.T) {
+	metadata := &mockMetadata{}
+	executor := &mockExecutor{}
+
+	q := query.New(&TestItem{}, metadata, executor)
+	q.
+		Index("status-index").
+		Where("status", "=", "active").
+		ConsistentRead()
+	_, err := q.Compile()
+
+	require.Error(t, err)
+	require.True(t, errors.Is(err, theorydbErrors.ErrInvalidOperator), "expected ErrInvalidOperator, got %v", err)
 }
 
 func TestQuery_ScanFallback(t *testing.T) {

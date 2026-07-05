@@ -10,6 +10,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/internal/numutil"
 	"github.com/theory-cloud/tabletheory/pkg/model"
+	"github.com/theory-cloud/tabletheory/pkg/session"
 )
 
 // AutoMigrateOptions holds configuration for AutoMigrate operations
@@ -187,7 +188,7 @@ func (m *Manager) createBackup(ctx context.Context, sourceTable, backupName stri
 		BackupName: &backupName,
 	}
 
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for backup creation: %w", err)
 	}
@@ -204,7 +205,7 @@ func (m *Manager) createBackup(ctx context.Context, sourceTable, backupName stri
 // copyTable creates a copy of a table
 func (m *Manager) copyTable(ctx context.Context, sourceTable, targetTable string) error {
 	// Get source table description
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for table description: %w", err)
 	}
@@ -308,7 +309,7 @@ func (m *Manager) copyData(opts *AutoMigrateOptions, sourceMetadata, targetMetad
 	ctx := opts.Context
 
 	// Get client once for the entire operation
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for data copy: %w", err)
 	}
@@ -347,7 +348,7 @@ func (m *Manager) copyData(opts *AutoMigrateOptions, sourceMetadata, targetMetad
 }
 
 // processItems processes and writes items to the target table
-func (m *Manager) processItems(ctx context.Context, client *dynamodb.Client, items []map[string]types.AttributeValue,
+func (m *Manager) processItems(ctx context.Context, client session.DynamoDBAPI, items []map[string]types.AttributeValue,
 	targetTable string,
 	transformFunc TransformFunc,
 	sourceMetadata, targetMetadata *model.Metadata,
@@ -367,7 +368,7 @@ func (m *Manager) processItems(ctx context.Context, client *dynamodb.Client, ite
 
 // copyTableData copies all data from source to target table
 func (m *Manager) copyTableData(ctx context.Context, sourceTable, targetTable string, batchSize int) error {
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for table data copy: %w", err)
 	}
@@ -409,7 +410,7 @@ func resolveDataCopyBatchSize(batchSize int) int {
 
 func scanTablePage(
 	ctx context.Context,
-	client *dynamodb.Client,
+	client session.DynamoDBAPI,
 	sourceTable string,
 	batchSize int,
 	lastEvaluatedKey map[string]types.AttributeValue,
@@ -432,7 +433,7 @@ func scanTablePage(
 
 func writeItemsToTable(
 	ctx context.Context,
-	client *dynamodb.Client,
+	client session.DynamoDBAPI,
 	targetTable string,
 	items []map[string]types.AttributeValue,
 	maxBatchSize int,
@@ -486,7 +487,7 @@ func buildPutWriteRequestsWithTransform(
 
 func writeRequestsBatched(
 	ctx context.Context,
-	client *dynamodb.Client,
+	client session.DynamoDBAPI,
 	tableName string,
 	writeRequests []types.WriteRequest,
 	maxBatchSize int,
@@ -524,7 +525,7 @@ func writeRequestsBatched(
 
 func batchWriteWithRetries(
 	ctx context.Context,
-	client *dynamodb.Client,
+	client session.DynamoDBAPI,
 	tableName string,
 	writeRequests []types.WriteRequest,
 	maxRetries int,
@@ -592,7 +593,7 @@ func sleepWithBackoff(ctx context.Context, retryCount int) error {
 
 func putWriteRequestsIndividually(
 	ctx context.Context,
-	client *dynamodb.Client,
+	client session.DynamoDBAPI,
 	tableName string,
 	remainingRequests []types.WriteRequest,
 ) error {

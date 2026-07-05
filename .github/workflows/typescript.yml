@@ -4,7 +4,8 @@ on:
   push:
     branches: ["staging", "premain", "main"]
   pull_request:
-    branches: ["staging", "premain", "main"]
+    # Staging PRs run TypeScript through Quality Gates to avoid duplicate suites.
+    branches: ["premain", "main"]
   workflow_dispatch: {}
 
 permissions:
@@ -13,6 +14,20 @@ permissions:
 jobs:
   ts:
     runs-on: ubuntu-latest
+    services:
+      dynamodb-local:
+        image: amazon/dynamodb-local:3.1.0
+        ports:
+          - 8000:8000
+        options: >-
+          --health-cmd "curl -s http://localhost:8000 >/dev/null || exit 1"
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 24
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "24"]
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -20,7 +35,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node-version }}
           cache: npm
           cache-dependency-path: ts/package-lock.json
 
@@ -43,10 +58,7 @@ jobs:
         run: npm --prefix ts run test:unit
 
       - name: Coverage (unit)
-        run: bash scripts/coverage-ts.sh unit
-
-      - name: Start DynamoDB Local (pinned)
-        run: make docker-up
+        run: bash scripts/verify-coverage.sh --language typescript --suite unit --record-only
 
       - name: Integration test
         env:
@@ -57,14 +69,10 @@ jobs:
           DYNAMODB_ENDPOINT: http://localhost:8000
         run: npm --prefix ts run test:integration
 
-      - name: Stop DynamoDB Local
-        if: always()
-        run: make docker-down
-
       - name: Upload coverage artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ts_coverage
+          name: ts_coverage-${{ matrix.node-version }}
           path: ts/coverage
           if-no-files-found: ignore

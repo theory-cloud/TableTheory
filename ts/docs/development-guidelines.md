@@ -27,3 +27,11 @@ From the repo root:
 - Keep public APIs stable and documented in [API Reference](./api-reference.md).
 - Do not weaken testkit strictness: unit tests should fail if expected AWS commands were not issued.
 - Treat `encrypted` fields as fail-closed: do not allow silent plaintext fallbacks.
+
+## Type-aware lint posture
+
+- `recommended-type-checked` is active for the TypeScript runtime, and `no-floating-promises` is load-bearing.
+- A narrow legacy allowlist remains in `ts/eslint.config.js` for high-churn typed-safety cleanup rules, including the
+  current `no-unsafe-*` debt around dynamic DynamoDB marshalling and testkit boundaries.
+- Do not expand that allowlist as routine cleanup. Tighten it in a dedicated typed-safety pass that can cover affected
+  call sites without unrelated public API or runtime behavior churn.

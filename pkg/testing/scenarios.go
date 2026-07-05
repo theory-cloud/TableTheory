@@ -1,8 +1,6 @@
 package testing
 
 import (
-	"errors"
-
 	"github.com/stretchr/testify/mock"
 
 	"github.com/theory-cloud/tabletheory/pkg/core"
@@ -106,26 +104,6 @@ func (s *CommonScenarios) SetupErrorScenarios(errorMap map[string]error) {
 		case "count":
 			s.db.MockQuery.On("Count").Return(int64(0), err).Maybe()
 		}
-	}
-}
-
-// SetupTransactionScenario sets up expectations for transactional operations
-func (s *CommonScenarios) SetupTransactionScenario(success bool) {
-	if success {
-		s.db.MockDB.On("Transaction", mock.AnythingOfType("func(*core.Tx) error")).
-			Run(func(args mock.Arguments) {
-				fn, ok := args.Get(0).(func(*core.Tx) error)
-				if !ok {
-					panic("unexpected type: expected func(*core.Tx) error")
-				}
-				// Execute the transaction function with a mock transaction
-				if err := fn(&core.Tx{}); err != nil {
-					panic(err)
-				}
-			}).Return(nil).Maybe()
-	} else {
-		s.db.MockDB.On("Transaction", mock.AnythingOfType("func(*core.Tx) error")).
-			Return(errors.New("transaction failed")).Maybe()
 	}
 }
 

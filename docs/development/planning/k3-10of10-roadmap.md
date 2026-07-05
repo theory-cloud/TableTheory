@@ -24,12 +24,12 @@ Evidence (most recent):
 - ✅ `make test-unit`
 - ✅ `make test-integration`
 - ✅ `bash scripts/verify-coverage.sh` (Total Coverage 90.7% vs threshold 90%)
-- ✅ `bash scripts/fmt-check.sh`
+- ✅ `bash scripts/verify-formatting.sh --language go`
 - ✅ `bash scripts/verify-go-modules.sh`
 - ✅ `bash scripts/verify-ci-toolchain.sh`
 - ✅ `golangci-lint config verify -c .golangci-v2.yml`
 - ✅ `golangci-lint run --timeout=5m --config .golangci-v2.yml`
-- ✅ `bash scripts/verify-coverage-threshold.sh`
+- ✅ `bash scripts/verify-coverage.sh --check-threshold-config`
 - ✅ `bash scripts/verify-logging-standards.sh`
 - ✅ `bash scripts/verify-planning-docs.sh`
 - ✅ `go mod verify`
@@ -116,7 +116,7 @@ bash scripts/verify-planning-docs.sh
 **Suggested verification**
 ```bash
 go build ./...
-bash scripts/fmt-check.sh
+bash scripts/verify-formatting.sh --language go
 # Lint config should set run.tests: false during Stage A (see Lesser example).
 golangci-lint run --timeout=5m --config .golangci-v2.yml
 ```
@@ -131,7 +131,7 @@ even when the primary commands happen to be green.
 bash scripts/verify-go-modules.sh
 bash scripts/verify-ci-toolchain.sh
 golangci-lint config verify -c .golangci-v2.yml
-bash scripts/verify-coverage-threshold.sh
+bash scripts/verify-coverage.sh --check-threshold-config
 bash scripts/verify-logging-standards.sh
 ```
 
@@ -187,7 +187,7 @@ bash scripts/verify-logging-standards.sh
 make test-unit
 make test-integration
 bash scripts/verify-coverage.sh
-bash scripts/fmt-check.sh
+bash scripts/verify-formatting.sh --language go
 golangci-lint run --timeout=5m --config .golangci-v2.yml
 ```
 

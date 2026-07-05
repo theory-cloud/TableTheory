@@ -5,23 +5,67 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=20"
   },
   "files": [
     "dist"
   ],
+  "main": "./dist/cjs/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    },
+    "./facetheory": {
+      "import": {
+        "types": "./dist/facetheory-isr.d.ts",
+        "default": "./dist/facetheory-isr.js"
+      },
+      "require": {
+        "types": "./dist/cjs/facetheory-isr.d.ts",
+        "default": "./dist/cjs/facetheory-isr.js"
+      }
+    },
+    "./release-state": {
+      "import": {
+        "types": "./dist/release-state.d.ts",
+        "default": "./dist/release-state.js"
+      },
+      "require": {
+        "types": "./dist/cjs/release-state.d.ts",
+        "default": "./dist/cjs/release-state.js"
+      }
+    },
+    "./lease": {
+      "import": {
+        "types": "./dist/lease.d.ts",
+        "default": "./dist/lease.js"
+      },
+      "require": {
+        "types": "./dist/cjs/lease.d.ts",
+        "default": "./dist/cjs/lease.js"
+      }
     },
     "./testkit": {
-      "types": "./dist/testkit/index.d.ts",
-      "import": "./dist/testkit/index.js"
+      "import": {
+        "types": "./dist/testkit/index.d.ts",
+        "default": "./dist/testkit/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/testkit/index.d.ts",
+        "default": "./dist/cjs/testkit/index.js"
+      }
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "npm run build:esm && npm run build:cjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test:unit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --max-warnings=0",
@@ -30,13 +74,17 @@
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "tsx test/run-unit.ts",
     "test:integration": "tsx test/run-integration.ts",
-    "example:local": "tsx examples/local.ts"
+    "example:local": "tsx examples/local.ts",
+    "build:esm": "tsc -p tsconfig.build.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', JSON.stringify({ type: 'commonjs' }) + '\\n')\""
   },
   "dependencies": {
+    "yaml": "^2.9.0"
+  },
+  "peerDependencies": {
     "@aws-sdk/client-dynamodb": "^3.1053.0",
     "@aws-sdk/client-kms": "^3.1053.0",
-    "@aws-sdk/client-sts": "^3.1053.0",
-    "yaml": "^2.9.0"
+    "@aws-sdk/client-sts": "^3.1053.0"
   },
   "overrides": {
     "fast-xml-parser": "5.7.3",
@@ -44,13 +92,16 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^24.12.4",
+    "@types/node": "^20.19.0",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
     "@typescript-eslint/parser": "^8.60.0",
     "eslint": "^10.4.0",
     "globals": "^17.6.0",
     "prettier": "^3.8.3",
     "tsx": "^4.22.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@aws-sdk/client-dynamodb": "^3.1053.0",
+    "@aws-sdk/client-kms": "^3.1053.0",
+    "@aws-sdk/client-sts": "^3.1053.0"
   }
 }

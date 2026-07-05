@@ -34,12 +34,12 @@ Every rubric ID maps to exactly one verifier and one primary evidence location.
 | QUA-5 | Fuzz smoke output | `gov-infra/evidence/QUA-5-output.log` | `bash scripts/fuzz-smoke.sh` |
 | CON-1 | Formatter diff list | `gov-infra/evidence/CON-1-output.log` | `bash scripts/verify-formatting.sh` |
 | CON-2 | Lint output | `gov-infra/evidence/CON-2-output.log` | `bash scripts/verify-lint.sh` |
-| CON-3 | Contract verification output | `gov-infra/evidence/CON-3-output.log` | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh` |
+| CON-3 | Contract verification output | `gov-infra/evidence/CON-3-output.log` | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh`, `bash scripts/verify-generated-models.sh --check` |
 | COM-1 | Builds + version alignment output | `gov-infra/evidence/COM-1-output.log` | `bash scripts/verify-typescript-deps.sh`, `bash scripts/verify-python-deps.sh`, `bash scripts/verify-builds.sh` |
 | COM-2 | Toolchain pin verification | `gov-infra/evidence/COM-2-output.log` | `bash scripts/verify-ci-toolchain.sh` |
 | COM-3 | Planning docs presence | `gov-infra/evidence/COM-3-output.log` | `bash scripts/verify-planning-docs.sh` |
 | COM-4 | Lint config validation | `gov-infra/evidence/COM-4-output.log` | `golangci-lint config verify -c .golangci-v2.yml` |
-| COM-5 | Coverage threshold check | `gov-infra/evidence/COM-5-output.log` | `bash scripts/verify-coverage-threshold.sh` |
+| COM-5 | Coverage threshold check | `gov-infra/evidence/COM-5-output.log` | `bash scripts/verify-coverage.sh --check-threshold-config` |
 | COM-6 | CI rubric enforcement check | `gov-infra/evidence/COM-6-output.log` | `bash scripts/verify-ci-rubric-enforced.sh` |
 | COM-7 | DynamoDB Local pin check | `gov-infra/evidence/COM-7-output.log` | `bash scripts/verify-dynamodb-local-pin.sh` |
 | COM-8 | Branch/release supply-chain + version sync | `gov-infra/evidence/COM-8-output.log` | `bash scripts/verify-branch-release-supply-chain.sh`, `bash scripts/verify-branch-version-sync.sh` |

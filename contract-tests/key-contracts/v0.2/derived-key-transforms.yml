@@ -1,0 +1,55 @@
+tabletheory_model_contract_version: "0.2"
+namespace: "tabletheory.contract"
+dms_version: "0.1"
+models:
+  - name: "KeyTransformFixture"
+    dms_model: "KeyTransformFixture"
+    derived_keys:
+      - "LowercaseLookupKey"
+      - "LiteralUrlEncodedKey"
+derived_keys:
+  - name: "LowercaseLookupKey"
+    helper: "lowercaseLookupKey"
+    description: "Pins v0.2 ASCII lowercase and URL encoding transforms."
+    join: "|"
+    inputs:
+      - { name: "namespace", ts_name: "namespace", type: "string" }
+      - { name: "repository", ts_name: "repository", type: "string" }
+    segments:
+      - name: "namespace"
+        prefix: "ns="
+        value: { input: "namespace" }
+        transforms: ["trim", "lowercase", "url_encode"]
+      - name: "repository"
+        prefix: "repo="
+        value: { input: "repository" }
+        transforms: ["trim", "lowercase", "url_encode"]
+    fixtures:
+      - name: "ascii_lowercase_then_url_encode"
+        input:
+          namespace: " TheoryCloud "
+          repository: "Payments/API v2"
+        expect: "ns=theorycloud|repo=payments%2Fapi%20v2"
+      - name: "ascii_only_lowercase_preserves_non_ascii"
+        input:
+          namespace: " İSTANBUL "
+          repository: "CAFÉ/Docs"
+        expect: "ns=%C4%B0stanbul|repo=caf%C3%89%2Fdocs"
+
+  - name: "LiteralUrlEncodedKey"
+    helper: "literalUrlEncodedKey"
+    description: "Pins URL encoding on literal segments."
+    join: "|"
+    segments:
+      - name: "region"
+        prefix: "marker="
+        value: { literal: "region/us-east-1" }
+        transforms: ["url_encode"]
+      - name: "space"
+        prefix: "space="
+        value: { literal: "a b" }
+        transforms: ["url_encode"]
+    fixtures:
+      - name: "literal_segments"
+        input: {}
+        expect: "marker=region%2Fus-east-1|space=a%20b"

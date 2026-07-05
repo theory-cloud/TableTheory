@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from theorydb_py.validation import (
+from tabletheory_py.validation import (
     MaxExpressionLength,
     MaxFieldNameLength,
     MaxNestedDepth,

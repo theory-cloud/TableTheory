@@ -66,6 +66,14 @@ jobs:
         id: pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
+      - name: Generate Python find-links index
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/generate-python-find-links-index.py \
+            --repo theory-cloud/TableTheory \
+            --output docs/python/find-links/index.html
+
       - name: Jekyll build
         working-directory: docs
         env:

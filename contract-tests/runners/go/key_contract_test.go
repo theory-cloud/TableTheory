@@ -16,7 +16,22 @@ func TestKeyContract_TheoryMCPFixtures(t *testing.T) {
 	root, err := runner.RepoRootFromModuleDir()
 	require.NoError(t, err)
 
-	contract, err := keycontract.LoadFile(filepath.Join(root, "contract-tests", "key-contracts", "v0.1", "theorymcp-derived-keys.yml"))
+	files, err := filepath.Glob(filepath.Join(root, "contract-tests", "key-contracts", "v*", "*.yml"))
 	require.NoError(t, err)
-	require.NoError(t, keycontract.VerifyFixtures(contract))
+	require.NotEmpty(t, files)
+
+	seen := map[string]bool{}
+	for _, path := range files {
+		contract, err := keycontract.LoadFile(path)
+		require.NoError(t, err, path)
+		require.NoError(t, keycontract.VerifyFixtures(contract), path)
+		for _, name := range keycontract.DerivedKeyNames(contract) {
+			seen[name] = true
+		}
+	}
+
+	require.True(t, seen["CanonicalPolicyKey"])
+	require.True(t, seen["CanonicalBindingKey"])
+	require.True(t, seen["InterfaceScopeKey"])
+	require.True(t, seen["LowercaseLookupKey"])
 }

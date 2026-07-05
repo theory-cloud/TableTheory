@@ -8,8 +8,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
 // TestNewConverter tests the converter constructor
@@ -847,34 +845,6 @@ func TestToAttributeValue_FlatAnonymousEmbedEncoding_UsesNamingConvention(t *tes
 
 	require.Equal(t, "acct#1", attributeValueString(t, recordAV.Value["pk"]))
 	require.Equal(t, "Ada Lovelace", attributeValueString(t, recordAV.Value["display_name"]))
-}
-
-func TestResolveStructMarshalFieldName(t *testing.T) {
-	type sample struct {
-		Visible string
-		Skipped string `theorydb:"-"`
-	}
-
-	visibleField, ok := reflect.TypeOf(sample{}).FieldByName("Visible")
-	require.True(t, ok)
-
-	attrName, skip, err := resolveStructMarshalFieldName(visibleField, naming.SnakeCase, true)
-	require.NoError(t, err)
-	require.False(t, skip)
-	require.Equal(t, "visible", attrName)
-
-	attrName, skip, err = resolveStructMarshalFieldName(visibleField, naming.CamelCase, false)
-	require.NoError(t, err)
-	require.False(t, skip)
-	require.Equal(t, "Visible", attrName)
-
-	skippedField, ok := reflect.TypeOf(sample{}).FieldByName("Skipped")
-	require.True(t, ok)
-
-	attrName, skip, err = resolveStructMarshalFieldName(skippedField, naming.SnakeCase, true)
-	require.NoError(t, err)
-	require.True(t, skip)
-	require.Empty(t, attrName)
 }
 
 func stringListAttributeValue(values []string) *types.AttributeValueMemberL {

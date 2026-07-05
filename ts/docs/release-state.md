@@ -7,12 +7,11 @@ API surface.
 ## APIs
 
 ```ts
+import { TheorydbClient, defineModel } from '@theory-cloud/tabletheory-ts';
 import {
-  TheorydbClient,
-  defineModel,
   transitionReleaseState,
   validateDeployAuthorityMetadata,
-} from '@theory-cloud/tabletheory-ts';
+} from '@theory-cloud/tabletheory-ts/release-state';
 ```
 
 - Declare model-level mutation rules through `write_policy` in `defineModel(...)`.

@@ -23,6 +23,7 @@ models:
       - attribute: "emailHash"
         type: "S"
         optional: true
+        omit_empty: true
 
       # Used for omitempty tests (string).
       - attribute: "nickname"
@@ -62,4 +63,4 @@ models:
       - name: "gsi-email"
         type: "GSI"
         partition: { attribute: "emailHash", type: "S" }
-        projection: { type: "ALL" }
+        projection: { type: "KEYS_ONLY" }

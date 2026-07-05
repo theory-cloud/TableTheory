@@ -2,7 +2,7 @@
 # Helps AI assistants understand components and relationships
 
 concepts:
-  theorydb_py:
+  tabletheory_py:
     type: library
     language: python
     purpose: "Typed, testable DynamoDB access layer aligned with Go TableTheory"
@@ -17,7 +17,7 @@ concepts:
       - encryption_envelope_kms
       - strict_unit_test_fakes
     requires:
-      - python_3_14
+      - python_3_12
       - boto3
       - pyyaml
       - cryptography

@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py import ModelDefinition, Table, ValidationError, theorydb_field
-from theorydb_py.mocks import FakeDynamoDBClient
-from theorydb_py.query import FilterCondition, FilterGroup
+from tabletheory_py import ModelDefinition, Table, ValidationError, theorydb_field
+from tabletheory_py.mocks import FakeDynamoDBClient
+from tabletheory_py.query import FilterCondition, FilterGroup
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,7 @@ surface.
 ## APIs
 
 ```python
-from theorydb_py import (
+from tabletheory_py import (
     ModelDefinition,
     Table,
     WritePolicy,

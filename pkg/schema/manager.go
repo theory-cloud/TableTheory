@@ -102,7 +102,7 @@ func (m *Manager) CreateTable(model any, opts ...TableOption) error {
 
 	// Create table
 	ctx := context.Background()
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for table creation: %w", err)
 	}
@@ -267,7 +267,7 @@ func (m *Manager) buildIndexes(metadata *model.Metadata) ([]types.GlobalSecondar
 // waitForTableActive waits for a table to become active
 func (m *Manager) waitForTableActive(tableName string) error {
 	ctx := context.Background()
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for table waiter: %w", err)
 	}
@@ -289,7 +289,7 @@ func (m *Manager) waitForTableActive(tableName string) error {
 // TableExists checks if a table exists
 func (m *Manager) TableExists(tableName string) (bool, error) {
 	ctx := context.Background()
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return false, fmt.Errorf("failed to get client for table exists check: %w", err)
 	}
@@ -312,7 +312,7 @@ func (m *Manager) TableExists(tableName string) (bool, error) {
 // DeleteTable deletes a DynamoDB table
 func (m *Manager) DeleteTable(tableName string) error {
 	ctx := context.Background()
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for table deletion: %w", err)
 	}
@@ -340,7 +340,7 @@ func (m *Manager) DescribeTable(model any) (*types.TableDescription, error) {
 	}
 
 	ctx := context.Background()
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client for table description: %w", err)
 	}
@@ -383,7 +383,7 @@ func (m *Manager) UpdateTable(model any, opts ...TableOption) error {
 	}
 
 	ctx := context.Background()
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for table update: %w", err)
 	}

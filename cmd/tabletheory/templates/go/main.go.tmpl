@@ -1,0 +1,80 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/theory-cloud/tabletheory"
+	"github.com/theory-cloud/tabletheory/pkg/session"
+)
+
+// Note is the demo model. The `theorydb:"..."` struct tags are the TableTheory
+// data contract; the same shape is described language-neutrally in dms.yml.
+type Note struct {
+	PK        string    `theorydb:"pk" json:"PK"`
+	SK        string    `theorydb:"sk" json:"SK"`
+	Title     string    `json:"title,omitempty"`
+	Value     int64     `json:"value,omitempty"`
+	CreatedAt time.Time `theorydb:"created_at" json:"createdAt"`
+	UpdatedAt time.Time `theorydb:"updated_at" json:"updatedAt"`
+	Version   int64     `theorydb:"version" json:"version"`
+}
+
+// TableName is the DynamoDB table this model is stored in.
+func (Note) TableName() string { return "notes" }
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func main() {
+	db, err := tabletheory.New(session.Config{
+		Region:   envOr("AWS_REGION", "us-east-1"),
+		Endpoint: envOr("DYNAMODB_ENDPOINT", "http://localhost:8000"),
+	})
+	if err != nil {
+		log.Fatalf("connect to DynamoDB: %v", err)
+	}
+
+	// CreateTable is idempotent for this quickstart; ignore "already exists".
+	if err := db.CreateTable(&Note{}); err != nil && !strings.Contains(err.Error(), "ResourceInUseException") {
+		log.Fatalf("create table: %v", err)
+	}
+
+	note := &Note{PK: "NOTE#1", SK: "v1", Title: "Hello TableTheory", Value: 42}
+	if err := db.Model(note).Create(); err != nil {
+		log.Fatalf("create: %v", err)
+	}
+	fmt.Printf("created note %s (version %d)\n", note.PK, note.Version)
+
+	var got Note
+	if err := db.Model(&Note{}).Where("PK", "=", "NOTE#1").Where("SK", "=", "v1").First(&got); err != nil {
+		log.Fatalf("read: %v", err)
+	}
+	fmt.Printf("read note: title=%q value=%d version=%d\n", got.Title, got.Value, got.Version)
+
+	got.Title = "Hello TableTheory (updated)"
+	if err := db.Model(&got).Update("title"); err != nil {
+		log.Fatalf("update: %v", err)
+	}
+	// Update succeeds with the read version but does not mutate got.Version;
+	// re-read to show the persisted optimistic-lock version increment.
+	var updated Note
+	if err := db.Model(&Note{}).Where("PK", "=", got.PK).Where("SK", "=", got.SK).First(&updated); err != nil {
+		log.Fatalf("read after update: %v", err)
+	}
+	fmt.Printf("updated note: title=%q persistedVersion=%d\n", updated.Title, updated.Version)
+
+	if err := db.Model(&Note{}).Where("PK", "=", updated.PK).Where("SK", "=", updated.SK).Delete(); err != nil {
+		log.Fatalf("delete: %v", err)
+	}
+	fmt.Printf("deleted note %s\n", updated.PK)
+
+	fmt.Println("OK: TableTheory CRUD against DynamoDB Local succeeded")
+}

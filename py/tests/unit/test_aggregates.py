@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py.aggregates import (
+from tabletheory_py.aggregates import (
     aggregate_field,
     average_field,
     count_distinct,

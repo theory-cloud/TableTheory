@@ -54,3 +54,9 @@ export type TransactAction =
       expressionAttributeNames?: Record<string, string>;
       expressionAttributeValues?: Record<string, AttributeValue>;
     };
+
+export type TransactGetAction = {
+  model: string;
+  key: Record<string, unknown>;
+  projection?: string[];
+};

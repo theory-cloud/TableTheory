@@ -1,0 +1,67 @@
+dms_version: "0.1"
+namespace: "tabletheory.codegen"
+models:
+  - name: "DMSNote"
+    table: { name: "dms_notes" }
+    naming: { convention: "camelCase" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+      sort: { attribute: "SK", type: "S" }
+    write_policy:
+      mode: "mutable"
+      protected_attributes: ["title"]
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "SK"
+        type: "S"
+        required: true
+        roles: ["sk"]
+      - attribute: "title"
+        type: "S"
+        optional: true
+        omit_empty: true
+      - attribute: "count"
+        type: "N"
+        optional: true
+      - attribute: "tags"
+        type: "SS"
+        optional: true
+        omit_empty: true
+      - attribute: "payload"
+        type: "M"
+        json: true
+        optional: true
+      - attribute: "blob"
+        type: "B"
+        binary: true
+        optional: true
+      - attribute: "secret"
+        type: "S"
+        optional: true
+        omit_empty: true
+        encryption: { v: 1 }
+      - attribute: "createdAt"
+        type: "S"
+        format: "rfc3339nano"
+        roles: ["created_at"]
+        optional: true
+      - attribute: "version"
+        type: "N"
+        format: "int"
+        roles: ["version"]
+        optional: true
+      - attribute: "ttl"
+        type: "N"
+        format: "unix_seconds"
+        roles: ["ttl"]
+        optional: true
+        omit_empty: true
+    indexes:
+      - name: "gsi-title"
+        type: "GSI"
+        partition: { attribute: "title", type: "S" }
+        sort: { attribute: "createdAt", type: "S" }
+        projection: { type: "INCLUDE", fields: ["payload", "count"] }

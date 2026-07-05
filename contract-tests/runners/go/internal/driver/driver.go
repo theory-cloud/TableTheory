@@ -2,21 +2,26 @@ package driver
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory"
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
-	"github.com/theory-cloud/tabletheory/pkg/model"
 	"github.com/theory-cloud/tabletheory/pkg/releasestate"
 	"github.com/theory-cloud/tabletheory/pkg/session"
+	"github.com/theory-cloud/tabletheory/pkg/testing/fakedb"
 )
 
 type ErrorCode string
@@ -24,9 +29,14 @@ type ErrorCode string
 const (
 	ErrItemNotFound      ErrorCode = "ErrItemNotFound"
 	ErrConditionFailed   ErrorCode = "ErrConditionFailed"
+	ErrVersionConflict   ErrorCode = "ErrVersionConflict"
 	ErrInvalidModel      ErrorCode = "ErrInvalidModel"
 	ErrMissingPrimaryKey ErrorCode = "ErrMissingPrimaryKey"
 	ErrInvalidOperator   ErrorCode = "ErrInvalidOperator"
+
+	ErrEncryptionNotConfigured    ErrorCode = "ErrEncryptionNotConfigured"
+	ErrEncryptedFieldNotQueryable ErrorCode = "ErrEncryptedFieldNotQueryable"
+	ErrInvalidEncryptedEnvelope   ErrorCode = "ErrInvalidEncryptedEnvelope"
 
 	ErrImmutableModelMutation          ErrorCode = "ErrImmutableModelMutation"
 	ErrProtectedFieldMutation          ErrorCode = "ErrProtectedFieldMutation"
@@ -37,11 +47,62 @@ type Driver interface {
 	Capabilities() []string
 	Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error
 	Get(ctx context.Context, model string, key map[string]any) (map[string]any, error)
+	GetOptional(ctx context.Context, model string, key map[string]any) (map[string]any, bool, error)
 	Update(ctx context.Context, model string, item map[string]any, fields []string, protectedAttributes []string) error
 	Save(ctx context.Context, model string, item map[string]any) error
 	Delete(ctx context.Context, model string, key map[string]any) error
+	Query(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
+	Scan(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
+	CountQuery(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
+	CountScan(ctx context.Context, model string, req ReadRequest) (ReadResult, error)
+	TransactGet(ctx context.Context, model string, items []KeyedItem) (ReadResult, error)
+	BatchGet(ctx context.Context, model string, keys []map[string]any) (ReadResult, error)
+	BatchWrite(ctx context.Context, model string, puts []map[string]any, deletes []map[string]any) error
+	TransactWrite(ctx context.Context, model string, actions []TransactWriteAction) error
 	TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error
 	ValidateProvenance(ctx context.Context, model string, item map[string]any) error
+}
+
+type ReadRequest struct {
+	Index          string
+	Partition      *ReadCondition
+	Sort           *ReadCondition
+	Filter         []ReadCondition
+	SortDirection  string
+	Limit          int
+	Projection     []string
+	Cursor         string
+	ConsistentRead *bool
+}
+
+type ReadCondition struct {
+	Attribute string
+	Operator  string
+	Value     any
+	Values    []any
+}
+
+type ReadResult struct {
+	Items  []map[string]any
+	Cursor string
+	Count  *int64
+}
+
+type KeyedItem struct {
+	Model string
+	Key   map[string]any
+}
+
+type TransactWriteAction struct {
+	Kind                      string
+	Model                     string
+	Item                      map[string]any
+	Key                       map[string]any
+	Set                       map[string]any
+	ConditionExpression       string
+	ExpressionAttributeNames  map[string]string
+	ExpressionAttributeValues map[string]any
+	IfNotExists               bool
 }
 
 type TransitionActual struct {
@@ -57,46 +118,88 @@ type TransitionEvent struct {
 }
 
 func MapError(err error) ErrorCode {
+	codes := MapErrors(err)
+	if len(codes) == 0 {
+		return ""
+	}
+	return codes[0]
+}
+
+func MapErrors(err error) []ErrorCode {
 	switch {
 	case errors.Is(err, theorydbErrors.ErrItemNotFound):
-		return ErrItemNotFound
+		return []ErrorCode{ErrItemNotFound}
+	case errors.Is(err, theorydbErrors.ErrVersionConflict):
+		return []ErrorCode{ErrConditionFailed, ErrVersionConflict}
 	case errors.Is(err, theorydbErrors.ErrConditionFailed):
-		return ErrConditionFailed
+		return []ErrorCode{ErrConditionFailed}
 	case errors.Is(err, theorydbErrors.ErrInvalidModel):
-		return ErrInvalidModel
+		return []ErrorCode{ErrInvalidModel}
 	case errors.Is(err, theorydbErrors.ErrMissingPrimaryKey):
-		return ErrMissingPrimaryKey
+		return []ErrorCode{ErrMissingPrimaryKey}
 	case errors.Is(err, theorydbErrors.ErrInvalidOperator):
-		return ErrInvalidOperator
+		return []ErrorCode{ErrInvalidOperator}
+	case errors.Is(err, theorydbErrors.ErrEncryptionNotConfigured):
+		return []ErrorCode{ErrEncryptionNotConfigured}
+	case errors.Is(err, theorydbErrors.ErrEncryptedFieldNotQueryable):
+		return []ErrorCode{ErrEncryptedFieldNotQueryable}
+	case errors.Is(err, theorydbErrors.ErrInvalidEncryptedEnvelope):
+		return []ErrorCode{ErrInvalidEncryptedEnvelope}
 	case errors.Is(err, theorydbErrors.ErrImmutableModelMutation):
-		return ErrImmutableModelMutation
+		return []ErrorCode{ErrImmutableModelMutation}
 	case errors.Is(err, theorydbErrors.ErrProtectedFieldMutation):
-		return ErrProtectedFieldMutation
+		return []ErrorCode{ErrProtectedFieldMutation}
 	case errors.Is(err, theorydbErrors.ErrRejectedDeployAuthorityEvidence):
-		return ErrRejectedDeployAuthorityEvidence
+		return []ErrorCode{ErrRejectedDeployAuthorityEvidence}
 	default:
-		return ""
+		return nil
 	}
 }
 
 type TheorydbDriver struct {
-	db core.ExtendedDB
+	db                      core.ExtendedDB
+	deterministicEncryption bool
 }
 
 func (d *TheorydbDriver) Capabilities() []string {
-	return []string{
+	capabilities := []string{
 		"crud",
 		"omitempty",
 		"lifecycle.timestamps",
 		"optimistic_lock.version",
+		"error.version_conflict",
 		"ttl.epoch_seconds",
+		"number.precision.exact",
+		"type.matrix",
+		"query.basic",
+		"scan.basic",
+		"count.native",
+		"get.optional",
+		"transact_get",
+		"batch.get",
+		"batch.write",
+		"transact.write",
 		"release_state.write_policy",
 		"release_state.transactional_transition",
 		"release_state.provenance_confidence",
+		"encryption.fail_closed",
 	}
+	if d.deterministicEncryption {
+		capabilities = append(capabilities, "encryption.deterministic_interop")
+	}
+	return capabilities
 }
 
-func NewTheorydbDriver() (*TheorydbDriver, error) {
+type Options struct {
+	Encryption EncryptionOptions
+}
+
+type EncryptionOptions struct {
+	Provider string
+	Seed     string
+}
+
+func NewTheorydbDriver(options ...Options) (*TheorydbDriver, error) {
 	endpoint := os.Getenv("DYNAMODB_ENDPOINT")
 	if endpoint == "" {
 		endpoint = "http://localhost:8000"
@@ -109,19 +212,65 @@ func NewTheorydbDriver() (*TheorydbDriver, error) {
 		region = "us-east-1"
 	}
 
-	db, err := tabletheory.New(session.Config{
+	cfg := session.Config{
 		Region:   region,
 		Endpoint: endpoint,
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 			config.WithRegion(region),
 		},
-	})
+	}
+	deterministicEncryption := false
+	if len(options) > 0 && options[0].Encryption.Provider != "" {
+		kmsClient, rng, err := deterministicEncryptionForOptions(options[0].Encryption)
+		if err != nil {
+			return nil, err
+		}
+		cfg.KMSKeyARN = "arn:aws:kms:us-east-1:111111111111:key/contract-deterministic"
+		cfg.KMSClient = kmsClient
+		cfg.EncryptionRand = rng
+		deterministicEncryption = true
+	}
+
+	db, err := tabletheory.New(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return &TheorydbDriver{db: db}, nil
+	if err := db.RegisterTypeConverter(reflect.TypeOf(DecimalString("")), decimalStringConverter{}); err != nil {
+		return nil, err
+	}
+
+	return &TheorydbDriver{db: db, deterministicEncryption: deterministicEncryption}, nil
+}
+
+func NewFakeTheorydbDriver(options ...Options) (*TheorydbDriver, *fakedb.Fake, error) {
+	cfg := session.Config{
+		Region: "us-east-1",
+	}
+	deterministicEncryption := false
+	if len(options) > 0 && options[0].Encryption.Provider != "" {
+		kmsClient, rng, err := deterministicEncryptionForOptions(options[0].Encryption)
+		if err != nil {
+			return nil, nil, err
+		}
+		cfg.KMSKeyARN = "arn:aws:kms:us-east-1:111111111111:key/contract-deterministic"
+		cfg.KMSClient = kmsClient
+		cfg.EncryptionRand = rng
+		deterministicEncryption = true
+	}
+
+	fake := fakedb.New()
+	db, err := tabletheory.NewWithClient(cfg, fake)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := db.RegisterTypeConverter(reflect.TypeOf(DecimalString("")), decimalStringConverter{}); err != nil {
+		return nil, nil, err
+	}
+
+	return &TheorydbDriver{db: db, deterministicEncryption: deterministicEncryption}, fake, nil
 }
 
 func (d *TheorydbDriver) Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error {
@@ -161,6 +310,34 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 			return nil, err
 		}
 		return normalizeOrder(out), nil
+	case "NumberPrecision":
+		var out NumberPrecision
+		err := d.db.WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeNumberPrecision(out), nil
+	case "TypeMatrix":
+		var out TypeMatrix
+		err := d.db.WithContext(ctx).Model(&TypeMatrix{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeTypeMatrix(out), nil
+	case "SnakeCaseRecord":
+		var out SnakeCaseRecord
+		err := d.db.WithContext(ctx).Model(&SnakeCaseRecord{}).Where("pk", "=", pk).Where("sk", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeSnakeCaseRecord(out), nil
+	case "EncryptedRecord":
+		var out EncryptedRecord
+		err := d.db.WithContext(ctx).Model(&EncryptedRecord{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeEncryptedRecord(out), nil
 	case "ReleaseStateActual":
 		var out ReleaseStateActual
 		err := d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
@@ -178,6 +355,17 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 	default:
 		return nil, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
+}
+
+func (d *TheorydbDriver) GetOptional(ctx context.Context, model string, key map[string]any) (map[string]any, bool, error) {
+	item, err := d.Get(ctx, model, key)
+	if err == nil {
+		return item, true, nil
+	}
+	if errors.Is(err, theorydbErrors.ErrItemNotFound) {
+		return nil, false, nil
+	}
+	return nil, false, err
 }
 
 func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[string]any, fields []string, protectedAttributes []string) error {
@@ -213,6 +401,14 @@ func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[strin
 		return d.db.WithContext(ctx).Model(&User{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "Order":
 		return d.db.WithContext(ctx).Model(&Order{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+	case "NumberPrecision":
+		return d.db.WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+	case "TypeMatrix":
+		return d.db.WithContext(ctx).Model(&TypeMatrix{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+	case "SnakeCaseRecord":
+		return d.db.WithContext(ctx).Model(&SnakeCaseRecord{}).Where("pk", "=", pk).Where("sk", "=", sk).Delete()
+	case "EncryptedRecord":
+		return d.db.WithContext(ctx).Model(&EncryptedRecord{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateActual":
 		return d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateEvent":
@@ -220,6 +416,341 @@ func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[strin
 	default:
 		return fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
+}
+
+func (d *TheorydbDriver) Query(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
+	q, err := d.buildReadQuery(ctx, model, req)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	if req.Partition == nil {
+		return ReadResult{}, fmt.Errorf("%w: query partition is required", theorydbErrors.ErrMissingPrimaryKey)
+	}
+	q = q.Where(req.Partition.Attribute, req.Partition.Operator, conditionValue(*req.Partition))
+	if req.Sort != nil {
+		q = q.Where(req.Sort.Attribute, req.Sort.Operator, conditionValue(*req.Sort))
+	}
+	return d.executeRead(model, q)
+}
+
+func (d *TheorydbDriver) Scan(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
+	q, err := d.buildReadQuery(ctx, model, req)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	return d.executeRead(model, q)
+}
+
+func (d *TheorydbDriver) buildReadQuery(ctx context.Context, modelName string, req ReadRequest) (core.Query, error) {
+	instance, err := emptyModel(modelName)
+	if err != nil {
+		return nil, err
+	}
+	q := d.db.WithContext(ctx).Model(instance)
+	if req.Index != "" {
+		q = q.Index(req.Index)
+	}
+	for _, filter := range req.Filter {
+		q = q.Filter(filter.Attribute, filter.Operator, conditionValue(filter))
+	}
+	if req.SortDirection != "" {
+		sortAttr := ""
+		if req.Sort != nil {
+			sortAttr = req.Sort.Attribute
+		}
+		q = q.OrderBy(sortAttr, req.SortDirection)
+	}
+	if req.Limit > 0 {
+		q = q.Limit(req.Limit)
+	}
+	if len(req.Projection) > 0 {
+		q = q.Select(req.Projection...)
+	}
+	if req.Cursor != "" {
+		q = q.Cursor(req.Cursor)
+	}
+	if req.ConsistentRead != nil && *req.ConsistentRead {
+		q = q.ConsistentRead()
+	}
+	return q, nil
+}
+
+func (d *TheorydbDriver) executeRead(model string, q core.Query) (ReadResult, error) {
+	switch model {
+	case "User":
+		var out []User
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeUsers(out), Cursor: page.NextCursor}, nil
+	case "Order":
+		var out []Order
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeOrders(out), Cursor: page.NextCursor}, nil
+	case "NumberPrecision":
+		var out []NumberPrecision
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeNumberPrecisions(out), Cursor: page.NextCursor}, nil
+	case "TypeMatrix":
+		var out []TypeMatrix
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeTypeMatrices(out), Cursor: page.NextCursor}, nil
+	case "SnakeCaseRecord":
+		var out []SnakeCaseRecord
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeSnakeCaseRecords(out), Cursor: page.NextCursor}, nil
+	case "EncryptedRecord":
+		var out []EncryptedRecord
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeEncryptedRecords(out), Cursor: page.NextCursor}, nil
+	case "ReleaseStateActual":
+		var out []ReleaseStateActual
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeReleaseStateActuals(out), Cursor: page.NextCursor}, nil
+	case "ReleaseStateEvent":
+		var out []ReleaseStateEvent
+		page, err := q.AllPaginated(&out)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		return ReadResult{Items: normalizeReleaseStateEvents(out), Cursor: page.NextCursor}, nil
+	default:
+		return ReadResult{}, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
+	}
+}
+
+func conditionValue(cond ReadCondition) any {
+	if len(cond.Values) > 0 {
+		return append([]any(nil), cond.Values...)
+	}
+	return cond.Value
+}
+
+func (d *TheorydbDriver) CountQuery(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
+	q, err := d.buildReadQuery(ctx, model, req)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	if req.Partition == nil {
+		return ReadResult{}, fmt.Errorf("%w: query partition is required", theorydbErrors.ErrMissingPrimaryKey)
+	}
+	q = q.Where(req.Partition.Attribute, req.Partition.Operator, conditionValue(*req.Partition))
+	if req.Sort != nil {
+		q = q.Where(req.Sort.Attribute, req.Sort.Operator, conditionValue(*req.Sort))
+	}
+	return countResult(q)
+}
+
+func (d *TheorydbDriver) CountScan(ctx context.Context, model string, req ReadRequest) (ReadResult, error) {
+	q, err := d.buildReadQuery(ctx, model, req)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	return countResult(q)
+}
+
+func countResult(q core.Query) (ReadResult, error) {
+	count, err := q.Count()
+	if err != nil {
+		return ReadResult{}, err
+	}
+	return ReadResult{Items: []map[string]any{}, Count: &count}, nil
+}
+
+func (d *TheorydbDriver) TransactGet(ctx context.Context, model string, items []KeyedItem) (ReadResult, error) {
+	getter, ok := d.db.(core.TransactGetter)
+	if !ok {
+		return ReadResult{}, fmt.Errorf("%w: transact get extension unavailable", theorydbErrors.ErrInvalidOperator)
+	}
+
+	requests := make([]core.TransactGetRequest, 0, len(items))
+	dests := make([]any, 0, len(items))
+	models := make([]string, 0, len(items))
+	for _, item := range items {
+		itemModel := item.Model
+		if itemModel == "" {
+			itemModel = model
+		}
+		empty, err := emptyModel(itemModel)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		dest, err := newModelDest(itemModel)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		key, err := keyPairFromMap(item.Key)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		requests = append(requests, core.TransactGetRequest{
+			Model: empty,
+			Key:   key,
+			Dest:  dest,
+		})
+		dests = append(dests, dest)
+		models = append(models, itemModel)
+	}
+
+	results, err := getter.TransactGet(ctx, requests)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	out := make([]map[string]any, 0, len(results))
+	for i, result := range results {
+		if !result.Found {
+			continue
+		}
+		normalized, err := normalizeModel(models[i], dests[i])
+		if err != nil {
+			return ReadResult{}, err
+		}
+		out = append(out, normalized)
+	}
+	return ReadResult{Items: out}, nil
+}
+
+func (d *TheorydbDriver) BatchGet(ctx context.Context, model string, keys []map[string]any) (ReadResult, error) {
+	keyPairs := make([]any, 0, len(keys))
+	for _, key := range keys {
+		pair, err := keyPairFromMap(key)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		keyPairs = append(keyPairs, pair)
+	}
+
+	switch model {
+	case "User":
+		var out []User
+		err := d.db.WithContext(ctx).Model(&User{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeUsers(out)}, err
+	case "Order":
+		var out []Order
+		err := d.db.WithContext(ctx).Model(&Order{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeOrders(out)}, err
+	case "NumberPrecision":
+		var out []NumberPrecision
+		err := d.db.WithContext(ctx).Model(&NumberPrecision{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeNumberPrecisions(out)}, err
+	case "TypeMatrix":
+		var out []TypeMatrix
+		err := d.db.WithContext(ctx).Model(&TypeMatrix{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeTypeMatrices(out)}, err
+	case "SnakeCaseRecord":
+		var out []SnakeCaseRecord
+		err := d.db.WithContext(ctx).Model(&SnakeCaseRecord{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeSnakeCaseRecords(out)}, err
+	case "EncryptedRecord":
+		var out []EncryptedRecord
+		err := d.db.WithContext(ctx).Model(&EncryptedRecord{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeEncryptedRecords(out)}, err
+	case "ReleaseStateActual":
+		var out []ReleaseStateActual
+		err := d.db.WithContext(ctx).Model(&ReleaseStateActual{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeReleaseStateActuals(out)}, err
+	case "ReleaseStateEvent":
+		var out []ReleaseStateEvent
+		err := d.db.WithContext(ctx).Model(&ReleaseStateEvent{}).BatchGet(keyPairs, &out)
+		return ReadResult{Items: normalizeReleaseStateEvents(out)}, err
+	default:
+		return ReadResult{}, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
+	}
+}
+
+func (d *TheorydbDriver) BatchWrite(ctx context.Context, model string, puts []map[string]any, deletes []map[string]any) error {
+	putItems := make([]any, 0, len(puts))
+	for _, item := range puts {
+		instance, err := modelFromMap(model, item)
+		if err != nil {
+			return err
+		}
+		putItems = append(putItems, instance)
+	}
+
+	deleteKeys := make([]any, 0, len(deletes))
+	for _, key := range deletes {
+		pair, err := keyPairFromMap(key)
+		if err != nil {
+			return err
+		}
+		deleteKeys = append(deleteKeys, pair)
+	}
+
+	empty, err := emptyModel(model)
+	if err != nil {
+		return err
+	}
+	return d.db.WithContext(ctx).Model(empty).BatchWrite(putItems, deleteKeys)
+}
+
+func (d *TheorydbDriver) TransactWrite(ctx context.Context, model string, actions []TransactWriteAction) error {
+	return d.db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
+		for _, action := range actions {
+			actionModel := action.Model
+			if actionModel == "" {
+				actionModel = model
+			}
+			conditions := transactConditionsFromAction(action)
+			switch strings.ToLower(action.Kind) {
+			case "put", "create":
+				instance, err := modelFromMap(actionModel, action.Item)
+				if err != nil {
+					return err
+				}
+				if action.IfNotExists || strings.EqualFold(action.Kind, "create") {
+					tx = tx.Create(instance, conditions...)
+				} else {
+					tx = tx.Put(instance, conditions...)
+				}
+			case "update":
+				item := mergeMaps(action.Key, action.Set)
+				instance, err := modelFromMap(actionModel, item)
+				if err != nil {
+					return err
+				}
+				fields, err := updateFieldNames(actionModel, action.Set)
+				if err != nil {
+					return err
+				}
+				tx = tx.Update(instance, fields, conditions...)
+			case "delete":
+				instance, err := modelFromMap(actionModel, action.Key)
+				if err != nil {
+					return err
+				}
+				tx = tx.Delete(instance, conditions...)
+			case "condition", "condition_check":
+				instance, err := modelFromMap(actionModel, action.Key)
+				if err != nil {
+					return err
+				}
+				tx = tx.ConditionCheck(instance, conditions...)
+			default:
+				return fmt.Errorf("%w: unsupported transact_write action %q", theorydbErrors.ErrInvalidOperator, action.Kind)
+			}
+		}
+		return nil
+	})
 }
 
 func (d *TheorydbDriver) TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error {
@@ -271,9 +802,15 @@ func validateReleaseStateMetadataIfPresent(model string, item map[string]any) er
 func keyValues(key map[string]any) (string, string, error) {
 	pkVal, ok := key["PK"]
 	if !ok {
+		pkVal, ok = key["pk"]
+	}
+	if !ok {
 		return "", "", fmt.Errorf("%w: PK is required", theorydbErrors.ErrMissingPrimaryKey)
 	}
 	skVal, ok := key["SK"]
+	if !ok {
+		skVal, ok = key["sk"]
+	}
 	if !ok {
 		return "", "", fmt.Errorf("%w: SK is required", theorydbErrors.ErrMissingPrimaryKey)
 	}
@@ -286,6 +823,14 @@ func modelFromMap(model string, item map[string]any) (any, error) {
 		return userFromMap(item)
 	case "Order":
 		return orderFromMap(item)
+	case "NumberPrecision":
+		return numberPrecisionFromMap(item)
+	case "TypeMatrix":
+		return typeMatrixFromMap(item)
+	case "SnakeCaseRecord":
+		return snakeCaseRecordFromMap(item)
+	case "EncryptedRecord":
+		return encryptedRecordFromMap(item)
 	case "ReleaseStateActual":
 		return releaseStateActualFromMap(item)
 	case "ReleaseStateEvent":
@@ -293,6 +838,167 @@ func modelFromMap(model string, item map[string]any) (any, error) {
 	default:
 		return nil, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
+}
+
+func emptyModel(model string) (any, error) {
+	switch model {
+	case "User":
+		return &User{}, nil
+	case "Order":
+		return &Order{}, nil
+	case "NumberPrecision":
+		return &NumberPrecision{}, nil
+	case "TypeMatrix":
+		return &TypeMatrix{}, nil
+	case "SnakeCaseRecord":
+		return &SnakeCaseRecord{}, nil
+	case "EncryptedRecord":
+		return &EncryptedRecord{}, nil
+	case "ReleaseStateActual":
+		return &ReleaseStateActual{}, nil
+	case "ReleaseStateEvent":
+		return &ReleaseStateEvent{}, nil
+	default:
+		return nil, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
+	}
+}
+
+func newModelDest(model string) (any, error) {
+	return emptyModel(model)
+}
+
+func normalizeModel(model string, value any) (map[string]any, error) {
+	switch model {
+	case "User":
+		if v, ok := value.(*User); ok {
+			return normalizeUser(*v), nil
+		}
+	case "Order":
+		if v, ok := value.(*Order); ok {
+			return normalizeOrder(*v), nil
+		}
+	case "NumberPrecision":
+		if v, ok := value.(*NumberPrecision); ok {
+			return normalizeNumberPrecision(*v), nil
+		}
+	case "TypeMatrix":
+		if v, ok := value.(*TypeMatrix); ok {
+			return normalizeTypeMatrix(*v), nil
+		}
+	case "SnakeCaseRecord":
+		if v, ok := value.(*SnakeCaseRecord); ok {
+			return normalizeSnakeCaseRecord(*v), nil
+		}
+	case "EncryptedRecord":
+		if v, ok := value.(*EncryptedRecord); ok {
+			return normalizeEncryptedRecord(*v), nil
+		}
+	case "ReleaseStateActual":
+		if v, ok := value.(*ReleaseStateActual); ok {
+			return normalizeReleaseStateActual(*v), nil
+		}
+	case "ReleaseStateEvent":
+		if v, ok := value.(*ReleaseStateEvent); ok {
+			return normalizeReleaseStateEvent(*v), nil
+		}
+	}
+	return nil, fmt.Errorf("%w: cannot normalize %T as %s", theorydbErrors.ErrInvalidModel, value, model)
+}
+
+func keyPairFromMap(key map[string]any) (core.KeyPair, error) {
+	pk, sk, err := keyValues(key)
+	if err != nil {
+		return core.KeyPair{}, err
+	}
+	return core.NewKeyPair(pk, sk), nil
+}
+
+func transactConditionsFromAction(action TransactWriteAction) []core.TransactCondition {
+	if strings.TrimSpace(action.ConditionExpression) == "" {
+		return nil
+	}
+	values := make(map[string]any, len(action.ExpressionAttributeValues))
+	for k, v := range action.ExpressionAttributeValues {
+		values[k] = v
+	}
+	return []core.TransactCondition{
+		{
+			Kind:       core.TransactConditionKindExpression,
+			Expression: action.ConditionExpression,
+			Values:     values,
+		},
+	}
+}
+
+func mergeMaps(left map[string]any, right map[string]any) map[string]any {
+	out := make(map[string]any, len(left)+len(right))
+	for k, v := range left {
+		out[k] = v
+	}
+	for k, v := range right {
+		out[k] = v
+	}
+	return out
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func updateFieldNames(model string, values map[string]any) ([]string, error) {
+	fields := sortedMapKeys(values)
+	instance, err := emptyModel(model)
+	if err != nil {
+		return nil, err
+	}
+	typ := reflect.TypeOf(instance)
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	resolved := make([]string, 0, len(fields))
+	for _, field := range fields {
+		goName, ok := resolveGoFieldName(typ, field)
+		if !ok {
+			return nil, fmt.Errorf("%w: unknown update field %s", theorydbErrors.ErrInvalidModel, field)
+		}
+		resolved = append(resolved, goName)
+	}
+	return resolved, nil
+}
+
+func resolveGoFieldName(typ reflect.Type, attr string) (string, bool) {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.Name == "_" {
+			continue
+		}
+		candidates := []string{field.Name, lowerFirst(field.Name)}
+		if tag := field.Tag.Get("theorydb"); tag != "" {
+			for _, part := range strings.Split(tag, ",") {
+				if strings.HasPrefix(part, "attr:") {
+					candidates = append(candidates, strings.TrimPrefix(part, "attr:"))
+				}
+			}
+		}
+		for _, candidate := range candidates {
+			if candidate == attr || strings.EqualFold(candidate, attr) {
+				return field.Name, true
+			}
+		}
+	}
+	return "", false
+}
+
+func lowerFirst(value string) string {
+	if value == "" {
+		return value
+	}
+	return strings.ToLower(value[:1]) + value[1:]
 }
 
 func asStringSlice(v any) ([]string, error) {
@@ -363,6 +1069,90 @@ func asInt64(v any) (int64, error) {
 	}
 }
 
+func asInt64Slice(v any) ([]int64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch s := v.(type) {
+	case []int64:
+		return append([]int64(nil), s...), nil
+	case []any:
+		out := make([]int64, 0, len(s))
+		for _, item := range s {
+			n, err := asInt64(item)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, n)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("expected []number, got %T", v)
+	}
+}
+
+func asBase64Bytes(v any) ([]byte, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch b := v.(type) {
+	case []byte:
+		return append([]byte(nil), b...), nil
+	case string:
+		return base64.StdEncoding.DecodeString(b)
+	default:
+		return nil, fmt.Errorf("expected base64 string, got %T", v)
+	}
+}
+
+func asBase64ByteSlices(v any) ([][]byte, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch s := v.(type) {
+	case [][]byte:
+		out := make([][]byte, len(s))
+		for i := range s {
+			out[i] = append([]byte(nil), s[i]...)
+		}
+		return out, nil
+	case []any:
+		out := make([][]byte, 0, len(s))
+		for _, item := range s {
+			b, err := asBase64Bytes(item)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, b)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("expected []base64 string, got %T", v)
+	}
+}
+
+func asBool(v any) (bool, error) {
+	if v == nil {
+		return false, nil
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return false, fmt.Errorf("expected bool, got %T", v)
+	}
+	return b, nil
+}
+
+func asAnySlice(v any) ([]any, error) {
+	if v == nil {
+		return nil, nil
+	}
+	s, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("expected []any, got %T", v)
+	}
+	return append([]any(nil), s...), nil
+}
+
 func mutatesProtectedAttribute(fields []string, protectedAttributes []string) bool {
 	if len(fields) == 0 || len(protectedAttributes) == 0 {
 		return false
@@ -379,78 +1169,31 @@ func mutatesProtectedAttribute(fields []string, protectedAttributes []string) bo
 	return false
 }
 
-// ---- Models (Go reference) ----
+// ---- Contract model glue ----
 
-// User matches the v0.1 DMS fixture under `contract-tests/dms/v0.1/models/user.yml`.
-type User struct {
-	PK        string   `theorydb:"pk"`
-	SK        string   `theorydb:"sk"`
-	EmailHash string   `theorydb:"index:gsi-email,pk,omitempty"`
-	Nickname  string   `theorydb:"omitempty"`
-	Tags      []string `theorydb:"set,omitempty"`
+// decimalStringConverter stores exact DynamoDB N decimal strings for generated DecimalString fields.
+type decimalStringConverter struct{}
 
-	CreatedAt time.Time `theorydb:"created_at"`
-	UpdatedAt time.Time `theorydb:"updated_at"`
-	Version   int64     `theorydb:"version"`
-	TTL       int64     `theorydb:"ttl,omitempty"`
-}
-
-func (User) TableName() string { return "users_contract" }
-
-// Order matches the v0.1 DMS fixture under `contract-tests/dms/v0.1/models/order.yml`.
-type Order struct {
-	PK     string `theorydb:"pk"`
-	SK     string `theorydb:"sk"`
-	Status string `theorydb:"index:gsi-status,pk,omitempty"`
-	Amount int64  `theorydb:"omitempty"`
-
-	CreatedAt time.Time `theorydb:"created_at"`
-	UpdatedAt time.Time `theorydb:"updated_at"`
-	Version   int64     `theorydb:"version"`
-	TTL       int64     `theorydb:"ttl,omitempty"`
-}
-
-func (Order) TableName() string { return "orders_contract" }
-
-// ReleaseStateActual matches the v0.1 release-state actual-row DMS fixture.
-type ReleaseStateActual struct {
-	PK                string         `theorydb:"pk"`
-	SK                string         `theorydb:"sk"`
-	Status            string         `theorydb:"omitempty"`
-	PinnedReleaseID   string         `theorydb:"attr:pinnedReleaseId,omitempty"`
-	PreviousReleaseID string         `theorydb:"attr:previousReleaseId,omitempty"`
-	Provenance        map[string]any `theorydb:"json,omitempty"`
-	Confidence        map[string]any `theorydb:"json,omitempty"`
-
-	UpdatedAt time.Time `theorydb:"updated_at"`
-	Version   int64     `theorydb:"version"`
-}
-
-func (ReleaseStateActual) TableName() string { return "release_state_contract" }
-
-func (ReleaseStateActual) WritePolicy() model.WritePolicy {
-	return model.WritePolicy{
-		Mode:                model.WritePolicyModeMutable,
-		ProtectedAttributes: []string{"pinnedReleaseId"},
+func (decimalStringConverter) ToAttributeValue(value any) (ddbtypes.AttributeValue, error) {
+	decimal, ok := value.(DecimalString)
+	if !ok {
+		return nil, fmt.Errorf("expected DecimalString, got %T", value)
 	}
+	return &ddbtypes.AttributeValueMemberN{Value: string(decimal)}, nil
 }
 
-// ReleaseStateEvent matches the v0.1 release-state event-row DMS fixture.
-type ReleaseStateEvent struct {
-	PK         string         `theorydb:"pk"`
-	SK         string         `theorydb:"sk"`
-	ReleaseID  string         `theorydb:"attr:releaseId,omitempty"`
-	EventType  string         `theorydb:"attr:eventType,omitempty"`
-	Provenance map[string]any `theorydb:"json,omitempty"`
-	Confidence map[string]any `theorydb:"json,omitempty"`
-	RecordedAt string         `theorydb:"attr:recordedAt,omitempty"`
-	TTL        int64          `theorydb:"ttl,omitempty"`
-}
-
-func (ReleaseStateEvent) TableName() string { return "release_state_contract" }
-
-func (ReleaseStateEvent) WritePolicy() model.WritePolicy {
-	return model.WritePolicy{Mode: model.WritePolicyModeWriteOnce}
+func (decimalStringConverter) FromAttributeValue(av ddbtypes.AttributeValue, target any) error {
+	number, ok := av.(*ddbtypes.AttributeValueMemberN)
+	if !ok {
+		return fmt.Errorf("expected DynamoDB N for DecimalString, got %T", av)
+	}
+	switch out := target.(type) {
+	case *DecimalString:
+		*out = DecimalString(number.Value)
+		return nil
+	default:
+		return fmt.Errorf("expected *DecimalString, got %T", target)
+	}
 }
 
 func userFromMap(item map[string]any) (*User, error) {
@@ -524,6 +1267,128 @@ func orderFromMap(item map[string]any) (*Order, error) {
 		o.TTL = n
 	}
 	return o, nil
+}
+
+func numberPrecisionFromMap(item map[string]any) (*NumberPrecision, error) {
+	n := &NumberPrecision{}
+	if v, ok := item["PK"]; ok {
+		n.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["SK"]; ok {
+		n.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["largeInteger"]; ok {
+		n.LargeInteger = DecimalString(fmt.Sprintf("%v", v))
+	}
+	if v, ok := item["preciseDecimal"]; ok {
+		n.PreciseDecimal = DecimalString(fmt.Sprintf("%v", v))
+	}
+	return n, nil
+}
+
+func typeMatrixFromMap(item map[string]any) (*TypeMatrix, error) {
+	tm := &TypeMatrix{}
+	if v, ok := item["PK"]; ok {
+		tm.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["SK"]; ok {
+		tm.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["numberSet"]; ok {
+		values, err := asInt64Slice(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.NumberSet = values
+	}
+	if v, ok := item["binaryBlob"]; ok {
+		value, err := asBase64Bytes(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.BinaryBlob = value
+	}
+	if v, ok := item["binarySet"]; ok {
+		values, err := asBase64ByteSlices(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.BinarySet = values
+	}
+	if v, ok := item["flag"]; ok {
+		value, err := asBool(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.Flag = value
+	}
+	if v, ok := item["nothing"]; ok && v != nil {
+		value := fmt.Sprintf("%v", v)
+		tm.Nothing = &value
+	}
+	if v, ok := item["items"]; ok {
+		values, err := asAnySlice(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.Items = values
+	}
+	if v, ok := item["metadata"]; ok {
+		value, err := asStringMap(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.Metadata = value
+	}
+	if v, ok := item["emptyNumberSet"]; ok {
+		values, err := asInt64Slice(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.EmptyNumberSet = values
+	}
+	if v, ok := item["emptyBinarySet"]; ok {
+		values, err := asBase64ByteSlices(v)
+		if err != nil {
+			return nil, err
+		}
+		tm.EmptyBinarySet = values
+	}
+	if v, ok := item["optionalString"]; ok {
+		tm.OptionalString = fmt.Sprintf("%v", v)
+	}
+	return tm, nil
+}
+
+func snakeCaseRecordFromMap(item map[string]any) (*SnakeCaseRecord, error) {
+	record := &SnakeCaseRecord{}
+	if v, ok := item["pk"]; ok {
+		record.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["sk"]; ok {
+		record.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["display_name"]; ok {
+		record.DisplayName = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["email_hash"]; ok {
+		record.EmailHash = fmt.Sprintf("%v", v)
+	}
+	return record, nil
+}
+
+func encryptedRecordFromMap(item map[string]any) (*EncryptedRecord, error) {
+	record := &EncryptedRecord{}
+	if v, ok := item["PK"]; ok {
+		record.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["SK"]; ok {
+		record.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["secret"]; ok {
+		record.Secret = fmt.Sprintf("%v", v)
+	}
+	return record, nil
 }
 
 func releaseStateActualFromMap(item map[string]any) (*ReleaseStateActual, error) {
@@ -623,6 +1488,117 @@ func normalizeUser(u User) map[string]any {
 	return out
 }
 
+func normalizeUsers(items []User) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeUser(item))
+	}
+	return out
+}
+
+func normalizeNumberPrecision(n NumberPrecision) map[string]any {
+	return map[string]any{
+		"PK":             n.PK,
+		"SK":             n.SK,
+		"largeInteger":   string(n.LargeInteger),
+		"preciseDecimal": string(n.PreciseDecimal),
+	}
+}
+
+func normalizeNumberPrecisions(items []NumberPrecision) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeNumberPrecision(item))
+	}
+	return out
+}
+
+func normalizeTypeMatrix(tm TypeMatrix) map[string]any {
+	return map[string]any{
+		"PK":             tm.PK,
+		"SK":             tm.SK,
+		"numberSet":      append([]int64(nil), tm.NumberSet...),
+		"binaryBlob":     base64.StdEncoding.EncodeToString(tm.BinaryBlob),
+		"binarySet":      base64Strings(tm.BinarySet),
+		"flag":           tm.Flag,
+		"nothing":        nil,
+		"items":          normalizeDocumentValue(tm.Items),
+		"metadata":       normalizeDocumentValue(tm.Metadata),
+		"emptyNumberSet": append([]int64(nil), tm.EmptyNumberSet...),
+		"emptyBinarySet": base64Strings(tm.EmptyBinarySet),
+		"optionalString": tm.OptionalString,
+	}
+}
+
+func normalizeTypeMatrices(items []TypeMatrix) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeTypeMatrix(item))
+	}
+	return out
+}
+
+func normalizeSnakeCaseRecord(record SnakeCaseRecord) map[string]any {
+	return map[string]any{
+		"pk":           record.PK,
+		"sk":           record.SK,
+		"display_name": record.DisplayName,
+		"email_hash":   record.EmailHash,
+	}
+}
+
+func normalizeSnakeCaseRecords(items []SnakeCaseRecord) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeSnakeCaseRecord(item))
+	}
+	return out
+}
+
+func normalizeEncryptedRecord(record EncryptedRecord) map[string]any {
+	return map[string]any{
+		"PK":     record.PK,
+		"SK":     record.SK,
+		"secret": record.Secret,
+	}
+}
+
+func normalizeEncryptedRecords(items []EncryptedRecord) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeEncryptedRecord(item))
+	}
+	return out
+}
+
+func base64Strings(values [][]byte) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, base64.StdEncoding.EncodeToString(value))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeDocumentValue(value any) any {
+	switch v := value.(type) {
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = normalizeDocumentValue(item)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = normalizeDocumentValue(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
 func normalizeReleaseStateActual(actual ReleaseStateActual) map[string]any {
 	return map[string]any{
 		"PK":                actual.PK,
@@ -635,6 +1611,14 @@ func normalizeReleaseStateActual(actual ReleaseStateActual) map[string]any {
 		"updatedAt":         actual.UpdatedAt.Format(time.RFC3339Nano),
 		"version":           actual.Version,
 	}
+}
+
+func normalizeReleaseStateActuals(items []ReleaseStateActual) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeReleaseStateActual(item))
+	}
+	return out
 }
 
 func normalizeReleaseStateEvent(event ReleaseStateEvent) map[string]any {
@@ -650,6 +1634,14 @@ func normalizeReleaseStateEvent(event ReleaseStateEvent) map[string]any {
 	}
 }
 
+func normalizeReleaseStateEvents(items []ReleaseStateEvent) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeReleaseStateEvent(item))
+	}
+	return out
+}
+
 func normalizeOrder(o Order) map[string]any {
 	out := map[string]any{
 		"PK":        o.PK,
@@ -660,6 +1652,14 @@ func normalizeOrder(o Order) map[string]any {
 		"updatedAt": o.UpdatedAt.Format(time.RFC3339Nano),
 		"version":   o.Version,
 		"ttl":       o.TTL,
+	}
+	return out
+}
+
+func normalizeOrders(items []Order) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeOrder(item))
 	}
 	return out
 }

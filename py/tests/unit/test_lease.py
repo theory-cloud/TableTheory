@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from botocore.exceptions import ClientError
 
-from theorydb_py.errors import LeaseHeldError, LeaseNotOwnedError
-from theorydb_py.lease import Lease, LeaseKey, LeaseManager
+from tabletheory_py.errors import LeaseHeldError, LeaseNotOwnedError
+from tabletheory_py.lease import Lease, LeaseKey, LeaseManager
 
 
 class _StubClient:

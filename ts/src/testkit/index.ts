@@ -24,6 +24,12 @@ import {
 
 import type { EncryptedEnvelope, EncryptionProvider } from '../encryption.js';
 
+export {
+  StatefulDynamoDBFake,
+  createStatefulDynamoDBClient,
+  type StatefulDynamoDBClient,
+} from './stateful-dynamodb.js';
+
 export type SupportedDynamoCommandCtor =
   | typeof PutItemCommand
   | typeof GetItemCommand

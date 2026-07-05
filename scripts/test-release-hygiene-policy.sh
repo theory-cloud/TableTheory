@@ -110,6 +110,34 @@ expect_failure_contains \
     --ref "refs/heads/premain=${advanced_base_sha}" \
     --ref "refs/heads/staging=${head_sha}"
 
+expect_success_contains \
+  "live ref freshness covered by merge queue" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base premain \
+    --head staging \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "Promote staging to premain" \
+    --queue-freshness \
+    --ref "refs/heads/premain=${advanced_base_sha}" \
+    --ref "refs/heads/staging=4444444444444444444444444444444444444444"
+
+expect_failure_contains \
+  "same-repository" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base premain \
+    --head staging \
+    --base-repo "${repo}" \
+    --head-repo "attacker/TableTheory" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "Promote staging to premain" \
+    --queue-freshness
+
 expect_failure_contains \
   "numbered RC version" \
   bash "${checker}" \
@@ -180,25 +208,23 @@ mkdir -p \
   "${pending_fixture}/.github/workflows" \
   "${pending_fixture}/scripts" \
   "${pending_fixture}/ts" \
-  "${pending_fixture}/py/src/theorydb_py"
+  "${pending_fixture}/py/src/tabletheory_py"
 cat >"${pending_fixture}/.release-please-manifest.json" <<'JSON'
-{".":"1.10.0"}
-JSON
-cat >"${pending_fixture}/.release-please-manifest.premain.json" <<'JSON'
 {".":"1.10.1-rc.1"}
 JSON
 cat >"${pending_fixture}/ts/package.json" <<'JSON'
-{"version":"1.10.1-rc.1"}
+{"version":"1.10.0"}
 JSON
 cat >"${pending_fixture}/ts/package-lock.json" <<'JSON'
-{"version":"1.10.1-rc.1","packages":{"":{"version":"1.10.1-rc.1"}}}
+{"version":"1.10.0","packages":{"":{"version":"1.10.0"}}}
 JSON
-cat >"${pending_fixture}/py/src/theorydb_py/version.json" <<'JSON'
-{"version":"1.10.1-rc.1"}
+cat >"${pending_fixture}/py/src/tabletheory_py/version.json" <<'JSON'
+{"version":"1.10.0"}
 JSON
 touch \
   "${pending_fixture}/.github/workflows/release-hygiene.yml" \
-  "${pending_fixture}/scripts/prepare-stable-promotion.sh" \
+  "${pending_fixture}/scripts/prepare-release-package-versions.py" \
+  "${pending_fixture}/scripts/verify-release-package-version-assets.py" \
   "${pending_fixture}/scripts/watch-release-cycle.sh"
 
 run_in_pending_fixture() (
@@ -207,7 +233,7 @@ run_in_pending_fixture() (
 )
 
 expect_success_contains \
-  "pending=1.10.1-rc.1" \
+  "rc=1.10.1-rc.1" \
   env \
     GITHUB_BASE_REF=main \
     GITHUB_HEAD_REF=premain \
@@ -303,6 +329,26 @@ fi
 
 grep -Fq "persist-credentials: false" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release hygiene checkouts must disable persisted credentials"
+  exit 1
+}
+
+grep -Fq "merge_group:" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must support merge_group for staging queue"
+  exit 1
+}
+
+grep -Fq "merge_group:" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must support merge_group for release queue"
+  exit 1
+}
+
+grep -Fq -- "--queue-freshness" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene PR provenance must delegate live ref freshness to merge queue"
+  exit 1
+}
+
+grep -Fq "pending stable promotion accepted on queued main merge group" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must allow queued main pending stable promotion"
   exit 1
 }
 

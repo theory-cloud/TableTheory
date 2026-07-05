@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py import BatchRetryExceededError, ModelDefinition, Table, theorydb_field
+from tabletheory_py import BatchRetryExceededError, ModelDefinition, Table, ValidationError, theorydb_field
 
 
 @dataclass(frozen=True)
@@ -86,3 +86,42 @@ def test_batch_write_retry_limit_exceeded() -> None:
 
     with pytest.raises(BatchRetryExceededError):
         table.batch_write(puts=[Note(pk="A", sk="1", value=1)], max_retries=0, sleep=lambda _: None)
+
+
+def test_transact_get_returns_ordered_found_and_missing_slots() -> None:
+    model = ModelDefinition.from_dataclass(Note, table_name="tbl")
+    base_table: Table[Note] = Table(model, client=object())
+    client = FakeTransactGetClient(
+        response={
+            "Responses": [
+                {"Item": base_table._to_item(Note(pk="A", sk="1", value=1))},
+                {},
+            ]
+        }
+    )
+    table: Table[Note] = Table(model, client=client)
+
+    got = table.transact_get([("A", "1"), ("A", "missing")])
+
+    assert got == [Note(pk="A", sk="1", value=1), None]
+    assert len(client.requests[0]["TransactItems"]) == 2
+
+
+def test_transact_get_rejects_empty_and_over_limit() -> None:
+    model = ModelDefinition.from_dataclass(Note, table_name="tbl")
+    table: Table[Note] = Table(model, client=object())
+
+    with pytest.raises(ValidationError):
+        table.transact_get([])
+    with pytest.raises(ValidationError):
+        table.transact_get([("A", "1")] * 101)
+
+
+class FakeTransactGetClient:
+    def __init__(self, *, response):
+        self.response = response
+        self.requests = []
+
+    def transact_get_items(self, **kwargs):
+        self.requests.append(kwargs)
+        return self.response

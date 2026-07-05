@@ -1,0 +1,107 @@
+name: "p0.type_matrix.round_trip"
+dms_version: "0.1"
+requires_capabilities: ["type.matrix", "number.precision.exact"]
+model: "TypeMatrix"
+table:
+  name: "type_matrix_contract"
+steps:
+  - op: create
+    item:
+      PK: "TYPE#1"
+      SK: "MATRIX#1"
+      numberSet: ["9007199254740993", "42"]
+      binaryBlob: "AQID"
+      binarySet: ["BAU=", "Bgc="]
+      flag: true
+      nothing: null
+      items:
+        - "alpha"
+        - true
+        - null
+        - { nested: "value" }
+      metadata:
+        label: "meta"
+        active: true
+        child: { nested: "value" }
+      emptyNumberSet: []
+      emptyBinarySet: []
+      optionalString: ""
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "TYPE#1"
+      SK: "MATRIX#1"
+    expect:
+      raw_attribute_types:
+        numberSet: "NS"
+        binaryBlob: "B"
+        binarySet: "BS"
+        flag: "BOOL"
+        nothing: "NULL"
+        items: "L"
+        metadata: "M"
+        emptyNumberSet: "NULL"
+        emptyBinarySet: "NULL"
+        optionalString: "S"
+      item_equals:
+        PK: "TYPE#1"
+        SK: "MATRIX#1"
+        numberSet: ["9007199254740993", "42"]
+        binaryBlob: "AQID"
+        binarySet: ["BAU=", "Bgc="]
+        flag: true
+        nothing: null
+        items:
+          - "alpha"
+          - true
+          - null
+          - { nested: "value" }
+        metadata:
+          label: "meta"
+          active: true
+          child: { nested: "value" }
+        emptyNumberSet: []
+        emptyBinarySet: []
+        optionalString: ""
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "TYPE#1" }
+      sort: { attribute: "SK", operator: "=", value: "MATRIX#1" }
+      projection:
+        - "PK"
+        - "SK"
+        - "numberSet"
+        - "binaryBlob"
+        - "binarySet"
+        - "flag"
+        - "nothing"
+        - "items"
+        - "metadata"
+        - "emptyNumberSet"
+        - "emptyBinarySet"
+        - "optionalString"
+    expect:
+      item_count: 1
+      items_contains:
+        - PK: "TYPE#1"
+          SK: "MATRIX#1"
+          numberSet: ["9007199254740993", "42"]
+          binaryBlob: "AQID"
+          binarySet: ["BAU=", "Bgc="]
+          flag: true
+          nothing: null
+          items:
+            - "alpha"
+            - true
+            - null
+            - { nested: "value" }
+          metadata:
+            label: "meta"
+            active: true
+            child: { nested: "value" }
+          emptyNumberSet: []
+          emptyBinarySet: []
+          optionalString: ""

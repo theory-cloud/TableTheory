@@ -8,7 +8,7 @@ from typing import Any
 
 import boto3
 
-from theorydb_py import (
+from tabletheory_py import (
     ModelDefinition,
     NotFoundError,
     Table,

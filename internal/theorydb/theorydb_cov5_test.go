@@ -11,9 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory/pkg/core"
-	queryPkg "github.com/theory-cloud/tabletheory/pkg/query"
 	"github.com/theory-cloud/tabletheory/pkg/session"
-	transactionPkg "github.com/theory-cloud/tabletheory/pkg/transaction"
 )
 
 func TestNewKeyPairAndDefaultBatchGetOptions_COV5(t *testing.T) {
@@ -25,54 +23,6 @@ func TestNewKeyPairAndDefaultBatchGetOptions_COV5(t *testing.T) {
 	require.NotNil(t, opts)
 	require.Equal(t, 100, opts.ChunkSize)
 	require.NotNil(t, opts.RetryPolicy)
-}
-
-func TestDB_Transaction_SetsDBOnTx_COV5(t *testing.T) {
-	httpClient := newCapturingHTTPClient(nil)
-
-	stubSessionConfigLoad(t, func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
-		return minimalAWSConfig(httpClient), nil
-	})
-
-	dbAny, err := New(session.Config{Region: "us-east-1"})
-	require.NoError(t, err)
-	db := mustDB(t, dbAny)
-
-	called := false
-	require.NoError(t, db.Transaction(func(tx *core.Tx) error {
-		called = true
-		q := tx.Model(&cov4RootItem{})
-		_, ok := q.(*queryPkg.Query)
-		require.True(t, ok)
-		return nil
-	}))
-	require.True(t, called)
-}
-
-func TestDB_TransactionFunc_CommitsAndRollsBack_COV5(t *testing.T) {
-	httpClient := newCapturingHTTPClient(nil)
-
-	stubSessionConfigLoad(t, func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
-		return minimalAWSConfig(httpClient), nil
-	})
-
-	dbAny, err := New(session.Config{Region: "us-east-1"})
-	require.NoError(t, err)
-	db := mustDB(t, dbAny)
-
-	require.NoError(t, db.registry.Register(&cov4RootItem{}))
-
-	require.ErrorContains(t, db.TransactionFunc(func(any) error {
-		return errors.New("boom")
-	}), "boom")
-
-	require.NoError(t, db.TransactionFunc(func(tx any) error {
-		txx, ok := tx.(*transactionPkg.Transaction)
-		require.True(t, ok)
-		return txx.Create(&cov4RootItem{ID: "u1", Name: "alice"})
-	}))
-
-	require.Equal(t, 1, countRequestsByTarget(httpClient.Requests(), "DynamoDB_20120810.TransactWriteItems"))
 }
 
 func TestQuery_Scan_UnmarshalsItems_COV5(t *testing.T) {
@@ -156,7 +106,6 @@ func TestDB_CreateTableAndEnsureTable_InvalidInputs_COV5(t *testing.T) {
 	db := mustDB(t, dbAny)
 
 	require.Error(t, db.CreateTable(123))
-	require.Error(t, db.CreateTable(&cov4RootItem{}, "not-a-table-option"))
 	require.Error(t, db.EnsureTable(123))
 }
 

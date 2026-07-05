@@ -11,7 +11,7 @@ def _dynamodb_endpoint() -> str:
 
 
 def test_dynamodb_local_smoke_put_get_delete() -> None:
-    table_name = f"theorydb_py_smoke_{uuid.uuid4().hex[:12]}"
+    table_name = f"tabletheory_py_smoke_{uuid.uuid4().hex[:12]}"
     dynamodb = boto3.resource(
         "dynamodb",
         endpoint_url=_dynamodb_endpoint(),

@@ -48,10 +48,11 @@ type KeyAttribute struct {
 }
 
 type Attribute struct {
-	Attribute string   `yaml:"attribute"`
-	Type      string   `yaml:"type"`
-	Format    string   `yaml:"format"`
-	Roles     []string `yaml:"roles"`
+	Attribute  string   `yaml:"attribute"`
+	Type       string   `yaml:"type"`
+	Format     string   `yaml:"format"`
+	Roles      []string `yaml:"roles"`
+	Encryption any      `yaml:"encryption"`
 
 	Required  bool `yaml:"required"`
 	Optional  bool `yaml:"optional"`

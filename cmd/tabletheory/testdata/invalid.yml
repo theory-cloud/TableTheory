@@ -1,0 +1,6 @@
+dms_version: "0.1"
+models:
+  - name: "Broken"
+    table: { name: "broken" }
+    keys: [not-a-map]
+    attributes: []

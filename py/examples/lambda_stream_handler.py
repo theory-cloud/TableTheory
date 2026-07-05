@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from theorydb_py import ModelDefinition, theorydb_field, unmarshal_stream_record
+from tabletheory_py import ModelDefinition, theorydb_field, unmarshal_stream_record
 
 
 @dataclass(frozen=True)

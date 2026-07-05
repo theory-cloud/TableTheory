@@ -82,6 +82,40 @@ func TestEvaluateDerivedKeyEscapesUserSuppliedReservedBytes(t *testing.T) {
 	require.Equal(t, "tenant=user%2F%2A|resource=caf%C3%A9", got)
 }
 
+func TestEvaluateDerivedKeyV02Transforms(t *testing.T) {
+	t.Parallel()
+
+	key := DerivedKey{
+		Name: "V02",
+		Join: "|",
+		Inputs: []Input{
+			{Name: "namespace"},
+			{Name: "repository"},
+		},
+		Segments: []Segment{
+			{
+				Name:       "namespace",
+				Prefix:     "ns=",
+				Value:      ValueSource{Input: "namespace"},
+				Transforms: []string{TransformTrim, TransformLowercase, TransformURLEncode},
+			},
+			{
+				Name:       "repository",
+				Prefix:     "repo=",
+				Value:      ValueSource{Input: "repository"},
+				Transforms: []string{TransformTrim, TransformLowercase, TransformURLEncode},
+			},
+		},
+	}
+
+	got, err := EvaluateDerivedKey(key, map[string]any{
+		"namespace":  " İSTANBUL ",
+		"repository": "CAFÉ/Docs",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "ns=%C4%B0stanbul|repo=caf%C3%89%2Fdocs", got)
+}
+
 func TestEvaluateDerivedKeyRejectsExplicitNullInput(t *testing.T) {
 	t.Parallel()
 
@@ -161,6 +195,17 @@ func TestTheoryMCPDerivedKeyFixtures(t *testing.T) {
 	assertFixtureCount(t, contract, "EmailBindingSortKey", 2)
 	assertFixtureCount(t, contract, "GitHubRepositoryLookupKey", 1)
 	assertFixtureCount(t, contract, "ImportSessionScopeKey", 1)
+}
+
+func TestV02DerivedKeyTransformFixtures(t *testing.T) {
+	t.Parallel()
+
+	contract, err := LoadFile(filepath.Join("..", "..", "contract-tests", "key-contracts", "v0.2", "derived-key-transforms.yml"))
+	require.NoError(t, err)
+	require.NoError(t, VerifyFixtures(contract))
+
+	assertFixtureCount(t, contract, "LowercaseLookupKey", 2)
+	assertFixtureCount(t, contract, "LiteralUrlEncodedKey", 1)
 }
 
 func TestParseDocumentRejectsInvalidContracts(t *testing.T) {

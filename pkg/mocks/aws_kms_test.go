@@ -3,6 +3,7 @@ package mocks
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -41,18 +42,24 @@ func TestMockKMSClient_GenerateDataKey_NilOutputReturnsError(t *testing.T) {
 	m.AssertExpectations(t)
 }
 
-func TestMockKMSClient_GenerateDataKey_PanicsOnWrongType(t *testing.T) {
+func TestMockKMSClient_GenerateDataKey_WrongReturnTypeRecordsAssertionFailure(t *testing.T) {
 	m := new(MockKMSClient)
 
 	m.On("GenerateDataKey", mock.Anything, mock.Anything, mock.Anything).
 		Return("bad-type", nil).
 		Once()
 
-	require.Panics(t, func() {
-		_, err := m.GenerateDataKey(context.Background(), &kms.GenerateDataKeyInput{})
+	require.NotPanics(t, func() {
+		got, err := m.GenerateDataKey(context.Background(), &kms.GenerateDataKeyInput{})
 		require.NoError(t, err)
+		require.Nil(t, got)
 	})
-	m.AssertExpectations(t)
+
+	recorder := &recordingTestingT{}
+	require.False(t, m.AssertExpectations(recorder))
+	require.Contains(t, strings.Join(recorder.errors, "\n"), "GenerateDataKey")
+	require.Contains(t, strings.Join(recorder.errors, "\n"), "*kms.GenerateDataKeyOutput")
+	require.False(t, recorder.failed)
 }
 
 func TestMockKMSClient_Decrypt(t *testing.T) {
@@ -83,16 +90,22 @@ func TestMockKMSClient_Decrypt_NilOutputReturnsError(t *testing.T) {
 	m.AssertExpectations(t)
 }
 
-func TestMockKMSClient_Decrypt_PanicsOnWrongType(t *testing.T) {
+func TestMockKMSClient_Decrypt_WrongReturnTypeRecordsAssertionFailure(t *testing.T) {
 	m := new(MockKMSClient)
 
 	m.On("Decrypt", mock.Anything, mock.Anything, mock.Anything).
 		Return("bad-type", nil).
 		Once()
 
-	require.Panics(t, func() {
-		_, err := m.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: []byte("edk")})
+	require.NotPanics(t, func() {
+		got, err := m.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: []byte("edk")})
 		require.NoError(t, err)
+		require.Nil(t, got)
 	})
-	m.AssertExpectations(t)
+
+	recorder := &recordingTestingT{}
+	require.False(t, m.AssertExpectations(recorder))
+	require.Contains(t, strings.Join(recorder.errors, "\n"), "Decrypt")
+	require.Contains(t, strings.Join(recorder.errors, "\n"), "*kms.DecryptOutput")
+	require.False(t, recorder.failed)
 }
