@@ -81,12 +81,17 @@ git_ref_json_value() {
   local ref="$1"
   local path="$2"
   local expr="$3"
-  git show "${ref}:${path}" | python3 - "${expr}" <<'PY'
+  git show "${ref}:${path}" | python3 -c '
 import json
 import sys
 
-expr = sys.argv[1]
-data = json.load(sys.stdin)
+ref, path, expr = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError as exc:
+    print(f"branch-version-sync: FAIL ({ref}:{path} is not valid JSON: {exc})", file=sys.stderr)
+    raise SystemExit(1)
+
 if expr == ".":
     print(data.get(".", "") if isinstance(data, dict) else "")
     raise SystemExit(0)
@@ -99,7 +104,7 @@ for part in expr.split("."):
     else:
         value = ""
 print(value if isinstance(value, str) else "")
-PY
+' "${ref}" "${path}" "${expr}"
 }
 
 git_fetch_retry() {
