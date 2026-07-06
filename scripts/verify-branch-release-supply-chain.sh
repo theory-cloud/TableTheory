@@ -200,12 +200,16 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must forbid RC-shaped main Release PRs"
   require_fixed "scripts/verify-promotion-release-driver.sh" "${h}" \
     "release-hygiene must verify human promotion release drivers"
+  require_fixed "manifest-derived stable Release-As" "${h}" \
+    "release-hygiene verifier selector must detect manifest-derived stable promotion driver support"
   require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
     "release-hygiene must run the release driver guard on staging -> premain PRs"
   require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \
     "release-hygiene must run the release driver guard on premain -> main PRs"
-  require_fixed "../trusted-release/scripts/verify-promotion-release-driver.sh" "${h}" \
-    "release-hygiene must run the promotion driver from trusted checkout"
+  require_fixed 'bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh"' "${h}" \
+    "release-hygiene must run the promotion driver from the resolved verifier source"
+  require_fixed "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${h}" \
+    "release-hygiene must log the promotion-driver verifier source"
   require_fixed "pending stable promotion accepted on queued main merge group" "${h}" \
     "release-hygiene must allow queued main pending stable promotion validation"
   if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${h}"; then
