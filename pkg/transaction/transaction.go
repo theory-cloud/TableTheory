@@ -3,6 +3,7 @@ package transaction
 
 import (
 	"context"
+	stderrs "errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/theory-cloud/tabletheory/internal/encryption"
 	"github.com/theory-cloud/tabletheory/internal/reflectutil"
@@ -363,7 +365,7 @@ func (tx *Transaction) Commit() error {
 			TransactItems: tx.writes,
 		}
 
-		client, err := tx.session.Client()
+		client, err := tx.session.API()
 		if err != nil {
 			return fmt.Errorf("failed to get client for transaction commit: %w", err)
 		}
@@ -380,7 +382,7 @@ func (tx *Transaction) Commit() error {
 			TransactItems: tx.reads,
 		}
 
-		client, err := tx.session.Client()
+		client, err := tx.session.API()
 		if err != nil {
 			return fmt.Errorf("failed to get client for transaction reads: %w", err)
 		}
@@ -419,19 +421,67 @@ func (tx *Transaction) handleTransactionError(err error) error {
 		return nil
 	}
 
-	// Check for specific transaction errors
-	errStr := err.Error()
-	switch {
-	case contains(errStr, "ConditionalCheckFailed"):
+	var conditionalFailed *types.ConditionalCheckFailedException
+	if stderrs.As(err, &conditionalFailed) {
 		return errors.ErrConditionFailed
-	case contains(errStr, "TransactionCanceled"):
-		// Parse cancellation reasons
-		return fmt.Errorf("transaction canceled: %w", err)
-	case contains(errStr, "ValidationException"):
-		return fmt.Errorf("validation error: %w", err)
-	default:
-		return err
 	}
+
+	var canceled *types.TransactionCanceledException
+	if stderrs.As(err, &canceled) {
+		if transactionCanceledHasReason(canceled, "ConditionalCheckFailed") {
+			return errors.ErrConditionFailed
+		}
+		if transactionCanceledHasReason(canceled, "TransactionConflict") {
+			return errors.ErrTransactionConflict
+		}
+		if transactionCanceledHasReason(canceled,
+			"ProvisionedThroughputExceeded",
+			"ThrottlingError",
+			"InternalServerError",
+		) {
+			return fmt.Errorf("%w: transaction canceled: %v", errors.ErrThrottled, err)
+		}
+		return fmt.Errorf("transaction canceled: %w", err)
+	}
+
+	var apiErr smithy.APIError
+	if stderrs.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "ConditionalCheckFailedException", "ConditionalCheckFailed":
+			return errors.ErrConditionFailed
+		case "TransactionConflictException", "TransactionConflict":
+			return errors.ErrTransactionConflict
+		case "ProvisionedThroughputExceededException", "ProvisionedThroughputExceeded",
+			"ThrottlingException", "ThrottlingError", "RequestLimitExceeded",
+			"InternalServerError", "ServiceUnavailable":
+			return fmt.Errorf("%w: %v", errors.ErrThrottled, err)
+		case "TransactionCanceledException", "TransactionCanceled":
+			return fmt.Errorf("transaction canceled: %w", err)
+		case "ValidationException":
+			return fmt.Errorf("validation error: %w", err)
+		}
+	}
+
+	return err
+}
+
+func transactionCanceledHasReason(exc *types.TransactionCanceledException, codes ...string) bool {
+	if exc == nil {
+		return false
+	}
+	wanted := make(map[string]struct{}, len(codes))
+	for _, code := range codes {
+		wanted[code] = struct{}{}
+	}
+	for _, reason := range exc.CancellationReasons {
+		if reason.Code == nil {
+			continue
+		}
+		if _, ok := wanted[*reason.Code]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // marshalItem converts a model to DynamoDB attribute values
@@ -565,9 +615,4 @@ func (tx *Transaction) extractPrimaryKey(model any, metadata *model.Metadata) (m
 	}
 
 	return key, nil
-}
-
-// contains checks if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && (s[0:len(substr)] == substr || contains(s[1:], substr)))
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory/pkg/core"
+	"github.com/theory-cloud/tabletheory/pkg/schema"
 )
 
 func TestMockDynamoDBClient_DataOperations(t *testing.T) {
@@ -60,13 +61,15 @@ func TestMockExtendedDB_MethodCoverage(t *testing.T) {
 	db.On("DescribeTable", mock.Anything).Return(desc, nil).Once()
 	db.On("WithLambdaTimeout", mock.Anything).Return(db).Once()
 	db.On("WithLambdaTimeoutBuffer", mock.Anything).Return(db).Once()
-	db.On("TransactionFunc", mock.Anything).Return(nil).Once()
 	db.On("Transact").Return(nil).Once()
 	db.On("TransactWrite", mock.Anything, mock.Anything).Return(nil).Once()
 
-	require.NoError(t, db.AutoMigrateWithOptions(&struct{}{}, "opt"))
+	autoOpt := schema.AutoMigrateOption(func(*schema.AutoMigrateOptions) {})
+	tableOpt := schema.TableOption(func(*dynamodb.CreateTableInput) {})
+
+	require.NoError(t, db.AutoMigrateWithOptions(&struct{}{}, autoOpt))
 	require.NoError(t, db.RegisterTypeConverter(reflect.TypeOf(""), nil))
-	require.NoError(t, db.CreateTable(&struct{}{}, "opt"))
+	require.NoError(t, db.CreateTable(&struct{}{}, tableOpt))
 	require.NoError(t, db.EnsureTable(&struct{}{}))
 	require.NoError(t, db.DeleteTable(&struct{}{}))
 
@@ -82,7 +85,6 @@ func TestMockExtendedDB_MethodCoverage(t *testing.T) {
 	require.True(t, ok)
 	require.Same(t, db, bufferedDB)
 
-	require.NoError(t, db.TransactionFunc(func(any) error { return nil }))
 	require.Nil(t, db.Transact())
 	require.NoError(t, db.TransactWrite(context.Background(), func(core.TransactionBuilder) error { return nil }))
 

@@ -13,7 +13,7 @@ TheoryCloud TableTheory subtree. This page is the Go migration guide.
 
 **Problem:** Directly using the AWS SDK for Go v2 for DynamoDB operations often leads to verbose code, manual attribute marshaling, and lacks type safety. It also requires explicit context management for every call.
 
-**Solution:** Replace direct SDK calls with TableTheory's fluent, type-safe API. TableTheory handles marshaling/unmarshaling, context propagation, and error handling automatically.
+**Solution:** Replace direct SDK calls with TableTheory's fluent, model-aware API. TableTheory handles marshaling/unmarshaling, context propagation, and error handling automatically; field-name and operator mistakes are still validated by the runtime rather than by a Go generic compile-time layer.
 
 ### Example: Creating an Item
 
@@ -145,6 +145,75 @@ Migration checklist:
 3. Keep `WithLambdaTimeout(ctx)` in the handler so every invocation gets its own deadline-derived DB.
 4. Validate against the release candidate before stable promotion; this is an additive migration and should not require a
    data migration.
+
+## Go `MainExecutor` removal
+
+`pkg/query.MainExecutor`, `pkg/query.NewExecutor`, and the legacy `pkg/query.DynamoDBAPI` executor seam were deprecated in
+the 1.x line as compatibility/test seams and are removed by the v2 readiness branch. Production callers should construct
+models through `tabletheory.New(...)`, `tabletheory.LambdaInit(...)`, and `DB.Model(...)`/`tabletheory.Model(...)` so
+operations use the maintained runtime executor path.
+
+If application code constructs `query.NewExecutor(...)` directly, migrate that construction to a normal TableTheory
+`DB`/model flow before adopting v2. If tests used `MainExecutor` only for DynamoDB AttributeValue unmarshaling coverage,
+call `query.UnmarshalItem(...)` or `query.UnmarshalItems(...)` directly; if tests need behavior, use `NewWithClient(...)`
+with `pkg/testing/fakedb` or another implementation of the public `tabletheory.DynamoDBAPI` seam.
+
+See the v2 migration guide at [`docs/migration/v2.md`](./migration/v2.md#6-go-query-executor-mainexecutor-is-removed)
+for exact rewrites and downstream coordination.
+
+## M6 Go Contract-Parity Compatibility Notes
+
+M6 pins additional cross-runtime contract scenarios for number precision, GSI/projection behavior, pagination, and the
+type matrix. Two Go parity repairs intentionally change observable Go behavior so Go matches TypeScript, Python, and
+DynamoDB's own rules.
+
+**Semver decision:** treat these Go parity repairs as breaking changes. They must be released only through the next
+major release lane for this strengthening program, not as a patch or minor release.
+
+### `ConsistentRead()` on GSI queries now fails closed
+
+Go previously accepted `.ConsistentRead()` on a query that used a Global Secondary Index and then silently omitted the
+flag before sending the DynamoDB request. Go now returns `ErrInvalidOperator`, matching TypeScript and Python, because
+DynamoDB GSIs do not support strongly consistent reads.
+
+The blast radius includes both explicit and implicit GSI reads:
+
+- `.Index("gsi-name").ConsistentRead()` now fails before the request is sent when `gsi-name` is a GSI.
+- A query that does not call `.Index(...)` can still fail if TableTheory's optimizer selects a GSI from the supplied key
+  conditions and `.ConsistentRead()` was also enabled.
+
+Migration checklist:
+
+1. Audit Go query builders that combine `.ConsistentRead()` with `.Index(...)`.
+2. Audit Go query builders that call `.ConsistentRead()` on non-primary-key access patterns; the optimizer may select a
+   GSI even when the code did not name one explicitly.
+3. For GSI read-after-write needs, remove `.ConsistentRead()` and use bounded retry/application verification instead.
+4. For truly strong reads, query the base table (or an LSI where applicable) using primary-key conditions rather than a
+   GSI access pattern.
+
+### Go binary and set-tagged fields now write canonical DynamoDB shapes
+
+Go writes now converge on the shared type-matrix contract:
+
+- `[]byte` / `[]uint8` fields write as DynamoDB `B` instead of a list of per-byte numbers.
+- Numeric slices tagged as sets, such as `theorydb:"set"` on `[]int`, `[]uint64`, or `[]float64`, write as `NS`.
+- Binary set slices tagged as sets, such as `theorydb:"set"` on `[][]byte`, write as `BS`.
+- Empty or nil set-tagged slices write as `NULL`, preserving DynamoDB's "no empty set" rule.
+- Unsupported set-tagged element types now fail at write time instead of falling back to list persistence.
+
+Read compatibility remains shape-driven: Go still reads legacy list-shaped items where the existing unmarshal path
+supports that shape. The migration risk is newly heterogeneous data. Tables with old Go-written `L` values and new
+canonical `B`/`NS`/`BS`/`NULL` values for the same logical field can produce different results for raw DynamoDB
+filters, condition expressions, `attribute_type` checks, and downstream consumers that inspect AttributeValue shapes.
+
+Migration checklist:
+
+1. Inventory Go models with `[]byte` fields and `theorydb:"set"` slices.
+2. Check filters, conditions, GSIs, stream processors, exports, and raw SDK consumers that assume the old list shape.
+3. If a field must stay homogeneous for raw expressions or analytics, backfill legacy list-shaped values to the
+   canonical `B`, `NS`, `BS`, or `NULL` shape before relying on those expressions.
+4. For unsupported set-tagged element types, remove the `set` tag to keep list semantics or change the field to one of
+   the supported string, numeric, or binary-set element types.
 
 ## From Legacy DynamORM
 

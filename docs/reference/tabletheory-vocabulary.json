@@ -1,0 +1,108 @@
+{
+  "schema": "https://tabletheory.theorycloud.ai/reference/tabletheory-vocabulary.schema.json",
+  "name": "TableTheory canonical vocabulary",
+  "dms_version": "0.1",
+  "distribution": "immutable GitHub Releases only",
+  "runtimes": ["go", "typescript", "python"],
+  "dynamodb_first": true,
+  "security_invariants": [
+    "encrypted fields fail closed when KMS/encryption providers are not configured",
+    "encrypted attributes cannot be partition, sort, or index keys",
+    "encrypted values must not be logged as plaintext"
+  ],
+  "tags": [
+    {
+      "tag": "pk",
+      "go": "theorydb:\"pk\"",
+      "typescript": "roles: ['pk']",
+      "python": "theorydb_field(roles=['pk'])",
+      "dms_role": "pk",
+      "meaning": "DynamoDB partition key"
+    },
+    {
+      "tag": "sk",
+      "go": "theorydb:\"sk\"",
+      "typescript": "roles: ['sk']",
+      "python": "theorydb_field(roles=['sk'])",
+      "dms_role": "sk",
+      "meaning": "DynamoDB sort key"
+    },
+    {
+      "tag": "gsiNpk",
+      "go": "theorydb:\"gsi1pk\" / theorydb:\"gsi2pk\" / ...",
+      "typescript": "roles: ['gsi1pk'] plus indexes[]",
+      "python": "theorydb_field(roles=['gsi1pk']) plus IndexSpec",
+      "dms_role": "gsi1pk",
+      "meaning": "Global secondary index partition key"
+    },
+    {
+      "tag": "gsiNsk",
+      "go": "theorydb:\"gsi1sk\" / theorydb:\"gsi2sk\" / ...",
+      "typescript": "roles: ['gsi1sk'] plus indexes[]",
+      "python": "theorydb_field(roles=['gsi1sk']) plus IndexSpec",
+      "dms_role": "gsi1sk",
+      "meaning": "Global secondary index sort key"
+    },
+    {
+      "tag": "encrypted",
+      "go": "theorydb:\"encrypted\"",
+      "typescript": "encryption: { v: 1 }",
+      "python": "theorydb_field(encrypted=True)",
+      "dms_role": null,
+      "meaning": "KMS/envelope encrypted attribute with fail-closed reads/writes"
+    },
+    {
+      "tag": "version",
+      "go": "theorydb:\"version\"",
+      "typescript": "roles: ['version']",
+      "python": "theorydb_field(roles=['version'])",
+      "dms_role": "version",
+      "meaning": "Optimistic-lock version attribute"
+    },
+    {
+      "tag": "created_at",
+      "go": "theorydb:\"created_at\"",
+      "typescript": "roles: ['created_at']",
+      "python": "theorydb_field(roles=['created_at'])",
+      "dms_role": "created_at",
+      "meaning": "Lifecycle timestamp populated on create"
+    },
+    {
+      "tag": "updated_at",
+      "go": "theorydb:\"updated_at\"",
+      "typescript": "roles: ['updated_at']",
+      "python": "theorydb_field(roles=['updated_at'])",
+      "dms_role": "updated_at",
+      "meaning": "Lifecycle timestamp populated on update"
+    },
+    {
+      "tag": "ttl",
+      "go": "theorydb:\"ttl\"",
+      "typescript": "roles: ['ttl']",
+      "python": "theorydb_field(roles=['ttl'])",
+      "dms_role": "ttl",
+      "meaning": "DynamoDB TimeToLive attribute encoded as epoch seconds"
+    },
+    {
+      "tag": "omitempty",
+      "go": "theorydb:\"omitempty\"",
+      "typescript": "omit_empty: true",
+      "python": "theorydb_field(omitempty=True)",
+      "dms_role": null,
+      "meaning": "Omit zero/empty values from marshaled items"
+    }
+  ],
+  "naming_strategies": ["camelCase", "snake_case", "dynamorm"],
+  "dms_attribute_types": ["S", "N", "B", "BOOL", "NULL", "M", "L", "SS", "NS", "BS"],
+  "generated_references": {
+    "go": "/api-reference/",
+    "typescript": "/runtimes/typescript/api-reference/",
+    "python": "/runtimes/python/api-reference/"
+  },
+  "artifact_urls": {
+    "llms": "/llms.txt",
+    "llms_full": "/llms-full.txt",
+    "consumer_rules_template": "/ai/consumer-rules-template/",
+    "prompt_recipes": "/ai/prompt-recipes/"
+  }
+}

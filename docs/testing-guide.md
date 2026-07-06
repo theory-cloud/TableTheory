@@ -12,7 +12,7 @@ This guide explains how to write unit and integration tests for applications usi
 - TypeScript: runtime-specific testing guide is staged alongside this document in the shared TableTheory subtree
 - Python: runtime-specific testing guide is staged alongside this document in the shared TableTheory subtree
 
-## Unit Testing with Mocks
+## Go unit testing with mocks and state-backed fakes
 
 To write unit tests without connecting to DynamoDB, use the `core.DB` interface and the provided mocks.
 
@@ -103,6 +103,44 @@ func TestEncryptedWrites(t *testing.T) {
 }
 ```
 
+### 4. State-backed fake client (Go)
+
+For consumer tests that should exercise TableTheory write/query behavior without Docker, construct a real `DB` over the
+deterministic in-memory fake:
+
+```go
+import (
+    "testing"
+
+    "github.com/theory-cloud/tabletheory"
+    "github.com/theory-cloud/tabletheory/pkg/session"
+    "github.com/theory-cloud/tabletheory/pkg/testing/fakedb"
+)
+
+func TestServiceWritesAndQueries(t *testing.T) {
+    fake := fakedb.New()
+    db, err := tabletheory.NewWithClient(session.Config{Region: "us-east-1"}, fake)
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    if err := db.CreateTable(&User{}); err != nil {
+        t.Fatal(err)
+    }
+
+    if err := db.Model(&User{PK: "USER#1", SK: "PROFILE", Email: "a@example.com"}).Create(); err != nil {
+        t.Fatal(err)
+    }
+
+    // Exercise consumer code using db. Use fake.Items("users") for direct assertions when useful.
+}
+```
+
+`NewWithClient` accepts any implementation of the public `tabletheory.DynamoDBAPI` seam. `pkg/testing/fakedb` honors
+TableTheory keys, conditional writes, optimistic-lock version increments, TTL attributes, batches, transactions, and basic
+query/scan filters. It is a deterministic local testing aid, not a DynamoDB replacement; behavior beyond the
+scenario-validated fake lane should still be covered with DynamoDB Local integration tests.
+
 ## TypeScript unit testing
 
 Use `@theory-cloud/tabletheory-ts/testkit` for a strict AWS SDK v3 `send()` mock and deterministic helpers:
@@ -123,18 +161,43 @@ const db = new TheorydbClient(mock.client, {
 });
 ```
 
+For stateful write-then-query tests, use the TypeScript stateful fake:
+
+```ts
+import { TheorydbClient } from "@theory-cloud/tabletheory-ts";
+import { createStatefulDynamoDBClient } from "@theory-cloud/tabletheory-ts/testkit";
+
+const { client, fake } = createStatefulDynamoDBClient();
+const db = new TheorydbClient(client);
+
+// Register models, write through db, then query through db.
+// fake.items("users") returns a deterministic snapshot for direct assertions.
+```
+
 ## Python unit testing
 
-Use `theorydb_py.mocks` for strict fakes and deterministic encryption nonces:
+Use `tabletheory_py.mocks` for strict fakes and deterministic encryption nonces:
 
 ```python
-from theorydb_py import Table
-from theorydb_py.mocks import FakeDynamoDBClient, FakeKmsClient
+from tabletheory_py import Table
+from tabletheory_py.mocks import FakeDynamoDBClient, FakeKmsClient
 
 fake_ddb = FakeDynamoDBClient()
 fake_kms = FakeKmsClient(plaintext_key=b"\x00" * 32, ciphertext_blob=b"edk")
 
 table = Table(model, client=fake_ddb, kms_key_arn="arn:aws:kms:...", kms_client=fake_kms, rand_bytes=lambda n: b"\x01" * n)
+```
+
+For stateful Python tests that should exercise TableTheory query/write behavior without scripting every command:
+
+```python
+from tabletheory_py import StatefulDynamoDBClient, Table
+
+fake_ddb = StatefulDynamoDBClient()
+table = Table(model, client=fake_ddb)
+
+# table.put(...), table.query(...), table.update(...)
+# fake_ddb.items("notes") returns a deterministic snapshot for direct assertions.
 ```
 
 ## Integration Testing

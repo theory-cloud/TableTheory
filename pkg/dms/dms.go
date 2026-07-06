@@ -14,6 +14,13 @@ import (
 	"github.com/theory-cloud/tabletheory/pkg/naming"
 )
 
+const (
+	namingConventionCamelCase  = "camelCase"
+	namingConventionSnakeCase  = "snake_case"
+	namingConventionPascalCase = "pascalCase"
+	namingConventionDynamORM   = "dynamorm"
+)
+
 type Document struct {
 	DMSVersion string  `yaml:"dms_version" json:"dms_version"`
 	Namespace  string  `yaml:"namespace" json:"namespace"`
@@ -144,21 +151,29 @@ func FromMetadata(meta *model.Metadata) (Model, error) {
 		return Model{}, fmt.Errorf("metadata missing primary key")
 	}
 
+	namingConvention, err := namingConventionString(meta.NamingConvention)
+	if err != nil {
+		return Model{}, err
+	}
+
 	out := Model{
 		Name: meta.Type.Name(),
 		Table: Table{
 			Name: meta.TableName,
 		},
-		Naming: Naming{Convention: namingConventionString(meta.NamingConvention)},
+		Naming: Naming{Convention: namingConvention},
 		Keys: Keys{
 			Partition: KeyAttribute{
 				Attribute: meta.PrimaryKey.PartitionKey.DBName,
 				Type:      scalarKeyTypeFromField(meta.PrimaryKey.PartitionKey.Type),
 			},
 		},
-		WritePolicy: WritePolicy{Mode: "mutable", ProtectedAttributes: []string{}},
-		Attributes:  make([]Attribute, 0, len(meta.FieldsByDBName)),
-		Indexes:     make([]Index, 0, len(meta.Indexes)),
+		WritePolicy: WritePolicy{
+			Mode:                string(meta.WritePolicy.Mode),
+			ProtectedAttributes: append([]string(nil), meta.WritePolicy.ProtectedAttributes...),
+		},
+		Attributes: make([]Attribute, 0, len(meta.FieldsByDBName)),
+		Indexes:    make([]Index, 0, len(meta.Indexes)),
 	}
 
 	if meta.PrimaryKey.SortKey != nil {
@@ -168,13 +183,33 @@ func FromMetadata(meta *model.Metadata) (Model, error) {
 		}
 	}
 
+	attrs, err := attributesFromMetadata(meta)
+	if err != nil {
+		return Model{}, err
+	}
+	out.Attributes = attrs
+
+	indexes, err := indexesFromMetadata(meta)
+	if err != nil {
+		return Model{}, err
+	}
+	out.Indexes = indexes
+
+	return out, nil
+}
+
+func attributesFromMetadata(meta *model.Metadata) ([]Attribute, error) {
+	attrs := make([]Attribute, 0, len(meta.FieldsByDBName))
 	for _, field := range meta.FieldsByDBName {
 		attrType, err := attributeTypeFromField(field.Type, field.IsSet, field.Tags)
 		if err != nil {
-			return Model{}, fmt.Errorf("attribute %s: %w", field.DBName, err)
+			return nil, fmt.Errorf("attribute %s: %w", field.DBName, err)
+		}
+		if field.IsCreatedAt || field.IsUpdatedAt {
+			attrType = "S"
 		}
 
-		out.Attributes = append(out.Attributes, Attribute{
+		attrs = append(attrs, Attribute{
 			Attribute: field.DBName,
 			Type:      attrType,
 			Roles:     rolesFromField(field),
@@ -191,11 +226,15 @@ func FromMetadata(meta *model.Metadata) (Model, error) {
 			}(),
 		})
 	}
-	sort.Slice(out.Attributes, func(i, j int) bool { return out.Attributes[i].Attribute < out.Attributes[j].Attribute })
+	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Attribute < attrs[j].Attribute })
+	return attrs, nil
+}
 
+func indexesFromMetadata(meta *model.Metadata) ([]Index, error) {
+	indexes := make([]Index, 0, len(meta.Indexes))
 	for _, idx := range meta.Indexes {
 		if idx.PartitionKey == nil {
-			return Model{}, fmt.Errorf("index %s missing partition key", idx.Name)
+			return nil, fmt.Errorf("index %s missing partition key", idx.Name)
 		}
 
 		pkType := scalarKeyTypeFromField(idx.PartitionKey.Type)
@@ -213,7 +252,7 @@ func FromMetadata(meta *model.Metadata) (Model, error) {
 			proj.Type = "ALL"
 		}
 
-		out.Indexes = append(out.Indexes, Index{
+		indexes = append(indexes, Index{
 			Name:       idx.Name,
 			Type:       string(idx.Type),
 			Partition:  KeyAttribute{Attribute: idx.PartitionKey.DBName, Type: pkType},
@@ -221,9 +260,8 @@ func FromMetadata(meta *model.Metadata) (Model, error) {
 			Projection: proj,
 		})
 	}
-	sort.Slice(out.Indexes, func(i, j int) bool { return out.Indexes[i].Name < out.Indexes[j].Name })
-
-	return out, nil
+	sort.Slice(indexes, func(i, j int) bool { return indexes[i].Name < indexes[j].Name })
+	return indexes, nil
 }
 
 func validateDocument(doc *Document) error {
@@ -299,7 +337,7 @@ type normalizedIndex struct {
 func normalizeForCompare(m Model, opts CompareOptions) normalizedModel {
 	convention := m.Naming.Convention
 	if convention == "" {
-		convention = "camelCase"
+		convention = namingConventionCamelCase
 	}
 
 	out := normalizedModel{
@@ -371,18 +409,18 @@ func rolesFromField(f *model.FieldMetadata) []string {
 	return roles
 }
 
-func namingConventionString(c naming.Convention) string {
+func namingConventionString(c naming.Convention) (string, error) {
 	switch c {
 	case naming.SnakeCase:
-		return "snake_case"
+		return namingConventionSnakeCase, nil
 	case naming.PascalCase:
-		return "pascalCase"
+		return "", fmt.Errorf("unsupported DMS naming convention: %s", namingConventionPascalCase)
 	case naming.DynamORM:
-		return "dynamorm"
+		return namingConventionDynamORM, nil
 	case naming.CamelCase:
 		fallthrough
 	default:
-		return "camelCase"
+		return namingConventionCamelCase, nil
 	}
 }
 
@@ -522,6 +560,9 @@ func validateModel(m Model) error {
 	if isBlank(m.Table.Name) {
 		return fmt.Errorf("DMS model %s: missing table.name", m.Name)
 	}
+	if err := validateModelNaming(m); err != nil {
+		return err
+	}
 	if err := validateModelKeys(m); err != nil {
 		return err
 	}
@@ -536,6 +577,15 @@ func validateModel(m Model) error {
 		return err
 	}
 	return validateModelKeyAttributesPresent(m, seen)
+}
+
+func validateModelNaming(m Model) error {
+	switch m.Naming.Convention {
+	case "", namingConventionCamelCase, namingConventionSnakeCase, namingConventionDynamORM:
+		return nil
+	default:
+		return fmt.Errorf("DMS model %s: unsupported naming.convention %q", m.Name, m.Naming.Convention)
+	}
 }
 
 func normalizeWritePolicy(policy WritePolicy) WritePolicy {

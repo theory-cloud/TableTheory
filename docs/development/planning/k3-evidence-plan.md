@@ -31,12 +31,12 @@ report, or CI artifact is possible.
 | QUA-1 | Test output | `make test-unit` |
 | QUA-2 | Test output (CI/local) | `make test-integration` |
 | QUA-3 | `coverage.out` + summary | `bash scripts/verify-coverage.sh` |
-| CON-1 | `gofmt` diff list | `bash scripts/fmt-check.sh` |
+| CON-1 | `gofmt` diff list | `bash scripts/verify-formatting.sh --language go` |
 | CON-2 | Lint output | `golangci-lint run --timeout=5m --config .golangci-v2.yml` |
 | COM-1 | Multi-module compile output | `bash scripts/verify-go-modules.sh` |
 | COM-2 | CI alignment check output | `bash scripts/verify-ci-toolchain.sh` |
 | COM-3 | `golangci-lint config verify` output | `golangci-lint config verify -c .golangci-v2.yml` |
-| COM-4 | Coverage threshold check output | `bash scripts/verify-coverage-threshold.sh` |
+| COM-4 | Coverage threshold check output | `bash scripts/verify-coverage.sh --check-threshold-config` |
 | COM-5 | Gosec config check output | `bash scripts/verify-sec-gosec-config.sh` |
 | COM-6 | Logging standards check output | `bash scripts/verify-logging-standards.sh` |
 | SEC-1 | Gosec report | `bash scripts/sec-gosec.sh` |

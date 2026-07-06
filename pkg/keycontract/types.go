@@ -1,7 +1,12 @@
 package keycontract
 
-// ContractVersion is the only sidecar version currently supported by TableTheory.
+// ContractVersion is the original sidecar version supported by TableTheory.
 const ContractVersion = "0.1"
+
+const (
+	ContractVersionV01 = "0.1"
+	ContractVersionV02 = "0.2"
+)
 
 const (
 	// TransformTrim removes leading and trailing contract whitespace using the
@@ -10,6 +15,12 @@ const (
 	// TransformWildcardEmpty maps the empty string to "*". It does not trim by itself;
 	// use TransformTrim before it when whitespace should be ignored.
 	TransformWildcardEmpty = "wildcard_empty"
+	// TransformLowercase applies ASCII-only lowercase. It does not use locale or
+	// Unicode case folding; bytes outside A-Z are unchanged.
+	TransformLowercase = "lowercase"
+	// TransformURLEncode percent-encodes UTF-8 bytes with uppercase hex,
+	// leaving only RFC 3986 unreserved bytes unchanged.
+	TransformURLEncode = "url_encode"
 )
 
 // Contract is the language-neutral TableTheory model-contract sidecar.

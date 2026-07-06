@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from theorydb_py import (
+from tabletheory_py import (
     ImmutableModelMutationError,
     ProtectedFieldMutationError,
     RejectedDeployAuthorityEvidenceError,

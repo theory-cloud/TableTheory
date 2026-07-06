@@ -1,6 +1,6 @@
 # TableTheory Model Contract v0.1 derived-key sidecar
 
-`tabletheory_model_contract` v0.1 is an additive sidecar for DMS v0.1. It lets a consumer declare derived DynamoDB key strings once as ordered, language-neutral templates, then evaluate the same bytes in Go and TypeScript.
+`tabletheory_model_contract` v0.1 is an additive sidecar for DMS v0.1. It lets a consumer declare derived DynamoDB key strings once as ordered, language-neutral templates, then evaluate the same bytes in Go, TypeScript, and Python. Version v0.2 extends only the sidecar transform vocabulary; it does not change DMS v0.1 model semantics.
 
 This sidecar does **not** change DMS v0.1 core semantics. DMS still owns model shape, tags, attributes, keys, indexes, write policy, and validation. The sidecar owns only model metadata discovery plus derived-key templates and golden fixtures.
 
@@ -64,6 +64,13 @@ Supported transforms in v0.1:
 
 - `trim` — remove leading and trailing contract whitespace using an explicit codepoint set, independent of any language runtime's default trim behavior.
 - `wildcard_empty` — map the empty string to `*`. It does not trim by itself; declare `trim` before it when whitespace should become wildcard-eligible.
+
+Supported transforms added in sidecar v0.2:
+
+- `lowercase` — ASCII-only lowercase. Only codepoints U+0041 through U+005A (`A` through `Z`) map to U+0061 through U+007A (`a` through `z`). All other codepoints, including non-ASCII letters such as `É` and `İ`, are left unchanged. This transform must not use a host language's locale-aware or Unicode case-folding defaults.
+- `url_encode` — percent-encode the current segment value as UTF-8 bytes. Unreserved RFC 3986 bytes `A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, and `~` are emitted unchanged. Every other byte is emitted as `%HH` with uppercase hex digits. When `url_encode` is declared, evaluators do not apply the v0.1 implicit input escaping a second time.
+
+Transforms run exactly in declared order. Declare `url_encode` after text-shaping transforms such as `trim` and `lowercase` when the desired output is canonical uppercase percent encodings.
 
 The `trim` codepoint set is exactly:
 
@@ -135,4 +142,6 @@ Generated helpers import the runtime evaluator from `@theory-cloud/tabletheory-t
 - `ImportSessionScopeKey`
 - generic scalar number formatting boundaries (`1e21`, `1e-6`, negative zero)
 
-Future consumer fixture files can be dropped under `contract-tests/key-contracts/v0.1/` and exercised by the same Go/TypeScript evaluators without code changes.
+`contract-tests/key-contracts/v0.2/derived-key-transforms.yml` pins the v0.2 transform additions with ASCII-only lowercase and UTF-8 percent-encoding fixtures, including non-ASCII codepoint preservation.
+
+Future consumer fixture files can be dropped under `contract-tests/key-contracts/v0.1/` or `contract-tests/key-contracts/v0.2/` and exercised by the same Go/TypeScript/Python evaluators without code changes.

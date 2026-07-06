@@ -248,35 +248,24 @@ func BenchmarkComplexTransaction(b *testing.B) {
 			Version:        1,
 		}
 
-		// Use transaction
-		err := db.Transaction(func(tx *core.Tx) error {
-			if err := tx.Create(paymentRecord); err != nil {
-				return err
-			}
-
-			// Create transaction record
-			txRecord := &payment.Transaction{
-				ID:          fmt.Sprintf("tx-trans-%d", i),
-				PaymentID:   paymentRecord.ID,
-				Type:        payment.TransactionTypeCapture,
-				Amount:      paymentRecord.Amount,
-				Status:      "processing",
-				ProcessedAt: time.Now(),
-				CreatedAt:   time.Now(),
-				UpdatedAt:   time.Now(),
-				Version:     1,
-			}
-
-			if err := tx.Create(txRecord); err != nil {
-				return err
-			}
-
-			// Update payment status
-			paymentRecord.Status = payment.PaymentStatusSucceeded
-			paymentRecord.UpdatedAt = time.Now()
-
-			return tx.Update(paymentRecord, "Status", "UpdatedAt")
-		})
+		// Use the atomic transaction builder.
+		paymentRecord.Status = payment.PaymentStatusSucceeded
+		paymentRecord.UpdatedAt = time.Now()
+		txRecord := &payment.Transaction{
+			ID:          fmt.Sprintf("tx-trans-%d", i),
+			PaymentID:   paymentRecord.ID,
+			Type:        payment.TransactionTypeCapture,
+			Amount:      paymentRecord.Amount,
+			Status:      "processing",
+			ProcessedAt: time.Now(),
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+			Version:     1,
+		}
+		err := db.Transact().
+			Create(paymentRecord).
+			Create(txRecord).
+			Execute()
 
 		if err != nil {
 			b.Error(err)
@@ -438,28 +427,13 @@ func BenchmarkTransactionOperations(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		paymentRecord := createTestPayment()
 
-		err := db.Transaction(func(tx *core.Tx) error {
-			// Create payment
-			if err := tx.Create(paymentRecord); err != nil {
-				return err
-			}
-
-			// Create transaction
-			txRecord := createTestTransaction(paymentRecord.ID)
-			if err := tx.Create(txRecord); err != nil {
-				return err
-			}
-
-			// Update payment status
-			paymentRecord.Status = payment.PaymentStatusSucceeded
-			paymentRecord.UpdatedAt = time.Now()
-
-			if err := tx.Update(paymentRecord, "Status", "UpdatedAt"); err != nil {
-				return err
-			}
-
-			return nil
-		})
+		paymentRecord.Status = payment.PaymentStatusSucceeded
+		paymentRecord.UpdatedAt = time.Now()
+		txRecord := createTestTransaction(paymentRecord.ID)
+		err := db.Transact().
+			Create(paymentRecord).
+			Create(txRecord).
+			Execute()
 
 		if err != nil {
 			b.Fatal(err)

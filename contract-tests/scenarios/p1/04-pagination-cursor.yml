@@ -1,0 +1,46 @@
+name: "p1.pagination.cursor_walk"
+dms_version: "0.1"
+requires_capabilities: ["query.basic"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item: { PK: "USER#PAGE", SK: "ITEM#001", emailHash: "pagination@example", nickname: "one" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#PAGE", SK: "ITEM#002", emailHash: "pagination@example", nickname: "two" }
+    expect: { ok: true }
+
+  - op: create
+    item: { PK: "USER#PAGE", SK: "ITEM#003", emailHash: "pagination@example", nickname: "three" }
+    expect: { ok: true }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#PAGE" }
+      sort: { attribute: "SK", operator: "begins_with", value: "ITEM#" }
+      sort_direction: "ASC"
+      limit: 2
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      item_count: 2
+      cursor_equals: "eyJsYXN0S2V5Ijp7IlBLIjp7IlMiOiJVU0VSI1BBR0UifSwiU0siOnsiUyI6IklURU0jMDAyIn19LCJzb3J0IjoiQVNDIn0="
+      items_contains:
+        - { PK: "USER#PAGE", SK: "ITEM#001", nickname: "one" }
+        - { PK: "USER#PAGE", SK: "ITEM#002", nickname: "two" }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#PAGE" }
+      sort: { attribute: "SK", operator: "begins_with", value: "ITEM#" }
+      sort_direction: "ASC"
+      limit: 2
+      projection: ["PK", "SK", "nickname"]
+      cursor: "eyJsYXN0S2V5Ijp7IlBLIjp7IlMiOiJVU0VSI1BBR0UifSwiU0siOnsiUyI6IklURU0jMDAyIn19LCJzb3J0IjoiQVNDIn0="
+    expect:
+      item_count: 1
+      cursor_equals: ""
+      items_contains:
+        - { PK: "USER#PAGE", SK: "ITEM#003", nickname: "three" }

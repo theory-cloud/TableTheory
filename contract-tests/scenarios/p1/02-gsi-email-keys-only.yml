@@ -1,0 +1,34 @@
+name: "p1.gsi.email_keys_only_projection"
+dms_version: "0.1"
+requires_capabilities: ["query.basic"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#GSI#1"
+      SK: "PROFILE#1"
+      emailHash: "gsi-keys-only@example"
+      nickname: "projected-away"
+    expect:
+      ok: true
+
+  - op: query
+    query:
+      index: "gsi-email"
+      partition: { attribute: "emailHash", operator: "=", value: "gsi-keys-only@example" }
+      projection: ["PK", "SK", "emailHash"]
+    expect:
+      item_count: 1
+      items_contains:
+        - { PK: "USER#GSI#1", SK: "PROFILE#1", emailHash: "gsi-keys-only@example" }
+      items_missing_fields: ["nickname"]
+
+  - op: query
+    query:
+      index: "gsi-email"
+      partition: { attribute: "emailHash", operator: "=", value: "gsi-keys-only@example" }
+      consistent_read: true
+    expect:
+      error: "ErrInvalidOperator"

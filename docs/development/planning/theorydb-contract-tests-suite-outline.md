@@ -32,6 +32,9 @@ Contract tests run scenarios against an implementation through a **Driver** inte
   - runs scenario steps through the driver,
   - asserts results (items, errors, cursor strings) using canonical encodings from the spec.
 
+Raw DynamoDB item assertions (`item_missing_fields`, `raw_attribute_types`, and exact raw item comparisons) MUST use
+strongly consistent reads in every runner. Eventual raw reads make the harness itself a source of parity drift.
+
 ## Proposed folder layout (contract repo)
 
 ```text
@@ -202,18 +205,25 @@ Minimum assertions required for v0.1:
 - `ok: true`
 - `error: <ErrorCode>`
 - `item_contains: { attr: value }` (subset match)
-- `item_equals: { ... }` (exact match; optional in v0.1)
+- `item_equals: { ... }` (exact match; when a raw DynamoDB item is available, the raw attribute set must contain exactly
+  these attributes and no extras)
 - `item_has_fields: [attr]` (presence)
 - `item_missing_fields: [attr]` (absence in the *raw DynamoDB item*; critical for `omit_empty`)
 - `raw_attribute_types: { attr: "S"|"N"|"B"|... }` (type assertions against the raw DynamoDB item)
-- `cursor_equals: "<cursor>"` (byte-for-byte; for golden cursor tests)
+- `cursor_equals: "<cursor>"` (byte-for-byte read-result cursor equality; use `""` to assert no cursor)
 - `item_field_equals_var: { attr: "varName" }` (value equals previously saved var)
 - `item_field_not_equals_var: { attr: "varName" }` (value differs from previously saved var)
+- `item_count: <n>` (exact query/scan result count)
+- `items_contains: [{ attr: value }]` (ordered subset assertions for query/scan results; each value is checked using
+  the DMS attribute type)
 
 Value encoding in scenario files is “logical” (strings/numbers/bools/arrays/objects); the runner encodes based on DMS
 attribute `type`.
 
 Comparison rules:
+- DynamoDB `N` values MUST be asserted as their canonical decimal strings. Runners compare the DynamoDB wire string
+  exactly and must not coerce through `int64`, JavaScript `number`, Python `float`, or any other lossy numeric type.
+  Quote non-integer values and integers outside JavaScript's safe-integer range in YAML.
 - DynamoDB set types (`SS`/`NS`/`BS`) MUST be compared **order-insensitively**.
 
 ## Driver interface (what each implementation must provide)
@@ -230,6 +240,61 @@ Comparison rules:
 - `query(modelName, request)` returning `{ items, cursor? }`
 - `scan(modelName, request)` returning `{ items, cursor? }`
 - cursor encode/decode must match `theorydb-spec-dms-v0.1` requirements
+
+The scenario harness advertises `query.basic` and `scan.basic` when a runner supports these read operations. Query and
+scan steps use this shape:
+
+```yaml
+- op: query
+  query:
+    index: "gsi-name"              # optional
+    partition: { attribute: "PK", operator: "=", value: "USER#1" }
+    sort: { attribute: "SK", operator: "begins_with", value: "PROFILE#" } # optional
+    sort_direction: "ASC"          # optional; ASC or DESC
+    limit: 10                      # optional
+    projection: ["PK", "SK"]       # optional
+    cursor: "<opaque-cursor>"      # optional
+    consistent_read: true          # optional; not valid for GSIs
+    filter:
+      - { attribute: "status", operator: "=", value: "active" }
+  expect:
+    item_count: 1
+    items_contains:
+      - { PK: "USER#1", SK: "PROFILE" }
+
+- op: scan
+  scan:
+    index: "gsi-name"              # optional
+    filter:
+      - { attribute: "status", operator: "=", value: "active" }
+    limit: 10
+    projection: ["PK", "SK"]
+```
+
+Supported basic operators are `=`, `<`, `<=`, `>`, `>=`, `between`, and `begins_with` for sort-key conditions, plus
+those and `!=`/`<>`, `contains`, `in`, `exists`/`attribute_exists`, and `not_exists`/`attribute_not_exists` for filters.
+
+### Cross-runtime interop scenarios
+
+Interop scenarios live under `contract-tests/scenarios/interop/` and declare a seed/read manifest:
+
+```yaml
+seed_runtime: "go"
+seed_steps:
+  - op: create
+    item: { ... }
+read_steps:
+  - op: get
+    key: { ... }
+    expect:
+      item_equals: { ... }
+```
+
+The seed runtime recreates the table, runs `seed_steps`, then runs `read_steps` against the same DynamoDB Local instance.
+The non-seed runtimes do **not** recreate the table for that scenario; they run only `read_steps`, so they assert the
+physical items written by the seed runtime. The repository validation script runs the normal per-runtime P0 suites first,
+then runs the interop seed/read sequence in order (`go` seed/read, TypeScript read, Python read) with
+`CONTRACT_RUN_INTEROP=1`.
 
 ### P2 driver operations
 

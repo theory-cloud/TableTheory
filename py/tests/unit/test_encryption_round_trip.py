@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py import EncryptionNotConfiguredError, ModelDefinition, Table, theorydb_field
+from tabletheory_py import EncryptionNotConfiguredError, ModelDefinition, Table, theorydb_field
 
 
 class _FakeKms:

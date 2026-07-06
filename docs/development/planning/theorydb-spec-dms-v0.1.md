@@ -176,6 +176,7 @@ Each `indexes[]` entry supports:
   - `camelCase`: `^[a-z][A-Za-z0-9]*$` with explicit allowance for `"PK"` / `"SK"` if used.
   - `snake_case`: `^[a-z][a-z0-9]*(_[a-z0-9]+)*$`.
   - `dynamorm`: same validation as `camelCase`, but model-driven defaults MUST resolve `pk`/`sk` roles to `"PK"` / `"SK"` unless explicitly overridden.
+- `pascalCase` is not a DMS v0.1 naming convention. Runtimes MAY retain language-specific legacy model support, but DMS emitters/validators MUST NOT produce or accept `naming.convention: "pascalCase"`.
 
 ### Timestamp encoding (`created_at`, `updated_at`)
 

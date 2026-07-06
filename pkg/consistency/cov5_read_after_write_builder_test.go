@@ -51,12 +51,11 @@ type cov5DB struct {
 	query core.Query
 }
 
-func (d cov5DB) Model(any) core.Query                      { return d.query }
-func (d cov5DB) Transaction(func(tx *core.Tx) error) error { return nil }
-func (d cov5DB) Migrate() error                            { return nil }
-func (d cov5DB) AutoMigrate(...any) error                  { return nil }
-func (d cov5DB) Close() error                              { return nil }
-func (d cov5DB) WithContext(context.Context) core.DB       { return d }
+func (d cov5DB) Model(any) core.Query                { return d.query }
+func (d cov5DB) Migrate() error                      { return nil }
+func (d cov5DB) AutoMigrate(...any) error            { return nil }
+func (d cov5DB) Close() error                        { return nil }
+func (d cov5DB) WithContext(context.Context) core.DB { return d }
 
 func TestConsistentQueryBuilder_First_UseMainTableUsesConsistentRead(t *testing.T) {
 	exec := &cov5ConsistencyExecutor{}

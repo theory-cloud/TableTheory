@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import boto3
 
-from theorydb_py import ModelDefinition, SortKeyCondition, Table, theorydb_field
+from tabletheory_py import ModelDefinition, SortKeyCondition, Table, theorydb_field
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ def _client():
 
 def main() -> None:
     client = _client()
-    table_name = f"theorydb_py_example_{uuid.uuid4().hex[:12]}"
+    table_name = f"tabletheory_py_example_{uuid.uuid4().hex[:12]}"
 
     client.create_table(
         TableName=table_name,

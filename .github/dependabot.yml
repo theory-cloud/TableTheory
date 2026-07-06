@@ -1,0 +1,158 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    groups:
+      go-root:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: "/contract-tests/runners/go"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: America/New_York
+    open-pull-requests-limit: 3
+    groups:
+      go-contract-runner:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: "/examples/basic/todo"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 3
+    groups:
+      go-examples:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: "/examples/basic/notes"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 3
+    groups:
+      go-examples:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: "/examples/basic/contacts"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 3
+    groups:
+      go-examples:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: "/examples/multi-tenant"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:30"
+      timezone: America/New_York
+    open-pull-requests-limit: 3
+    groups:
+      go-examples:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: "/ts"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "09:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    groups:
+      ts-runtime:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: "/examples/cdk-multilang"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "09:30"
+      timezone: America/New_York
+    open-pull-requests-limit: 3
+    groups:
+      npm-examples:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: "/contract-tests/runners/ts"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "10:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 3
+    groups:
+      ts-contract-runner:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: "/py"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "09:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    groups:
+      py-runtime:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: "/examples/cdk-multilang/lambdas/python"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "09:30"
+      timezone: America/New_York
+    open-pull-requests-limit: 3
+    groups:
+      py-examples:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: staging
+    schedule:
+      interval: weekly
+      day: thursday
+      time: "09:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]

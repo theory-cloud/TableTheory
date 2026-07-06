@@ -9,6 +9,9 @@ fi
 echo "contract-tests: generated-ts"
 bash scripts/verify-generated-ts-key-contract.sh
 
+echo "contract-tests: generated-models"
+bash scripts/verify-generated-models.sh --check
+
 skip="${SKIP_INTEGRATION:-}"
 if [[ "${skip}" == "1" || "${skip}" == "true" ]]; then
   echo "contract-tests: SKIP (SKIP_INTEGRATION=${skip})"
@@ -40,6 +43,19 @@ if [[ -d "contract-tests/runners/py" ]]; then
     bash scripts/verify-python-deps.sh
   fi
   uv --directory py run pytest -q ../contract-tests/runners/py
+fi
+
+if [[ -d "contract-tests/scenarios/interop" ]]; then
+  echo "contract-tests: cross-runtime interop"
+  if [[ -f "contract-tests/runners/go/go.mod" ]]; then
+    (cd contract-tests/runners/go && CONTRACT_RUN_INTEROP=1 go test . -run TestContract_Interop -count=1 -v)
+  fi
+  if [[ -f "contract-tests/runners/ts/package.json" ]]; then
+    CONTRACT_RUN_INTEROP=1 npm --prefix contract-tests/runners/ts run test:contract:interop
+  fi
+  if [[ -d "contract-tests/runners/py" ]]; then
+    CONTRACT_RUN_INTEROP=1 uv --directory py run pytest -q ../contract-tests/runners/py/test_contract_p0.py -k interop
+  fi
 fi
 
 echo "contract-tests: PASS"

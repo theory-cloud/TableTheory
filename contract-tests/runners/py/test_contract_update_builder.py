@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from theorydb_py import ModelDefinition, Table, theorydb_field
-from theorydb_py.mocks import FakeDynamoDBClient
+from tabletheory_py import ModelDefinition, Table, theorydb_field
+from tabletheory_py.mocks import FakeDynamoDBClient
 
 
 @dataclass(frozen=True)

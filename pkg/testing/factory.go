@@ -3,6 +3,8 @@
 package testing
 
 import (
+	"errors"
+
 	"github.com/theory-cloud/tabletheory/pkg/core"
 	"github.com/theory-cloud/tabletheory/pkg/mocks"
 	"github.com/theory-cloud/tabletheory/pkg/session"
@@ -20,16 +22,18 @@ type DBFactory interface {
 // of ExtendedDB methods for simpler use cases. For now, use DBFactory
 // which returns the full ExtendedDB interface.
 
-// DefaultDBFactory creates real TableTheory instances for production use
+// DefaultDBFactory is a placeholder production factory.
+//
+// It intentionally fails loudly instead of returning a nil DB with nil error.
+// Applications should inject their own factory that calls tabletheory.New with
+// the desired runtime configuration.
 type DefaultDBFactory struct{}
 
-// CreateDB creates a real TableTheory database connection
+// CreateDB returns an explicit error because the default factory cannot safely
+// infer a production TableTheory configuration.
 func (f *DefaultDBFactory) CreateDB(config session.Config) (core.ExtendedDB, error) {
 	_ = config
-	// In the real implementation, this would call tabletheory.New(config)
-	// which returns an ExtendedDB instance
-	// For now, we'll return a placeholder
-	return nil, nil
+	return nil, errors.New("DefaultDBFactory cannot create a DB without an application-provided TableTheory factory")
 }
 
 // MockDBFactory creates mock TableTheory instances for testing

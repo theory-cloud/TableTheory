@@ -1,0 +1,81 @@
+name: "p0.harness.query_scan"
+dms_version: "0.1"
+requires_capabilities: ["query.basic", "scan.basic"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#QS"
+      SK: "PROFILE#01"
+      emailHash: "query@example"
+      nickname: "one"
+    expect:
+      ok: true
+
+  - op: create
+    item:
+      PK: "USER#QS"
+      SK: "PROFILE#02"
+      emailHash: "query@example"
+      nickname: "two"
+    expect:
+      ok: true
+
+  - op: create
+    item:
+      PK: "USER#OTHER"
+      SK: "PROFILE#01"
+      emailHash: "other@example"
+      nickname: "other"
+    expect:
+      ok: true
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#QS" }
+      sort: { attribute: "SK", operator: "begins_with", value: "PROFILE#" }
+      sort_direction: "DESC"
+      limit: 1
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      ok: true
+      item_count: 1
+      cursor_equals: "eyJsYXN0S2V5Ijp7IlBLIjp7IlMiOiJVU0VSI1FTIn0sIlNLIjp7IlMiOiJQUk9GSUxFIzAyIn19LCJzb3J0IjoiREVTQyJ9"
+      items_contains:
+        - { PK: "USER#QS", SK: "PROFILE#02", nickname: "two" }
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "USER#QS" }
+      sort: { attribute: "SK", operator: "begins_with", value: "PROFILE#" }
+      sort_direction: "DESC"
+      limit: 2
+      projection: ["PK", "SK", "nickname"]
+    expect:
+      ok: true
+      item_count: 2
+      items_contains:
+        - { PK: "USER#QS", SK: "PROFILE#02", nickname: "two" }
+        - { PK: "USER#QS", SK: "PROFILE#01", nickname: "one" }
+
+  - op: query
+    query:
+      index: "gsi-email"
+      partition: { attribute: "emailHash", operator: "=", value: "query@example" }
+      limit: 2
+      projection: ["PK", "SK", "emailHash"]
+    expect:
+      ok: true
+      item_count: 2
+
+  - op: scan
+    scan:
+      filter:
+        - { attribute: "emailHash", operator: "=", value: "query@example" }
+      limit: 10
+      projection: ["PK", "SK", "emailHash"]
+    expect:
+      ok: true
+      item_count: 2

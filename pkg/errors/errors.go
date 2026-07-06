@@ -23,6 +23,17 @@ var (
 	// ErrConditionFailed is returned when a condition check fails
 	ErrConditionFailed = errors.New("condition check failed")
 
+	// ErrVersionConflict is returned when an optimistic-lock version condition fails.
+	// It matches ErrConditionFailed via errors.Is for backward compatibility.
+	ErrVersionConflict = conditionSubtypeError("version conflict")
+
+	// ErrThrottled is returned when DynamoDB rejects an operation due to throttling.
+	ErrThrottled = errors.New("throttled")
+
+	// ErrTransactionConflict is returned when DynamoDB reports a transaction conflict.
+	// It matches ErrTransactionFailed via errors.Is for backward compatibility.
+	ErrTransactionConflict = transactionSubtypeError("transaction conflict")
+
 	// ErrIndexNotFound is returned when a specified index doesn't exist
 	ErrIndexNotFound = errors.New("index not found")
 
@@ -68,6 +79,26 @@ var (
 	// ErrRejectedDeployAuthorityEvidence is returned when provenance/confidence evidence is not deploy-authoritative.
 	ErrRejectedDeployAuthorityEvidence = errors.New("rejected deploy authority evidence")
 )
+
+type conditionSubtypeError string
+
+func (e conditionSubtypeError) Error() string {
+	return string(e)
+}
+
+func (e conditionSubtypeError) Is(target error) bool {
+	return target == ErrConditionFailed
+}
+
+type transactionSubtypeError string
+
+func (e transactionSubtypeError) Error() string {
+	return string(e)
+}
+
+func (e transactionSubtypeError) Is(target error) bool {
+	return target == ErrTransactionFailed
+}
 
 // EncryptedFieldError wraps failures related to theorydb:"encrypted" fields (encryption/decryption).
 // It is safe-by-default: the error string must never include decrypted plaintext.

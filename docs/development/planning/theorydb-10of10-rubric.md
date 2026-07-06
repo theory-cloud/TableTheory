@@ -79,7 +79,7 @@ Multi-language scope:
 | COM-2 | 1 | CI toolchain aligns to repo expectations (Go + Node + pinned tool versions) | `bash scripts/verify-ci-toolchain.sh` |
 | COM-3 | 1 | Planning docs exist and are versioned | `bash scripts/verify-planning-docs.sh` |
 | COM-4 | 1 | Lint configuration is schema-valid for golangci-lint v2 | `golangci-lint config verify -c .golangci-v2.yml` |
-| COM-5 | 1 | Coverage gate configuration is not diluted (default threshold ≥ 90% across Go/TypeScript/Python) | `bash scripts/verify-coverage-threshold.sh` |
+| COM-5 | 1 | Coverage gate configuration is not diluted (default threshold ≥ 90% across Go/TypeScript/Python) | `bash scripts/verify-coverage.sh --check-threshold-config` |
 | COM-6 | 2 | CI enforces rubric surface (runs `make rubric`, pinned tools, uploads artifacts) | `bash scripts/verify-ci-rubric-enforced.sh` |
 | COM-7 | 1 | DynamoDB Local image is pinned (no `:latest`) | `bash scripts/verify-dynamodb-local-pin.sh` |
 | COM-8 | 2 | Branch + release supply-chain is enforced (`main` releases, `premain` prereleases; automated tagging/changelog; protections documented) | `bash scripts/verify-branch-release-supply-chain.sh` |
@@ -151,7 +151,7 @@ bash scripts/verify-public-api-contracts.sh
 bash scripts/verify-builds.sh
 bash scripts/verify-unit-tests.sh
 bash scripts/verify-integration-tests.sh
-bash scripts/verify-coverage-threshold.sh
+bash scripts/verify-coverage.sh --check-threshold-config
 bash scripts/verify-coverage.sh
 
 bash scripts/verify-ci-toolchain.sh

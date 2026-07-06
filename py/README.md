@@ -8,9 +8,12 @@ Python implementation of TableTheory for DynamoDB.
 This package is developed in a multi-language monorepo alongside the Go and TypeScript implementations. GitHub releases
 are the source of truth for versions (no PyPI publishing).
 
+The canonical import package is `tabletheory_py`. The legacy `theorydb_py` import package is removed in v2; update all
+application imports to `tabletheory_py`.
+
 ## Requirements
 
-- Python `>=3.14`
+- Python `>=3.12`
 - AWS credentials (or DynamoDB Local) for integration tests/examples
 
 ## Install (from this monorepo)
@@ -39,7 +42,7 @@ import os
 
 import boto3
 
-from theorydb_py import ModelDefinition, Table, theorydb_field
+from tabletheory_py import ModelDefinition, Table, theorydb_field
 
 
 @dataclass(frozen=True)
@@ -68,7 +71,7 @@ note = table.get("A", "1")
 ## Query + pagination
 
 ```python
-from theorydb_py import SortKeyCondition
+from tabletheory_py import SortKeyCondition
 
 page1 = table.query("A", sort=SortKeyCondition.begins_with("1"), limit=25)
 page2 = table.query("A", cursor=page1.next_cursor) if page1.next_cursor else None
@@ -77,7 +80,7 @@ page2 = table.query("A", cursor=page1.next_cursor) if page1.next_cursor else Non
 ## Batch + transactions
 
 ```python
-from theorydb_py import TransactUpdate, UpdateAdd, UpdateSetIfNotExists
+from tabletheory_py import TransactUpdate, UpdateAdd, UpdateSetIfNotExists
 
 table.batch_write(puts=[Note(pk="A", sk="2", value=1)], deletes=[("A", "1")])
 
@@ -98,7 +101,7 @@ table.transact_write(
 ## Streams (Lambda)
 
 ```python
-from theorydb_py import unmarshal_stream_record
+from tabletheory_py import unmarshal_stream_record
 
 def handler(event, context):
     for record in event.get("Records", []):
@@ -126,10 +129,10 @@ table = Table(model, client=client, kms_key_arn=os.environ["KMS_KEY_ARN"])
 
 ## Testing with mocks
 
-The `theorydb_py.mocks` module provides strict fakes for unit tests (no AWS calls):
+The `tabletheory_py.mocks` module provides strict fakes for unit tests (no AWS calls):
 
 ```python
-from theorydb_py.mocks import ANY, FakeDynamoDBClient, FakeKmsClient
+from tabletheory_py.mocks import ANY, FakeDynamoDBClient, FakeKmsClient
 
 fake_ddb = FakeDynamoDBClient()
 fake_kms = FakeKmsClient(

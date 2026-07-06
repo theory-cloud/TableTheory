@@ -1,0 +1,55 @@
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { TheorydbClient, defineModel, ensureTable } from '@theory-cloud/tabletheory-ts';
+
+// The model definition is the TableTheory data contract; the same shape is
+// described language-neutrally in dms.yml.
+const Note = defineModel({
+  name: 'Note',
+  table: { name: 'notes' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'title', type: 'S' },
+    { attribute: 'value', type: 'N' },
+    { attribute: 'createdAt', type: 'S', roles: ['created_at'] },
+    { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
+    { attribute: 'version', type: 'N', roles: ['version'] },
+  ],
+});
+
+async function main(): Promise<void> {
+  const ddb = new DynamoDBClient({
+    region: process.env.AWS_REGION ?? 'us-east-1',
+    endpoint: process.env.DYNAMODB_ENDPOINT ?? 'http://localhost:8000',
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'dummy',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'dummy',
+    },
+  });
+
+  // ensureTable is idempotent — it creates the table if it does not exist.
+  await ensureTable(ddb, Note);
+
+  const db = new TheorydbClient(ddb).register(Note);
+
+  await db.create('Note', { PK: 'NOTE#1', SK: 'v1', title: 'Hello TableTheory', value: 42 }, { ifNotExists: true });
+  console.log('created note NOTE#1');
+
+  const item = await db.get('Note', { PK: 'NOTE#1', SK: 'v1' });
+  console.log(`read note: title=${String(item.title)} value=${String(item.value)} version=${String(item.version)}`);
+
+  // Update requires the current version value; see the API reference. Then:
+  await db.delete('Note', { PK: 'NOTE#1', SK: 'v1' });
+  console.log('deleted note NOTE#1');
+
+  console.log('OK: TableTheory CRUD against DynamoDB Local succeeded');
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exit(1);
+});

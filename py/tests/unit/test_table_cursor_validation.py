@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from theorydb_py import ModelDefinition, Table, ValidationError, theorydb_field
+from tabletheory_py import ModelDefinition, Table, ValidationError, theorydb_field
 
 
 @dataclass(frozen=True)

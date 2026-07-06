@@ -7,50 +7,61 @@ import {
 
 import { sleep } from './batch.js';
 import type { AggregateResult } from './aggregates.js';
-import {
-  aggregateField,
-  averageField,
-  countDistinct,
-  GroupByQuery,
-  maxField,
-  minField,
-  sumField,
-} from './aggregates.js';
+import { GroupByQuery } from './aggregates.js';
 import {
   decodeCursor,
   encodeCursor,
   type Cursor,
   type CursorSort,
 } from './cursor.js';
+import { buildConditionExpression } from './expression-builder.js';
 import { TheorydbError } from './errors.js';
+import {
+  aggregateFromAll,
+  averageFromAll,
+  countDistinctFromAll,
+  groupByFromAll,
+  maxFromAll,
+  minFromAll,
+  sumFromAll,
+} from './query-aggregation.js';
 import {
   decryptItemAttributes,
   modelHasEncryptedAttributes,
   type EncryptionProvider,
 } from './encryption.js';
-import { marshalScalar, unmarshalItem } from './marshal.js';
+import {
+  marshalScalar,
+  unmarshalItem,
+  type UnmarshalOptions,
+} from './marshal.js';
 import type { AttributeSchema, IndexSchema, Model } from './model.js';
-import type { BuilderShape } from './optimizer.js';
+import type {
+  BuilderShape,
+  OptimizerCondition,
+  OptimizerIndexShape,
+} from './optimizer.js';
+import { mapConcurrent } from './query-concurrency.js';
+import {
+  collectAllItems,
+  itemIterator,
+  pageIterator,
+} from './query-iterators.js';
+import { countAllPages } from './query-count.js';
 import type { SendOptions } from './send-options.js';
-
-export interface Page<T = Record<string, unknown>> {
-  items: T[];
-  cursor?: string;
-}
-
-export interface QueryRetryOptions {
-  maxAttempts?: number;
-  baseDelayMs?: number;
-  maxDelayMs?: number;
-  backoffFactor?: number;
-  retryOnEmpty?: boolean;
-  retryOnError?: boolean;
-  verify?: (page: Page) => boolean;
-}
+import type { Page, QueryOperator, QueryRetryOptions } from './query-types.js';
+export { unsafeOperator } from './query-types.js';
+export type {
+  KnownOperator,
+  OperatorEscape,
+  Page,
+  QueryOperator,
+  QueryRetryOptions,
+} from './query-types.js';
 
 export interface FilterGroupBuilder {
-  filter(field: string, op: string, ...values: unknown[]): this;
-  orFilter(field: string, op: string, ...values: unknown[]): this;
+  filter(field: string, op: QueryOperator, ...values: unknown[]): this;
+  orFilter(field: string, op: QueryOperator, ...values: unknown[]): this;
   filterGroup(fn: (b: FilterGroupBuilder) => void): this;
   orFilterGroup(fn: (b: FilterGroupBuilder) => void): this;
 }
@@ -64,6 +75,7 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
     names: Record<string, string>;
     values: Record<string, AttributeValue>;
     namePlaceholders: Map<string, string>;
+    optimizerConditions: OptimizerCondition[];
   };
 
   constructor(
@@ -78,15 +90,16 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
         names: {},
         values: {},
         namePlaceholders: new Map<string, string>(),
+        optimizerConditions: [],
       } satisfies FilterExpressionBuilder['state']);
   }
 
-  filter(field: string, op: string, ...values: unknown[]): this {
+  filter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.addCondition('AND', field, op, values);
     return this;
   }
 
-  orFilter(field: string, op: string, ...values: unknown[]): this {
+  orFilter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.addCondition('OR', field, op, values);
     return this;
   }
@@ -112,6 +125,10 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
     };
   }
 
+  optimizerConditions(): OptimizerCondition[] {
+    return this.state.optimizerConditions.slice();
+  }
+
   private addGroup(
     op: 'AND' | 'OR',
     fn: (b: FilterGroupBuilder) => void,
@@ -127,7 +144,7 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
   private addCondition(
     logicalOp: 'AND' | 'OR',
     field: string,
-    op: string,
+    op: QueryOperator,
     values: unknown[],
   ): void {
     const schema = this.model.attributes.get(field);
@@ -148,6 +165,7 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
     const upper = op.toUpperCase();
 
     const expr = this.buildConditionExpr(nameRef, schema, upper, values);
+    this.state.optimizerConditions.push({ field, operator: upper });
     this.append(logicalOp, expr);
   }
 
@@ -157,100 +175,19 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
     op: string,
     values: unknown[],
   ): string {
-    switch (op) {
-      case '=':
-      case 'EQ': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} = ${valueRef}`;
-      }
-      case '!=':
-      case '<>':
-      case 'NE': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} <> ${valueRef}`;
-      }
-      case '<':
-      case 'LT': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} < ${valueRef}`;
-      }
-      case '<=':
-      case 'LE': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} <= ${valueRef}`;
-      }
-      case '>':
-      case 'GT': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} > ${valueRef}`;
-      }
-      case '>=':
-      case 'GE': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} >= ${valueRef}`;
-      }
-      case 'BETWEEN': {
-        if (values.length !== 2) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'BETWEEN requires two values',
-          );
-        }
-        const left = this.valueRef(schema, values[0]);
-        const right = this.valueRef(schema, values[1]);
-        return `${nameRef} BETWEEN ${left} AND ${right}`;
-      }
-      case 'IN': {
-        if (values.length !== 1 || !Array.isArray(values[0])) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'IN requires a single array value',
-          );
-        }
-        const list = values[0];
-        if (list.length > 100) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'IN supports maximum 100 values',
-          );
-        }
-        const refs = list.map((v) => this.valueRef(schema, v));
-        return `${nameRef} IN (${refs.join(', ')})`;
-      }
-      case 'BEGINS_WITH': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `begins_with(${nameRef}, ${valueRef})`;
-      }
-      case 'CONTAINS': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `contains(${nameRef}, ${valueRef})`;
-      }
-      case 'EXISTS':
-      case 'ATTRIBUTE_EXISTS': {
-        if (values.length !== 0) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'EXISTS does not take a value',
-          );
-        }
-        return `attribute_exists(${nameRef})`;
-      }
-      case 'NOT_EXISTS':
-      case 'ATTRIBUTE_NOT_EXISTS': {
-        if (values.length !== 0) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'NOT_EXISTS does not take a value',
-          );
-        }
-        return `attribute_not_exists(${nameRef})`;
-      }
-      default:
-        throw new TheorydbError(
-          'ErrInvalidOperator',
-          `Unsupported operator: ${op}`,
-        );
-    }
+    return buildConditionExpression(
+      nameRef,
+      schema,
+      op,
+      values,
+      (valueSchema, value) => this.valueRef(valueSchema, value),
+      {
+        existsOperators: ['EXISTS', 'ATTRIBUTE_EXISTS'],
+        notExistsOperators: ['NOT_EXISTS', 'ATTRIBUTE_NOT_EXISTS'],
+        existsValueError: 'EXISTS does not take a value',
+        notExistsValueError: 'NOT_EXISTS does not take a value',
+      },
+    );
   }
 
   private append(op: 'AND' | 'OR', expr: string): void {
@@ -285,20 +222,108 @@ class FilterExpressionBuilder implements FilterGroupBuilder {
   }
 }
 
-function singleValue(values: unknown[], op: string): unknown {
-  if (values.length !== 1) {
-    throw new TheorydbError('ErrInvalidOperator', `${op} requires one value`);
+function buildKeyConditionExpression(args: {
+  condition: SortKeyCondition | undefined;
+  names: Record<string, string>;
+  values: Record<string, AttributeValue>;
+  sortKeyName: string | undefined;
+  sortKeySchema: Readonly<AttributeSchema> | undefined;
+}): string {
+  let keyExpr = '#pk = :pk';
+  if (!args.condition) return keyExpr;
+
+  const { sortKeyName, sortKeySchema } = args;
+  if (!sortKeyName || !sortKeySchema) {
+    throw new TheorydbError(
+      'ErrInvalidOperator',
+      'sortKey() requires a sort key',
+    );
   }
-  return values[0];
+  args.names['#sk'] = sortKeyName;
+
+  const { op, values: sortValues } = args.condition;
+  if (op === 'begins_with') {
+    if (sortValues.length !== 1) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'begins_with requires one value',
+      );
+    }
+    args.values[':sk'] = marshalScalar(sortKeySchema, sortValues[0]);
+    return `${keyExpr} AND begins_with(#sk, :sk)`;
+  }
+
+  if (op === 'between') {
+    if (sortValues.length !== 2) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'between requires two values',
+      );
+    }
+    args.values[':sk0'] = marshalScalar(sortKeySchema, sortValues[0]);
+    args.values[':sk1'] = marshalScalar(sortKeySchema, sortValues[1]);
+    return `${keyExpr} AND #sk BETWEEN :sk0 AND :sk1`;
+  }
+
+  if (sortValues.length !== 1) {
+    throw new TheorydbError(
+      'ErrInvalidOperator',
+      'sort operator requires one value',
+    );
+  }
+  args.values[':sk'] = marshalScalar(sortKeySchema, sortValues[0]);
+  return `${keyExpr} AND #sk ${op} :sk`;
 }
 
-export class QueryBuilder {
+type SortKeyCondition = {
+  op: '=' | '<' | '<=' | '>' | '>=' | 'between' | 'begins_with';
+  values: unknown[];
+};
+
+function optimizerIndexesForModel(model: Model): OptimizerIndexShape[] {
+  return [
+    {
+      type: 'PRIMARY',
+      partition: model.schema.keys.partition.attribute,
+      ...(model.schema.keys.sort?.attribute
+        ? { sort: model.schema.keys.sort.attribute }
+        : {}),
+      projectionType: 'ALL',
+    },
+    ...Array.from(model.indexes.values(), (idx) => ({
+      name: idx.name,
+      type: idx.type,
+      partition: idx.partition.attribute,
+      ...(idx.sort?.attribute ? { sort: idx.sort.attribute } : {}),
+      ...(idx.projection?.type ? { projectionType: idx.projection.type } : {}),
+    })),
+  ];
+}
+
+function optimizerQueryConditions(args: {
+  pkName: string;
+  hasPartitionKey: boolean;
+  skName: string | undefined;
+  skCondition: SortKeyCondition | undefined;
+  filters: FilterExpressionBuilder;
+}): OptimizerCondition[] {
+  const conditions: OptimizerCondition[] = [];
+  if (args.hasPartitionKey) {
+    conditions.push({ field: args.pkName, operator: '=' });
+  }
+  if (args.skName && args.skCondition) {
+    conditions.push({ field: args.skName, operator: args.skCondition.op });
+  }
+  conditions.push(...args.filters.optimizerConditions());
+  return conditions;
+}
+
+export class QueryBuilder<
+  TItem extends Record<string, unknown> = Record<string, unknown>,
+> {
   private indexName?: string;
   private pkValue?: unknown;
-  private skCondition?: {
-    op: '=' | '<' | '<=' | '>' | '>=' | 'between' | 'begins_with';
-    values: unknown[];
-  };
+  private skCondition?: SortKeyCondition;
   private limitCount?: number;
   private projectionFields?: string[];
   private consistentReadEnabled = false;
@@ -311,6 +336,7 @@ export class QueryBuilder {
     private readonly model: Model,
     private readonly encryption?: EncryptionProvider,
     private readonly sendOptions?: SendOptions,
+    private readonly unmarshalOptions: UnmarshalOptions = {},
   ) {
     this.filters = new FilterExpressionBuilder(model);
   }
@@ -340,12 +366,12 @@ export class QueryBuilder {
     return this;
   }
 
-  filter(field: string, op: string, ...values: unknown[]): this {
+  filter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.filters.filter(field, op, ...values);
     return this;
   }
 
-  orFilter(field: string, op: string, ...values: unknown[]): this {
+  orFilter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.filters.orFilter(field, op, ...values);
     return this;
   }
@@ -378,7 +404,7 @@ export class QueryBuilder {
     return this;
   }
 
-  async page(): Promise<Page> {
+  async page(): Promise<Page<TItem>> {
     const { pkName, pkSchema, skName, skSchema, index } =
       this.resolveKeySchema();
     if (this.pkValue === undefined)
@@ -405,50 +431,13 @@ export class QueryBuilder {
       ':pk': marshalScalar(pkSchema, this.pkValue),
     };
 
-    let keyExpr = '#pk = :pk';
-    if (this.skCondition) {
-      if (!skName || !skSchema)
-        throw new TheorydbError(
-          'ErrInvalidOperator',
-          'sortKey() requires a sort key',
-        );
-      names['#sk'] = skName;
-
-      const { op, values: skValues } = this.skCondition;
-      switch (op) {
-        case 'begins_with': {
-          if (skValues.length !== 1)
-            throw new TheorydbError(
-              'ErrInvalidOperator',
-              'begins_with requires one value',
-            );
-          values[':sk'] = marshalScalar(skSchema, skValues[0]);
-          keyExpr += ' AND begins_with(#sk, :sk)';
-          break;
-        }
-        case 'between': {
-          if (skValues.length !== 2)
-            throw new TheorydbError(
-              'ErrInvalidOperator',
-              'between requires two values',
-            );
-          values[':sk0'] = marshalScalar(skSchema, skValues[0]);
-          values[':sk1'] = marshalScalar(skSchema, skValues[1]);
-          keyExpr += ' AND #sk BETWEEN :sk0 AND :sk1';
-          break;
-        }
-        default: {
-          if (skValues.length !== 1)
-            throw new TheorydbError(
-              'ErrInvalidOperator',
-              'sort operator requires one value',
-            );
-          values[':sk'] = marshalScalar(skSchema, skValues[0]);
-          keyExpr += ` AND #sk ${op} :sk`;
-          break;
-        }
-      }
-    }
+    const keyExpr = buildKeyConditionExpression({
+      condition: this.skCondition,
+      names,
+      values,
+      sortKeyName: skName,
+      sortKeySchema: skSchema,
+    });
 
     let projectionExpr: string | undefined;
     if (this.projectionFields?.length) {
@@ -527,8 +516,10 @@ export class QueryBuilder {
               decryptItemAttributes(this.model, it, this.encryption!),
             ),
           )
-        ).map((it) => unmarshalItem(this.model, it))
-      : rawItems.map((it) => unmarshalItem(this.model, it));
+        ).map((it) => unmarshalItem(this.model, it, this.unmarshalOptions))
+      : rawItems.map((it) =>
+          unmarshalItem(this.model, it, this.unmarshalOptions),
+        );
     let cursor: string | undefined;
     if (resp.LastEvaluatedKey) {
       const c: Cursor = { lastKey: resp.LastEvaluatedKey, sort: this.sortDir };
@@ -536,57 +527,197 @@ export class QueryBuilder {
       cursor = encodeCursor(c);
     }
 
-    const page: Page = { items };
+    const page: Page<TItem> = { items: items as TItem[] };
     if (cursor) page.cursor = cursor;
     return page;
   }
 
-  async all(): Promise<Array<Record<string, unknown>>> {
-    const original = this.cursorToken;
-    try {
-      const out: Array<Record<string, unknown>> = [];
-      let cursor = original;
+  async count(): Promise<number> {
+    return countAllPages(
+      this.cursorToken,
+      (cursor) => (this.cursorToken = cursor),
+      () => this.countPage(),
+    );
+  }
 
-      for (;;) {
-        this.cursorToken = cursor;
-        const page = await this.page();
-        out.push(...page.items);
-        if (!page.cursor) break;
-        cursor = page.cursor;
-      }
+  private async countPage(): Promise<{ count: number; cursor?: string }> {
+    const { pkName, pkSchema, skName, skSchema, index } =
+      this.resolveKeySchema();
+    if (this.pkValue === undefined)
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'partitionKey() is required',
+      );
 
-      return out;
-    } finally {
-      this.cursorToken = original;
+    if (index?.type === 'GSI' && this.consistentReadEnabled) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'Consistent reads are not supported on GSIs',
+      );
     }
+    if (modelHasEncryptedAttributes(this.model) && !this.encryption) {
+      throw new TheorydbError(
+        'ErrEncryptionNotConfigured',
+        `Encryption is required for model: ${this.model.name}`,
+      );
+    }
+
+    const names: Record<string, string> = { '#pk': pkName };
+    const values: Record<string, AttributeValue> = {
+      ':pk': marshalScalar(pkSchema, this.pkValue),
+    };
+
+    const keyExpr = buildKeyConditionExpression({
+      condition: this.skCondition,
+      names,
+      values,
+      sortKeyName: skName,
+      sortKeySchema: skSchema,
+    });
+
+    const filter = this.filters.build();
+    if (filter.expression) {
+      for (const [k, v] of Object.entries(filter.names)) {
+        if (k in names) {
+          throw new TheorydbError(
+            'ErrInvalidOperator',
+            `ExpressionAttributeNames collision: ${k}`,
+          );
+        }
+        names[k] = v;
+      }
+      for (const [k, v] of Object.entries(filter.values)) {
+        if (k in values) {
+          throw new TheorydbError(
+            'ErrInvalidOperator',
+            `ExpressionAttributeValues collision: ${k}`,
+          );
+        }
+        values[k] = v;
+      }
+    }
+
+    let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+    if (this.cursorToken) {
+      const c = decodeCursor(this.cursorToken);
+      if (c.index && (this.indexName ?? undefined) !== c.index) {
+        throw new TheorydbError(
+          'ErrInvalidOperator',
+          'Cursor index does not match query',
+        );
+      }
+      if (c.sort && c.sort !== this.sortDir) {
+        throw new TheorydbError(
+          'ErrInvalidOperator',
+          'Cursor sort does not match query',
+        );
+      }
+      exclusiveStartKey = c.lastKey;
+    }
+
+    const resp = await this.ddb.send(
+      new QueryCommand({
+        TableName: this.model.tableName,
+        IndexName: index?.name,
+        KeyConditionExpression: keyExpr,
+        FilterExpression: filter.expression,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ConsistentRead: this.consistentReadEnabled || undefined,
+        ExclusiveStartKey: exclusiveStartKey,
+        ScanIndexForward: this.sortDir === 'ASC',
+        Select: 'COUNT',
+      }),
+      this.sendOptions,
+    );
+
+    const out: { count: number; cursor?: string } = { count: resp.Count ?? 0 };
+    if (resp.LastEvaluatedKey) {
+      const c: Cursor = { lastKey: resp.LastEvaluatedKey, sort: this.sortDir };
+      if (index) c.index = index.name;
+      out.cursor = encodeCursor(c);
+    }
+    return out;
   }
 
+  async all(): Promise<TItem[]> {
+    return collectAllItems(
+      () => this.cursorToken,
+      (cursor) => {
+        this.cursorToken = cursor;
+      },
+      () => this.page(),
+    );
+  }
+
+  pages(): AsyncGenerator<Page<TItem>> {
+    return pageIterator(
+      () => this.cursorToken,
+      (cursor) => {
+        this.cursorToken = cursor;
+      },
+      () => this.page(),
+    );
+  }
+
+  items(): AsyncGenerator<TItem> {
+    return itemIterator(this.pages());
+  }
+
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before summing.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async sum(field: string): Promise<number> {
-    return sumField(await this.all(), field);
+    return sumFromAll(() => this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before averaging.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async average(field: string): Promise<number> {
-    return averageField(await this.all(), field);
+    return averageFromAll(() => this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before selecting the minimum.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async min(field: string): Promise<unknown> {
-    return minField(await this.all(), field);
+    return minFromAll(() => this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before selecting the maximum.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async max(field: string): Promise<unknown> {
-    return maxField(await this.all(), field);
+    return maxFromAll(() => this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before computing the aggregate.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async aggregate(...fields: string[]): Promise<AggregateResult> {
-    return aggregateField(await this.all(), fields[0]);
+    return aggregateFromAll(() => this.all(), fields[0]);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before counting distinct values.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async countDistinct(field: string): Promise<number> {
-    return countDistinct(await this.all(), field);
+    return countDistinctFromAll(() => this.all(), field);
   }
 
-  groupBy(field: string): GroupByQuery<Record<string, unknown>> {
-    return new GroupByQuery(() => this.all(), field);
+  /**
+   * Client-side aggregation: the returned group query calls `all()` during `execute()` and keeps groups in memory.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
+  groupBy(field: string): GroupByQuery<TItem> {
+    return groupByFromAll(() => this.all(), field);
   }
 
   describe(): BuilderShape {
@@ -607,10 +738,22 @@ export class QueryBuilder {
         : {}),
       consistentRead: this.consistentReadEnabled,
       sort: this.sortDir,
+      indexes: optimizerIndexesForModel(this.model),
+      conditions: optimizerQueryConditions({
+        pkName:
+          index?.partition.attribute ??
+          this.model.schema.keys.partition.attribute,
+        hasPartitionKey: this.pkValue !== undefined,
+        skName,
+        skCondition: this.skCondition,
+        filters: this.filters,
+      }),
     };
   }
 
-  async pageWithRetry(opts: QueryRetryOptions = {}): Promise<Page> {
+  async pageWithRetry(
+    opts: QueryRetryOptions<TItem> = {},
+  ): Promise<Page<TItem>> {
     const maxAttempts = opts.maxAttempts ?? 5;
     if (!Number.isInteger(maxAttempts) || maxAttempts <= 0) {
       throw new TheorydbError(
@@ -626,7 +769,7 @@ export class QueryBuilder {
     const maxDelay = opts.maxDelayMs ?? 5_000;
     const backoff = opts.backoffFactor ?? 2;
 
-    let lastPage: Page | undefined;
+    let lastPage: Page<TItem> | undefined;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const page = await this.page();
@@ -727,7 +870,9 @@ export class QueryBuilder {
   }
 }
 
-export class ScanBuilder {
+export class ScanBuilder<
+  TItem extends Record<string, unknown> = Record<string, unknown>,
+> {
   private indexName?: string;
   private limitCount?: number;
   private projectionFields?: string[];
@@ -742,6 +887,7 @@ export class ScanBuilder {
     private readonly model: Model,
     private readonly encryption?: EncryptionProvider,
     private readonly sendOptions?: SendOptions,
+    private readonly unmarshalOptions: UnmarshalOptions = {},
   ) {
     this.filters = new FilterExpressionBuilder(model);
   }
@@ -766,12 +912,12 @@ export class ScanBuilder {
     return this;
   }
 
-  filter(field: string, op: string, ...values: unknown[]): this {
+  filter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.filters.filter(field, op, ...values);
     return this;
   }
 
-  orFilter(field: string, op: string, ...values: unknown[]): this {
+  orFilter(field: string, op: QueryOperator, ...values: unknown[]): this {
     this.filters.orFilter(field, op, ...values);
     return this;
   }
@@ -818,7 +964,7 @@ export class ScanBuilder {
   async scanAllSegments(
     totalSegments: number,
     opts: { concurrency?: number } = {},
-  ): Promise<Array<Record<string, unknown>>> {
+  ): Promise<TItem[]> {
     const index = this.indexName
       ? this.model.indexes.get(this.indexName)
       : undefined;
@@ -911,8 +1057,12 @@ export class ScanBuilder {
                     decryptItemAttributes(this.model, it, this.encryption!),
                   ),
                 )
-              ).map((it) => unmarshalItem(this.model, it))
-            : rawItems.map((it) => unmarshalItem(this.model, it));
+              ).map((it) =>
+                unmarshalItem(this.model, it, this.unmarshalOptions),
+              )
+            : rawItems.map((it) =>
+                unmarshalItem(this.model, it, this.unmarshalOptions),
+              );
           items.push(...chunk);
 
           start = resp.LastEvaluatedKey;
@@ -922,57 +1072,183 @@ export class ScanBuilder {
       },
     );
 
-    const out: Array<Record<string, unknown>> = [];
-    for (const r of results) out.push(...r);
+    const out: TItem[] = [];
+    for (const r of results) out.push(...(r as TItem[]));
     return out;
   }
 
-  async all(): Promise<Array<Record<string, unknown>>> {
-    const original = this.cursorToken;
-    try {
-      const out: Array<Record<string, unknown>> = [];
-      let cursor = original;
+  async count(): Promise<number> {
+    return countAllPages(
+      this.cursorToken,
+      (cursor) => (this.cursorToken = cursor),
+      () => this.countPage(),
+    );
+  }
 
-      for (;;) {
-        this.cursorToken = cursor;
-        const page = await this.page();
-        out.push(...page.items);
-        if (!page.cursor) break;
-        cursor = page.cursor;
-      }
-
-      return out;
-    } finally {
-      this.cursorToken = original;
+  private async countPage(): Promise<{ count: number; cursor?: string }> {
+    const index = this.indexName
+      ? this.model.indexes.get(this.indexName)
+      : undefined;
+    if (index?.type === 'GSI' && this.consistentReadEnabled) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'Consistent reads are not supported on GSIs',
+      );
     }
+    if (modelHasEncryptedAttributes(this.model) && !this.encryption) {
+      throw new TheorydbError(
+        'ErrEncryptionNotConfigured',
+        `Encryption is required for model: ${this.model.name}`,
+      );
+    }
+
+    const names: Record<string, string> = {};
+    let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+    if (this.cursorToken) {
+      const c = decodeCursor(this.cursorToken);
+      if (c.index && (this.indexName ?? undefined) !== c.index) {
+        throw new TheorydbError(
+          'ErrInvalidOperator',
+          'Cursor index does not match scan',
+        );
+      }
+      exclusiveStartKey = c.lastKey;
+    }
+
+    const filter = this.filters.build();
+    if (filter.expression) {
+      for (const [k, v] of Object.entries(filter.names)) {
+        if (k in names) {
+          throw new TheorydbError(
+            'ErrInvalidOperator',
+            `ExpressionAttributeNames collision: ${k}`,
+          );
+        }
+        names[k] = v;
+      }
+    }
+
+    if ((this.segment === undefined) !== (this.totalSegments === undefined)) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'parallelScan requires both segment and totalSegments',
+      );
+    }
+    if (
+      this.segment !== undefined &&
+      this.totalSegments !== undefined &&
+      (this.segment < 0 || this.segment >= this.totalSegments)
+    ) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        'parallelScan segment must be < totalSegments',
+      );
+    }
+
+    const resp = await this.ddb.send(
+      new ScanCommand({
+        TableName: this.model.tableName,
+        IndexName: this.indexName,
+        FilterExpression: filter.expression,
+        ExpressionAttributeNames: Object.keys(names).length ? names : undefined,
+        ExpressionAttributeValues:
+          Object.keys(filter.values).length > 0 ? filter.values : undefined,
+        ConsistentRead: this.consistentReadEnabled || undefined,
+        ExclusiveStartKey: exclusiveStartKey,
+        Segment: this.segment,
+        TotalSegments: this.totalSegments,
+        Select: 'COUNT',
+      }),
+      this.sendOptions,
+    );
+
+    const out: { count: number; cursor?: string } = { count: resp.Count ?? 0 };
+    if (resp.LastEvaluatedKey) {
+      const c: Cursor = { lastKey: resp.LastEvaluatedKey };
+      if (this.indexName) c.index = this.indexName;
+      out.cursor = encodeCursor(c);
+    }
+    return out;
   }
 
+  async all(): Promise<TItem[]> {
+    return collectAllItems(
+      () => this.cursorToken,
+      (cursor) => {
+        this.cursorToken = cursor;
+      },
+      () => this.page(),
+    );
+  }
+
+  pages(): AsyncGenerator<Page<TItem>> {
+    return pageIterator(
+      () => this.cursorToken,
+      (cursor) => {
+        this.cursorToken = cursor;
+      },
+      () => this.page(),
+    );
+  }
+
+  items(): AsyncGenerator<TItem> {
+    return itemIterator(this.pages());
+  }
+
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before summing.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async sum(field: string): Promise<number> {
-    return sumField(await this.all(), field);
+    return sumFromAll(() => this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before averaging.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async average(field: string): Promise<number> {
-    return averageField(await this.all(), field);
+    return averageFromAll(() => this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before selecting the minimum.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async min(field: string): Promise<unknown> {
-    return minField(await this.all(), field);
+    return minFromAll(() => this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before selecting the maximum.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async max(field: string): Promise<unknown> {
-    return maxField(await this.all(), field);
+    return maxFromAll(() => this.all(), field);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before computing the aggregate.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async aggregate(...fields: string[]): Promise<AggregateResult> {
-    return aggregateField(await this.all(), fields[0]);
+    return aggregateFromAll(() => this.all(), fields[0]);
   }
 
+  /**
+   * Client-side aggregation: calls `all()` and materializes every matching item before counting distinct values.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
   async countDistinct(field: string): Promise<number> {
-    return countDistinct(await this.all(), field);
+    return countDistinctFromAll(() => this.all(), field);
   }
 
-  groupBy(field: string): GroupByQuery<Record<string, unknown>> {
-    return new GroupByQuery(() => this.all(), field);
+  /**
+   * Client-side aggregation: the returned group query calls `all()` during `execute()` and keeps groups in memory.
+   * Use only for bounded result sets; use native `count()` for count-only reads.
+   */
+  groupBy(field: string): GroupByQuery<TItem> {
+    return groupByFromAll(() => this.all(), field);
   }
 
   describe(): BuilderShape {
@@ -996,10 +1272,12 @@ export class ScanBuilder {
       ...(this.totalSegments !== undefined
         ? { totalSegments: this.totalSegments }
         : {}),
+      indexes: optimizerIndexesForModel(this.model),
+      conditions: this.filters.optimizerConditions(),
     };
   }
 
-  async page(): Promise<Page> {
+  async page(): Promise<Page<TItem>> {
     const index = this.indexName
       ? this.model.indexes.get(this.indexName)
       : undefined;
@@ -1097,8 +1375,10 @@ export class ScanBuilder {
               decryptItemAttributes(this.model, it, this.encryption!),
             ),
           )
-        ).map((it) => unmarshalItem(this.model, it))
-      : rawItems.map((it) => unmarshalItem(this.model, it));
+        ).map((it) => unmarshalItem(this.model, it, this.unmarshalOptions))
+      : rawItems.map((it) =>
+          unmarshalItem(this.model, it, this.unmarshalOptions),
+        );
     let cursor: string | undefined;
     if (resp.LastEvaluatedKey) {
       const c: Cursor = { lastKey: resp.LastEvaluatedKey };
@@ -1106,12 +1386,14 @@ export class ScanBuilder {
       cursor = encodeCursor(c);
     }
 
-    const page: Page = { items };
+    const page: Page<TItem> = { items: items as TItem[] };
     if (cursor) page.cursor = cursor;
     return page;
   }
 
-  async pageWithRetry(opts: QueryRetryOptions = {}): Promise<Page> {
+  async pageWithRetry(
+    opts: QueryRetryOptions<TItem> = {},
+  ): Promise<Page<TItem>> {
     const maxAttempts = opts.maxAttempts ?? 5;
     if (!Number.isInteger(maxAttempts) || maxAttempts <= 0) {
       throw new TheorydbError(
@@ -1127,7 +1409,7 @@ export class ScanBuilder {
     const maxDelay = opts.maxDelayMs ?? 5_000;
     const backoff = opts.backoffFactor ?? 2;
 
-    let lastPage: Page | undefined;
+    let lastPage: Page<TItem> | undefined;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const page = await this.page();
@@ -1150,37 +1432,4 @@ export class ScanBuilder {
 
     return lastPage ?? { items: [] };
   }
-}
-
-async function mapConcurrent<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  if (!Number.isFinite(concurrency) || concurrency <= 0) {
-    throw new TheorydbError(
-      'ErrInvalidOperator',
-      'concurrency must be a positive number',
-    );
-  }
-  if (items.length === 0) return [];
-
-  const limit = Math.min(items.length, Math.floor(concurrency));
-  const out: R[] = new Array<R>(items.length);
-  let next = 0;
-
-  const workers = Array.from({ length: limit }, async () => {
-    let done = false;
-    while (!done) {
-      const idx = next;
-      next += 1;
-      if (idx >= items.length) {
-        done = true;
-        continue;
-      }
-      out[idx] = await fn(items[idx]!);
-    }
-  });
-  await Promise.all(workers);
-  return out;
 }

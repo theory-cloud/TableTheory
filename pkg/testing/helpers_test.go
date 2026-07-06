@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
 	theorydberrors "github.com/theory-cloud/tabletheory/pkg/errors"
 	"github.com/theory-cloud/tabletheory/pkg/mocks"
 	"github.com/theory-cloud/tabletheory/pkg/session"
@@ -159,15 +158,6 @@ func TestTestDB_ExpectationHelpers(t *testing.T) {
 			Index("by-id")
 	})
 
-	t.Run("transaction helpers", func(t *testing.T) {
-		testDB.ExpectTransaction(func(_ *core.Tx) {})
-		require.NoError(t, testDB.MockDB.Transaction(func(_ *core.Tx) error { return nil }))
-
-		expectedErr := errors.New("tx failed")
-		testDB.ExpectTransactionError(expectedErr)
-		require.ErrorIs(t, testDB.MockDB.Transaction(func(_ *core.Tx) error { return nil }), expectedErr)
-	})
-
 	t.Run("batch helpers", func(t *testing.T) {
 		keys := []interface{}{"u1", "u2"}
 		expected := []user{{ID: "u1"}, {ID: "u2"}}
@@ -198,11 +188,12 @@ func TestTestDB_ExpectationHelpers(t *testing.T) {
 	testDB.MockDB.ExpectedCalls = nil
 	testDB.MockQuery.ExpectedCalls = nil
 
-	// Touch DefaultDBFactory.CreateDB for coverage; it's a placeholder.
+	// Touch DefaultDBFactory.CreateDB for coverage; it fails loudly until an
+	// application-provided production factory is supplied.
 	var factory theorydbtesting.DefaultDBFactory
 	db, err := factory.CreateDB(session.Config{Region: "us-east-1"})
-	require.NoError(t, err)
 	require.Nil(t, db)
+	require.Error(t, err)
 }
 
 func TestQueryChain_ExpectAll(t *testing.T) {

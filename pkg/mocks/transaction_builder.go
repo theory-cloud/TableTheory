@@ -59,7 +59,7 @@ func (m *MockTransactionBuilder) hasExpectedCall(method string) bool {
 func (m *MockTransactionBuilder) Put(model any, conditions ...core.TransactCondition) core.TransactionBuilder {
 	if m.hasExpectedCall("Put") {
 		args := m.Called(model, conditions)
-		return mustTransactionBuilder(args.Get(0))
+		return mockTransactionBuilder(&m.Mock, "Put", args.Get(0))
 	}
 	return m
 }
@@ -68,7 +68,7 @@ func (m *MockTransactionBuilder) Put(model any, conditions ...core.TransactCondi
 func (m *MockTransactionBuilder) Create(model any, conditions ...core.TransactCondition) core.TransactionBuilder {
 	if m.hasExpectedCall("Create") {
 		args := m.Called(model, conditions)
-		return mustTransactionBuilder(args.Get(0))
+		return mockTransactionBuilder(&m.Mock, "Create", args.Get(0))
 	}
 	return m
 }
@@ -77,7 +77,7 @@ func (m *MockTransactionBuilder) Create(model any, conditions ...core.TransactCo
 func (m *MockTransactionBuilder) Update(model any, fields []string, conditions ...core.TransactCondition) core.TransactionBuilder {
 	if m.hasExpectedCall("Update") {
 		args := m.Called(model, fields, conditions)
-		return mustTransactionBuilder(args.Get(0))
+		return mockTransactionBuilder(&m.Mock, "Update", args.Get(0))
 	}
 	return m
 }
@@ -99,14 +99,14 @@ func (m *MockTransactionBuilder) UpdateWithBuilder(model any, updateFn func(core
 
 		if m.hasExpectedCall("UpdateWithBuilder") {
 			args := m.Called(model, wrapped, conditions)
-			return mustTransactionBuilder(args.Get(0))
+			return mockTransactionBuilder(&m.Mock, "UpdateWithBuilder", args.Get(0))
 		}
 		return m
 	}
 
 	if m.hasExpectedCall("UpdateWithBuilder") {
 		args := m.Called(model, updateFn, conditions)
-		return mustTransactionBuilder(args.Get(0))
+		return mockTransactionBuilder(&m.Mock, "UpdateWithBuilder", args.Get(0))
 	}
 	return m
 }
@@ -115,7 +115,7 @@ func (m *MockTransactionBuilder) UpdateWithBuilder(model any, updateFn func(core
 func (m *MockTransactionBuilder) Delete(model any, conditions ...core.TransactCondition) core.TransactionBuilder {
 	if m.hasExpectedCall("Delete") {
 		args := m.Called(model, conditions)
-		return mustTransactionBuilder(args.Get(0))
+		return mockTransactionBuilder(&m.Mock, "Delete", args.Get(0))
 	}
 	return m
 }
@@ -124,7 +124,7 @@ func (m *MockTransactionBuilder) Delete(model any, conditions ...core.TransactCo
 func (m *MockTransactionBuilder) ConditionCheck(model any, conditions ...core.TransactCondition) core.TransactionBuilder {
 	if m.hasExpectedCall("ConditionCheck") {
 		args := m.Called(model, conditions)
-		return mustTransactionBuilder(args.Get(0))
+		return mockTransactionBuilder(&m.Mock, "ConditionCheck", args.Get(0))
 	}
 	return m
 }
@@ -133,7 +133,7 @@ func (m *MockTransactionBuilder) ConditionCheck(model any, conditions ...core.Tr
 func (m *MockTransactionBuilder) WithContext(ctx context.Context) core.TransactionBuilder {
 	if m.hasExpectedCall("WithContext") {
 		args := m.Called(ctx)
-		return mustTransactionBuilder(args.Get(0))
+		return mockTransactionBuilder(&m.Mock, "WithContext", args.Get(0))
 	}
 	return m
 }
@@ -177,4 +177,10 @@ func (m *MockTransactionBuilder) runPendingUpdateFns() error {
 
 	m.pendingUpdateFns = nil
 	return nil
+}
+
+// AssertExpectations reports return type mismatches recorded by
+// MockTransactionBuilder in addition to testify/mock expectation failures.
+func (m *MockTransactionBuilder) AssertExpectations(t mock.TestingT) bool {
+	return assertMockExpectations(t, &m.Mock)
 }

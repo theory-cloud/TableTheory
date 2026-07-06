@@ -1,0 +1,20 @@
+COMPOSE ?= docker compose
+RUN_ENV := AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 DYNAMODB_ENDPOINT=http://localhost:8000
+
+.PHONY: up down run smoke
+
+## up: start DynamoDB Local
+up:
+	$(COMPOSE) up -d
+
+## down: stop DynamoDB Local
+down:
+	$(COMPOSE) down
+
+## run: run the CRUD program against DynamoDB Local
+run:
+	$(RUN_ENV) go run .
+
+## smoke: one command — start DynamoDB Local and run the CRUD program
+smoke: up
+	$(RUN_ENV) go run .

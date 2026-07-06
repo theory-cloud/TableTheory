@@ -4,7 +4,11 @@ on:
   push:
     branches: [ "staging", "premain", "main" ]
   pull_request:
-    branches: [ "staging", "premain", "main" ]
+    # Staging PRs run Go unit coverage through Quality Gates to avoid duplicate suites.
+    branches: [ "premain", "main" ]
+    paths-ignore:
+      - ".release-please-manifest.json"
+      - "CHANGELOG.md"
 
 permissions:
   contents: read

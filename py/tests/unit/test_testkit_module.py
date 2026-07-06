@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from theorydb_py.testkit import fixed_rand_bytes, no_sleep
+from tabletheory_py.testkit import fixed_rand_bytes, no_sleep
 
 
 def test_no_sleep_is_noop() -> None:

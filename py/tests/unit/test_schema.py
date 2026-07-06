@@ -5,11 +5,11 @@ from dataclasses import replace
 import pytest
 from botocore.exceptions import ClientError
 
-from theorydb_py import ModelDefinition, Projection, ValidationError, gsi, lsi, theorydb_field
-from theorydb_py import schema as schema_module
-from theorydb_py.errors import AwsError, NotFoundError
-from theorydb_py.mocks import FakeDynamoDBClient
-from theorydb_py.schema import (
+from tabletheory_py import ModelDefinition, Projection, ValidationError, gsi, lsi, theorydb_field
+from tabletheory_py import schema as schema_module
+from tabletheory_py.errors import AwsError, NotFoundError
+from tabletheory_py.mocks import FakeDynamoDBClient
+from tabletheory_py.schema import (
     build_create_table_request,
     create_table,
     delete_table,

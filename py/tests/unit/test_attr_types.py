@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from theorydb_py.attr_types import (
+from tabletheory_py.attr_types import (
     _normalize_json_compatible,
     _parse_json_text,
     _to_json_text,
@@ -15,16 +15,22 @@ from theorydb_py.attr_types import (
     infer_json_storage_type,
     infer_storage_type,
     normalize_json_field_for_storage,
+    resolve_attribute_storage_type,
     unwrap_optional,
     validate_json_storage_type,
 )
-from theorydb_py.errors import ValidationError
+from tabletheory_py.errors import ValidationError
 
 
 def test_unwrap_optional_handles_optional_and_general_unions() -> None:
     assert unwrap_optional(int | None) is int
-    assert unwrap_optional(int | str) == int | str
     assert unwrap_optional(str) is str
+
+    with pytest.raises(ValidationError, match="unsupported union annotation"):
+        unwrap_optional(int | str)
+
+    with pytest.raises(ValidationError, match="unsupported union annotation"):
+        unwrap_optional(int | str | None)
 
 
 def test_infer_storage_type_covers_set_binary_json_and_scalar_variants() -> None:
@@ -40,6 +46,26 @@ def test_infer_storage_type_covers_set_binary_json_and_scalar_variants() -> None
     assert infer_storage_type(list[int], is_set=False, is_json=False, is_binary=False) == "L"
     assert infer_storage_type(bool, is_set=False, is_json=False, is_binary=False) == "BOOL"
     assert infer_storage_type(str, is_set=False, is_json=False, is_binary=False) == "S"
+
+
+def test_infer_storage_type_rejects_unsupported_unions() -> None:
+    with pytest.raises(ValidationError, match="unsupported union annotation"):
+        infer_storage_type(int | str | None, is_set=False, is_json=False, is_binary=False)
+
+
+def test_resolve_attribute_storage_type_uses_shared_fallbacks() -> None:
+    @dataclass(frozen=True)
+    class Attr:
+        storage_type: str | None = None
+        json: bool = False
+        binary: bool = False
+        set: bool = False
+
+    assert resolve_attribute_storage_type(Attr(storage_type="M", json=True)) == "M"
+    assert resolve_attribute_storage_type(Attr(json=True)) == "S"
+    assert resolve_attribute_storage_type(Attr(binary=True)) == "B"
+    assert resolve_attribute_storage_type(Attr(set=True)) == "SS"
+    assert resolve_attribute_storage_type(Attr()) == "S"
 
 
 def test_infer_json_storage_type_covers_branches() -> None:

@@ -3,10 +3,14 @@ import YAML from 'yaml';
 import { TheorydbError } from './errors.js';
 
 export type KeyContractInputValue = string | number | boolean;
-export type KeyContractTransform = 'trim' | 'wildcard_empty';
+export type KeyContractTransform =
+  | 'trim'
+  | 'wildcard_empty'
+  | 'lowercase'
+  | 'url_encode';
 
 export interface DerivedKeyContract {
-  tabletheory_model_contract_version: '0.1';
+  tabletheory_model_contract_version: '0.1' | '0.2';
   namespace?: string;
   dms_version?: string;
   models?: DerivedKeyModelContract[];
@@ -146,7 +150,7 @@ export function validateDerivedKeyContract(
       'Key contract document must be an object',
     );
   }
-  if (value.tabletheory_model_contract_version !== '0.1') {
+  if (!isSupportedContractVersion(value.tabletheory_model_contract_version)) {
     throw new TheorydbError(
       'ErrInvalidModel',
       `Unsupported tabletheory_model_contract_version: ${String(
@@ -209,6 +213,10 @@ export function validateDerivedKeyContract(
       }
     }
   }
+}
+
+function isSupportedContractVersion(value: unknown): boolean {
+  return value === '0.1' || value === '0.2';
 }
 
 export function validateDerivedKeyDefinition(
@@ -362,7 +370,12 @@ function validateSegment(
       );
     }
     for (const transform of value.transforms) {
-      if (transform !== 'trim' && transform !== 'wildcard_empty') {
+      if (
+        transform !== 'trim' &&
+        transform !== 'wildcard_empty' &&
+        transform !== 'lowercase' &&
+        transform !== 'url_encode'
+      ) {
         throw new TheorydbError(
           'ErrInvalidModel',
           `Derived key ${keyName} segment ${label}: unsupported transform ${String(transform)}`,
@@ -387,6 +400,7 @@ function evaluateSegment(
 
   let value = resolved.value;
   let generatedWildcard = false;
+  let percentEncoded = false;
   for (const transform of segment.transforms ?? []) {
     switch (transform) {
       case 'trim':
@@ -398,6 +412,13 @@ function evaluateSegment(
           generatedWildcard = true;
         }
         break;
+      case 'lowercase':
+        value = asciiLowercase(value);
+        break;
+      case 'url_encode':
+        value = escapeDerivedKeyInputValue(value);
+        percentEncoded = true;
+        break;
       default:
         throw new TheorydbError(
           'ErrInvalidModel',
@@ -406,7 +427,7 @@ function evaluateSegment(
     }
   }
 
-  if (resolved.fromInput && !generatedWildcard) {
+  if (resolved.fromInput && !generatedWildcard && !percentEncoded) {
     value = escapeDerivedKeyInputValue(value);
   }
 
@@ -522,6 +543,18 @@ function isDerivedKeyUnreservedByte(byte: number): boolean {
     byte === 0x5f ||
     byte === 0x7e
   );
+}
+
+function asciiLowercase(value: string): string {
+  let out = '';
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    out +=
+      code >= 0x41 && code <= 0x5a
+        ? String.fromCharCode(code + 0x20)
+        : value.charAt(i);
+  }
+  return out;
 }
 
 const contractTrimWhitespaceCodePoints = new Set<number>([

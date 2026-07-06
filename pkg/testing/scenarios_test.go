@@ -7,36 +7,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
 	theorydbtesting "github.com/theory-cloud/tabletheory/pkg/testing"
 )
-
-func TestCommonScenarios_SetupTransactionScenario(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		testDB := theorydbtesting.NewTestDB()
-		scenarios := theorydbtesting.NewCommonScenarios(testDB)
-
-		scenarios.SetupTransactionScenario(true)
-
-		called := false
-		err := testDB.MockDB.Transaction(func(_ *core.Tx) error {
-			called = true
-			return nil
-		})
-		require.NoError(t, err)
-		require.True(t, called)
-	})
-
-	t.Run("failure", func(t *testing.T) {
-		testDB := theorydbtesting.NewTestDB()
-		scenarios := theorydbtesting.NewCommonScenarios(testDB)
-
-		scenarios.SetupTransactionScenario(false)
-
-		err := testDB.MockDB.Transaction(func(_ *core.Tx) error { return nil })
-		require.Error(t, err)
-	})
-}
 
 func TestCommonScenarios_OtherSetups(t *testing.T) {
 	type user struct {

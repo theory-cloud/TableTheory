@@ -22,9 +22,11 @@ models:
       - attribute: "status"
         type: "S"
         optional: true
+        omit_empty: true
       - attribute: "amount"
         type: "N"
         optional: true
+        omit_empty: true
 
       - attribute: "createdAt"
         type: "S"
@@ -51,4 +53,4 @@ models:
         type: "GSI"
         partition: { attribute: "status", type: "S" }
         sort: { attribute: "createdAt", type: "S" }
-        projection: { type: "ALL" }
+        projection: { type: "INCLUDE", fields: ["amount"] }

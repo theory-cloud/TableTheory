@@ -23,28 +23,28 @@ import (
 // This example adds indexes and more complex data types
 type Note struct {
 	// Primary key
-	ID string `theorydb:"pk"`
+	ID string `theorydb:"pk" json:"id"`
 
 	// Global Secondary Index for querying by user
-	UserID string `theorydb:"index:gsi-user,pk"`
+	UserID string `theorydb:"index:gsi-user,pk" json:"user_id"`
 
 	// Required fields
-	Title   string `theorydb:"required"`
-	Content string `theorydb:"required"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
 
 	// Tags demonstrate working with sets
-	Tags []string `theorydb:"set"`
+	Tags []string `theorydb:"set" json:"tags"`
 
 	// Category for another index
-	Category string `theorydb:"index:gsi-category,pk"`
+	Category string `theorydb:"index:gsi-category,pk" json:"category"`
 
 	// Timestamps with index on CreatedAt for time-based queries
-	CreatedAt time.Time `theorydb:"index:gsi-user,sk"`
-	UpdatedAt time.Time
+	CreatedAt time.Time `theorydb:"index:gsi-user,sk" json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Additional metadata
-	WordCount int
-	IsPinned  bool
+	WordCount int  `json:"word_count"`
+	IsPinned  bool `json:"is_pinned"`
 }
 
 // NotesApp manages note operations

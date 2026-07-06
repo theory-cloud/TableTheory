@@ -5,6 +5,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 
 import { mapDynamoError } from './dynamo-error.js';
+import { buildConditionExpression } from './expression-builder.js';
 import { TheorydbError } from './errors.js';
 import {
   decryptItemAttributes,
@@ -17,6 +18,7 @@ import {
   marshalKey,
   marshalScalar,
   unmarshalItem,
+  type UnmarshalOptions,
 } from './marshal.js';
 import type { AttributeSchema, Model } from './model.js';
 import type { SendOptions } from './send-options.js';
@@ -24,6 +26,7 @@ import {
   assertMutableWritePolicy,
   assertProtectedFieldsCanMutate,
 } from './write-policy.js';
+import type { QueryOperator } from './query-types.js';
 
 export type ReturnValuesOption =
   | 'NONE'
@@ -46,7 +49,7 @@ type UpdateOp =
 type ConditionOp = {
   logicOp: 'AND' | 'OR';
   field: string;
-  operator: string;
+  operator: QueryOperator;
   value?: unknown;
 };
 
@@ -69,11 +72,11 @@ class ConditionExpressionBuilder {
 
   constructor(private readonly model: Model) {}
 
-  and(field: string, op: string, value?: unknown): void {
+  and(field: string, op: QueryOperator, value?: unknown): void {
     this.addCondition('AND', field, op, value);
   }
 
-  or(field: string, op: string, value?: unknown): void {
+  or(field: string, op: QueryOperator, value?: unknown): void {
     this.addCondition('OR', field, op, value);
   }
 
@@ -93,7 +96,7 @@ class ConditionExpressionBuilder {
   private addCondition(
     logicalOp: 'AND' | 'OR',
     field: string,
-    op: string,
+    op: QueryOperator,
     value?: unknown,
   ): void {
     const schema = this.model.attributes.get(field);
@@ -143,98 +146,19 @@ class ConditionExpressionBuilder {
     op: string,
     values: unknown[],
   ): string {
-    switch (op) {
-      case '=':
-      case 'EQ': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} = ${valueRef}`;
-      }
-      case '!=':
-      case '<>':
-      case 'NE': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} <> ${valueRef}`;
-      }
-      case '<':
-      case 'LT': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} < ${valueRef}`;
-      }
-      case '<=':
-      case 'LE': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} <= ${valueRef}`;
-      }
-      case '>':
-      case 'GT': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} > ${valueRef}`;
-      }
-      case '>=':
-      case 'GE': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `${nameRef} >= ${valueRef}`;
-      }
-      case 'BETWEEN': {
-        if (values.length !== 2) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'BETWEEN requires two values',
-          );
-        }
-        const left = this.valueRef(schema, values[0]);
-        const right = this.valueRef(schema, values[1]);
-        return `${nameRef} BETWEEN ${left} AND ${right}`;
-      }
-      case 'IN': {
-        if (values.length !== 1 || !Array.isArray(values[0])) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'IN requires a single array value',
-          );
-        }
-        const list = values[0];
-        if (list.length > 100) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'IN supports maximum 100 values',
-          );
-        }
-        const refs = list.map((v) => this.valueRef(schema, v));
-        return `${nameRef} IN (${refs.join(', ')})`;
-      }
-      case 'BEGINS_WITH': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `begins_with(${nameRef}, ${valueRef})`;
-      }
-      case 'CONTAINS': {
-        const valueRef = this.valueRef(schema, singleValue(values, op));
-        return `contains(${nameRef}, ${valueRef})`;
-      }
-      case 'ATTRIBUTE_EXISTS': {
-        if (values.length !== 0) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'attribute_exists does not take a value',
-          );
-        }
-        return `attribute_exists(${nameRef})`;
-      }
-      case 'ATTRIBUTE_NOT_EXISTS': {
-        if (values.length !== 0) {
-          throw new TheorydbError(
-            'ErrInvalidOperator',
-            'attribute_not_exists does not take a value',
-          );
-        }
-        return `attribute_not_exists(${nameRef})`;
-      }
-      default:
-        throw new TheorydbError(
-          'ErrInvalidOperator',
-          `Unsupported operator: ${op}`,
-        );
-    }
+    return buildConditionExpression(
+      nameRef,
+      schema,
+      op,
+      values,
+      (valueSchema, value) => this.valueRef(valueSchema, value),
+      {
+        existsOperators: ['ATTRIBUTE_EXISTS'],
+        notExistsOperators: ['ATTRIBUTE_NOT_EXISTS'],
+        existsValueError: 'attribute_exists does not take a value',
+        notExistsValueError: 'attribute_not_exists does not take a value',
+      },
+    );
   }
 
   private append(op: 'AND' | 'OR', expr: string): void {
@@ -269,17 +193,11 @@ class ConditionExpressionBuilder {
   }
 }
 
-function singleValue(values: unknown[], op: string): unknown {
-  if (values.length !== 1) {
-    throw new TheorydbError('ErrInvalidOperator', `${op} requires one value`);
-  }
-  return values[0];
-}
-
 export class UpdateBuilder {
   private readonly updateOps: UpdateOp[] = [];
   private readonly conditionOps: ConditionOp[] = [];
   private returnValuesOpt: ReturnValuesOption = 'NONE';
+  private hasVersionCondition = false;
 
   constructor(
     private readonly ddb: DynamoDBClient,
@@ -287,6 +205,7 @@ export class UpdateBuilder {
     private readonly key: Record<string, unknown>,
     private readonly encryption?: EncryptionProvider,
     private readonly sendOptions?: SendOptions,
+    private readonly unmarshalOptions: UnmarshalOptions = {},
   ) {}
 
   set(field: string, value: unknown): this {
@@ -342,12 +261,12 @@ export class UpdateBuilder {
     return this;
   }
 
-  condition(field: string, operator: string, value?: unknown): this {
+  condition(field: string, operator: QueryOperator, value?: unknown): this {
     this.conditionOps.push({ logicOp: 'AND', field, operator, value });
     return this;
   }
 
-  orCondition(field: string, operator: string, value?: unknown): this {
+  orCondition(field: string, operator: QueryOperator, value?: unknown): this {
     this.conditionOps.push({ logicOp: 'OR', field, operator, value });
     return this;
   }
@@ -368,6 +287,7 @@ export class UpdateBuilder {
         `Model ${this.model.name} does not define a version field`,
       );
     }
+    this.hasVersionCondition = true;
     return this.condition(versionAttr, '=', currentVersion);
   }
 
@@ -450,9 +370,11 @@ export class UpdateBuilder {
       const attrs = provider
         ? await decryptItemAttributes(this.model, resp.Attributes, provider)
         : resp.Attributes;
-      return unmarshalItem(this.model, attrs);
+      return unmarshalItem(this.model, attrs, this.unmarshalOptions);
     } catch (err) {
-      throw mapDynamoError(err);
+      throw mapDynamoError(err, {
+        versionConflict: this.hasVersionCondition,
+      });
     }
   }
 

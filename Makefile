@@ -1,12 +1,16 @@
 # TableTheory Makefile
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
+SHELL := /bin/bash
+
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests example-local generate-contract-models verify-generated-models generate-api-reference verify-api-reference sync-runtime-docs-site verify-runtime-docs-site verify-generative-artifacts benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory
 TOOLCHAIN := $(shell awk '/^toolchain / {print $$2}' go.mod | head -n 1)
 export GOTOOLCHAIN ?= $(TOOLCHAIN)
-GO_BIN_DIR := $(or $(shell go env GOBIN),$(shell go env GOPATH)/bin)
+GO_ENV_GOBIN := $(shell go env GOBIN 2>/dev/null)
+GO_ENV_GOPATH := $(shell go env GOPATH 2>/dev/null)
+GO_BIN_DIR := $(if $(GO_ENV_GOBIN),$(GO_ENV_GOBIN),$(GO_ENV_GOPATH)/bin)
 GOLANGCI_LINT := $(GO_BIN_DIR)/golangci-lint
 UNIT_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress | grep -v /tests/integration)
 ALL_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress)
@@ -38,12 +42,48 @@ unit-cover:
 	@go test ./... -short -coverpkg=./... -coverprofile=coverage_unit.out
 
 verify-coverage:
-	@./scripts/verify-coverage.sh
+	@bash scripts/verify-coverage.sh
 
 # Run integration tests (requires DynamoDB Local)
 integration: docker-up
 	@echo "Running integration tests..."
 	@go test -v $(INTEGRATION_PACKAGES)
+
+# Run the shared Go/TypeScript/Python contract suite (requires DynamoDB Local)
+contract-tests: docker-up
+	@bash scripts/verify-contract-tests.sh
+
+# Run the checked-in Go local quickstart against DynamoDB Local.
+example-local: docker-up
+	@AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 \
+		DYNAMODB_ENDPOINT=$${DYNAMODB_ENDPOINT:-http://localhost:8000} \
+		go run ./examples/local-quickstart
+
+# Generate and verify DMS-derived contract-runner model files.
+generate-contract-models:
+	@bash scripts/verify-generated-models.sh --write
+
+verify-generated-models:
+	@bash scripts/verify-generated-models.sh --check
+
+# Generate and verify API references from Go/TypeScript/Python source.
+generate-api-reference:
+	@python3 scripts/generate-api-reference.py --write
+	@python3 scripts/sync-runtime-docs-site.py --write
+
+verify-api-reference:
+	@python3 scripts/generate-api-reference.py --check
+	@python3 scripts/sync-runtime-docs-site.py --check
+
+# Generate and verify Jekyll site copies of package-local TS/Py runtime docs.
+sync-runtime-docs-site:
+	@python3 scripts/sync-runtime-docs-site.py --write
+
+verify-runtime-docs-site:
+	@python3 scripts/sync-runtime-docs-site.py --check
+
+verify-generative-artifacts:
+	@python3 scripts/verify-generative-artifacts.py
 
 # Run benchmarks
 benchmark:
@@ -75,7 +115,7 @@ fmt:
 	fi
 
 fmt-check:
-	@./scripts/fmt-check.sh
+	@bash scripts/verify-formatting.sh --language go
 
 # Run linters
 lint:
@@ -85,7 +125,10 @@ lint:
 # Clean build artifacts
 clean:
 	@echo "Cleaning..."
-	@rm -f coverage.out
+	@rm -f coverage*.out coverage.html gosec.sarif
+	@rm -f py/coverage.xml py/coverage-*.txt py/coverage-*.json py/.coverage
+	@rm -f gov-infra/evidence/*-output.log gov-infra/evidence/DOC-5-parity.log
+	@rm -rf ts/coverage ts/dist py/build py/dist build/lambda
 	@go clean -cache
 
 # Start DynamoDB Local
@@ -179,6 +222,14 @@ verify-ci-toolchain:
 verify-planning-docs:
 	@./scripts/verify-planning-docs.sh
 
+# Smoke test the `tabletheory init` Go scaffold against DynamoDB Local (requires Docker).
+init-smoke:
+	@bash ./scripts/verify-init-scaffold.sh
+
+# Dry-run proof that the tabletheory CLI release-asset matrix builds (no publish).
+cli-release-dryrun:
+	@bash ./scripts/verify-cli-release-assets.sh
+
 sec:
 	@./scripts/sec-gosec.sh
 	@./scripts/sec-govulncheck.sh
@@ -186,6 +237,9 @@ sec:
 
 rubric:
 	@./scripts/verify-rubric.sh
+
+rubric-fast:
+	@SKIP_INTEGRATION=true bash ./scripts/verify-rubric-fast.sh
 
 stage-theorycloud-tabletheory-subtree:
 	@bash ./scripts/stage_theorycloud_tabletheory_subtree.sh --output "$${THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR:-/tmp/theorycloud-tabletheory-source}"
@@ -206,7 +260,7 @@ coverage: test
 
 # Show coverage dashboard
 coverage-dashboard:
-	@./scripts/coverage-dashboard.sh
+	@bash scripts/verify-coverage.sh --dashboard
 
 # Quick test for development (unit tests only, no race detector)
 quick-test:
@@ -237,6 +291,11 @@ help:
 	@echo "  make test        - Run ALL tests (unit + integration) [STARTS DynamoDB Local]"
 	@echo "  make test-unit   - Run only unit tests (fast, no Docker required)"
 	@echo "  make integration - Run integration tests only (requires Docker)"
+	@echo "  make contract-tests - Run Go/TypeScript/Python contract suite (requires Docker)"
+	@echo "  make example-local - Start DynamoDB Local and run the Go quickstart CRUD proof"
+	@echo "  make verify-runtime-docs-site - Check generated TS/Py site doc copies"
+	@echo "  make verify-api-reference - Check generated API reference drift"
+	@echo "  make verify-generative-artifacts - Check llms/vocabulary/rules artifacts"
 	@echo "  make test-all    - Run all tests including benchmarks and stress tests"
 	@echo "  make benchmark   - Run performance benchmarks"
 	@echo "  make stress      - Run stress tests"
@@ -252,8 +311,11 @@ help:
 	@echo "  make verify-go-modules - Compile all Go modules"
 	@echo "  make verify-ci-toolchain - Verify CI toolchain alignment"
 	@echo "  make verify-planning-docs - Verify planning docs exist"
+	@echo "  make init-smoke  - Smoke test the 'tabletheory init' Go scaffold (requires Docker)"
+	@echo "  make cli-release-dryrun - Cross-compile+verify the tabletheory CLI release assets (no publish)"
 	@echo "  make sec         - Run security gates (gosec + govulncheck + go mod verify)"
 	@echo "  make rubric      - Run full rubric gate set"
+	@echo "  make rubric-fast - Run fast contributor gates (format/lint/unit/docs; no Docker)"
 	@echo "  make stage-theorycloud-tabletheory-subtree - Stage the theorycloud/tabletheory subtree locally"
 	@echo "  make verify-theorycloud-tabletheory-subtree - Verify the staged theorycloud/tabletheory subtree"
 	@echo "  make sync-theorycloud-tabletheory-subtree - Sync the staged theorycloud/tabletheory subtree to the configured stage prefix"

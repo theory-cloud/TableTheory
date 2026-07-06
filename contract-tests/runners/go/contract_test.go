@@ -2,6 +2,7 @@ package contracttests
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -15,16 +16,44 @@ import (
 
 func TestContract_P0(t *testing.T) {
 	t.Helper()
+	runContractScenarios(t, filepath.Join("contract-tests", "scenarios", "p0"))
+}
+
+func TestContract_P0_Fake(t *testing.T) {
+	t.Helper()
+	runFakeContractScenarios(t, filepath.Join("contract-tests", "scenarios", "p0"))
+}
+
+func TestContract_P1(t *testing.T) {
+	t.Helper()
+	runContractScenarios(t, filepath.Join("contract-tests", "scenarios", "p1"))
+}
+
+func TestContract_P2(t *testing.T) {
+	t.Helper()
+	runContractScenarios(t, filepath.Join("contract-tests", "scenarios", "p2"))
+}
+
+func TestContract_Interop(t *testing.T) {
+	t.Helper()
+	if os.Getenv("CONTRACT_RUN_INTEROP") != "1" {
+		t.Skip("set CONTRACT_RUN_INTEROP=1 to run cross-runtime interop scenarios")
+	}
+	runContractScenarios(t, filepath.Join("contract-tests", "scenarios", "interop"))
+}
+
+func runContractScenarios(t *testing.T, scenarioRelDir string) {
+	t.Helper()
 
 	ctx := context.Background()
 
-	drv, err := driver.NewTheorydbDriver()
+	probe, err := driver.NewTheorydbDriver()
 	require.NoError(t, err)
 
-	r, err := runner.New(drv)
+	probeRunner, err := runner.New(probe)
 	require.NoError(t, err)
 
-	if err := r.Ping(ctx); err != nil {
+	if err := probeRunner.Ping(ctx); err != nil {
 		t.Skipf("DynamoDB Local not reachable (set DYNAMODB_ENDPOINT or start docker compose): %v", err)
 	}
 
@@ -34,7 +63,7 @@ func TestContract_P0(t *testing.T) {
 	models, err := spec.LoadModelsDir(filepath.Join(root, "contract-tests", "dms", "v0.1", "models"))
 	require.NoError(t, err)
 
-	scenarioDir := filepath.Join(root, "contract-tests", "scenarios", "p0")
+	scenarioDir := filepath.Join(root, scenarioRelDir)
 	files, err := filepath.Glob(filepath.Join(scenarioDir, "*.yml"))
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
@@ -43,6 +72,59 @@ func TestContract_P0(t *testing.T) {
 		path := path
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			s, err := scenario.LoadFile(path)
+			require.NoError(t, err)
+
+			drv, err := driver.NewTheorydbDriver(driver.Options{
+				Encryption: driver.EncryptionOptions{
+					Provider: s.Encryption.Provider,
+					Seed:     s.Encryption.Seed,
+				},
+			})
+			require.NoError(t, err)
+
+			r, err := runner.New(drv)
+			require.NoError(t, err)
+
+			if missing := scenario.MissingCapabilities(s.RequiresCapabilities, drv.Capabilities()); len(missing) > 0 {
+				t.Skipf("scenario requires unsupported capabilities: %v", missing)
+			}
+
+			r.RunScenario(t, ctx, s, models)
+		})
+	}
+}
+
+func runFakeContractScenarios(t *testing.T, scenarioRelDir string) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	root, err := runner.RepoRootFromModuleDir()
+	require.NoError(t, err)
+
+	models, err := spec.LoadModelsDir(filepath.Join(root, "contract-tests", "dms", "v0.1", "models"))
+	require.NoError(t, err)
+
+	scenarioDir := filepath.Join(root, scenarioRelDir)
+	files, err := filepath.Glob(filepath.Join(scenarioDir, "*.yml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	for _, path := range files {
+		path := path
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			s, err := scenario.LoadFile(path)
+			require.NoError(t, err)
+
+			drv, fake, err := driver.NewFakeTheorydbDriver(driver.Options{
+				Encryption: driver.EncryptionOptions{
+					Provider: s.Encryption.Provider,
+					Seed:     s.Encryption.Seed,
+				},
+			})
+			require.NoError(t, err)
+
+			r, err := runner.NewWithDynamoDBAPI(drv, fake)
 			require.NoError(t, err)
 
 			if missing := scenario.MissingCapabilities(s.RequiresCapabilities, drv.Capabilities()); len(missing) > 0 {

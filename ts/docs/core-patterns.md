@@ -56,6 +56,50 @@ const page2 = page1.cursor
   : { items: [] };
 ```
 
+For large partitions or scans, prefer the lazy async iterators so callers can stop early without fetching the remaining
+pages:
+
+```ts
+for await (const item of db
+  .query('User')
+  .partitionKey('U#1')
+  .limit(100)
+  .items()) {
+  if (shouldStop(item)) break; // no additional page is fetched after break
+}
+```
+
+## Pattern: Aggregations are client-side
+
+`db.query(...).sum(...)`, `average(...)`, `min(...)`, `max(...)`, `aggregate(...)`, `countDistinct(...)`, and
+`groupBy(...).execute()` are convenience helpers over `all()`: they follow every page and materialize every matching item
+in memory before computing the result. Use them only for bounded result sets. When the planned native `count()` API lands,
+prefer it for count-only paths.
+
+## Pattern: Exact number reads
+
+TypeScript now unmarshals DynamoDB `N`/`NS` values to canonical decimal strings by default so large integers and
+high-precision decimals round-trip exactly:
+
+```ts
+const db = new TheorydbClient(ddb).register(LedgerEntry);
+
+const entry = await db.get('LedgerEntry', {
+  PK: 'LEDGER#1',
+  SK: 'ENTRY#1',
+});
+// entry.amount is the canonical DynamoDB decimal string, not a JavaScript Number.
+```
+
+If a consumer deliberately wants the historical lossy behavior for a bounded
+client, opt in explicitly:
+
+```ts
+const lossyDb = new TheorydbClient(ddb, {
+  numberUnmarshalMode: 'number',
+}).register(LedgerEntry);
+```
+
 ## Pattern: Batch + Transactions
 
 ```ts
@@ -124,4 +168,122 @@ const db = new TheorydbClient(mock.client, {
 await db.create('User', { PK: 'U#1', SK: 'PROFILE' });
 
 assert.equal(mock.calls.length, 1);
+```
+
+## Pattern: Key design and GSI queries
+
+Model keys are explicit in `defineModel`; do not infer access patterns from arbitrary fields. Keep PK/SK and GSI keys
+stable, plaintext, and non-encrypted so DynamoDB can route requests.
+
+```ts
+export const UserByEmail = defineModel({
+  name: 'UserByEmail',
+  table: { name: 'users_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  indexes: [
+    {
+      name: 'gsi_email',
+      partition: { attribute: 'GSI1PK', type: 'S' },
+      sort: { attribute: 'GSI1SK', type: 'S' },
+    },
+  ],
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'GSI1PK', type: 'S', roles: ['gsi1pk'] },
+    { attribute: 'GSI1SK', type: 'S', roles: ['gsi1sk'] },
+    { attribute: 'email', type: 'S' },
+  ],
+});
+
+const page = await db
+  .query('UserByEmail')
+  .usingIndex('gsi_email')
+  .partitionKey('EMAIL#ada@example.com')
+  .limit(25)
+  .page();
+```
+
+Do not set `consistentRead(true)` on a GSI query; DynamoDB rejects strongly consistent GSI reads and TableTheory surfaces
+that as `ErrInvalidOperator`.
+
+### Query optimizer explanation
+
+`QueryOptimizer.explain(builder.describe())` now runs the same condition-analysis shape as the Go selector: equality
+conditions identify partition-key candidates, the first non-partition condition becomes the sort-key candidate, and indexes
+are scored by partition match, sort-key operator, GSI isolation, and projection coverage. Use it as an explanation aid before
+choosing `.usingIndex(...)`; it does not mutate a builder or hide DynamoDB's explicit access-pattern requirements.
+
+```ts
+import { QueryOptimizer } from '@theory-cloud/tabletheory-ts';
+
+const optimizer = new QueryOptimizer();
+const plan = optimizer.explain(
+  db
+    .scan('UserByEmail')
+    .filter('GSI1PK', '=', 'EMAIL#ada@example.com')
+    .describe(),
+);
+
+// plan.operation === 'Query' and plan.indexName === 'gsi_email' when the model declares that GSI.
+```
+
+## Pattern: Fail-closed encryption
+
+Encrypted attributes use an explicit `EncryptionProvider`. The runtime fails closed: if any registered model has an
+encrypted attribute and no provider is configured, reads/writes fail instead of returning plaintext or skipping
+decryption.
+
+```ts
+import { KMSClient } from '@aws-sdk/client-kms';
+import {
+  AwsKmsEncryptionProvider,
+  TheorydbClient,
+} from '@theory-cloud/tabletheory-ts';
+
+const encryptedDb = new TheorydbClient(ddb, {
+  encryption: new AwsKmsEncryptionProvider(
+    new KMSClient({ region: 'us-east-1' }),
+    {
+      keyArn: process.env.TABLETHEORY_KMS_KEY_ARN!,
+    },
+  ),
+}).register(UserWithSecret);
+```
+
+For unit tests, inject the deterministic testkit provider rather than disabling encryption:
+
+```ts
+import { createDeterministicEncryptionProvider } from '@theory-cloud/tabletheory-ts/testkit';
+
+const testDb = new TheorydbClient(mock.client, {
+  encryption: createDeterministicEncryptionProvider('unit-test-seed'),
+}).register(UserWithSecret);
+```
+
+## Pattern: Error handling by TableTheory code
+
+Catch `TheorydbError` and branch on stable error codes instead of message text. Version conflicts include both
+`ErrVersionConflict` and `ErrConditionFailed` for backward compatibility.
+
+```ts
+import {
+  hasTheorydbErrorCode,
+  isTheorydbError,
+} from '@theory-cloud/tabletheory-ts';
+
+try {
+  await db.update('User', staleItem, ['nickname']);
+} catch (err) {
+  if (hasTheorydbErrorCode(err, 'ErrVersionConflict')) {
+    // Reload, merge, and retry from the current version.
+  } else if (isTheorydbError(err)) {
+    throw new Error(`TableTheory ${err.code}: ${err.message}`);
+  } else {
+    throw err;
+  }
+}
 ```

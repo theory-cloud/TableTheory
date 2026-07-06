@@ -30,6 +30,34 @@ const db = new TheorydbClient(mock.client, {
 - Prefer deterministic clocks (`fixedNow(...)`) for lifecycle fields.
 - Prefer deterministic encryption providers for encrypted attributes.
 
+## Stateful fake for write-then-query tests
+
+Use `createStatefulDynamoDBClient()` when a consumer test should write through the real TableTheory TypeScript runtime and
+query the result back without DynamoDB Local:
+
+```ts
+import assert from 'node:assert/strict';
+
+import { TheorydbClient } from '@theory-cloud/tabletheory-ts';
+import {
+  createStatefulDynamoDBClient,
+  fixedNow,
+} from '@theory-cloud/tabletheory-ts/testkit';
+
+const { client, fake } = createStatefulDynamoDBClient();
+const db = new TheorydbClient(client, {
+  now: fixedNow('2026-07-04T00:00:00.000000000Z'),
+});
+
+// Register models, write through db, then query through db.
+assert.equal(fake.items('users').length, 0);
+```
+
+The stateful fake implements an AWS SDK v3-style `send()` backend for TableTheory's local test path: key-based reads and
+writes, conditional writes, optimistic-lock version updates, TTL attribute persistence, batches, transactions, and basic
+query/scan filters. It is deterministic and local; it is not a general DynamoDB emulator and does not replace DynamoDB
+Local for tests that require AWS-exact pagination, expression, throughput, or indexing behavior.
+
 ## Integration testing (DynamoDB Local)
 
 Use DynamoDB Local to validate real DynamoDB constraints (pagination, conditional writes, batch limits).

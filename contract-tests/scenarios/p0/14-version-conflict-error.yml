@@ -1,0 +1,55 @@
+name: "p0.error_taxonomy.version_conflict"
+dms_version: "0.1"
+requires_capabilities:
+  - "error.version_conflict"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#46"
+      SK: "PROFILE"
+      nickname: "v0"
+    expect:
+      ok: true
+
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "USER#46"
+      SK: "PROFILE"
+      nickname: "duplicate"
+    expect:
+      error: "ErrConditionFailed"
+
+  - op: update
+    fields: ["nickname"]
+    item:
+      PK: "USER#46"
+      SK: "PROFILE"
+      nickname: "v1"
+      version: 0
+    expect:
+      ok: true
+
+  - op: update
+    fields: ["nickname"]
+    item:
+      PK: "USER#46"
+      SK: "PROFILE"
+      nickname: "stale"
+      version: 0
+    expect:
+      errors:
+        - "ErrConditionFailed"
+        - "ErrVersionConflict"
+
+  - op: get
+    key:
+      PK: "USER#46"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        nickname: "v1"
+        version: 1

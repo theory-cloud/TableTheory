@@ -33,8 +33,8 @@ Snapshot (2026-01-16):
   - `ts/src/model.ts`: **266**
   - `ts/src/encryption.ts`: **230**
 - File-size budgets are enforced for both languages:
-  - Go: `bash scripts/verify-go-file-size.sh` (max **2500**)
-  - TypeScript: `bash scripts/verify-ts-file-size.sh` (max **1500**)
+  - Go: `bash scripts/verify-file-size.sh --language go` (max **2500**)
+  - TypeScript: `bash scripts/verify-file-size.sh --language typescript` (max **1500**)
 
 ## Guardrails (keep refactors safe)
 

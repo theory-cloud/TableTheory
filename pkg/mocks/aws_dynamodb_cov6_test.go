@@ -3,6 +3,8 @@ package mocks_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,6 +14,24 @@ import (
 
 	"github.com/theory-cloud/tabletheory/pkg/mocks"
 )
+
+type recordingTestingT struct {
+	errors []string
+	logs   []string
+	failed bool
+}
+
+func (r *recordingTestingT) Errorf(format string, args ...interface{}) {
+	r.errors = append(r.errors, fmt.Sprintf(format, args...))
+}
+
+func (r *recordingTestingT) Logf(format string, args ...interface{}) {
+	r.logs = append(r.logs, fmt.Sprintf(format, args...))
+}
+
+func (r *recordingTestingT) FailNow() {
+	r.failed = true
+}
 
 func TestMockDynamoDBClient_AdditionalOperations_COV6(t *testing.T) {
 	mockClient := new(mocks.MockDynamoDBClient)
@@ -66,19 +86,24 @@ func TestMockDynamoDBClient_AdditionalOperations_COV6(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-func TestMockDynamoDBClient_PanicsOnUnexpectedReturnTypes_COV6(t *testing.T) {
+func TestMockDynamoDBClient_WrongReturnTypeRecordsAssertionFailure_COV6(t *testing.T) {
 	mockClient := new(mocks.MockDynamoDBClient)
 	ctx := context.Background()
 
 	input := &dynamodb.QueryInput{TableName: aws.String("tbl")}
 	mockClient.On("Query", ctx, input, mock.Anything).Return("bad-type", nil).Once()
 
-	assert.Panics(t, func() {
-		_, err := mockClient.Query(ctx, input)
+	assert.NotPanics(t, func() {
+		out, err := mockClient.Query(ctx, input)
 		assert.NoError(t, err)
+		assert.Nil(t, out)
 	})
 
-	mockClient.AssertExpectations(t)
+	recorder := &recordingTestingT{}
+	assert.False(t, mockClient.AssertExpectations(recorder))
+	assert.Contains(t, strings.Join(recorder.errors, "\n"), "Query")
+	assert.Contains(t, strings.Join(recorder.errors, "\n"), "*dynamodb.QueryOutput")
+	assert.False(t, recorder.failed)
 }
 
 func TestMockDynamoDBClient_ErrorBranches_COV6(t *testing.T) {
@@ -182,7 +207,7 @@ func TestMockDynamoDBClient_ErrorBranches_COV6(t *testing.T) {
 	}
 }
 
-func TestMockDynamoDBClient_PanicBranches_COV6(t *testing.T) {
+func TestMockDynamoDBClient_WrongReturnTypeBranches_COV6(t *testing.T) {
 	ctx := context.Background()
 
 	cases := []struct {
@@ -293,8 +318,13 @@ func TestMockDynamoDBClient_PanicBranches_COV6(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			client := new(mocks.MockDynamoDBClient)
-			assert.Panics(t, func() { tc.call(t, client) })
-			client.AssertExpectations(t)
+			assert.NotPanics(t, func() { tc.call(t, client) })
+
+			recorder := &recordingTestingT{}
+			assert.False(t, client.AssertExpectations(recorder))
+			assert.Contains(t, strings.Join(recorder.errors, "\n"), tc.name)
+			assert.Contains(t, strings.Join(recorder.errors, "\n"), "expected")
+			assert.False(t, recorder.failed)
 		})
 	}
 }

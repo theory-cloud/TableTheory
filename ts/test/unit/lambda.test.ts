@@ -14,7 +14,7 @@ import { defineModel } from '../../src/model.js';
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import type { SendOptions } from '../../src/send-options.js';
 
-test('isLambdaEnvironment detects lambda env vars', () => {
+void test('isLambdaEnvironment detects lambda env vars', () => {
   assert.equal(isLambdaEnvironment({}), false);
   assert.equal(isLambdaEnvironment({ AWS_LAMBDA_FUNCTION_NAME: 'fn' }), true);
   assert.equal(
@@ -23,7 +23,7 @@ test('isLambdaEnvironment detects lambda env vars', () => {
   );
 });
 
-test('createLambdaTimeoutSignal aborts and supports cleanup', async () => {
+void test('createLambdaTimeoutSignal aborts and supports cleanup', async () => {
   {
     const { signal } = createLambdaTimeoutSignal(
       { getRemainingTimeInMillis: () => 0 },
@@ -43,7 +43,7 @@ test('createLambdaTimeoutSignal aborts and supports cleanup', async () => {
   }
 });
 
-test('createLambdaTimeoutSignal applies default and custom buffers', async () => {
+void test('createLambdaTimeoutSignal applies default and custom buffers', async () => {
   {
     const { signal } = createLambdaTimeoutSignal({
       getRemainingTimeInMillis: () => DEFAULT_LAMBDA_TIMEOUT_BUFFER_MS,
@@ -62,7 +62,7 @@ test('createLambdaTimeoutSignal applies default and custom buffers', async () =>
   }
 });
 
-test('createLambdaDynamoDBClient and getLambdaDynamoDBClient build clients', () => {
+void test('createLambdaDynamoDBClient and getLambdaDynamoDBClient build clients', () => {
   createLambdaDynamoDBClient({ region: 'us-east-1' });
   createLambdaDynamoDBClient({ region: 'us-east-1', metrics: () => {} });
 
@@ -71,7 +71,7 @@ test('createLambdaDynamoDBClient and getLambdaDynamoDBClient build clients', () 
   assert.equal(a, b);
 });
 
-test('withLambdaTimeout returns a derived TheorydbClient', async () => {
+void test('withLambdaTimeout returns a derived TheorydbClient', async () => {
   const sendOptions: (SendOptions | undefined)[] = [];
   const ddb = {
     send: async (

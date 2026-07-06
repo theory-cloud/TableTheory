@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import boto3
 
-from theorydb_py import ModelDefinition, Table, theorydb_field
+from tabletheory_py import ModelDefinition, Table, theorydb_field
 
 
 def _dynamodb_endpoint() -> str:
@@ -47,7 +47,7 @@ class SecretNote:
 
 
 def test_table_encrypted_field_round_trip_in_dynamodb_local() -> None:
-    table_name = f"theorydb_py_enc_{uuid.uuid4().hex[:12]}"
+    table_name = f"tabletheory_py_enc_{uuid.uuid4().hex[:12]}"
     client = _client()
     client.create_table(
         TableName=table_name,

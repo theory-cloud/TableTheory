@@ -15,6 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/require"
 
 	theorydberrors "github.com/theory-cloud/tabletheory/pkg/errors"
@@ -143,17 +145,43 @@ func TestTransaction_handleTransactionError(t *testing.T) {
 
 	require.NoError(t, tx.handleTransactionError(nil))
 
-	err := tx.handleTransactionError(stderrs.New("prefix ConditionalCheckFailed suffix"))
+	err := tx.handleTransactionError(&types.ConditionalCheckFailedException{})
 	require.ErrorIs(t, err, theorydberrors.ErrConditionFailed)
 
-	err = tx.handleTransactionError(stderrs.New("prefix TransactionCanceled suffix"))
+	err = tx.handleTransactionError(&types.TransactionCanceledException{
+		CancellationReasons: []types.CancellationReason{{Code: aws.String("ConditionalCheckFailed")}},
+	})
+	require.ErrorIs(t, err, theorydberrors.ErrConditionFailed)
+
+	err = tx.handleTransactionError(&types.TransactionCanceledException{
+		CancellationReasons: []types.CancellationReason{{Code: aws.String("TransactionConflict")}},
+	})
+	require.ErrorIs(t, err, theorydberrors.ErrTransactionConflict)
+	require.ErrorIs(t, err, theorydberrors.ErrTransactionFailed)
+
+	err = tx.handleTransactionError(&types.TransactionCanceledException{
+		CancellationReasons: []types.CancellationReason{{Code: aws.String("ThrottlingError")}},
+	})
+	require.ErrorIs(t, err, theorydberrors.ErrThrottled)
+
+	err = tx.handleTransactionError(transactionAPIError("TransactionCanceledException"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "transaction canceled")
 
-	err = tx.handleTransactionError(stderrs.New("prefix ValidationException suffix"))
+	err = tx.handleTransactionError(transactionAPIError("ValidationException"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "validation error")
 
+	err = tx.handleTransactionError(transactionAPIError("ProvisionedThroughputExceededException"))
+	require.ErrorIs(t, err, theorydberrors.ErrThrottled)
+
+	plain := stderrs.New("prefix ConditionalCheckFailed suffix")
+	require.ErrorIs(t, tx.handleTransactionError(plain), plain)
+
 	other := stderrs.New("something else")
 	require.ErrorIs(t, tx.handleTransactionError(other), other)
+}
+
+func transactionAPIError(code string) error {
+	return &smithy.GenericAPIError{Code: code, Message: "test"}
 }

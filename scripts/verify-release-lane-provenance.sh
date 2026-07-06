@@ -7,9 +7,6 @@ set -euo pipefail
 # branch refs for the manual-freeze fallback. In the normal v2 path,
 # --queue-freshness delegates that live-ref freshness guard to the protected
 # branch merge queue while retaining same-repository and release-branch checks.
-# Bootstrap compatibility: older trusted main supply-chain checks grep for the
-# numbered-RC marker -rc\.[0-9]+ in this file. Keep that marker while the v2
-# guard accepts both release-please first RC (X.Y.Z-rc) and later numbered RCs.
 
 usage() {
   cat <<'USAGE'

@@ -32,7 +32,7 @@ export interface AttributeSchema {
   json?: boolean;
   binary?: boolean;
   format?: string;
-  roles?: string[];
+  roles?: readonly string[];
   encryption?: unknown;
   converter?: ValueConverter;
 }
@@ -42,12 +42,15 @@ export interface IndexSchema {
   type: 'GSI' | 'LSI';
   partition: KeySchema;
   sort?: KeySchema;
-  projection?: { type: 'ALL' | 'KEYS_ONLY' | 'INCLUDE'; fields?: string[] };
+  projection?: {
+    type: 'ALL' | 'KEYS_ONLY' | 'INCLUDE';
+    fields?: readonly string[];
+  };
 }
 
 export interface WritePolicySchema {
   mode?: 'mutable' | 'write_once';
-  protected_attributes?: string[];
+  protected_attributes?: readonly string[];
 }
 
 export interface WritePolicy {
@@ -64,8 +67,8 @@ export interface ModelSchema {
     sort?: KeySchema;
   };
   write_policy?: WritePolicySchema;
-  attributes: AttributeSchema[];
-  indexes?: IndexSchema[];
+  attributes: readonly AttributeSchema[];
+  indexes?: readonly IndexSchema[];
 }
 
 export interface ModelRoles {
@@ -77,7 +80,9 @@ export interface ModelRoles {
   ttl?: string;
 }
 
-export interface Model {
+export interface Model<
+  TItem extends Record<string, unknown> = Record<string, unknown>,
+> {
   readonly name: string;
   readonly tableName: string;
   readonly schema: Readonly<ModelSchema>;
@@ -85,7 +90,77 @@ export interface Model {
   readonly indexes: ReadonlyMap<string, Readonly<IndexSchema>>;
   readonly roles: Readonly<ModelRoles>;
   readonly writePolicy: Readonly<WritePolicy>;
+  readonly __itemType?: TItem;
 }
+
+type AttributeValueFor<A extends AttributeSchema> = A['type'] extends 'S'
+  ? string
+  : A['type'] extends 'N'
+    ? number
+    : A['type'] extends 'B'
+      ? Uint8Array
+      : A['type'] extends 'BOOL'
+        ? boolean
+        : A['type'] extends 'NULL'
+          ? null
+          : A['type'] extends 'SS'
+            ? string[]
+            : A['type'] extends 'NS'
+              ? number[]
+              : A['type'] extends 'BS'
+                ? Uint8Array[]
+                : A['type'] extends 'L'
+                  ? unknown[]
+                  : A['type'] extends 'M'
+                    ? Record<string, unknown>
+                    : unknown;
+
+type AttributeHasRole<
+  A extends AttributeSchema,
+  R extends string,
+> = A['roles'] extends readonly string[]
+  ? R extends A['roles'][number]
+    ? true
+    : false
+  : false;
+
+type IsOptionalAttribute<A extends AttributeSchema> = A extends {
+  optional: true;
+}
+  ? true
+  : A extends { omit_empty: true }
+    ? true
+    : AttributeHasRole<A, 'created_at'> extends true
+      ? true
+      : AttributeHasRole<A, 'updated_at'> extends true
+        ? true
+        : AttributeHasRole<A, 'version'> extends true
+          ? true
+          : AttributeHasRole<A, 'ttl'> extends true
+            ? true
+            : false;
+
+type AttributeName<A extends AttributeSchema> = A['attribute'] extends string
+  ? A['attribute']
+  : never;
+
+type RequiredAttributes<S extends ModelSchema> = {
+  [A in S['attributes'][number] as IsOptionalAttribute<A> extends true
+    ? never
+    : AttributeName<A>]: AttributeValueFor<A>;
+};
+
+type OptionalAttributes<S extends ModelSchema> = {
+  [A in S['attributes'][number] as IsOptionalAttribute<A> extends true
+    ? AttributeName<A>
+    : never]?: AttributeValueFor<A>;
+};
+
+export type InferModelItem<S extends ModelSchema> = RequiredAttributes<S> &
+  OptionalAttributes<S>;
+
+export type ModelItem<M extends Model> =
+  M extends Model<infer TItem> ? TItem : Record<string, unknown>;
 
 function isSupportedJsonStorageType(type: ScalarType): boolean {
   return (
@@ -98,7 +173,9 @@ function isSupportedJsonStorageType(type: ScalarType): boolean {
   );
 }
 
-export function defineModel(schema: ModelSchema): Model {
+export function defineModel<const S extends ModelSchema>(
+  schema: S,
+): Model<InferModelItem<S>> {
   validateModelSchema(schema);
 
   const attributes = new Map<string, AttributeSchema>();

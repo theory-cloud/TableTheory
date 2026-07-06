@@ -13,16 +13,126 @@ For the multi-language monorepo:
 
 ## Prerequisites
 
-**Required:**
+**Required for the local quickstart:**
 
-- Go 1.25 or higher
-- AWS Credentials configured (or IAM role in Lambda)
-- Basic understanding of DynamoDB (Primary Keys, Tables)
+- Go toolchain `go1.26.4` (the pinned toolchain in the root `go.mod`)
+- Docker, for DynamoDB Local
+
+**Required for real AWS deployments:**
+
+- AWS credentials configured (or an IAM role in Lambda)
+- Basic understanding of DynamoDB primary keys and tables
 
 **Recommended:**
 
-- AWS CLI installed for verification
-- Docker (if using DynamoDB Local)
+- AWS CLI installed for manual verification
+
+## Two-command local quickstart
+
+From a fresh checkout, a Go newcomer can reach a verified CRUD write without an AWS account:
+
+```bash
+make docker-up
+make example-local
+```
+
+`make example-local` runs [`examples/local-quickstart/main.go`](https://github.com/theory-cloud/TableTheory/blob/main/examples/local-quickstart/main.go) against DynamoDB
+Local with dummy local credentials. Its output includes the persisted optimistic-lock version after the update:
+
+```text
+created note NOTE#local (version 0)
+read note: title="Hello TableTheory" value=42 version=0
+updated note: title="Hello TableTheory (updated)" persistedVersion=1
+deleted note NOTE#local
+OK: TableTheory Go quickstart CRUD against DynamoDB Local succeeded
+```
+
+The update step re-reads the item before printing `persistedVersion` because TableTheory's `Update` call does not mutate
+the caller's struct in memory.
+
+If Docker is unavailable in your environment, use the deterministic fake-backed testing APIs from
+[`pkg/testing/fakedb`](https://github.com/theory-cloud/TableTheory/tree/main/pkg/testing/fakedb) for unit tests, but keep this DynamoDB Local proof for onboarding and
+contract-shaped smoke validation. The local fake is a test aid, not a replacement for DynamoDB Local when validating
+real request shapes.
+
+The checked-in program is intentionally complete:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    "strings"
+    "time"
+
+    "github.com/theory-cloud/tabletheory"
+    "github.com/theory-cloud/tabletheory/pkg/session"
+)
+
+type Note struct {
+    PK        string    `theorydb:"pk" json:"PK"`
+    SK        string    `theorydb:"sk" json:"SK"`
+    Title     string    `json:"title,omitempty"`
+    Value     int64     `json:"value,omitempty"`
+    CreatedAt time.Time `theorydb:"created_at" json:"createdAt"`
+    UpdatedAt time.Time `theorydb:"updated_at" json:"updatedAt"`
+    Version   int64     `theorydb:"version" json:"version"`
+}
+
+func (Note) TableName() string { return "tabletheory_go_quickstart" }
+
+func envOr(key, fallback string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return fallback
+}
+
+func main() {
+    db, err := tabletheory.New(session.Config{
+        Region:   envOr("AWS_REGION", "us-east-1"),
+        Endpoint: envOr("DYNAMODB_ENDPOINT", "http://localhost:8000"),
+    })
+    if err != nil {
+        log.Fatalf("connect to DynamoDB: %v", err)
+    }
+
+    if err := db.CreateTable(&Note{}); err != nil && !strings.Contains(err.Error(), "ResourceInUseException") {
+        log.Fatalf("create table: %v", err)
+    }
+
+    note := &Note{PK: "NOTE#local", SK: fmt.Sprintf("run#%d", time.Now().UnixNano()), Title: "Hello TableTheory", Value: 42}
+    if err := db.Model(note).IfNotExists().Create(); err != nil {
+        log.Fatalf("create: %v", err)
+    }
+    fmt.Printf("created note %s (version %d)\n", note.PK, note.Version)
+
+    var got Note
+    if err := db.Model(&Note{}).Where("PK", "=", note.PK).Where("SK", "=", note.SK).First(&got); err != nil {
+        log.Fatalf("read: %v", err)
+    }
+    fmt.Printf("read note: title=%q value=%d version=%d\n", got.Title, got.Value, got.Version)
+
+    got.Title = "Hello TableTheory (updated)"
+    if err := db.Model(&got).Update("title"); err != nil {
+        log.Fatalf("update: %v", err)
+    }
+    var updated Note
+    if err := db.Model(&Note{}).Where("PK", "=", note.PK).Where("SK", "=", note.SK).First(&updated); err != nil {
+        log.Fatalf("read after update: %v", err)
+    }
+    fmt.Printf("updated note: title=%q persistedVersion=%d\n", updated.Title, updated.Version)
+
+    if err := db.Model(&Note{}).Where("PK", "=", note.PK).Where("SK", "=", note.SK).Delete(); err != nil {
+        log.Fatalf("delete: %v", err)
+    }
+    fmt.Printf("deleted note %s\n", updated.PK)
+
+    fmt.Println("OK: TableTheory Go quickstart CRUD against DynamoDB Local succeeded")
+}
+```
 
 ## Installation
 

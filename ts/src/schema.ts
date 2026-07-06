@@ -276,7 +276,9 @@ function buildCreateTableInput(
   for (const idx of model.schema.indexes ?? []) {
     const projectionType = idx.projection?.type ?? 'ALL';
     const nonKeyAttributes =
-      projectionType === 'INCLUDE' ? (idx.projection?.fields ?? []) : undefined;
+      projectionType === 'INCLUDE'
+        ? [...(idx.projection?.fields ?? [])]
+        : undefined;
 
     const schema: KeySchemaElement[] = [
       { AttributeName: idx.partition.attribute, KeyType: 'HASH' },

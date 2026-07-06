@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/pkg/model"
+	"github.com/theory-cloud/tabletheory/pkg/session"
 )
 
 // EnableTTL enables DynamoDB TTL for the ttl-tagged field on an existing model table.
@@ -23,7 +24,7 @@ func (m *Manager) EnableTTL(modelValue any) error {
 	}
 
 	ctx := context.Background()
-	client, err := m.session.Client()
+	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for ttl update: %w", err)
 	}
@@ -31,7 +32,7 @@ func (m *Manager) EnableTTL(modelValue any) error {
 	return m.syncModelTTL(ctx, client, metadata)
 }
 
-func (m *Manager) syncModelTTL(ctx context.Context, client *dynamodb.Client, metadata *model.Metadata) error {
+func (m *Manager) syncModelTTL(ctx context.Context, client session.DynamoDBAPI, metadata *model.Metadata) error {
 	if metadata == nil || metadata.TTLField == nil {
 		return nil
 	}

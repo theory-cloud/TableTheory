@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import theorydb_py as theorydb
+import tabletheory_py as theorydb
 
 
 def test_init_exposes_lazy_exports_via_getattr() -> None:

@@ -1,0 +1,90 @@
+# TableTheory full LLM context
+
+TableTheory is the DynamoDB-first multi-language data contract for the Theory Cloud stack. It ships independent Go,
+TypeScript, and Python runtimes that are validated against shared contract scenarios. Treat those scenarios and the DMS
+v0.1 specification as the source of truth, not any single runtime.
+
+## What to build
+
+- DynamoDB single-table models with explicit PK/SK and optional GSI access patterns.
+- Lambda-friendly clients initialized once at cold start and reused per invocation.
+- CRUD/query/batch/transaction code that preserves optimistic locking, timestamps, TTL, and fail-closed encryption.
+- Tests that use DynamoDB Local for integration and runtime fakes only for deterministic unit tests.
+
+## What not to build
+
+- SQL-style joins, lazy relationship loading, or database-agnostic abstraction layers.
+- PostgreSQL/MongoDB/Cassandra backends.
+- Runtime-only tags or behavior that Go/TypeScript/Python cannot share.
+- Plaintext fallbacks for encrypted fields.
+- npm/PyPI installation instructions; distribution is immutable GitHub Releases only.
+
+## Canonical vocabulary
+
+Use the machine-readable vocabulary at `reference/tabletheory-vocabulary.json` for tags, roles, DMS field names, and
+runtime mappings. If a token is not in that artifact, treat it as non-canonical until the DMS and all runtimes are
+updated together.
+
+Core roles/tags:
+
+- `pk` / `theorydb:"pk"` — DynamoDB partition key.
+- `sk` / `theorydb:"sk"` — DynamoDB sort key.
+- `gsi1pk`, `gsi1sk`, ... — GSI keys.
+- `encrypted` — KMS-backed encrypted attribute; fail closed.
+- `version` — optimistic-lock version field.
+- `created_at`, `updated_at` — lifecycle timestamps.
+- `ttl` — DynamoDB TTL epoch-seconds attribute.
+- `omitempty` — omit zero values from the marshaled item.
+
+## Runtime snippets
+
+### Go
+
+```go
+type Note struct {
+    PK   string `theorydb:"pk" json:"PK"`
+    SK   string `theorydb:"sk" json:"SK"`
+    Body string `json:"body,omitempty"`
+}
+
+func (Note) TableName() string { return "notes" }
+
+err := db.Model(&Note{PK: "USER#42", SK: "NOTE#1", Body: "hello"}).IfNotExists().Create()
+```
+
+### TypeScript
+
+```ts
+const Note = defineModel({
+  name: 'Note',
+  table: { name: 'notes' },
+  keys: { partition: { attribute: 'PK', type: 'S' }, sort: { attribute: 'SK', type: 'S' } },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'body', type: 'S', optional: true, omit_empty: true },
+  ],
+});
+
+await db.create('Note', { PK: 'USER#42', SK: 'NOTE#1', body: 'hello' }, { ifNotExists: true });
+```
+
+### Python
+
+```python
+@dataclass(frozen=True)
+class Note:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    body: str = theorydb_field(default="", omitempty=True)
+
+model = ModelDefinition.from_dataclass(Note, table_name="notes")
+table.put(Note(pk="USER#42", sk="NOTE#1", body="hello"))
+```
+
+## Verification prompts should request
+
+- Generated API reference lookup before using a signature.
+- Vocabulary JSON lookup before inventing tags/roles.
+- DynamoDB Local or fake-backed unit validation, depending on scope.
+- No cloud/account mutation unless explicitly authorized.

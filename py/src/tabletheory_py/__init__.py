@@ -1,0 +1,433 @@
+from __future__ import annotations
+
+import json
+import re
+from importlib.resources import files
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from .errors import (
+    AwsError,
+    BatchRetryExceededError,
+    ConditionFailedError,
+    EncryptionNotConfiguredError,
+    ImmutableModelMutationError,
+    LeaseHeldError,
+    LeaseNotOwnedError,
+    NotFoundError,
+    ProtectedFieldMutationError,
+    RejectedDeployAuthorityEvidenceError,
+    TheorydbPyError,
+    TransactionCanceledError,
+    ValidationError,
+    VersionConflictError,
+)
+from .model import (
+    AttributeConverter,
+    IndexDefinition,
+    IndexSpec,
+    ModelDefinition,
+    ModelDefinitionError,
+    Projection,
+    Role,
+    WritePolicy,
+    gsi,
+    lsi,
+    theorydb_field,
+)
+from .query import FilterCondition, FilterGroup, Page, SortKeyCondition
+from .transaction import (
+    TransactConditionCheck,
+    TransactDelete,
+    TransactPut,
+    TransactUpdate,
+    TransactWriteAction,
+    UpdateAdd,
+    UpdateSetIfNotExists,
+)
+
+if TYPE_CHECKING:
+    from .aggregates import (
+        AggregateResult,
+        GroupByQuery,
+        GroupedResult,
+        aggregate_field,
+        average_field,
+        count_distinct,
+        group_by,
+        max_field,
+        min_field,
+        sum_field,
+    )
+    from .dms import (
+        assert_model_definition_equivalent_to_dms,
+        assert_models_equivalent,
+        get_dms_model,
+        model_definition_to_dms_model,
+        parse_dms_document,
+    )
+    from .fakedb import StatefulDynamoDBClient
+    from .lease import Lease, LeaseKey, LeaseManager
+    from .multiaccount import AccountConfig, MultiAccountSessions
+    from .optimizer import QueryOptimizer, QueryPlan, QueryShape, ScanShape
+    from .protection import ConcurrencyLimiter, SimpleLimiter
+    from .protocols import DynamoDBClientProtocol
+    from .release_state import transition_release_state, validate_deploy_authority_metadata
+    from .runtime import (
+        DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS,
+        AwsCallMetric,
+        LambdaTimeoutConfig,
+        check_lambda_timeout,
+        create_lambda_boto3_config,
+        get_lambda_boto3_client,
+        get_lambda_dynamodb_client,
+        get_lambda_kms_client,
+        instrument_boto3_client,
+        is_lambda_environment,
+        with_lambda_timeout,
+    )
+    from .schema import (
+        build_create_table_request,
+        create_table,
+        delete_table,
+        describe_table,
+        ensure_table,
+        resolve_ttl_attribute,
+        update_time_to_live,
+    )
+    from .schema_migration import (
+        add_field,
+        auto_migrate,
+        chain_transforms,
+        copy_all_fields,
+        remove_field,
+        rename_field,
+    )
+    from .streams import unmarshal_stream_image, unmarshal_stream_record
+    from .table import Table
+    from .validation import (
+        MaxExpressionLength,
+        MaxFieldNameLength,
+        MaxNestedDepth,
+        MaxOperatorLength,
+        MaxValueStringLength,
+        SecurityValidationError,
+        validate_expression,
+        validate_field_name,
+        validate_index_name,
+        validate_operator,
+        validate_table_name,
+        validate_value,
+    )
+
+
+def _read_repo_version() -> str:
+    try:
+        data = json.loads(files(__package__).joinpath("version.json").read_text(encoding="utf-8"))
+    except Exception:
+        return "0.0.0"
+
+    version = data.get("version")
+    return version if isinstance(version, str) and version else "0.0.0"
+
+
+def _normalize_repo_version(repo_version: str) -> str:
+    match = re.match(r"^(\d+\.\d+\.\d+)-rc\.?([0-9]+)$", repo_version)
+    if match:
+        return f"{match.group(1)}rc{match.group(2)}"
+    return repo_version
+
+
+__repo_version__ = _read_repo_version()
+__version__ = _normalize_repo_version(__repo_version__)
+
+
+KeyContractInputValue = str | int | float | bool
+
+
+def parse_derived_key_contract(raw: str) -> dict[str, Any]:
+    from .key_contract import parse_derived_key_contract as _parse_derived_key_contract
+
+    return _parse_derived_key_contract(raw)
+
+
+def load_key_contract_file(path: str | Path) -> dict[str, Any]:
+    from .key_contract import load_key_contract_file as _load_key_contract_file
+
+    return _load_key_contract_file(path)
+
+
+def evaluate_derived_key(
+    contract: dict[str, Any],
+    name: str,
+    input: dict[str, KeyContractInputValue] | None = None,
+) -> str:
+    from .key_contract import evaluate_derived_key as _evaluate_derived_key
+
+    return _evaluate_derived_key(contract, name, input)
+
+
+def evaluate_derived_key_definition(
+    key: dict[str, Any],
+    input: dict[str, KeyContractInputValue] | None = None,
+) -> str:
+    from .key_contract import evaluate_derived_key_definition as _evaluate_derived_key_definition
+
+    return _evaluate_derived_key_definition(key, input)
+
+
+def verify_derived_key_fixtures(contract: dict[str, Any]) -> None:
+    from .key_contract import verify_derived_key_fixtures as _verify_derived_key_fixtures
+
+    _verify_derived_key_fixtures(contract)
+
+
+def __getattr__(name: str) -> Any:
+    if name in {
+        "parse_dms_document",
+        "get_dms_model",
+        "assert_model_definition_equivalent_to_dms",
+        "assert_models_equivalent",
+        "model_definition_to_dms_model",
+    }:
+        from . import dms
+
+        return getattr(dms, name)
+    if name in {
+        "evaluate_derived_key",
+        "evaluate_derived_key_definition",
+        "load_key_contract_file",
+        "parse_derived_key_contract",
+        "verify_derived_key_fixtures",
+    }:
+        from . import key_contract
+
+        return getattr(key_contract, name)
+    if name in {
+        "build_create_table_request",
+        "create_table",
+        "delete_table",
+        "describe_table",
+        "ensure_table",
+        "resolve_ttl_attribute",
+        "update_time_to_live",
+    }:
+        from . import schema
+
+        return getattr(schema, name)
+    if name in {
+        "add_field",
+        "auto_migrate",
+        "chain_transforms",
+        "copy_all_fields",
+        "remove_field",
+        "rename_field",
+    }:
+        from . import schema_migration
+
+        return getattr(schema_migration, name)
+    if name in {"DynamoDBClientProtocol", "Table"}:
+        from .protocols import DynamoDBClientProtocol
+        from .table import Table
+
+        return {"DynamoDBClientProtocol": DynamoDBClientProtocol, "Table": Table}[name]
+    if name == "StatefulDynamoDBClient":
+        from .fakedb import StatefulDynamoDBClient
+
+        return StatefulDynamoDBClient
+    if name in {
+        "AggregateResult",
+        "GroupByQuery",
+        "GroupedResult",
+        "aggregate_field",
+        "average_field",
+        "count_distinct",
+        "group_by",
+        "max_field",
+        "min_field",
+        "sum_field",
+    }:
+        from . import aggregates
+
+        return getattr(aggregates, name)
+    if name in {"QueryOptimizer", "QueryPlan", "QueryShape", "ScanShape"}:
+        from . import optimizer
+
+        return getattr(optimizer, name)
+    if name == "unmarshal_stream_image":
+        from .streams import unmarshal_stream_image
+
+        return unmarshal_stream_image
+    if name == "unmarshal_stream_record":
+        from .streams import unmarshal_stream_record
+
+        return unmarshal_stream_record
+    if name in {
+        "AwsCallMetric",
+        "DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS",
+        "LambdaTimeoutConfig",
+        "check_lambda_timeout",
+        "create_lambda_boto3_config",
+        "get_lambda_boto3_client",
+        "get_lambda_dynamodb_client",
+        "get_lambda_kms_client",
+        "instrument_boto3_client",
+        "is_lambda_environment",
+        "with_lambda_timeout",
+    }:
+        from . import runtime
+
+        return getattr(runtime, name)
+    if name in {"AccountConfig", "MultiAccountSessions"}:
+        from . import multiaccount
+
+        return getattr(multiaccount, name)
+    if name in {
+        "ConcurrencyLimiter",
+        "SimpleLimiter",
+    }:
+        from . import protection
+
+        return getattr(protection, name)
+    if name in {
+        "MaxExpressionLength",
+        "MaxFieldNameLength",
+        "MaxNestedDepth",
+        "MaxOperatorLength",
+        "MaxValueStringLength",
+        "SecurityValidationError",
+        "validate_expression",
+        "validate_field_name",
+        "validate_index_name",
+        "validate_operator",
+        "validate_table_name",
+        "validate_value",
+    }:
+        from . import validation
+
+        return getattr(validation, name)
+    if name in {"Lease", "LeaseKey", "LeaseManager"}:
+        from . import lease
+
+        return getattr(lease, name)
+    if name in {"transition_release_state", "validate_deploy_authority_metadata"}:
+        from . import release_state
+
+        return getattr(release_state, name)
+    raise AttributeError(name)
+
+
+__all__ = [
+    "AwsError",
+    "AwsCallMetric",
+    "DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS",
+    "LambdaTimeoutConfig",
+    "assert_model_definition_equivalent_to_dms",
+    "assert_models_equivalent",
+    "AggregateResult",
+    "add_field",
+    "auto_migrate",
+    "aggregate_field",
+    "AttributeConverter",
+    "average_field",
+    "BatchRetryExceededError",
+    "build_create_table_request",
+    "ConditionFailedError",
+    "chain_transforms",
+    "copy_all_fields",
+    "ImmutableModelMutationError",
+    "LeaseHeldError",
+    "LeaseNotOwnedError",
+    "count_distinct",
+    "check_lambda_timeout",
+    "create_lambda_boto3_config",
+    "create_table",
+    "delete_table",
+    "DynamoDBClientProtocol",
+    "remove_field",
+    "rename_field",
+    "TheorydbPyError",
+    "describe_table",
+    "group_by",
+    "GroupByQuery",
+    "GroupedResult",
+    "EncryptionNotConfiguredError",
+    "evaluate_derived_key",
+    "evaluate_derived_key_definition",
+    "ensure_table",
+    "resolve_ttl_attribute",
+    "get_dms_model",
+    "get_lambda_boto3_client",
+    "get_lambda_dynamodb_client",
+    "get_lambda_kms_client",
+    "IndexDefinition",
+    "IndexSpec",
+    "ModelDefinition",
+    "ModelDefinitionError",
+    "model_definition_to_dms_model",
+    "NotFoundError",
+    "Projection",
+    "Role",
+    "ProtectedFieldMutationError",
+    "RejectedDeployAuthorityEvidenceError",
+    "FilterCondition",
+    "FilterGroup",
+    "ConcurrencyLimiter",
+    "Lease",
+    "LeaseKey",
+    "LeaseManager",
+    "load_key_contract_file",
+    "MaxExpressionLength",
+    "MaxFieldNameLength",
+    "MaxNestedDepth",
+    "MaxOperatorLength",
+    "MaxValueStringLength",
+    "instrument_boto3_client",
+    "is_lambda_environment",
+    "with_lambda_timeout",
+    "AccountConfig",
+    "MultiAccountSessions",
+    "Page",
+    "QueryOptimizer",
+    "QueryPlan",
+    "QueryShape",
+    "SecurityValidationError",
+    "SimpleLimiter",
+    "SortKeyCondition",
+    "ScanShape",
+    "StatefulDynamoDBClient",
+    "sum_field",
+    "max_field",
+    "min_field",
+    "TransactConditionCheck",
+    "TransactDelete",
+    "TransactPut",
+    "TransactUpdate",
+    "TransactWriteAction",
+    "transition_release_state",
+    "validate_deploy_authority_metadata",
+    "UpdateAdd",
+    "UpdateSetIfNotExists",
+    "TransactionCanceledError",
+    "Table",
+    "ValidationError",
+    "VersionConflictError",
+    "WritePolicy",
+    "__repo_version__",
+    "__version__",
+    "theorydb_field",
+    "gsi",
+    "lsi",
+    "parse_dms_document",
+    "parse_derived_key_contract",
+    "unmarshal_stream_image",
+    "unmarshal_stream_record",
+    "update_time_to_live",
+    "validate_expression",
+    "validate_field_name",
+    "validate_index_name",
+    "validate_operator",
+    "validate_table_name",
+    "validate_value",
+    "verify_derived_key_fixtures",
+]

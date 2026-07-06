@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import yaml
 
-from theorydb_py import (
+from tabletheory_py import (
     ConditionFailedError,
     ImmutableModelMutationError,
     ModelDefinition,
