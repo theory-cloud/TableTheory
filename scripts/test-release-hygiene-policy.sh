@@ -316,6 +316,10 @@ require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
 require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${p}" \
   "prerelease workflow must pin release-please v5 by commit SHA"
 SH
+  cat >"${root}/scripts/verify-promotion-release-driver.sh" <<'SH'
+#!/usr/bin/env bash
+echo "manifest-derived stable Release-As"
+SH
 }
 
 write_v2_release_please_v4_verifier_fixture() {
@@ -1330,6 +1334,16 @@ grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-branch-release-supply-chain.sh"'
   exit 1
 }
 
+grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: promotion driver must use the resolved verifier source"
+  exit 1
+}
+
+grep -Fq "manifest-derived stable Release-As" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect the manifest-derived stable promotion marker"
+  exit 1
+}
+
 selector_result="$(
   run_verifier_source_selector_fixture \
     v1 v2 \
@@ -1481,8 +1495,8 @@ if grep -Fq 'GITHUB_HEAD_REF=premain RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTIO
   exit 1
 fi
 
-grep -Fq "../trusted-release/scripts/verify-promotion-release-driver.sh" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: promotion driver must run from trusted checkout"
+grep -Fq "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: promotion driver must log the selected verifier source"
   exit 1
 }
 
