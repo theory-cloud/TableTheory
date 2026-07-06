@@ -120,8 +120,10 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
     "quality-gates must cover Python 3.12 before staging merge"
   require_fixed "Run Python 3.12 pre-merge compatibility" "${q}" \
     "quality-gates must name the Python 3.12 pre-merge compatibility step"
-  require_fixed "uv --directory py run pytest -q tests/unit tests/integration" "${q}" \
-    "quality-gates Python 3.12 check must include unit and integration tests"
+  require_fixed "uv --directory py run pytest -q tests/unit" "${q}" \
+    "quality-gates Python 3.12 check must include unit tests"
+  require_fixed "uv --directory py run pytest -q tests/integration" "${q}" \
+    "quality-gates Python 3.12 check must include integration tests"
   require_fixed 'node-version: "20"' "${q}" \
     "quality-gates must cover Node 20 before staging merge"
   require_fixed "Run Node 20 pre-merge compatibility" "${q}" \

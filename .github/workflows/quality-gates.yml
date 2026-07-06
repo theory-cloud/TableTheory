@@ -76,7 +76,8 @@ jobs:
           uv --directory py run ruff check .
           uv --directory py run mypy src
           uv --directory py run python -m build
-          uv --directory py run pytest -q tests/unit tests/integration
+          uv --directory py run pytest -q tests/unit
+          uv --directory py run pytest -q tests/integration
           rm -rf py/.venv py/build py/dist
           find py/src -maxdepth 1 -type d -name "*.egg-info" -prune -exec rm -rf {} +
 

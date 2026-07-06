@@ -158,8 +158,12 @@ grep -Fq 'Run Python 3.12 pre-merge compatibility' "${wf}" || {
   echo "ci-rubric: ${wf}: missing Python 3.12 pre-merge compatibility step"
   failures=$((failures + 1))
 }
-grep -Fq 'uv --directory py run pytest -q tests/unit tests/integration' "${wf}" || {
-  echo "ci-rubric: ${wf}: Python 3.12 compatibility must include unit and integration tests"
+grep -Fq 'uv --directory py run pytest -q tests/unit' "${wf}" || {
+  echo "ci-rubric: ${wf}: Python 3.12 compatibility must include unit tests"
+  failures=$((failures + 1))
+}
+grep -Fq 'uv --directory py run pytest -q tests/integration' "${wf}" || {
+  echo "ci-rubric: ${wf}: Python 3.12 compatibility must include integration tests"
   failures=$((failures + 1))
 }
 grep -Fq 'Restore Python 3.14 for rubric' "${wf}" || {
