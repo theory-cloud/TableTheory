@@ -163,6 +163,8 @@ require_fixed "mode=premain-rc-repair" "scripts/lib/release-cycle-core.sh" \
   "release-cycle-state must expose verified in-flight premain RC repair mode"
 require_fixed "origin/premain does not contain origin/staging" "scripts/lib/release-cycle-core.sh" \
   "release-cycle-state must prove premain contains staging before accepting RC repair into staging"
+require_fixed "mode=staging-rc-followup-repair" "scripts/lib/release-cycle-core.sh" \
+  "release-cycle-state must expose verified staging RC follow-up repair mode"
 
 if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   h=".github/workflows/release-hygiene.yml"
