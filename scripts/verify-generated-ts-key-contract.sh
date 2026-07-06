@@ -32,6 +32,7 @@ git diff --exit-code -- "${generated_artifacts[@]}"
 echo "generated-ts: tsc"
 for artifact in "${generated_artifacts[@]}"; do
   (cd ts && npx tsc --noEmit \
+    --ignoreConfig \
     --target ES2022 \
     --module NodeNext \
     --moduleResolution NodeNext \
