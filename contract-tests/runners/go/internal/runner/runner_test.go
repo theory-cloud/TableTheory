@@ -9,6 +9,7 @@ import (
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/driver"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/scenario"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/spec"
+	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
 )
 
 type requireCaptureT struct {
@@ -77,6 +78,30 @@ func TestAssertStepResult_FailsClosedWhenItemAssertionHasNoItem(t *testing.T) {
 			scenario.Expectation{ItemMissingFields: []string{"nickname"}},
 			nil,
 			nil,
+			nil,
+			model,
+		)
+	})
+}
+
+func TestAssertStepResult_RejectsRawAssertionsWithErrorExpectations(t *testing.T) {
+	r := &Runner{vars: map[string]any{}}
+	model := spec.Model{
+		Name: "User",
+		Attributes: []spec.Attribute{
+			{Attribute: "PK", Type: "S"},
+		},
+	}
+
+	requireFails(t, func(requireT *requireCaptureT) {
+		r.assertStepResult(
+			requireT,
+			scenario.Expectation{
+				Error:           string(driver.ErrItemNotFound),
+				RawItemContains: map[string]any{"PK": "USER#1"},
+			},
+			nil,
+			theorydbErrors.ErrItemNotFound,
 			nil,
 			model,
 		)

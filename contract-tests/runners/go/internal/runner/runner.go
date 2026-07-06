@@ -371,13 +371,13 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 	if expect.Error != "" {
 		require.Error(t, err)
 		require.Equal(t, driver.ErrorCode(expect.Error), driver.MapError(err))
-		require.False(t, hasItemAssertion, "item assertions cannot be combined with error expectations")
+		require.False(t, hasItemAssertion || hasRawAssertion, "item assertions cannot be combined with error expectations")
 		return
 	}
 	if len(expect.Errors) > 0 {
 		require.Error(t, err)
 		require.ElementsMatch(t, errorCodesFromExpectation(expect.Errors), driver.MapErrors(err))
-		require.False(t, hasItemAssertion, "item assertions cannot be combined with error expectations")
+		require.False(t, hasItemAssertion || hasRawAssertion, "item assertions cannot be combined with error expectations")
 		return
 	}
 	if hasItemAssertion {

@@ -1,19 +1,32 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadModelsDir, loadScenariosDir } from "../src/load.js";
+import {
+  loadModelsDir,
+  loadScenarioFile,
+  loadScenariosDir,
+} from "../src/load.js";
 import { runScenario } from "../src/runner.js";
 import { decodeCursor, encodeCursor } from "../../../../ts/src/cursor.js";
 import { fromDynamoJson } from "../../../../ts/src/dynamo-json.js";
+import { TheorydbError } from "../../../../ts/src/errors.js";
 import type { Driver } from "../src/driver.js";
 import type { DmsModel, Scenario, Step } from "../src/types.js";
 
 function contractRoot(): string {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(__dirname, "..", "..", ".."); // runners/ts/test -> contract-tests
+}
+
+async function writeScenarioFixture(content: string): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tabletheory-scenario-"));
+  const filePath = path.join(dir, "scenario.yml");
+  await fs.writeFile(filePath, `${content.trim()}\n`, "utf8");
+  return filePath;
 }
 
 test("loads DMS models + P0 scenarios", async () => {
@@ -127,6 +140,68 @@ test("interop read assertions fail closed on query errors without ok", async () 
         models: new Map([[userModel.name, userModel]]),
       }),
     /expected successful read for read assertions/,
+  );
+});
+
+test("error expectations reject raw item assertions", async () => {
+  await assert.rejects(
+    () =>
+      runScenario({
+        ddb: {} as never,
+        driver: stubDriver({
+          get: async () => {
+            throw new TheorydbError("ErrItemNotFound", "missing seeded item");
+          },
+        }),
+        scenario: scenarioWithReadStep({
+          op: "get",
+          key: { PK: "USER#fail-closed", SK: "PROFILE#fail-closed" },
+          expect: {
+            error: "ErrItemNotFound",
+            raw_item_contains: { PK: "USER#fail-closed" },
+          },
+        }),
+        models: new Map([[userModel.name, userModel]]),
+      }),
+    /item assertions cannot be combined with error expectations/,
+  );
+});
+
+test("scenario loading rejects empty assertion maps", async () => {
+  const filePath = await writeScenarioFixture(`
+name: "unit.empty_assertion"
+dms_version: "0.1"
+model: "User"
+steps:
+  - op: get
+    key: { PK: "USER#empty", SK: "PROFILE" }
+    expect:
+      item_equals: {}
+`);
+
+  await assert.rejects(
+    () => loadScenarioFile(filePath),
+    /expect\.item_equals must not be empty/,
+  );
+});
+
+test("scenario loading rejects assertions combined with errors", async () => {
+  const filePath = await writeScenarioFixture(`
+name: "unit.error_with_assertion"
+dms_version: "0.1"
+model: "User"
+steps:
+  - op: get
+    key: { PK: "USER#error", SK: "PROFILE" }
+    expect:
+      error: "ErrItemNotFound"
+      item_contains:
+        PK: "USER#error"
+`);
+
+  await assert.rejects(
+    () => loadScenarioFile(filePath),
+    /item\/read assertions cannot be combined with error expectations/,
   );
 });
 

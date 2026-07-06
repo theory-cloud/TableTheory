@@ -26,7 +26,7 @@ export DYNAMODB_ENDPOINT="${DYNAMODB_ENDPOINT:-http://localhost:8000}"
 
 if [[ -f "contract-tests/runners/go/go.mod" ]]; then
   echo "contract-tests: go"
-  (cd contract-tests/runners/go && go test ./... -v)
+  (cd contract-tests/runners/go && go test ./... -count=1 -v)
 fi
 
 if [[ -f "contract-tests/runners/ts/package.json" ]]; then
