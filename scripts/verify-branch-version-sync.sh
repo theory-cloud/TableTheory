@@ -143,7 +143,7 @@ import sys
 
 label = os.environ["VERSION_LABEL"]
 version = os.environ["VERSION_VALUE"]
-if not re.fullmatch(r"v?\d+\.\d+\.\d+(?:-rc\.\d+)?", version):
+if not re.fullmatch(r"v?\d+\.\d+\.\d+(?:-rc(?:\.\d+)?)?", version):
     print(f"branch-version-sync: FAIL ({label} has invalid version {version!r})")
     sys.exit(1)
 PY

@@ -6,7 +6,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
-versions=("9.9.9-rc.1" "9.9.9")
+versions=("9.9.9-rc" "9.9.9-rc.1" "9.9.9")
 if [[ "$#" -gt 0 ]]; then
   versions=()
   while [[ "$#" -gt 0 ]]; do
@@ -21,7 +21,7 @@ if [[ "$#" -gt 0 ]]; then
         ;;
       -h|--help)
         cat <<'USAGE'
-Usage: bash scripts/verify-release-package-version-build.sh [--version X.Y.Z[-rc.N] ...]
+Usage: bash scripts/verify-release-package-version-build.sh [--version X.Y.Z|X.Y.Z-rc|X.Y.Z-rc.N ...]
 
 Builds local TypeScript and Python package assets with synthetic tag-derived
 versions, verifies the packed metadata, and restores tracked source version
