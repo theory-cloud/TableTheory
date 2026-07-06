@@ -228,6 +228,19 @@ is_premain_release_please_rc_pr() {
     [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc(\.[0-9]+)?$ ]]
 }
 
+main_title_advertises_rc_version() {
+  python3 - "${title}" <<'PY'
+import re
+import sys
+
+title = sys.argv[1]
+rc_version = re.compile(
+    r"(^|[^0-9A-Za-z.])v?[0-9]+\.[0-9]+\.[0-9]+-rc(?:[0-9A-Za-z.-]*)([^0-9A-Za-z.]|$)"
+)
+raise SystemExit(0 if rc_version.search(title) else 1)
+PY
+}
+
 stale_merged_rc_pr_allowed=0
 allow_stale_merged_rc_pr() {
   if [[ "${stale_merged_rc_pr_allowed}" -eq 1 ]]; then
@@ -266,7 +279,7 @@ if [[ "${base}" == "premain" ]]; then
     fail "premain PR head must be staging or release-please--branches--premain, got ${head@Q}"
   fi
 elif [[ "${base}" == "main" ]]; then
-  if [[ "${title}" =~ [0-9]+\.[0-9]+\.[0-9]+-rc([.\-[:alnum:]])* ]]; then
+  if main_title_advertises_rc_version; then
     fail "main PR must not advertise an RC version, got ${title@Q}"
   fi
   if [[ "${head}" == "premain" ]]; then
