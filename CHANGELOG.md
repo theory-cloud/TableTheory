@@ -32,6 +32,15 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [2.0.1-rc.1](https://github.com/theory-cloud/TableTheory/compare/v2.0.1-rc...v2.0.1-rc.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ci:** allow premain rc repair into staging ([22e0750](https://github.com/theory-cloud/TableTheory/commit/22e0750e0afb590e21d89427ae91cd7fc1bd24d8))
+* **ci:** derive stable promotion intent ([1d23401](https://github.com/theory-cloud/TableTheory/commit/1d23401a500c420c81d58202b18467ebffae634e))
+* **ci:** derive stable promotion intent from premain ([df53986](https://github.com/theory-cloud/TableTheory/commit/df539866d75d807e77f412c6af904000accb725a))
+
 ## [2.0.1-rc](https://github.com/theory-cloud/TableTheory/compare/v2.0.0...v2.0.1-rc) (2026-07-06)
 
 
