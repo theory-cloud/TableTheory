@@ -355,20 +355,21 @@ if base == "main":
         fail(f"invalid Release-As footer(s): {', '.join(invalid)}")
     pending_rc = pending_stable_promotion_version()
     pending_stable = pending_rc.split("-", 1)[0]
-    if not versions:
-        fail(
-            "premain -> main promotion requires a stable Release-As footer "
-            f"matching the pending RC base {pending_stable}"
+    if versions:
+        mismatched = [version for version in versions if version != pending_stable]
+        if mismatched:
+            fail(
+                "premain -> main stable Release-As footer must match the pending "
+                f"RC base {pending_stable}, got {', '.join(mismatched)}"
+            )
+        print(
+            "promotion-release-driver: PASS "
+            f"(premain -> main pending stable promotion {pending_rc} -> {pending_stable}; explicit stable Release-As)"
         )
-    mismatched = [version for version in versions if version != pending_stable]
-    if mismatched:
-        fail(
-            "premain -> main stable Release-As footer must match the pending "
-            f"RC base {pending_stable}, got {', '.join(mismatched)}"
-        )
+        raise SystemExit(0)
     print(
         "promotion-release-driver: PASS "
-        f"(premain -> main pending stable promotion {pending_rc} -> {pending_stable})"
+        f"(premain -> main pending stable promotion {pending_rc} -> {pending_stable}; manifest-derived stable Release-As)"
     )
     raise SystemExit(0)
 
