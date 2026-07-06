@@ -115,6 +115,94 @@ run_prerelease_postcondition_fixture() {
     "$@"
 }
 
+write_package_version_fixture() {
+  local root="$1"
+  local version="${2:-1.10.1}"
+
+  mkdir -p "${root}/ts" "${root}/py/src/tabletheory_py"
+  printf '{"version":"%s"}\n' "${version}" >"${root}/ts/package.json"
+  printf '{"version":"%s","packages":{"":{"version":"%s"}}}\n' \
+    "${version}" "${version}" >"${root}/ts/package-lock.json"
+  printf '{"version":"%s"}\n' "${version}" >"${root}/py/src/tabletheory_py/version.json"
+}
+
+assert_package_version_fixture() {
+  local root="$1"
+  local version="$2"
+
+  python3 - "${root}" "${version}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+expected = sys.argv[2]
+
+checks = [
+    ("ts/package.json", json.loads((root / "ts/package.json").read_text())["version"]),
+    ("ts/package-lock.json", json.loads((root / "ts/package-lock.json").read_text())["version"]),
+    (
+        "ts/package-lock.json packages['']",
+        json.loads((root / "ts/package-lock.json").read_text())["packages"][""]["version"],
+    ),
+    (
+        "py/src/tabletheory_py/version.json",
+        json.loads((root / "py/src/tabletheory_py/version.json").read_text())["version"],
+    ),
+]
+for label, actual in checks:
+    if actual != expected:
+        print(f"release-hygiene-policy-test: {label} = {actual!r}, expected {expected!r}")
+        raise SystemExit(1)
+PY
+}
+
+write_release_asset_fixture() {
+  local root="$1"
+  local version="$2"
+
+  python3 - "${root}" "${version}" <<'PY'
+import io
+import json
+import re
+import sys
+import tarfile
+import zipfile
+from pathlib import Path
+
+root = Path(sys.argv[1])
+version = sys.argv[2]
+root.mkdir(parents=True, exist_ok=True)
+
+match = re.fullmatch(r"(\d+\.\d+\.\d+)-rc(?:\.(\d+))?", version)
+pep440 = f"{match.group(1)}rc{match.group(2) or '0'}" if match else version
+version_json = json.dumps({"version": version}).encode("utf-8")
+
+npm_package = json.dumps(
+    {"name": "@theory-cloud/tabletheory-ts", "version": version},
+    separators=(",", ":"),
+).encode("utf-8")
+with tarfile.open(root / f"theory-cloud-tabletheory-ts-{version}.tgz", "w:gz") as archive:
+    info = tarfile.TarInfo("package/package.json")
+    info.size = len(npm_package)
+    archive.addfile(info, io.BytesIO(npm_package))
+
+metadata = f"Metadata-Version: 2.1\nName: tabletheory-py\nVersion: {pep440}\n".encode("utf-8")
+with zipfile.ZipFile(root / f"tabletheory_py-{pep440}-py3-none-any.whl", "w") as archive:
+    archive.writestr(f"tabletheory_py-{pep440}.dist-info/METADATA", metadata)
+    archive.writestr("tabletheory_py/version.json", version_json)
+
+with tarfile.open(root / f"tabletheory_py-{pep440}.tar.gz", "w:gz") as archive:
+    for name, payload in (
+        (f"tabletheory_py-{pep440}/PKG-INFO", metadata),
+        (f"tabletheory_py-{pep440}/src/tabletheory_py/version.json", version_json),
+    ):
+        info = tarfile.TarInfo(name)
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+PY
+}
+
 extract_workflow_step_run() {
   local step_name="$1"
 
@@ -204,7 +292,41 @@ required_files=(
 )
 require_fixed "manifest-file:\s*\.release-please-manifest\.json" "${p}" \
   "prerelease workflow must reference the single release-please manifest"
+require_fixed "-rc(\\.[0-9]+)?" "${provenance}" \
+  "release-lane provenance guard must accept release-please first RC and numbered later RC PR titles"
+require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
+  "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"
 SH
+}
+
+write_v2_numbered_rc_verifier_fixture() {
+  local root="$1"
+
+  write_v2_verifier_fixture "${root}"
+  cat >>"${root}/scripts/verify-branch-release-supply-chain.sh" <<'SH'
+require_fixed "-rc\.[0-9]+" "${provenance}" \
+  "release-lane provenance guard must require numbered RC release-please PR titles"
+require_fixed "-rc\\.\\d+" "${prerelease_postcondition}" \
+  "prerelease PR postcondition must require numbered RC version syntax"
+SH
+  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+text = text.replace(
+    'require_fixed "-rc(\\\\.[0-9]+)?" "${provenance}" \\\n'
+    '  "release-lane provenance guard must accept release-please first RC and numbered later RC PR titles"\n',
+    "",
+)
+text = text.replace(
+    'require_fixed "-rc(?:\\\\.\\\\d+)?" "${prerelease_postcondition}" \\\n'
+    '  "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"\n',
+    "",
+)
+path.write_text(text, encoding="utf-8")
+PY
 }
 
 run_verifier_source_selector_fixture() {
@@ -222,11 +344,13 @@ run_verifier_source_selector_fixture() {
   mkdir -p "${fixture}/trusted-release" "${fixture}/pr"
   case "${trusted_shape}" in
     v1) write_v1_verifier_fixture "${fixture}/trusted-release" ;;
+    v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/trusted-release" ;;
     v2) write_v2_verifier_fixture "${fixture}/trusted-release" ;;
     *) echo "release-hygiene-policy-test: unknown trusted fixture ${trusted_shape}" >&2; exit 1 ;;
   esac
   case "${head_shape}" in
     v1) write_v1_verifier_fixture "${fixture}/pr" ;;
+    v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/pr" ;;
     v2) write_v2_verifier_fixture "${fixture}/pr" ;;
     *) echo "release-hygiene-policy-test: unknown head fixture ${head_shape}" >&2; exit 1 ;;
   esac
@@ -236,6 +360,7 @@ run_verifier_source_selector_fixture() {
 
   local output_file="${fixture}/selector.out"
   local github_output="${fixture}/github-output"
+  set +e
   (
     cd "${fixture}/pr"
     env \
@@ -247,8 +372,10 @@ run_verifier_source_selector_fixture() {
       GITHUB_OUTPUT="${github_output}" \
       bash "${selector_script}"
   ) >"${output_file}" 2>&1
+  local status=$?
+  set -e
 
-  printf '%s\n' "${output_file}:${github_output}"
+  printf '%s\n' "${output_file}:${github_output}:${status}"
 }
 
 assert_selector_result() {
@@ -258,7 +385,15 @@ assert_selector_result() {
   local expected_output="$4"
 
   local output_file="${output_pair%%:*}"
-  local github_output="${output_pair#*:}"
+  local remainder="${output_pair#*:}"
+  local github_output="${remainder%%:*}"
+  local status="${remainder#*:}"
+
+  if [[ "${status}" -ne 0 ]]; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: selector expected success, got ${status}"
+    exit 1
+  fi
 
   if ! grep -Fxq "root=${expected_root}" "${github_output}"; then
     cat "${output_file}"
@@ -275,6 +410,28 @@ assert_selector_result() {
   if ! grep -Fq "${expected_output}" "${output_file}"; then
     cat "${output_file}"
     echo "release-hygiene-policy-test: selector output missing: ${expected_output}"
+    exit 1
+  fi
+}
+
+assert_selector_failure() {
+  local output_pair="$1"
+  local expected_output="$2"
+
+  local output_file="${output_pair%%:*}"
+  local remainder="${output_pair#*:}"
+  local github_output="${remainder%%:*}"
+  local status="${remainder#*:}"
+
+  if [[ "${status}" -eq 0 ]]; then
+    cat "${output_file}"
+    cat "${github_output}"
+    echo "release-hygiene-policy-test: selector expected failure"
+    exit 1
+  fi
+  if ! grep -Fq "${expected_output}" "${output_file}"; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: selector failure output missing: ${expected_output}"
     exit 1
   fi
 }
@@ -628,14 +785,14 @@ expect_failure_contains \
   "manifest version is not RC-shaped" \
   run_prerelease_postcondition_fixture "${prerelease_non_rc_manifest_fixture}"
 
-expect_failure_contains \
-  "non-numbered-RC tag_name" \
+expect_success_contains \
+  "published v1.9.3-rc" \
   bash "${repo_root}/scripts/verify-release-created-postcondition.sh" \
     --kind prerelease \
     --branch premain \
     --release-created true \
     --tag-name v1.9.3-rc \
-    --commit-message "Merge pull request from release-please--branches--premain"
+    --commit-message "chore(premain): release 1.9.3-rc"
 
 expect_success_contains \
   "published v1.9.3-rc.1" \
@@ -645,6 +802,93 @@ expect_success_contains \
     --release-created true \
     --tag-name v1.9.3-rc.1 \
     --commit-message "chore(premain): release 1.9.3-rc.1"
+
+expect_failure_contains \
+  "X.Y.Z-rc or X.Y.Z-rc.N" \
+  bash "${repo_root}/scripts/verify-release-created-postcondition.sh" \
+    --kind prerelease \
+    --branch premain \
+    --release-created true \
+    --tag-name v1.9.3 \
+    --commit-message "chore(premain): release 1.9.3-rc"
+
+expect_failure_contains \
+  "X.Y.Z-rc or X.Y.Z-rc.N" \
+  bash "${repo_root}/scripts/verify-release-created-postcondition.sh" \
+    --kind prerelease \
+    --branch premain \
+    --release-created true \
+    --tag-name v1.9.3-beta.1 \
+    --commit-message "chore(premain): release 1.9.3-rc"
+
+expect_failure_contains \
+  "X.Y.Z-rc or X.Y.Z-rc.N" \
+  bash "${repo_root}/scripts/verify-release-created-postcondition.sh" \
+    --kind prerelease \
+    --branch premain \
+    --release-created true \
+    --tag-name v1.9.3-rc. \
+    --commit-message "chore(premain): release 1.9.3-rc"
+
+expect_failure_contains \
+  "does not match generated RC release 1.9.3-rc" \
+  bash "${repo_root}/scripts/verify-release-created-postcondition.sh" \
+    --kind prerelease \
+    --branch premain \
+    --release-created true \
+    --tag-name v1.9.3-rc.1 \
+    --commit-message "chore(premain): release 1.9.3-rc"
+
+expect_failure_contains \
+  "non-generated RC release PR merge" \
+  bash "${repo_root}/scripts/verify-release-created-postcondition.sh" \
+    --kind prerelease \
+    --branch premain \
+    --release-created true \
+    --tag-name v1.9.3-rc \
+    --commit-message "chore(premain): release 1.9.3-rc."
+
+for version in 2.0.0-rc 2.0.0-rc.1; do
+  package_fixture="$(mktemp -d)"
+  tmpdirs+=("${package_fixture}")
+  write_package_version_fixture "${package_fixture}"
+  expect_success_contains \
+    "version=${version}" \
+    python3 "${repo_root}/scripts/prepare-release-package-versions.py" \
+      --tag-name "v${version}" \
+      --repo-root "${package_fixture}"
+  assert_package_version_fixture "${package_fixture}" "${version}"
+
+  assets_fixture="$(mktemp -d)"
+  tmpdirs+=("${assets_fixture}")
+  write_release_asset_fixture "${assets_fixture}" "${version}"
+  expect_success_contains \
+    "version=${version}" \
+    python3 "${repo_root}/scripts/verify-release-package-version-assets.py" \
+      --tag-name "v${version}" \
+      --assets-dir "${assets_fixture}"
+done
+
+expect_failure_contains \
+  "X.Y.Z-rc or X.Y.Z-rc.N" \
+  python3 "${repo_root}/scripts/prepare-release-package-versions.py" \
+    --version 2.0.0-beta.1 \
+    --repo-root "${repo_root}"
+
+expect_failure_contains \
+  "X.Y.Z-rc or X.Y.Z-rc.N" \
+  python3 "${repo_root}/scripts/verify-release-package-version-assets.py" \
+    --version 2.0.0-rc. \
+    --assets-dir "${repo_root}/release-assets"
+
+mismatch_assets_fixture="$(mktemp -d)"
+tmpdirs+=("${mismatch_assets_fixture}")
+write_release_asset_fixture "${mismatch_assets_fixture}" "2.0.0-rc.1"
+expect_failure_contains \
+  "!= '2.0.0-rc'" \
+  python3 "${repo_root}/scripts/verify-release-package-version-assets.py" \
+    --tag-name v2.0.0-rc \
+    --assets-dir "${mismatch_assets_fixture}"
 
 if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${repo_root}/.github/workflows/release-hygiene.yml"; then
   echo "release-hygiene-policy-test: release hygiene must not expose release-please token"
@@ -718,8 +962,8 @@ grep -Fq "premain:staging|main:premain" "${repo_root}/.github/workflows/release-
   exit 1
 }
 
-grep -Fq "trusted base lacks v2 single-manifest support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must document old trusted-script fallback reasons"
+grep -Fq "trusted base lacks v2 single-manifest support or RC-first verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must document old trusted-script and RC-first fallback reasons"
   exit 1
 }
 
@@ -735,6 +979,16 @@ grep -Fq "scripts/prepare-release-package-versions.py" "${repo_root}/.github/wor
 
 grep -Fq "single release-please manifest" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: verifier selector must feature-detect the v2 single-manifest marker"
+  exit 1
+}
+
+grep -Fq "accept release-please first RC and numbered later RC PR titles" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect the RC-first PR-title marker"
+  exit 1
+}
+
+grep -Fq "accept release-please first RC and numbered later RC version syntax" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect the RC-first version marker"
   exit 1
 }
 
@@ -758,11 +1012,35 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2 verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first verifier scripts after provenance"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-numbered-rc v2 \
+    premain staging \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "." \
+  "protected-pr-head-v2" \
+  "protected same-repo promotion may use PR-head v2/RC-first verifier scripts after provenance"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
     v1 v2 \
+    premain "feature/arbitrary-head" \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "../trusted-release" \
+  "trusted-base" \
+  "using trusted base verifier scripts"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-numbered-rc v2 \
     premain "feature/arbitrary-head" \
     "${repo}" "${repo}"
 )"
@@ -786,6 +1064,18 @@ assert_selector_result \
 
 selector_result="$(
   run_verifier_source_selector_fixture \
+    v2-numbered-rc v2 \
+    premain staging \
+    "${repo}" "attacker/TableTheory"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "../trusted-release" \
+  "trusted-base" \
+  "using trusted base verifier scripts"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
     v2 v2 \
     premain staging \
     "${repo}" "${repo}"
@@ -794,7 +1084,17 @@ assert_selector_result \
   "${selector_result}" \
   "../trusted-release" \
   "trusted-base" \
-  "trusted base supports v2 single-manifest verifier markers"
+  "trusted base supports v2 single-manifest and RC-first verifier markers"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-numbered-rc v2-numbered-rc \
+    premain staging \
+    "${repo}" "${repo}"
+)"
+assert_selector_failure \
+  "${selector_result}" \
+  "protected PR head lacks v2 single-manifest support or RC-first verifier support"
 
 grep -Fq "pending stable promotion accepted on queued main merge group" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release hygiene must allow queued main pending stable promotion"

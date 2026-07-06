@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 
 
-VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:-rc\.\d+)?$")
+VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:-rc(?:\.\d+)?)?$")
 
 
 def release_version(raw: str) -> str:
@@ -25,7 +25,7 @@ def release_version(raw: str) -> str:
     if not VERSION_RE.fullmatch(version):
         raise SystemExit(
             "release-package-versions: FAIL "
-            f"(version must be stable X.Y.Z or numbered RC X.Y.Z-rc.N, got {raw!r})"
+            f"(version must be stable X.Y.Z or RC X.Y.Z-rc or X.Y.Z-rc.N, got {raw!r})"
         )
     return version
 
@@ -39,7 +39,7 @@ def main() -> int:
         description="Write TS/Python release-build versions from a tag or version."
     )
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--tag-name", help="GitHub release tag, e.g. v1.10.1-rc.1")
+    group.add_argument("--tag-name", help="GitHub release tag, e.g. v1.10.1-rc or v1.10.1-rc.1")
     group.add_argument("--version", help="Release version without leading v")
     parser.add_argument(
         "--repo-root",

@@ -188,6 +188,10 @@ run_watch_fixture() {
 }
 
 run_branch_version_sync_fixture() {
+  local candidate_version="$1"
+  local expected_status="$2"
+  local expected_output="$3"
+
   local work remote output status
   work="$(mktemp -d)"
   remote="$(mktemp -d)"
@@ -205,7 +209,7 @@ run_branch_version_sync_fixture() {
   git -C "${work}" remote add origin "${remote}"
   git -C "${remote}" fetch -q "${work}" HEAD:refs/heads/main
 
-  write_version_files "${work}" "1.10.1-rc.1" "" "1.10.0" "1.10.0"
+  write_version_files "${work}" "${candidate_version}" "" "1.10.0" "1.10.0"
   git -C "${work}" add .
   git -C "${work}" commit -q -m "fixture premain"
 
@@ -218,19 +222,37 @@ run_branch_version_sync_fixture() {
   status=$?
   set -e
 
-  if [[ "${status}" -ne 0 ]]; then
+  if [[ "${status}" -ne "${expected_status}" ]]; then
     printf '%s\n' "${output}"
-    echo "release-verifier-policy-test: branch-version-sync fixture: expected success, got ${status}"
+    echo "release-verifier-policy-test: branch-version-sync fixture ${candidate_version}: expected ${expected_status}, got ${status}"
     exit 1
   fi
   expect_contains \
     "${output}" \
-    "branch-version-sync: PASS (main=1.10.1, candidate=1.10.1-rc.1, mode=premain)" \
-    "branch-version-sync fixture"
+    "${expected_output}" \
+    "branch-version-sync fixture ${candidate_version}"
   expect_absent "${output}" "JSONDecodeError" "branch-version-sync fixture"
 }
 
-run_branch_version_sync_fixture
+run_branch_version_sync_fixture \
+  "1.10.1-rc" \
+  0 \
+  "branch-version-sync: PASS (main=1.10.1, candidate=1.10.1-rc, mode=premain)"
+
+run_branch_version_sync_fixture \
+  "1.10.1-rc.1" \
+  0 \
+  "branch-version-sync: PASS (main=1.10.1, candidate=1.10.1-rc.1, mode=premain)"
+
+run_branch_version_sync_fixture \
+  "1.10.1-beta.1" \
+  1 \
+  "branch-version-sync: FAIL (checked-out .release-please-manifest.json has invalid version '1.10.1-beta.1')"
+
+run_branch_version_sync_fixture \
+  "1.10.1-rc." \
+  1 \
+  "branch-version-sync: FAIL (checked-out .release-please-manifest.json has invalid version '1.10.1-rc.')"
 
 for fixture in "${fixtures_dir}"/cycle-*; do
   run_cycle_fixture "${fixture}"
