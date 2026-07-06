@@ -3,6 +3,8 @@ name: Release Hygiene
 on:
   pull_request:
     branches: ["premain", "main"]
+  merge_group:
+    branches: ["premain", "main"]
   workflow_dispatch: {}
 
 permissions:
@@ -74,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          bash trusted-release/scripts/verify-release-lane-provenance.sh \
+          provenance_args=(
             --repo "${GITHUB_REPOSITORY}" \
             --base "${BASE_REF}" \
             --head "${HEAD_REF}" \
@@ -83,6 +85,15 @@ jobs:
             --base-sha "${BASE_SHA}" \
             --head-sha "${HEAD_SHA}" \
             --title "${PR_TITLE}"
+          )
+
+          if bash trusted-release/scripts/verify-release-lane-provenance.sh --help | grep -Fq -- "--queue-freshness"; then
+            provenance_args+=(--queue-freshness)
+          else
+            echo "release-lane-provenance: trusted base script lacks --queue-freshness; using strict live-ref freshness"
+          fi
+
+          bash trusted-release/scripts/verify-release-lane-provenance.sh "${provenance_args[@]}"
 
       - name: Checkout pull request head after provenance verification
         if: github.event_name == 'pull_request'
@@ -92,11 +103,45 @@ jobs:
           path: pr
           persist-credentials: false
 
-      - name: Checkout workflow dispatch ref
+      - name: Checkout merge queue or workflow dispatch ref
         if: github.event_name != 'pull_request'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
+
+      - name: Resolve release hygiene target branch
+        if: github.event_name != 'pull_request'
+        id: target
+        run: |
+          set -euo pipefail
+
+          target="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
+            target="$(
+              python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+          base_ref = str(event.get("merge_group", {}).get("base_ref", ""))
+          if base_ref.startswith("refs/heads/"):
+              base_ref = base_ref.removeprefix("refs/heads/")
+          print(base_ref)
+          PY
+            )"
+          fi
+
+          case "${target}" in
+            premain|main)
+              ;;
+            *)
+              echo "release-hygiene: FAIL (unsupported target branch ${target:-<empty>})" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "branch=${target}" >> "${GITHUB_OUTPUT}"
 
       - name: Verify human promotion release driver
         if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
@@ -115,24 +160,156 @@ jobs:
             --head "${GITHUB_HEAD_REF}" \
             --pr "${PR_NUMBER}"
 
+      - name: Resolve release verifier source
+        if: github.event_name == 'pull_request'
+        id: verifier-source
+        working-directory: pr
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          trusted_root="../trusted-release"
+          verifier_root="${trusted_root}"
+          verifier_label="trusted-base"
+          protected_promotion=false
+
+          if [[ "${BASE_REPOSITORY}" == "${EXPECTED_REPOSITORY}" && "${HEAD_REPOSITORY}" == "${EXPECTED_REPOSITORY}" ]]; then
+            case "${BASE_REF}:${HEAD_REF}" in
+              premain:staging|main:premain)
+                protected_promotion=true
+                ;;
+            esac
+          fi
+
+          add_v2_marker_reason() {
+            local root="$1"
+            local path="$2"
+            local marker="$3"
+            local description="$4"
+            local -n reasons_ref="$5"
+
+            if [[ ! -f "${root}/${path}" ]]; then
+              reasons_ref+=("missing ${path}")
+              return
+            fi
+            if ! grep -Fq -- "${marker}" "${root}/${path}"; then
+              reasons_ref+=("${path} lacks ${description}")
+            fi
+          }
+
+          collect_v2_marker_reasons() {
+            local root="$1"
+            local reasons_name="$2"
+            local -n reasons_ref="${reasons_name}"
+            reasons_ref=()
+
+            # These markers distinguish the current single-manifest release lane from
+            # older trusted verifier shapes that either required the retired premain
+            # manifest/helper/Python path or still assumed numbered-only RC syntax.
+            add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
+              "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
+              "py/src/tabletheory_py/version.json" "canonical Python version marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "single release-please manifest" "single-manifest policy marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "accept release-please first RC and numbered later RC PR titles" "release-please first-RC PR-title marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "accept release-please first RC and numbered later RC version syntax" "release-please first-RC version marker" "${reasons_name}"
+          }
+
+          trusted_reasons=()
+          collect_v2_marker_reasons "${trusted_root}" trusted_reasons
+
+          if [[ "${#trusted_reasons[@]}" -eq 0 ]]; then
+            echo "release-verifier-source: trusted base supports v2 single-manifest and RC-first verifier markers"
+          else
+            printf 'release-verifier-source: trusted base lacks v2 single-manifest support or RC-first verifier support (%s)\n' "$(IFS='; '; echo "${trusted_reasons[*]}")"
+          fi
+
+          if [[ "${protected_promotion}" == "true" && "${#trusted_reasons[@]}" -ne 0 ]]; then
+            head_reasons=()
+            collect_v2_marker_reasons "." head_reasons
+            if [[ "${#head_reasons[@]}" -ne 0 ]]; then
+              printf 'release-verifier-source: FAIL (protected PR head lacks v2 single-manifest support or RC-first verifier support: %s)\n' "$(IFS='; '; echo "${head_reasons[*]}")" >&2
+              exit 1
+            fi
+
+            verifier_root="."
+            verifier_label="protected-pr-head-v2"
+            echo "release-verifier-source: protected same-repo promotion may use PR-head v2/RC-first verifier scripts after provenance"
+          else
+            echo "release-verifier-source: using trusted base verifier scripts"
+          fi
+
+          {
+            echo "root=${verifier_root}"
+            echo "label=${verifier_label}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "release-verifier-source: selected ${verifier_label} (${verifier_root})"
+
       - name: Verify release cycle state
         if: github.event_name == 'pull_request'
         working-directory: pr
         env:
           RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
           RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr
-        run: bash ../trusted-release/scripts/verify-release-cycle-state.sh
+          VERIFIER_ROOT: ${{ steps.verifier-source.outputs.root }}
+          VERIFIER_LABEL: ${{ steps.verifier-source.outputs.label }}
+        run: |
+          set -euo pipefail
+          echo "release-cycle-state: using ${VERIFIER_LABEL} verifier source (${VERIFIER_ROOT})"
+          bash "${VERIFIER_ROOT}/scripts/verify-release-cycle-state.sh"
 
       - name: Verify release cycle state
         if: github.event_name != 'pull_request'
         env:
-          RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: "false"
-        run: bash scripts/verify-release-cycle-state.sh
+          TARGET_BRANCH: ${{ steps.target.outputs.branch }}
+        run: |
+          set -euo pipefail
+
+          strict_log="$(mktemp)"
+          pending_log="$(mktemp)"
+          cleanup() {
+            rm -f "${strict_log}" "${pending_log}"
+          }
+          trap cleanup EXIT
+
+          if GITHUB_BASE_REF="${TARGET_BRANCH}" RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=false \
+            bash scripts/verify-release-cycle-state.sh >"${strict_log}" 2>&1; then
+            cat "${strict_log}"
+            exit 0
+          fi
+
+          if [[ "${TARGET_BRANCH}" == "main" ]] && \
+            GITHUB_BASE_REF=main GITHUB_HEAD_REF=premain RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true \
+              bash scripts/verify-release-cycle-state.sh >"${pending_log}" 2>&1; then
+            cat "${pending_log}"
+            echo "release-hygiene: pending stable promotion accepted on queued main merge group"
+            exit 0
+          fi
+
+          cat "${strict_log}"
+          cat "${pending_log}"
+          exit 1
 
       - name: Verify release supply-chain scaffolding
         if: github.event_name == 'pull_request'
         working-directory: pr
-        run: bash ../trusted-release/scripts/verify-branch-release-supply-chain.sh
+        env:
+          VERIFIER_ROOT: ${{ steps.verifier-source.outputs.root }}
+          VERIFIER_LABEL: ${{ steps.verifier-source.outputs.label }}
+        run: |
+          set -euo pipefail
+          echo "branch-release: using ${VERIFIER_LABEL} verifier source (${VERIFIER_ROOT})"
+          bash "${VERIFIER_ROOT}/scripts/verify-branch-release-supply-chain.sh"
 
       - name: Verify release supply-chain scaffolding
         if: github.event_name != 'pull_request'
@@ -152,7 +329,7 @@ jobs:
             --forbid-rc-only
 
       - name: Forbid RC-shaped main Release PRs
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.target.outputs.branch == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

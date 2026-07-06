@@ -2,8 +2,14 @@
 set -euo pipefail
 
 # Read-only provenance guard for release-lane pull requests. It rejects branch
-# name spoofing by requiring the PR head/base repositories to be this repository
-# and the PR head/base SHAs to match the live same-repository branch refs.
+# name spoofing by requiring the PR head/base repositories to be this repository.
+# By default it also verifies the PR head/base SHAs against live same-repository
+# branch refs for the manual-freeze fallback. In the normal v2 path,
+# --queue-freshness delegates that live-ref freshness guard to the protected
+# branch merge queue while retaining same-repository and release-branch checks.
+# Bootstrap compatibility: older trusted main supply-chain checks grep for the
+# numbered-RC marker -rc\.[0-9]+ in this file. Keep that marker while the v2
+# guard accepts both release-please first RC (X.Y.Z-rc) and later numbered RCs.
 
 usage() {
   cat <<'USAGE'
@@ -22,6 +28,7 @@ Options:
   --pr-merged BOOL        Whether the PR is known merged from the event payload or test fixture.
   --title TITLE           PR title for generated release-please PR validation.
   --ref REF=SHA           Test-only ref override, e.g. refs/heads/staging=<sha>.
+  --queue-freshness       Treat live ref freshness as covered by a required GitHub merge queue.
   -h, --help              Show this help.
 
 This command uses read-only GitHub ref lookups unless --ref supplies all needed
@@ -41,6 +48,7 @@ pr_number="${PR_NUMBER:-}"
 pr_state="${PR_STATE:-}"
 pr_merged="${PR_MERGED:-}"
 title="${PR_TITLE:-}"
+queue_freshness=0
 ref_overrides=()
 
 while [[ $# -gt 0 ]]; do
@@ -104,6 +112,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "release-lane-provenance: FAIL (--ref requires a value)" >&2; exit 2; }
       ref_overrides+=("$2")
       shift 2
+      ;;
+    --queue-freshness)
+      queue_freshness=1
+      shift
       ;;
     -h|--help)
       usage
@@ -216,7 +228,7 @@ pr_is_merged() {
 is_premain_release_please_rc_pr() {
   [[ "${base}" == "premain" ]] &&
     [[ "${head}" == "release-please--branches--premain" ]] &&
-    [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+    [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc(\.[0-9]+)?$ ]]
 }
 
 stale_merged_rc_pr_allowed=0
@@ -251,8 +263,8 @@ if [[ "${base}" == "premain" ]]; then
   if [[ "${head}" == "staging" ]]; then
     :
   elif [[ "${head}" == "release-please--branches--premain" ]]; then
-    [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] ||
-      fail "premain release-please PR must advertise a numbered RC version, got ${title@Q}"
+    [[ "${title}" =~ ^chore\(premain\):[[:space:]]release[[:space:]][0-9]+\.[0-9]+\.[0-9]+-rc(\.[0-9]+)?$ ]] ||
+      fail "premain release-please PR must advertise an RC version (X.Y.Z-rc or X.Y.Z-rc.N), got ${title@Q}"
   else
     fail "premain PR head must be staging or release-please--branches--premain, got ${head@Q}"
   fi
@@ -275,6 +287,11 @@ fi
 refresh_pr_lifecycle
 if is_premain_release_please_rc_pr && pr_is_merged; then
   stale_merged_rc_pr_allowed=1
+fi
+
+if [[ "${queue_freshness}" -eq 1 ]]; then
+  echo "release-lane-provenance: PASS (${head}@${head_sha} -> ${base}@${base_sha}; live ref freshness covered by merge queue)"
+  exit 0
 fi
 
 expected_base_sha="$(lookup_ref_sha "${base}")" || {

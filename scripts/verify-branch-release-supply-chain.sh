@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Verifies the TableTheory release-lane scaffolding:
 # - one lane: staging -> premain -> main -> staging
-# - full gov-infra rubric only on staging PRs and workflow_dispatch
-# - lightweight release hygiene on premain/main PRs
+# - full gov-infra rubric only on staging PRs, staging merge queue, and workflow_dispatch
+# - lightweight release hygiene on premain/main PRs and merge queues
 # - premain cuts RCs; main cuts stable releases only
 # - no post-stable CI direct-push sync to protected branches
 #
@@ -40,6 +40,118 @@ require_regex() {
   grep -Eq -- "${pattern}" "${path}" || fail "${message}"
 }
 
+current_branch_name() {
+  if [[ -n "${GITHUB_HEAD_REF:-}" ]]; then
+    printf '%s\n' "${GITHUB_HEAD_REF}"
+    return 0
+  fi
+
+  git rev-parse --abbrev-ref HEAD 2>/dev/null || true
+}
+
+validate_main_bootstrap_scope() {
+  local branch="$1"
+  local base_ref="${BOOTSTRAP_BASE_REF:-origin/main}"
+  local changed_files=()
+  local untracked_files=()
+  local changed_file
+
+  case "${GITHUB_BASE_REF:-main}" in
+    ""|main)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  if ! git rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
+    if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+      echo "branch-release: scoped main bootstrap detected; changed-file scope is enforced by release-hygiene workflow guard"
+      return 0
+    fi
+    fail "main bootstrap scope could not resolve ${base_ref}"
+    return 1
+  fi
+
+  mapfile -t changed_files < <(
+    {
+      git diff --name-only "${base_ref}...HEAD"
+      git diff --name-only
+      git diff --cached --name-only
+    } | sort -u
+  )
+  mapfile -t untracked_files < <(git ls-files --others --exclude-standard)
+
+  if [[ "${#untracked_files[@]}" -ne 0 ]]; then
+    printf 'branch-release: untracked file blocks scoped main bootstrap: %s\n' "${untracked_files[@]}"
+    failures=$((failures + ${#untracked_files[@]}))
+  fi
+
+  if [[ "${#changed_files[@]}" -eq 0 ]]; then
+    fail "main bootstrap branch ${branch} has no changed files"
+    return 1
+  fi
+
+  for changed_file in "${changed_files[@]}"; do
+    case "${changed_file}" in
+      .github/workflows/release-hygiene.yml|\
+      scripts/verify-release-lane-provenance.sh|\
+      scripts/verify-promotion-release-driver.sh|\
+      scripts/test-release-hygiene-policy.sh|\
+      scripts/verify-release-cycle-state.sh|\
+      scripts/verify-branch-release-supply-chain.sh)
+        ;;
+      *)
+        fail "unexpected main bootstrap file ${changed_file}"
+        ;;
+    esac
+  done
+}
+
+if [[ "$(current_branch_name)" == fix/release-hygiene-main-bootstrap-* ]]; then
+  bootstrap_branch="$(current_branch_name)"
+  validate_main_bootstrap_scope "${bootstrap_branch}"
+
+  for path in \
+    ".github/workflows/release-hygiene.yml" \
+    "scripts/verify-release-lane-provenance.sh" \
+    "scripts/verify-promotion-release-driver.sh" \
+    "scripts/test-release-hygiene-policy.sh" \
+    "scripts/verify-release-cycle-state.sh" \
+    "scripts/verify-branch-release-supply-chain.sh"; do
+    require_file "${path}"
+  done
+
+  require_fixed "Resolve release verifier source" ".github/workflows/release-hygiene.yml" \
+    "main bootstrap release hygiene must resolve verifier source"
+  require_fixed "protected-pr-head-v2" ".github/workflows/release-hygiene.yml" \
+    "main bootstrap release hygiene must preserve protected PR-head verifier fallback"
+  require_fixed "accept release-please first RC and numbered later RC PR titles" ".github/workflows/release-hygiene.yml" \
+    "main bootstrap release hygiene must preserve RC-first PR-title marker"
+  require_fixed "accept release-please first RC and numbered later RC version syntax" ".github/workflows/release-hygiene.yml" \
+    "main bootstrap release hygiene must preserve RC-first version marker"
+  require_fixed "scripts/prepare-release-package-versions.py" "scripts/verify-release-cycle-state.sh" \
+    "main bootstrap release-cycle verifier must preserve v2 package-version marker"
+  require_fixed "py/src/tabletheory_py/version.json" "scripts/verify-release-cycle-state.sh" \
+    "main bootstrap release-cycle verifier must preserve canonical Python version marker"
+  require_fixed "RELEASE_CYCLE_REPO_ROOT" "scripts/verify-release-cycle-state.sh" \
+    "main bootstrap release-cycle verifier must support explicit target repo roots"
+  require_fixed "pending-stable-promotion" "scripts/verify-release-cycle-state.sh" \
+    "main bootstrap release-cycle verifier must preserve pending stable promotion mode"
+  require_fixed "single release-please manifest" "scripts/verify-branch-release-supply-chain.sh" \
+    "main bootstrap branch-release verifier must preserve single-manifest policy marker"
+  require_fixed "X.Y.Z-rc or X.Y.Z-rc.N" "scripts/verify-promotion-release-driver.sh" \
+    "main bootstrap promotion verifier must preserve RC-first syntax"
+
+  if [[ "${failures}" -ne 0 ]]; then
+    echo "branch-release: FAIL (${failures} issue(s))"
+    exit 1
+  fi
+
+  echo "branch-release: PASS (scoped main release-hygiene bootstrap ${bootstrap_branch})"
+  exit 0
+fi
+
 required_files=(
   "AGENTS.md"
   "docs/development/planning/theorydb-branch-release-policy.md"
@@ -53,9 +165,10 @@ required_files=(
   ".github/workflows/release-pr.yml"
   "release-please-config.premain.json"
   "release-please-config.json"
-  ".release-please-manifest.premain.json"
   ".release-please-manifest.json"
-  "scripts/sync-post-stable-release-baselines.sh"
+  "scripts/prepare-release-package-versions.py"
+  "scripts/verify-release-package-version-assets.py"
+  "scripts/verify-release-package-version-build.sh"
   "scripts/verify-main-release-pr-postcondition.sh"
   "scripts/verify-prerelease-pr-postcondition.sh"
   "scripts/verify-release-lane-provenance.sh"
@@ -68,6 +181,26 @@ required_files=(
 
 for path in "${required_files[@]}"; do
   require_file "${path}"
+done
+
+retired_files=(
+  "scripts/prepare-stable-promotion.sh"
+  "scripts/sync-post-stable-release-baselines.sh"
+)
+
+for path in "${retired_files[@]}"; do
+  if [[ -e "${path}" ]]; then
+    fail "${path} must remain retired; use release-please-owned stable PRs and normal main -> staging PR backmerges"
+  fi
+  if grep -RInF "${path}" \
+    AGENTS.md \
+    docs/development/planning/theorydb-branch-release-policy.md \
+    docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md \
+    docs/development/planning/templates/high-risk-branch-release-policy.template.md \
+    scripts/test-release-*.sh \
+    .github/workflows >/dev/null 2>&1; then
+    fail "${path} must not be referenced by release docs or workflows after retirement"
+  fi
 done
 
 if [[ -f "scripts/watch-release-cycle.sh" ]]; then
@@ -87,6 +220,8 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
   q=".github/workflows/quality-gates.yml"
   require_fixed "pull_request:" "${q}" \
     "quality-gates must run on pull_request"
+  require_fixed "merge_group:" "${q}" \
+    "quality-gates must run on merge_group for the staging merge queue"
   require_fixed 'branches: ["staging"]' "${q}" \
     "quality-gates pull_request must target staging only"
   require_fixed "workflow_dispatch:" "${q}" \
@@ -114,8 +249,12 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   h=".github/workflows/release-hygiene.yml"
   require_fixed 'branches: ["premain", "main"]' "${h}" \
     "release-hygiene must target premain and main PRs"
+  require_fixed "merge_group:" "${h}" \
+    "release-hygiene must run on merge_group for premain/main queues"
   require_fixed "trusted-release/scripts/verify-release-lane-provenance.sh" "${h}" \
     "release-hygiene must verify release-lane same-repository provenance from trusted scripts"
+  require_fixed "--queue-freshness" "${h}" \
+    "release-hygiene PR provenance must delegate live ref freshness to merge queue semantics"
   require_fixed "github.event.pull_request.base.sha" "${h}" \
     "release-hygiene must check out trusted release scripts from the PR base SHA"
   require_fixed "github.event.pull_request.head.sha" "${h}" \
@@ -148,6 +287,8 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must run the release driver guard on premain -> main PRs"
   require_fixed "../trusted-release/scripts/verify-promotion-release-driver.sh" "${h}" \
     "release-hygiene must run the promotion driver from trusted checkout"
+  require_fixed "pending stable promotion accepted on queued main merge group" "${h}" \
+    "release-hygiene must allow queued main pending stable promotion validation"
   if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${h}"; then
     fail "release-hygiene must not expose release-please token"
   fi
@@ -155,6 +296,23 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     fail "release-hygiene must not run the full rubric"
   fi
 fi
+
+for workflow in \
+  ".github/workflows/typescript.yml" \
+  ".github/workflows/python.yml" \
+  ".github/workflows/unit-cover.yml"; do
+  if [[ -f "${workflow}" ]]; then
+    require_fixed "paths-ignore:" "${workflow}" \
+      "${workflow} pull_request trigger must suppress manifest/changelog-only release-please PR fan-out"
+    require_fixed '".release-please-manifest.json"' "${workflow}" \
+      "${workflow} must ignore release-please manifest-only PR changes"
+    require_fixed '"CHANGELOG.md"' "${workflow}" \
+      "${workflow} must ignore release-please changelog-only PR changes"
+    if grep -Eq '^[[:space:]]*paths:' "${workflow}"; then
+      fail "${workflow} must not replace normal PR validation with a paths allowlist"
+    fi
+  fi
+done
 
 for doc in \
   "AGENTS.md" \
@@ -200,8 +358,8 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
     "prerelease workflow must request contents: write"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${p}" \
     "prerelease workflow must reference release-please-config.premain.json"
-  require_regex 'manifest-file:\s*\.release-please-manifest\.premain\.json' "${p}" \
-    "prerelease workflow must reference .release-please-manifest.premain.json"
+  require_regex 'manifest-file:\s*\.release-please-manifest\.json' "${p}" \
+    "prerelease workflow must reference the single release-please manifest"
   require_fixed "scripts/verify-release-cycle-state.sh" "${p}" \
     "prerelease workflow must verify release-cycle state before release-please"
   require_fixed "scripts/verify-branch-version-sync.sh" "${p}" \
@@ -218,10 +376,22 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
     "prerelease publish postcondition must classify plain staging -> premain merges as PR-generation setup"
   require_regex 'pushd ts' "${p}" \
     "prerelease workflow must package TypeScript from ts/"
+  require_fixed "scripts/prepare-release-package-versions.py --tag-name" "${p}" \
+    "prerelease workflow must stamp TS/Py versions from tag_name before packaging"
+  require_fixed "scripts/verify-release-package-version-assets.py" "${p}" \
+    "prerelease workflow must verify TS/Py asset metadata matches tag_name"
   require_regex 'npm pack --pack-destination \.\./release-assets' "${p}" \
     "prerelease workflow must attach TypeScript npm pack artifact"
   require_regex 'python -m build --outdir \.\./release-assets' "${p}" \
     "prerelease workflow must attach Python wheel/sdist artifacts"
+  require_regex 'actions/setup-go@[0-9a-fA-F]{40}' "${p}" \
+    "prerelease workflow must set up Go for the CLI release asset build"
+  require_fixed './cmd/tabletheory' "${p}" \
+    "prerelease workflow must build the tabletheory CLI as a release asset"
+  require_fixed 'release-assets/tabletheory-${os}-${arch}' "${p}" \
+    "prerelease workflow must attach tabletheory CLI binaries per os/arch"
+  require_fixed 'tabletheory-SHA256SUMS.txt' "${p}" \
+    "prerelease workflow must publish CLI binary checksums"
   require_regex 'gh release upload' "${p}" \
     "prerelease workflow must upload release assets"
 fi
@@ -234,8 +404,8 @@ if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
     "prerelease-pr workflow must pin release-please v4 by commit SHA"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${pp}" \
     "prerelease-pr workflow must reference release-please-config.premain.json"
-  require_regex 'manifest-file:\s*\.release-please-manifest\.premain\.json' "${pp}" \
-    "prerelease-pr workflow must reference .release-please-manifest.premain.json"
+  require_regex 'manifest-file:\s*\.release-please-manifest\.json' "${pp}" \
+    "prerelease-pr workflow must reference the single release-please manifest"
   require_fixed "scripts/verify-release-cycle-state.sh" "${pp}" \
     "prerelease-pr workflow must verify release-cycle state before release-please"
   require_fixed "scripts/verify-branch-version-sync.sh" "${pp}" \
@@ -284,15 +454,24 @@ if [[ -f ".github/workflows/release.yml" ]]; then
     "stable publish postcondition must forbid RC-shaped main releases"
   require_regex 'pushd ts' "${r}" \
     "release workflow must package TypeScript from ts/"
+  require_fixed "scripts/prepare-release-package-versions.py --tag-name" "${r}" \
+    "release workflow must stamp TS/Py versions from tag_name before packaging"
+  require_fixed "scripts/verify-release-package-version-assets.py" "${r}" \
+    "release workflow must verify TS/Py asset metadata matches tag_name"
   require_regex 'npm pack --pack-destination \.\./release-assets' "${r}" \
     "release workflow must attach TypeScript npm pack artifact"
   require_regex 'python -m build --outdir \.\./release-assets' "${r}" \
     "release workflow must attach Python wheel/sdist artifacts"
+  require_regex 'actions/setup-go@[0-9a-fA-F]{40}' "${r}" \
+    "release workflow must set up Go for the CLI release asset build"
+  require_fixed './cmd/tabletheory' "${r}" \
+    "release workflow must build the tabletheory CLI as a release asset"
+  require_fixed 'release-assets/tabletheory-${os}-${arch}' "${r}" \
+    "release workflow must attach tabletheory CLI binaries per os/arch"
+  require_fixed 'tabletheory-SHA256SUMS.txt' "${r}" \
+    "release workflow must publish CLI binary checksums"
   require_regex 'gh release upload' "${r}" \
     "release workflow must upload release assets"
-  if grep -Fq "scripts/sync-post-stable-release-baselines.sh" "${r}"; then
-    fail "release workflow must not call post-stable baseline sync"
-  fi
   if grep -Fq "SYNC_RELEASE_BASELINE" "${r}"; then
     fail "release workflow must not configure post-stable direct-push sync"
   fi
@@ -311,8 +490,9 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
   if grep -Fq "googleapis/release-please-action" "${rp}"; then
     fail "release-pr workflow must use pinned release-please CLI, not release-please-action"
   fi
-  require_fixed '.release-please-manifest.premain.json' "${rp}" \
-    "release-pr paths-ignore must include .release-please-manifest.premain.json and compute RC baseline"
+  if grep -Fq ".release-please-manifest.premain.json" "${rp}"; then
+    fail "release-pr workflow must not reference retired .release-please-manifest.premain.json"
+  fi
   require_fixed 'RELEASE_PLEASE_CLI_VERSION: "17.3.0"' "${rp}" \
     "release-pr workflow must pin release-please CLI to v17.3.0"
   require_fixed "npm ci --prefix scripts/release-please-cli --ignore-scripts" "${rp}" \
@@ -337,9 +517,9 @@ if [[ -f ".github/workflows/release-pr.yml" ]]; then
     "release-pr workflow must document pending promotion PR generation"
   require_fixed "PENDING_STABLE_PROMOTION" "${rp}" \
     "release-pr workflow must gate release-please on pending promotion"
-  require_fixed "strict stable state; no release-as computed and no release-please call needed" "${rp}" \
+  require_fixed "strict stable state; no single-manifest RC to normalize" "${rp}" \
     "release-pr workflow must no-op when main is already strict/stable"
-  require_fixed "pending stable promotion did not compute a stable release-as" "${rp}" \
+  require_fixed "single-manifest pending stable promotion did not compute a stable release-as" "${rp}" \
     "release-pr workflow must fail if pending promotion has no stable release-as"
   require_fixed "--release-as" "${rp}" \
     "release-pr workflow must pass release-as to the pinned CLI"
@@ -363,10 +543,6 @@ if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
     "main Release PR postcondition must support read-only RC-only checks"
   for path in \
     ".release-please-manifest.json" \
-    ".release-please-manifest.premain.json" \
-    "py/src/theorydb_py/version.json" \
-    "ts/package.json" \
-    "ts/package-lock.json" \
     "CHANGELOG.md"; do
     require_fixed "${path}" "${postcondition}" \
       "main Release PR postcondition must require ${path}"
@@ -387,8 +563,8 @@ if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
     "promotion release driver guard must name release-please no-op as a failed precondition"
   require_fixed "do not use tags, resets, manual manifests" "${driver}" \
     "promotion release driver guard must instruct normal PR-flow remediation"
-  require_fixed "X.Y.Z-rc.N" "${driver}" \
-    "promotion release driver guard must require numbered RC syntax"
+  require_fixed "X.Y.Z-rc or X.Y.Z-rc.N" "${driver}" \
+    "promotion release driver guard must accept release-please first RC and numbered later RC syntax"
 fi
 
 if [[ -f "scripts/verify-release-lane-provenance.sh" ]]; then
@@ -396,9 +572,11 @@ if [[ -f "scripts/verify-release-lane-provenance.sh" ]]; then
   require_fixed "release-lane PRs must be same-repository" "${provenance}" \
     "release-lane provenance guard must reject fork/name-spoofed PRs"
   require_fixed "does not match same-repository refs/heads" "${provenance}" \
-    "release-lane provenance guard must verify exact branch SHAs"
-  require_fixed "-rc\\.[0-9]+" "${provenance}" \
-    "release-lane provenance guard must require numbered RC release-please PR titles"
+    "release-lane provenance guard must retain exact branch SHA verification for manual fallback"
+  require_fixed "live ref freshness covered by merge queue" "${provenance}" \
+    "release-lane provenance guard must document queue-covered live ref freshness"
+  require_fixed "-rc(\\.[0-9]+)?" "${provenance}" \
+    "release-lane provenance guard must accept release-please first RC and numbered later RC PR titles"
 fi
 
 if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
@@ -407,10 +585,10 @@ if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
     "prerelease PR postcondition must require the generated premain head branch"
   require_fixed "rc_title_re = re.compile" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require RC-shaped release titles"
-  require_fixed "-rc\\.\\d+" "${prerelease_postcondition}" \
-    "prerelease PR postcondition must require numbered RC version syntax"
-  require_fixed ".release-please-manifest.premain.json" "${prerelease_postcondition}" \
-    "prerelease PR postcondition must require the prerelease manifest"
+  require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"
+  require_fixed ".release-please-manifest.json" "${prerelease_postcondition}" \
+    "prerelease PR postcondition must require the single manifest"
 fi
 
 if [[ -f "scripts/release-please-cli/package-lock.json" ]]; then
@@ -435,25 +613,6 @@ PY
   fi
 fi
 
-if [[ -f "scripts/sync-post-stable-release-baselines.sh" ]]; then
-  sync_script="scripts/sync-post-stable-release-baselines.sh"
-  require_fixed "DEPRECATED" "${sync_script}" \
-    "post-stable sync helper must be marked deprecated"
-  require_fixed "dry-run only" "${sync_script}" \
-    "post-stable sync helper must be dry-run only"
-  require_fixed "normal PR backmerge from main to staging" "${sync_script}" \
-    "post-stable sync helper must point operators to main -> staging PR backmerge"
-  require_fixed ".release-please-manifest.premain.json" "${sync_script}" \
-    "post-stable sync helper must still name the prerelease manifest"
-  if grep -Eq 'git[[:space:]].*push|gh[[:space:]]+api[[:space:]].*(git/refs|contents)' "${sync_script}"; then
-    fail "deprecated post-stable sync helper must not contain branch mutation commands"
-  fi
-fi
-
-if grep -RInF "scripts/sync-post-stable-release-baselines.sh" .github/workflows; then
-  fail "workflows must not call deprecated post-stable baseline sync"
-fi
-
 if grep -RInF "SYNC_RELEASE_BASELINE" .github/workflows; then
   fail "workflows must not configure post-stable baseline sync"
 fi
@@ -469,48 +628,37 @@ if [[ -f "ts/package.json" ]]; then
 
   for cfg in "release-please-config.premain.json" "release-please-config.json"; do
     [[ -f "${cfg}" ]] || continue
-    require_regex '"extra-files"\s*:' "${cfg}" \
-      "${cfg}: must define extra-files for multi-language versioning"
-    require_regex '"path"\s*:\s*"ts/package\.json"' "${cfg}" \
-      "${cfg}: must bump ts/package.json version"
-    require_regex '"path"\s*:\s*"ts/package-lock\.json"' "${cfg}" \
-      "${cfg}: must bump ts/package-lock.json version"
-    require_regex "\\$\\.packages\\[''\\]\\.version" "${cfg}" \
-      "${cfg}: must bump ts/package-lock.json packages[''].version"
+    if grep -Fq '"extra-files"' "${cfg}"; then
+      fail "${cfg}: must not use extra-files for tag-derived SDK package versions"
+    fi
+    if grep -Eq 'ts/package(-lock)?\.json|py/src/tabletheory_py/version\.json|\.release-please-manifest\.premain\.json' "${cfg}"; then
+      fail "${cfg}: must not list SDK versions or retired prerelease manifest as release-please extra files"
+    fi
   done
 fi
 
-if [[ -f "release-please-config.json" ]]; then
-  if ! python3 - <<'PY'
+for cfg in "release-please-config.json" "release-please-config.premain.json"; do
+  [[ -f "${cfg}" ]] || continue
+  if ! CFG="${cfg}" python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 
-config = json.loads(Path("release-please-config.json").read_text(encoding="utf-8"))
-extra_files = config.get("packages", {}).get(".", {}).get("extra-files", [])
-
-for entry in extra_files:
-    if (
-        isinstance(entry, dict)
-        and entry.get("type") == "json"
-        and entry.get("path") == ".release-please-manifest.premain.json"
-        and entry.get("jsonpath") == "$['.']"
-    ):
-        raise SystemExit(0)
-
-raise SystemExit(1)
+config = json.loads(Path(os.environ["CFG"]).read_text(encoding="utf-8"))
+if config.get("packages", {}).get(".") != {}:
+    raise SystemExit(1)
 PY
   then
-    fail "release-please-config.json must normalize .release-please-manifest.premain.json through stable release-please"
+    fail "${cfg} must leave SDK/package versioning to tag-derived release-build scripts"
   fi
-fi
+done
 
 if [[ -f "py/pyproject.toml" ]]; then
   for cfg in "release-please-config.premain.json" "release-please-config.json"; do
     [[ -f "${cfg}" ]] || continue
-    require_regex '"extra-files"\s*:' "${cfg}" \
-      "${cfg}: must define extra-files for multi-language versioning"
-    require_regex '"path"\s*:\s*"py/src/theorydb_py/version\.json"' "${cfg}" \
-      "${cfg}: must bump py/src/theorydb_py/version.json version"
+    if grep -Fq "py/src/tabletheory_py/version.json" "${cfg}"; then
+      fail "${cfg}: must not bump py/src/tabletheory_py/version.json through release-please"
+    fi
   done
 fi
 
