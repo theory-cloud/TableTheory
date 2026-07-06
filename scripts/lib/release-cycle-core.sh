@@ -187,6 +187,27 @@ def manifest_at_ref(ref: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+def stable_baseline_reached(
+    manifest_base: tuple[int, int, int],
+) -> tuple[bool, str]:
+    main_ref = "origin/main"
+    if not ref_exists(main_ref):
+        return False, ""
+    main_manifest = manifest_at_ref(main_ref)
+    if not main_manifest:
+        return False, ""
+    main_base, main_is_prerelease = version_info(
+        "origin/main .release-please-manifest.json",
+        main_manifest,
+    )
+    if not main_is_prerelease and main_base >= manifest_base:
+        return True, (
+            "origin/main already carries stable baseline "
+            f"{main_manifest}; backmerge main to staging instead"
+        )
+    return False, ""
+
+
 def verified_premain_rc_repair_to_staging(
     manifest: str,
     manifest_base: tuple[int, int, int],
@@ -215,23 +236,34 @@ def verified_premain_rc_repair_to_staging(
             f"({manifest} != {premain_manifest or 'missing'})",
         )
 
-    main_ref = "origin/main"
-    if ref_exists(main_ref):
-        main_manifest = manifest_at_ref(main_ref)
-        if main_manifest:
-            try:
-                main_base, main_is_prerelease = version_info(
-                    "origin/main .release-please-manifest.json",
-                    main_manifest,
-                )
-            except SystemExit:
-                raise
-            if not main_is_prerelease and main_base >= manifest_base:
-                return (
-                    False,
-                    "origin/main already carries stable baseline "
-                    f"{main_manifest}; backmerge main to staging instead",
-                )
+    stable_reached, stable_reason = stable_baseline_reached(manifest_base)
+    if stable_reached:
+        return False, stable_reason
+
+    return True, ""
+
+
+def verified_staging_rc_followup_repair(
+    manifest: str,
+    manifest_base: tuple[int, int, int],
+) -> tuple[bool, str]:
+    staging_ref = "origin/staging"
+    if not ref_exists(staging_ref):
+        return False, "origin/staging is not available for staging RC follow-up verification"
+    if not git_ok(["merge-base", "--is-ancestor", staging_ref, "HEAD"]):
+        return False, "origin/staging is not an ancestor of this staging follow-up candidate"
+
+    staging_manifest = manifest_at_ref(staging_ref)
+    if staging_manifest != manifest:
+        return (
+            False,
+            "staging follow-up candidate RC manifest does not match origin/staging "
+            f"({manifest} != {staging_manifest or 'missing'})",
+        )
+
+    stable_reached, stable_reason = stable_baseline_reached(manifest_base)
+    if stable_reached:
+        return False, stable_reason
 
     return True, ""
 
@@ -295,6 +327,20 @@ if current_branch == "main" and manifest_is_prerelease:
     )
 
 if current_branch == "staging" and manifest_is_prerelease:
+    followup_ok, followup_reason = verified_staging_rc_followup_repair(
+        manifest,
+        manifest_base,
+    )
+    if followup_ok:
+        print(
+            "release-cycle-state: PASS "
+            f"(branch={current_branch}, mode=staging-rc-followup-repair, "
+            f"rc={manifest}, stable={stable_base})"
+        )
+        raise SystemExit(0)
+    if followup_reason:
+        print(f"release-cycle-state: INFO ({followup_reason})")
+
     repair_ok, repair_reason = verified_premain_rc_repair_to_staging(
         manifest,
         manifest_base,
