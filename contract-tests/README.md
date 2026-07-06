@@ -23,6 +23,11 @@ contract-tests/
   attribute `type`.
 - Set attributes (`SS`/`NS`/`BS`) must be compared **order-insensitively**.
 - Cursor fixtures must be compared **byte-for-byte** (`.cursor` string).
+- Assertion collection keys must be omitted when unused. Present-but-empty maps/lists such as `item_equals: {}`,
+  `raw_item_contains: {}`, or `items_contains: []` are invalid fixtures; use scalar assertions such as `ok: true`,
+  `error: <ErrorCode>`, `item_count: 0`, or omit the assertion key instead.
+- Item/raw-item/read assertions cannot be combined with `error`/`errors` expectations. Assertion keys that inspect
+  returned data imply a successful operation/read even when `ok: true` is omitted.
 - P0 scenarios that describe newly specified behavior before every runtime has shipped support MUST declare
   `requires_capabilities`. Runners skip capability-gated scenarios until their runtime advertises that capability; the
   follow-up runtime milestone removes the skip by adding the advertised capability and making the scenario pass.
@@ -39,7 +44,7 @@ Run the Go runner:
 
 ```bash
 cd contract-tests/runners/go
-go test ./... -v
+go test ./... -count=1 -v
 ```
 
 Run the TypeScript runner:

@@ -116,6 +116,24 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
     "quality-gates must support workflow_dispatch"
   require_fixed "run: make rubric" "${q}" \
     "quality-gates must run the full rubric"
+  require_fixed 'python-version: "3.12"' "${q}" \
+    "quality-gates must cover Python 3.12 before staging merge"
+  require_fixed "Run Python 3.12 pre-merge compatibility" "${q}" \
+    "quality-gates must name the Python 3.12 pre-merge compatibility step"
+  require_fixed "uv --directory py run pytest -q tests/unit" "${q}" \
+    "quality-gates Python 3.12 check must include unit tests"
+  require_fixed "uv --directory py run pytest -q tests/integration" "${q}" \
+    "quality-gates Python 3.12 check must include integration tests"
+  require_fixed 'node-version: "20"' "${q}" \
+    "quality-gates must cover Node 20 before staging merge"
+  require_fixed "Run Node 20 pre-merge compatibility" "${q}" \
+    "quality-gates must name the Node 20 pre-merge compatibility step"
+  require_fixed "npm --prefix ts run test:integration" "${q}" \
+    "quality-gates Node 20 check must include integration tests"
+  require_fixed "Restore Python 3.14 for rubric" "${q}" \
+    "quality-gates must restore Python 3.14 before make rubric"
+  require_fixed "Restore Node 24 for rubric" "${q}" \
+    "quality-gates must restore Node 24 before make rubric"
   require_fixed "gov-infra/evidence" "${q}" \
     "quality-gates must upload gov-infra evidence artifacts"
   legacy_evidence_path="hgm""-infra/evidence"
@@ -240,8 +258,8 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
   p=".github/workflows/prerelease.yml"
   require_regex 'branches:.*premain' "${p}" \
     "prerelease workflow must target premain"
-  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${p}" \
-    "prerelease workflow must pin release-please v4 by commit SHA"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${p}" \
+    "prerelease workflow must pin release-please v5 by commit SHA"
   require_regex 'contents:\s*write' "${p}" \
     "prerelease workflow must request contents: write"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${p}" \
@@ -288,8 +306,8 @@ if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
   pp=".github/workflows/prerelease-pr.yml"
   require_regex 'branches:.*premain' "${pp}" \
     "prerelease-pr workflow must target premain"
-  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${pp}" \
-    "prerelease-pr workflow must pin release-please v4 by commit SHA"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${pp}" \
+    "prerelease-pr workflow must pin release-please v5 by commit SHA"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${pp}" \
     "prerelease-pr workflow must reference release-please-config.premain.json"
   require_regex 'manifest-file:\s*\.release-please-manifest\.json' "${pp}" \
@@ -310,8 +328,8 @@ if [[ -f ".github/workflows/release.yml" ]]; then
   r=".github/workflows/release.yml"
   require_regex 'branches:.*main' "${r}" \
     "release workflow must target main"
-  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${r}" \
-    "release workflow must pin release-please v4 by commit SHA"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${r}" \
+    "release workflow must pin release-please v5 by commit SHA"
   require_regex 'contents:\s*write' "${r}" \
     "release workflow must request contents: write"
   require_regex 'config-file:\s*release-please-config\.json' "${r}" \

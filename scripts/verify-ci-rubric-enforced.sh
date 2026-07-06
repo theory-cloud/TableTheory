@@ -124,6 +124,21 @@ else
   failures=$((failures + 1))
 fi
 
+# Staging PRs no longer run the standalone TS/Python PR matrices; require the
+# Quality Gates job itself to exercise the lower supported runtimes before merge.
+grep -Eq 'node-version:[[:space:]]*["'"'"']?20(\\.x)?["'"'"']?' "${wf}" || {
+  echo "ci-rubric: ${wf}: staging Quality Gates must include Node 20 compatibility"
+  failures=$((failures + 1))
+}
+grep -Fq 'Run Node 20 pre-merge compatibility' "${wf}" || {
+  echo "ci-rubric: ${wf}: missing Node 20 pre-merge compatibility step"
+  failures=$((failures + 1))
+}
+grep -Fq 'npm --prefix ts run test:integration' "${wf}" || {
+  echo "ci-rubric: ${wf}: Node 20 compatibility must include TypeScript integration tests"
+  failures=$((failures + 1))
+}
+
 # Rubric includes Python checks; require Python setup (pinned).
 if grep -Eq '^[[:space:]]*uses:[[:space:]]*actions/setup-python@' "${wf}"; then
   grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq 'python-version:[[:space:]]*"?3[.]14([.]x)?"?' || {
@@ -134,6 +149,31 @@ else
   echo "ci-rubric: ${wf}: missing actions/setup-python step"
   failures=$((failures + 1))
 fi
+
+grep -Eq 'python-version:[[:space:]]*"?3[.]12([.]x)?"?' "${wf}" || {
+  echo "ci-rubric: ${wf}: staging Quality Gates must include Python 3.12 compatibility"
+  failures=$((failures + 1))
+}
+grep -Fq 'Run Python 3.12 pre-merge compatibility' "${wf}" || {
+  echo "ci-rubric: ${wf}: missing Python 3.12 pre-merge compatibility step"
+  failures=$((failures + 1))
+}
+grep -Fq 'uv --directory py run pytest -q tests/unit' "${wf}" || {
+  echo "ci-rubric: ${wf}: Python 3.12 compatibility must include unit tests"
+  failures=$((failures + 1))
+}
+grep -Fq 'uv --directory py run pytest -q tests/integration' "${wf}" || {
+  echo "ci-rubric: ${wf}: Python 3.12 compatibility must include integration tests"
+  failures=$((failures + 1))
+}
+grep -Fq 'Restore Python 3.14 for rubric' "${wf}" || {
+  echo "ci-rubric: ${wf}: must restore Python 3.14 before make rubric"
+  failures=$((failures + 1))
+}
+grep -Fq 'Restore Node 24 for rubric' "${wf}" || {
+  echo "ci-rubric: ${wf}: must restore Node 24 before make rubric"
+  failures=$((failures + 1))
+}
 
 # Ensure pinned tooling installs (no @latest; additional pinning is checked by scripts/verify-ci-toolchain.sh).
 if grep -Eq 'go install .*@latest' "${wf}"; then

@@ -455,7 +455,7 @@ function assertExpectation(
     assert.ok(err, "expected error");
     assert.equal(mapError(err), expect.error);
     assert.equal(
-      hasItemAssertion,
+      hasItemAssertion || hasRawAssertion,
       false,
       "item assertions cannot be combined with error expectations",
     );
@@ -465,7 +465,7 @@ function assertExpectation(
     assert.ok(err, "expected error");
     assert.deepEqual(mapErrors(err).sort(), expect.errors.slice().sort());
     assert.equal(
-      hasItemAssertion,
+      hasItemAssertion || hasRawAssertion,
       false,
       "item assertions cannot be combined with error expectations",
     );
@@ -481,6 +481,11 @@ function assertExpectation(
     assert.ok(item, "expected item for item assertions");
   }
   if (hasRawAssertion) {
+    assert.equal(
+      err,
+      undefined,
+      "expected successful operation for raw-item assertions",
+    );
     assert.ok(raw, "expected raw item for raw assertions");
   }
 

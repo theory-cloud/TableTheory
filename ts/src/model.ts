@@ -1,16 +1,7 @@
 import { TheorydbError } from './errors.js';
 
 export type ScalarType =
-  | 'S'
-  | 'N'
-  | 'B'
-  | 'BOOL'
-  | 'NULL'
-  | 'M'
-  | 'L'
-  | 'SS'
-  | 'NS'
-  | 'BS';
+  'S' | 'N' | 'B' | 'BOOL' | 'NULL' | 'M' | 'L' | 'SS' | 'NS' | 'BS';
 export type KeyType = 'S' | 'N' | 'B';
 
 export interface ValueConverter {
@@ -145,15 +136,19 @@ type AttributeName<A extends AttributeSchema> = A['attribute'] extends string
   : never;
 
 type RequiredAttributes<S extends ModelSchema> = {
-  [A in S['attributes'][number] as IsOptionalAttribute<A> extends true
-    ? never
-    : AttributeName<A>]: AttributeValueFor<A>;
+  [
+    A in S['attributes'][number] as IsOptionalAttribute<A> extends true
+      ? never
+      : AttributeName<A>
+  ]: AttributeValueFor<A>;
 };
 
 type OptionalAttributes<S extends ModelSchema> = {
-  [A in S['attributes'][number] as IsOptionalAttribute<A> extends true
-    ? AttributeName<A>
-    : never]?: AttributeValueFor<A>;
+  [
+    A in S['attributes'][number] as IsOptionalAttribute<A> extends true
+      ? AttributeName<A>
+      : never
+  ]?: AttributeValueFor<A>;
 };
 
 export type InferModelItem<S extends ModelSchema> = RequiredAttributes<S> &

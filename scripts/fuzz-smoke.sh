@@ -7,6 +7,10 @@ set -euo pipefail
 # targeted fuzz functions over time.
 
 failures=0
+fuzzTime="10s"
+# Keep the overall Go test timeout above the fuzz window so seed-corpus setup
+# and worker shutdown have CI margin without turning this into an unbounded gate.
+testTimeout="30s"
 
 fuzzRegex='^func[[:space:]]+Fuzz[A-Za-z0-9_]+'
 missing=()
@@ -23,11 +27,11 @@ if [[ "${#missing[@]}" -ne 0 ]]; then
   exit 1
 fi
 
-echo "fuzz-smoke: running bounded fuzz pass (10s per package group)"
+echo "fuzz-smoke: running bounded fuzz pass (${fuzzTime} fuzz window, ${testTimeout} test timeout per package group)"
 
-go test ./internal/expr -run '^$' -fuzz Fuzz -fuzztime=10s || failures=$((failures + 1))
-go test ./pkg/marshal -run '^$' -fuzz Fuzz -fuzztime=10s || failures=$((failures + 1))
-go test ./pkg/query -run '^$' -fuzz Fuzz -fuzztime=10s || failures=$((failures + 1))
+go test ./internal/expr -run '^$' -fuzz Fuzz -fuzztime="${fuzzTime}" -timeout="${testTimeout}" || failures=$((failures + 1))
+go test ./pkg/marshal -run '^$' -fuzz Fuzz -fuzztime="${fuzzTime}" -timeout="${testTimeout}" || failures=$((failures + 1))
+go test ./pkg/query -run '^$' -fuzz Fuzz -fuzztime="${fuzzTime}" -timeout="${testTimeout}" || failures=$((failures + 1))
 
 if [[ "${failures}" -ne 0 ]]; then
   echo "fuzz-smoke: FAIL (${failures} package group(s) failed)"
