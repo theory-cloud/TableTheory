@@ -116,6 +116,14 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
     "quality-gates must support workflow_dispatch"
   require_fixed "run: make rubric" "${q}" \
     "quality-gates must run the full rubric"
+  require_fixed "fetch-depth: 0" "${q}" \
+    "quality-gates must checkout full history for in-flight premain RC repair verification"
+  require_fixed "+refs/heads/premain:refs/remotes/origin/premain" "${q}" \
+    "quality-gates must fetch origin/premain for in-flight premain RC repair verification"
+  require_fixed "+refs/heads/staging:refs/remotes/origin/staging" "${q}" \
+    "quality-gates must fetch origin/staging for in-flight premain RC repair verification"
+  require_fixed "+refs/heads/main:refs/remotes/origin/main" "${q}" \
+    "quality-gates must fetch origin/main for release-cycle state comparison"
   require_fixed 'python-version: "3.12"' "${q}" \
     "quality-gates must cover Python 3.12 before staging merge"
   require_fixed "Run Python 3.12 pre-merge compatibility" "${q}" \
@@ -150,6 +158,11 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
     fail "quality-gates must not carry premain/main pending-promotion logic"
   fi
 fi
+
+require_fixed "mode=premain-rc-repair" "scripts/lib/release-cycle-core.sh" \
+  "release-cycle-state must expose verified in-flight premain RC repair mode"
+require_fixed "origin/premain does not contain origin/staging" "scripts/lib/release-cycle-core.sh" \
+  "release-cycle-state must prove premain contains staging before accepting RC repair into staging"
 
 if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   h=".github/workflows/release-hygiene.yml"

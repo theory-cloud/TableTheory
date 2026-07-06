@@ -998,9 +998,31 @@ expect_failure_contains \
       --body "Release-As: 1.10.2" \
       --dry-run
 
-expect_failure_contains \
-  "requires a stable Release-As footer" \
+expect_success_contains \
+  "manifest-derived stable Release-As" \
   run_in_pending_fixture \
+    bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+      --base main \
+      --head premain \
+      --title "Promote premain to main" \
+      --body "" \
+      --dry-run
+
+stable_manifest_fixture="$(mktemp -d)"
+tmpdirs+=("${stable_manifest_fixture}")
+cp -R "${pending_fixture}/." "${stable_manifest_fixture}/"
+cat >"${stable_manifest_fixture}/.release-please-manifest.json" <<'JSON'
+{".":"1.10.1"}
+JSON
+
+run_in_stable_manifest_fixture() (
+  cd "${stable_manifest_fixture}"
+  "$@"
+)
+
+expect_failure_contains \
+  "must carry a single-manifest RC" \
+  run_in_stable_manifest_fixture \
     bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
       --base main \
       --head premain \
@@ -1188,6 +1210,21 @@ grep -Fq "persist-credentials: false" "${repo_root}/.github/workflows/release-hy
 
 grep -Fq "merge_group:" "${repo_root}/.github/workflows/quality-gates.yml" || {
   echo "release-hygiene-policy-test: quality gates must support merge_group for staging queue"
+  exit 1
+}
+
+grep -Fq "fetch-depth: 0" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must fetch full history for in-flight premain RC repair verification"
+  exit 1
+}
+
+grep -Fq "+refs/heads/premain:refs/remotes/origin/premain" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must fetch origin/premain for in-flight premain RC repair verification"
+  exit 1
+}
+
+grep -Fq "+refs/heads/staging:refs/remotes/origin/staging" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must fetch origin/staging for in-flight premain RC repair verification"
   exit 1
 }
 
