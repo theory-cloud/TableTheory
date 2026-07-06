@@ -152,6 +152,90 @@ def version_info(label: str, version: str) -> tuple[tuple[int, int, int], bool]:
     return base, bool(match.group(4))
 
 
+def git_text(args: list[str]) -> str | None:
+    try:
+        return subprocess.check_output(
+            ["git", *args],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return None
+
+
+def git_ok(args: list[str]) -> bool:
+    return subprocess.run(
+        ["git", *args],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode == 0
+
+
+def ref_exists(ref: str) -> bool:
+    return git_ok(["rev-parse", "--verify", f"{ref}^{{commit}}"])
+
+
+def manifest_at_ref(ref: str) -> str:
+    raw = git_text(["show", f"{ref}:.release-please-manifest.json"])
+    if not raw:
+        return ""
+    try:
+        value = json.loads(raw).get(".", "")
+    except json.JSONDecodeError:
+        return ""
+    return value if isinstance(value, str) else ""
+
+
+def verified_premain_rc_repair_to_staging(
+    manifest: str,
+    manifest_base: tuple[int, int, int],
+) -> tuple[bool, str]:
+    premain_ref = "origin/premain"
+    if not ref_exists(premain_ref):
+        return False, "origin/premain is not available for in-flight premain RC repair verification"
+    if not git_ok(["merge-base", "--is-ancestor", premain_ref, "HEAD"]):
+        return False, "origin/premain is not an ancestor of this staging repair candidate"
+
+    staging_ref = "origin/staging"
+    if ref_exists(staging_ref) and not git_ok(
+        ["merge-base", "--is-ancestor", staging_ref, premain_ref],
+    ):
+        return (
+            False,
+            "origin/premain does not contain origin/staging; "
+            "use the normal staging -> premain promotion path first",
+        )
+
+    premain_manifest = manifest_at_ref(premain_ref)
+    if premain_manifest != manifest:
+        return (
+            False,
+            "staging repair candidate RC manifest does not match origin/premain "
+            f"({manifest} != {premain_manifest or 'missing'})",
+        )
+
+    main_ref = "origin/main"
+    if ref_exists(main_ref):
+        main_manifest = manifest_at_ref(main_ref)
+        if main_manifest:
+            try:
+                main_base, main_is_prerelease = version_info(
+                    "origin/main .release-please-manifest.json",
+                    main_manifest,
+                )
+            except SystemExit:
+                raise
+            if not main_is_prerelease and main_base >= manifest_base:
+                return (
+                    False,
+                    "origin/main already carries stable baseline "
+                    f"{main_manifest}; backmerge main to staging instead",
+                )
+
+    return True, ""
+
+
 if Path(".release-please-manifest.premain.json").exists():
     fail(".release-please-manifest.premain.json must be retired; use .release-please-manifest.json")
 
@@ -211,6 +295,19 @@ if current_branch == "main" and manifest_is_prerelease:
     )
 
 if current_branch == "staging" and manifest_is_prerelease:
+    repair_ok, repair_reason = verified_premain_rc_repair_to_staging(
+        manifest,
+        manifest_base,
+    )
+    if repair_ok:
+        print(
+            "release-cycle-state: PASS "
+            f"(branch={current_branch}, mode=premain-rc-repair, "
+            f"rc={manifest}, stable={stable_base})"
+        )
+        raise SystemExit(0)
+    if repair_reason:
+        print(f"release-cycle-state: INFO ({repair_reason})")
     fail(f"staging must not carry release-cycle RC state ({manifest})")
 
 print(
