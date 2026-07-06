@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Checkout trusted release scripts
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted-release
@@ -97,7 +97,7 @@ jobs:
 
       - name: Checkout pull request head after provenance verification
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr
@@ -105,7 +105,7 @@ jobs:
 
       - name: Checkout merge queue or workflow dispatch ref
         if: github.event_name != 'pull_request'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
