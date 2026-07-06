@@ -116,6 +116,22 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
     "quality-gates must support workflow_dispatch"
   require_fixed "run: make rubric" "${q}" \
     "quality-gates must run the full rubric"
+  require_fixed 'python-version: "3.12"' "${q}" \
+    "quality-gates must cover Python 3.12 before staging merge"
+  require_fixed "Run Python 3.12 pre-merge compatibility" "${q}" \
+    "quality-gates must name the Python 3.12 pre-merge compatibility step"
+  require_fixed "uv --directory py run pytest -q tests/unit tests/integration" "${q}" \
+    "quality-gates Python 3.12 check must include unit and integration tests"
+  require_fixed 'node-version: "20"' "${q}" \
+    "quality-gates must cover Node 20 before staging merge"
+  require_fixed "Run Node 20 pre-merge compatibility" "${q}" \
+    "quality-gates must name the Node 20 pre-merge compatibility step"
+  require_fixed "npm --prefix ts run test:integration" "${q}" \
+    "quality-gates Node 20 check must include integration tests"
+  require_fixed "Restore Python 3.14 for rubric" "${q}" \
+    "quality-gates must restore Python 3.14 before make rubric"
+  require_fixed "Restore Node 24 for rubric" "${q}" \
+    "quality-gates must restore Node 24 before make rubric"
   require_fixed "gov-infra/evidence" "${q}" \
     "quality-gates must upload gov-infra evidence artifacts"
   legacy_evidence_path="hgm""-infra/evidence"
