@@ -1213,6 +1213,21 @@ grep -Fq "merge_group:" "${repo_root}/.github/workflows/quality-gates.yml" || {
   exit 1
 }
 
+grep -Fq "fetch-depth: 0" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must fetch full history for in-flight premain RC repair verification"
+  exit 1
+}
+
+grep -Fq "+refs/heads/premain:refs/remotes/origin/premain" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must fetch origin/premain for in-flight premain RC repair verification"
+  exit 1
+}
+
+grep -Fq "+refs/heads/staging:refs/remotes/origin/staging" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must fetch origin/staging for in-flight premain RC repair verification"
+  exit 1
+}
+
 grep -Fq "merge_group:" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release hygiene must support merge_group for release queue"
   exit 1
