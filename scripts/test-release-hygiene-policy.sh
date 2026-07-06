@@ -551,6 +551,34 @@ expect_failure_contains \
     --ref "refs/heads/premain=${base_sha}" \
     --ref "refs/heads/release-please--branches--premain=${head_sha}"
 
+expect_failure_contains \
+  "main PR must not advertise an RC version" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base main \
+    --head release-please--branches--main \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "chore(main): release 2.0.0-rc" \
+    --ref "refs/heads/main=${base_sha}" \
+    --ref "refs/heads/release-please--branches--main=${head_sha}"
+
+expect_failure_contains \
+  "main PR must not advertise an RC version" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base main \
+    --head premain \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "Promote 2.0.0-rc.1 to main" \
+    --ref "refs/heads/main=${base_sha}" \
+    --ref "refs/heads/premain=${head_sha}"
+
 expect_success_contains \
   "stale merged premain release-please RC PR" \
   bash "${checker}" \
