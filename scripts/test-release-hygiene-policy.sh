@@ -313,7 +313,25 @@ require_fixed "-rc(\\.[0-9]+)?" "${provenance}" \
   "release-lane provenance guard must accept release-please first RC and numbered later RC PR titles"
 require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
   "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"
+require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${p}" \
+  "prerelease workflow must pin release-please v5 by commit SHA"
 SH
+}
+
+write_v2_release_please_v4_verifier_fixture() {
+  local root="$1"
+
+  write_v2_verifier_fixture "${root}"
+  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+text = text.replace(r"\bv5\b", r"\bv4\b")
+text = text.replace("release-please v5", "release-please v4")
+path.write_text(text, encoding="utf-8")
+PY
 }
 
 write_v2_numbered_rc_verifier_fixture() {
@@ -361,12 +379,14 @@ run_verifier_source_selector_fixture() {
   mkdir -p "${fixture}/trusted-release" "${fixture}/pr"
   case "${trusted_shape}" in
     v1) write_v1_verifier_fixture "${fixture}/trusted-release" ;;
+    v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/trusted-release" ;;
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/trusted-release" ;;
     v2) write_v2_verifier_fixture "${fixture}/trusted-release" ;;
     *) echo "release-hygiene-policy-test: unknown trusted fixture ${trusted_shape}" >&2; exit 1 ;;
   esac
   case "${head_shape}" in
     v1) write_v1_verifier_fixture "${fixture}/pr" ;;
+    v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/pr" ;;
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/pr" ;;
     v2) write_v2_verifier_fixture "${fixture}/pr" ;;
     *) echo "release-hygiene-policy-test: unknown head fixture ${head_shape}" >&2; exit 1 ;;
@@ -1228,8 +1248,8 @@ grep -Fq "premain:staging|main:premain" "${repo_root}/.github/workflows/release-
   exit 1
 }
 
-grep -Fq "trusted base lacks v2 single-manifest support or RC-first verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must document old trusted-script and RC-first fallback reasons"
+grep -Fq "trusted base lacks v2 single-manifest support, RC-first verifier support, or release-please v5 verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must document old trusted-script, RC-first, and release-please v5 fallback reasons"
   exit 1
 }
 
@@ -1258,6 +1278,11 @@ grep -Fq "accept release-please first RC and numbered later RC version syntax" "
   exit 1
 }
 
+grep -Fq "release-please v5" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect the release-please-action v5 policy marker"
+  exit 1
+}
+
 grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-release-cycle-state.sh"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release-cycle state must use the resolved verifier source"
   exit 1
@@ -1278,7 +1303,19 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-release-please-v4 v2 \
+    premain staging \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "." \
+  "protected-pr-head-v2" \
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1290,7 +1327,7 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1350,7 +1387,7 @@ assert_selector_result \
   "${selector_result}" \
   "../trusted-release" \
   "trusted-base" \
-  "trusted base supports v2 single-manifest and RC-first verifier markers"
+  "trusted base supports v2 single-manifest, RC-first, and release-please v5 verifier markers"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1360,7 +1397,7 @@ selector_result="$(
 )"
 assert_selector_failure \
   "${selector_result}" \
-  "protected PR head lacks v2 single-manifest support or RC-first verifier support"
+  "protected PR head lacks v2 single-manifest support, RC-first verifier support, or release-please v5 verifier support"
 
 target_result="$(run_merge_group_target_fixture main premain)"
 assert_target_result "${target_result}" main premain
