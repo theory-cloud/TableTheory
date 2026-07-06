@@ -240,8 +240,8 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
   p=".github/workflows/prerelease.yml"
   require_regex 'branches:.*premain' "${p}" \
     "prerelease workflow must target premain"
-  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${p}" \
-    "prerelease workflow must pin release-please v4 by commit SHA"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${p}" \
+    "prerelease workflow must pin release-please v5 by commit SHA"
   require_regex 'contents:\s*write' "${p}" \
     "prerelease workflow must request contents: write"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${p}" \
@@ -288,8 +288,8 @@ if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
   pp=".github/workflows/prerelease-pr.yml"
   require_regex 'branches:.*premain' "${pp}" \
     "prerelease-pr workflow must target premain"
-  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${pp}" \
-    "prerelease-pr workflow must pin release-please v4 by commit SHA"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${pp}" \
+    "prerelease-pr workflow must pin release-please v5 by commit SHA"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${pp}" \
     "prerelease-pr workflow must reference release-please-config.premain.json"
   require_regex 'manifest-file:\s*\.release-please-manifest\.json' "${pp}" \
@@ -310,8 +310,8 @@ if [[ -f ".github/workflows/release.yml" ]]; then
   r=".github/workflows/release.yml"
   require_regex 'branches:.*main' "${r}" \
     "release workflow must target main"
-  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${r}" \
-    "release workflow must pin release-please v4 by commit SHA"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${r}" \
+    "release workflow must pin release-please v5 by commit SHA"
   require_regex 'contents:\s*write' "${r}" \
     "release workflow must request contents: write"
   require_regex 'config-file:\s*release-please-config\.json' "${r}" \

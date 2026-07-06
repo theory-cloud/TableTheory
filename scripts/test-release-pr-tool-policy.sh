@@ -19,6 +19,35 @@ grep -Fq "${tool_dir}/node_modules/.bin/release-please" "${workflow}" || {
   exit 1
 }
 
+python3 - <<'PY'
+from pathlib import Path
+
+workflow = Path(".github/workflows/release-pr.yml").read_text(encoding="utf-8")
+lines = workflow.splitlines()
+
+try:
+    step_index = next(
+        index
+        for index, line in enumerate(lines)
+        if line.strip() == "- name: Compute release-as (normalize single-manifest RC)"
+    )
+except StopIteration as exc:
+    raise SystemExit(
+        "release-pr-tool-policy-test: release-pr workflow must keep the release-as compute step"
+    ) from exc
+
+step_header = "\n".join(lines[step_index : step_index + 5])
+if "if: steps.cycle.outputs.pending_stable_promotion == 'true'" not in step_header:
+    raise SystemExit(
+        "release-pr-tool-policy-test: release-as compute step must be gated to pending stable promotion"
+    )
+
+if "release-pr: strict stable state; no single-manifest RC to normalize" not in workflow:
+    raise SystemExit(
+        "release-pr-tool-policy-test: strict stable main state must no-op successfully"
+    )
+PY
+
 node <<'NODE'
 const fs = require('node:fs');
 

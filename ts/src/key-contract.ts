@@ -4,10 +4,7 @@ import { TheorydbError } from './errors.js';
 
 export type KeyContractInputValue = string | number | boolean;
 export type KeyContractTransform =
-  | 'trim'
-  | 'wildcard_empty'
-  | 'lowercase'
-  | 'url_encode';
+  'trim' | 'wildcard_empty' | 'lowercase' | 'url_encode';
 
 export interface DerivedKeyContract {
   tabletheory_model_contract_version: '0.1' | '0.2';

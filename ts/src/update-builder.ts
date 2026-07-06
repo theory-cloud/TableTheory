@@ -29,11 +29,7 @@ import {
 import type { QueryOperator } from './query-types.js';
 
 export type ReturnValuesOption =
-  | 'NONE'
-  | 'ALL_OLD'
-  | 'UPDATED_OLD'
-  | 'ALL_NEW'
-  | 'UPDATED_NEW';
+  'NONE' | 'ALL_OLD' | 'UPDATED_OLD' | 'ALL_NEW' | 'UPDATED_NEW';
 
 type UpdateOp =
   | { kind: 'set'; field: string; value: unknown }
