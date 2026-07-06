@@ -208,9 +208,9 @@ jobs:
             local -n reasons_ref="${reasons_name}"
             reasons_ref=()
 
-            # These markers distinguish the v2 single-manifest release lane from
-            # the retired v1 verifier shape that required a premain manifest,
-            # prepare-stable-promotion helper, and legacy theorydb_py version path.
+            # These markers distinguish the current single-manifest release lane from
+            # older trusted verifier shapes that either required the retired premain
+            # manifest/helper/Python path or still assumed numbered-only RC syntax.
             add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
               "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
@@ -219,28 +219,32 @@ jobs:
               "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
               "single release-please manifest" "single-manifest policy marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "accept release-please first RC and numbered later RC PR titles" "release-please first-RC PR-title marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "accept release-please first RC and numbered later RC version syntax" "release-please first-RC version marker" "${reasons_name}"
           }
 
           trusted_reasons=()
           collect_v2_marker_reasons "${trusted_root}" trusted_reasons
 
           if [[ "${#trusted_reasons[@]}" -eq 0 ]]; then
-            echo "release-verifier-source: trusted base supports v2 single-manifest verifier markers"
+            echo "release-verifier-source: trusted base supports v2 single-manifest and RC-first verifier markers"
           else
-            printf 'release-verifier-source: trusted base lacks v2 single-manifest support (%s)\n' "$(IFS='; '; echo "${trusted_reasons[*]}")"
+            printf 'release-verifier-source: trusted base lacks v2 single-manifest support or RC-first verifier support (%s)\n' "$(IFS='; '; echo "${trusted_reasons[*]}")"
           fi
 
           if [[ "${protected_promotion}" == "true" && "${#trusted_reasons[@]}" -ne 0 ]]; then
             head_reasons=()
             collect_v2_marker_reasons "." head_reasons
             if [[ "${#head_reasons[@]}" -ne 0 ]]; then
-              printf 'release-verifier-source: FAIL (protected PR head lacks v2 verifier support: %s)\n' "$(IFS='; '; echo "${head_reasons[*]}")" >&2
+              printf 'release-verifier-source: FAIL (protected PR head lacks v2 single-manifest support or RC-first verifier support: %s)\n' "$(IFS='; '; echo "${head_reasons[*]}")" >&2
               exit 1
             fi
 
             verifier_root="."
             verifier_label="protected-pr-head-v2"
-            echo "release-verifier-source: protected same-repo promotion may use PR-head v2 verifier scripts after provenance"
+            echo "release-verifier-source: protected same-repo promotion may use PR-head v2/RC-first verifier scripts after provenance"
           else
             echo "release-verifier-source: using trusted base verifier scripts"
           fi
