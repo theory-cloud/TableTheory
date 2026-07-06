@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# CI-safe local release-cycle checks. By default this verifier validates the
+# checkout that contains the trusted script. Release Hygiene may pass an explicit
+# target checkout root after same-repository provenance verification so trusted
+# base scripts inspect PR-head files without executing PR-head scripts. Remote
+# branch drift is reported by scripts/watch-release-cycle.sh.
+
 failures=0
 
 fail() {
@@ -12,18 +18,240 @@ usage() {
   cat <<'USAGE'
 Usage: bash scripts/verify-release-cycle-state.sh [--repo-root ABSOLUTE_PATH]
 
-CI-safe local release-cycle checks. By default this verifier validates the
-checkout that contains the trusted script. Release Hygiene may pass an explicit
-target checkout root after same-repository provenance verification so trusted
-base scripts inspect the PR head files without executing PR-head scripts.
-
 Options:
   --repo-root ABSOLUTE_PATH  Validate this checkout root instead of the script checkout.
   -h, --help                Show this help.
 USAGE
 }
 
-script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+script_repo_root="$(cd "${script_dir}/.." && pwd -P)"
+
+# Bootstrap note: keep this helper self-contained on main until the v2
+# release-cycle core helper is available on the target branch. This body is
+# copied from origin/premain:scripts/lib/release-cycle-core.sh so trusted main
+# release hygiene can validate PR-head v2 single-manifest state without adding
+# scripts/lib/release-cycle-core.sh in the scoped bootstrap PR.
+release_cycle_json_value_at_ref() {
+  local ref="$1"
+  local path="$2"
+  local expr="$3"
+
+  if ! git cat-file -e "${ref}:${path}" 2>/dev/null; then
+    return 0
+  fi
+
+  git show "${ref}:${path}" 2>/dev/null | python3 -c '
+import json
+import sys
+
+expr = sys.argv[1]
+ref = sys.argv[2]
+path = sys.argv[3]
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError as exc:
+    print(
+        f"{ref}:{path} contains malformed JSON: {exc.msg} "
+        f"at line {exc.lineno} column {exc.colno}",
+        file=sys.stderr,
+    )
+    raise SystemExit(65)
+if expr == ".":
+    print(data.get(".", "") if isinstance(data, dict) else "")
+    raise SystemExit(0)
+value = data
+for part in expr.split("."):
+    if isinstance(value, dict):
+        value = value.get(part, "")
+    else:
+        value = ""
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is None:
+    print("")
+elif isinstance(value, (str, int, float)):
+    print(value)
+else:
+    print(json.dumps(value, separators=(",", ":")))
+' "${expr}" "${ref}" "${path}"
+}
+
+release_cycle_json_string_value() {
+  local json="$1"
+  local expr="$2"
+
+  JSON_INPUT="${json}" python3 - "${expr}" <<'PY'
+import json
+import os
+import sys
+
+expr = sys.argv[1]
+raw = os.environ["JSON_INPUT"]
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError:
+    try:
+        data, _ = json.JSONDecoder().raw_decode(raw)
+    except json.JSONDecodeError:
+        print("")
+        raise SystemExit(0)
+value = data
+for part in expr.split("."):
+    if not part:
+        continue
+    if isinstance(value, dict):
+        value = value.get(part)
+    else:
+        value = None
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is None:
+    print("")
+elif isinstance(value, (str, int, float)):
+    print(value)
+else:
+    print(json.dumps(value))
+PY
+}
+
+release_cycle_toolchain_at_ref() {
+  local ref="$1"
+  local path="$2"
+  git show "${ref}:${path}" 2>/dev/null | awk '$1 == "toolchain" { print $2; exit }'
+}
+
+release_cycle_semver_base() {
+  python3 - "$1" <<'PY'
+import re
+import sys
+
+v = sys.argv[1].strip()
+m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", v)
+if not m:
+    raise SystemExit(1)
+print(".".join(m.group(i) for i in range(1, 4)))
+PY
+}
+
+release_cycle_semver_lt() {
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+
+
+def parse(v: str) -> tuple[int, int, int]:
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", v.strip())
+    if not m:
+        raise SystemExit(2)
+    return tuple(int(m.group(i)) for i in range(1, 4))
+
+raise SystemExit(0 if parse(sys.argv[1]) < parse(sys.argv[2]) else 1)
+PY
+}
+
+release_cycle_verify_local_state() {
+  local repo_root="$1"
+
+  (
+    cd "${repo_root}"
+    python3 - <<'PY'
+import json
+import os
+import re
+import subprocess
+from pathlib import Path
+
+semver_re = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
+
+
+def read(path: str) -> object:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def fail(message: str) -> None:
+    print(f"release-cycle-state: FAIL ({message})")
+    raise SystemExit(1)
+
+
+def version_info(label: str, version: str) -> tuple[tuple[int, int, int], bool]:
+    match = semver_re.match(version.strip())
+    if not match:
+        fail(f"{label} has invalid semver {version!r}")
+    base = tuple(int(part) for part in match.group(1, 2, 3))
+    return base, bool(match.group(4))
+
+
+if Path(".release-please-manifest.premain.json").exists():
+    fail(".release-please-manifest.premain.json must be retired; use .release-please-manifest.json")
+
+manifest = read(".release-please-manifest.json").get(".", "")
+if not isinstance(manifest, str) or not manifest.strip():
+    fail(".release-please-manifest.json is missing a version")
+
+manifest_base, manifest_is_prerelease = version_info(".release-please-manifest.json", manifest)
+stable_base = ".".join(str(part) for part in manifest_base)
+
+current_branch = (
+    os.environ.get("GITHUB_BASE_REF")
+    or os.environ.get("GITHUB_REF_NAME")
+    or ""
+)
+if not current_branch:
+    try:
+        current_branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
+        ).strip()
+    except Exception:
+        current_branch = ""
+
+pending_mode_raw = os.environ.get("RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION", "")
+pending_mode = pending_mode_raw == "true"
+if pending_mode_raw and pending_mode_raw not in {"true", "false"}:
+    fail("RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION must be exactly true or false")
+
+if pending_mode:
+    if current_branch != "main":
+        fail(
+            "pending stable promotion mode is only allowed on main "
+            f"(current branch: {current_branch})"
+        )
+    if os.environ.get("GITHUB_HEAD_REF", "") not in {"", "premain"}:
+        fail(
+            "pending stable promotion mode is only allowed for premain -> main "
+            f"(head branch: {os.environ.get('GITHUB_HEAD_REF')})"
+        )
+    if not manifest_is_prerelease:
+        fail(
+            "pending stable promotion mode requires a single-manifest RC "
+            f"(got {manifest})"
+        )
+
+    print(
+        "release-cycle-state: PASS "
+        f"(branch={current_branch}, mode=pending-stable-promotion, "
+        f"rc={manifest}, stable={stable_base})"
+    )
+    raise SystemExit(0)
+
+if current_branch == "main" and manifest_is_prerelease:
+    fail(
+        ".release-please-manifest.json is prerelease "
+        f"{manifest} on main; release-pr.yml must normalize it to {stable_base}"
+    )
+
+if current_branch == "staging" and manifest_is_prerelease:
+    fail(f"staging must not carry release-cycle RC state ({manifest})")
+
+print(
+    "release-cycle-state: PASS "
+    f"(branch={current_branch}, manifest={manifest})"
+)
+PY
+  )
+}
+
+
 repo_root="${script_repo_root}"
 explicit_repo_root="${RELEASE_CYCLE_REPO_ROOT:-}"
 
@@ -71,13 +299,13 @@ require_file() {
 }
 
 required_files=(
-  "scripts/prepare-stable-promotion.sh"
+  "scripts/prepare-release-package-versions.py"
+  "scripts/verify-release-package-version-assets.py"
   "scripts/watch-release-cycle.sh"
   ".release-please-manifest.json"
-  ".release-please-manifest.premain.json"
   "ts/package.json"
   "ts/package-lock.json"
-  "py/src/theorydb_py/version.json"
+  "py/src/tabletheory_py/version.json"
 )
 
 for path in "${required_files[@]}"; do
@@ -85,279 +313,9 @@ for path in "${required_files[@]}"; do
 done
 
 if [[ "${failures}" -eq 0 ]]; then
-  if ! python3 - <<'PY'
-import json
-import os
-import re
-import subprocess
-import sys
-from pathlib import Path
-
-semver_re = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
-
-
-def read(path: str) -> object:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def fail(message: str) -> None:
-    print(f"release-cycle-state: FAIL ({message})")
-    raise SystemExit(1)
-
-
-def version_info(label: str, version: str) -> tuple[tuple[int, int, int], bool]:
-    match = semver_re.match(version.strip())
-    if not match:
-        fail(f"{label} has invalid semver {version!r}")
-    base = tuple(int(part) for part in match.group(1, 2, 3))
-    return base, bool(match.group(4))
-
-
-stable = read(".release-please-manifest.json").get(".", "")
-premain = read(".release-please-manifest.premain.json").get(".", "")
-ts_package = read("ts/package.json").get("version", "")
-ts_lock = read("ts/package-lock.json")
-ts_lock_root = ts_lock.get("version", "")
-ts_lock_pkg = ts_lock.get("packages", {}).get("", {}).get("version", "")
-py_version = read("py/src/theorydb_py/version.json").get("version", "")
-
-promotion_files = {
-    ".release-please-manifest.premain.json": premain,
-    "ts/package.json": ts_package,
-    "ts/package-lock.json": ts_lock_root,
-    "ts/package-lock.json packages['']": ts_lock_pkg,
-    "py/src/theorydb_py/version.json": py_version,
-}
-
-for label, version in {".release-please-manifest.json": stable, **promotion_files}.items():
-    if not isinstance(version, str) or not version.strip():
-        fail(f"{label} is missing a version")
-
-stable_base, stable_is_prerelease = version_info(".release-please-manifest.json", stable)
-if stable_is_prerelease:
-    fail(f".release-please-manifest.json is prerelease {stable}")
-
-current_branch = (
-    os.environ.get("GITHUB_BASE_REF")
-    or os.environ.get("GITHUB_REF_NAME")
-    or ""
-)
-if not current_branch:
-    current_branch = subprocess.check_output(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
-    ).strip()
-
-pending_mode_raw = os.environ.get("RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION", "")
-pending_mode = pending_mode_raw == "true"
-if pending_mode_raw and pending_mode_raw not in {"true", "false"}:
-    fail("RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION must be exactly true or false")
-
-
-def consistent_version(
-    files: dict[str, str],
-    mode_label: str,
-) -> tuple[tuple[int, int, int], str, bool]:
-    expected_base = None
-    expected_version = None
-    expected_is_prerelease = None
-    for label, version in files.items():
-        base, is_prerelease = version_info(label, version)
-        if expected_version is None:
-            expected_base = base
-            expected_version = version
-            expected_is_prerelease = is_prerelease
-            continue
-        if version != expected_version or base != expected_base:
-            fail(
-                f"{mode_label} files are inconsistent "
-                f"({label} {version} != {expected_version})"
-            )
-    if (
-        expected_base is None
-        or expected_version is None
-        or expected_is_prerelease is None
-    ):
-        fail(f"{mode_label} has no version files")
-    return expected_base, expected_version, expected_is_prerelease
-
-
-def stable_file_mismatch(branch: str) -> str | None:
-    for label, version in promotion_files.items():
-        base, is_prerelease = version_info(label, version)
-        if is_prerelease:
-            return f"{label} is prerelease {version} on {branch}"
-        if base != stable_base or version != stable:
-            return f"{label} {version} does not match stable manifest {stable}"
-    return None
-
-
-if pending_mode:
-    if current_branch != "main":
-        fail(
-            "pending stable promotion mode is only allowed on main "
-            f"(current branch: {current_branch})"
-        )
-    if os.environ.get("GITHUB_HEAD_REF", "") not in {"", "premain"}:
-        fail(
-            "pending stable promotion mode is only allowed for premain -> main "
-            f"(head branch: {os.environ.get('GITHUB_HEAD_REF')})"
-        )
-
-    pending_base, pending_version, pending_is_prerelease = consistent_version(
-        promotion_files,
-        "pending stable promotion",
-    )
-    if not pending_is_prerelease:
-        fail(
-            "pending stable promotion files must carry the promoted RC version "
-            f"(got {pending_version})"
-        )
-    if pending_base <= stable_base:
-        fail(
-            "pending stable promotion version must be ahead of the stable manifest "
-            f"({pending_version} <= {stable})"
-        )
-
-    print(
-        "release-cycle-state: PASS "
-        f"(branch={current_branch}, mode=pending-stable-promotion, "
-        f"stable={stable}, pending={pending_version})"
-    )
-    raise SystemExit(0)
-
-if current_branch == "main":
-    mismatch = stable_file_mismatch(current_branch)
-    if mismatch:
-        fail(mismatch)
-
-if current_branch == "staging":
-    mismatch = stable_file_mismatch(current_branch)
-    if mismatch:
-        (
-            reconciliation_base,
-            reconciliation_version,
-            reconciliation_is_prerelease,
-        ) = consistent_version(
-            promotion_files,
-            "staging RC reconciliation",
-        )
-        if not reconciliation_is_prerelease:
-            fail(mismatch)
-        if reconciliation_base <= stable_base:
-            fail(
-                "staging RC reconciliation version must be ahead of the stable manifest "
-                f"({reconciliation_version} <= {stable})"
-            )
-        print(
-            "release-cycle-state: PASS "
-            f"(branch={current_branch}, mode=staging-rc-reconciliation, "
-            f"stable={stable}, rc={reconciliation_version})"
-        )
-        raise SystemExit(0)
-
-print(
-    "release-cycle-state: PASS "
-    f"(branch={current_branch}, stable={stable}, premain={premain})"
-)
-PY
-  then
+  if ! release_cycle_verify_local_state "${repo_root}"; then
     failures=$((failures + 1))
   fi
-fi
-
-# Do not execute scripts from an explicit target checkout: release hygiene runs
-# this verifier from the trusted base checkout while inspecting PR-head files.
-# Keep the stable-promotion dry-run as trusted verifier logic over target data.
-if ! python3 - <<'PY' >/tmp/tabletheory-stable-promotion-check.$$ 2>&1; then
-import json
-import re
-from pathlib import Path
-
-semver_re = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
-
-
-def fail(message: str) -> None:
-    print(f"stable-promotion: FAIL ({message})")
-    raise SystemExit(1)
-
-
-def load_json(path: str) -> object:
-    p = Path(path)
-    if not p.is_file():
-        fail(f"missing {path}")
-    return json.loads(p.read_text(encoding="utf-8"))
-
-
-def semver_info(version: str) -> tuple[tuple[int, int, int], str, bool]:
-    match = semver_re.match(version.strip())
-    if not match:
-        fail(f"invalid semver: {version}")
-    base_tuple = tuple(int(part) for part in match.group(1, 2, 3))
-    base = ".".join(str(part) for part in base_tuple)
-    prerelease = match.group(4) or ""
-    return base_tuple, base, bool(prerelease)
-
-
-stable_manifest = load_json(".release-please-manifest.json")
-premain_manifest = load_json(".release-please-manifest.premain.json")
-ts_package = load_json("ts/package.json")
-ts_lock = load_json("ts/package-lock.json")
-py_version = load_json("py/src/theorydb_py/version.json")
-
-versions = {
-    ".release-please-manifest.json": stable_manifest.get(".", ""),
-    ".release-please-manifest.premain.json": premain_manifest.get(".", ""),
-    "ts/package.json": ts_package.get("version", ""),
-    "ts/package-lock.json": ts_lock.get("version", ""),
-    "ts/package-lock.json packages['']": ts_lock.get("packages", {}).get("", {}).get("version", ""),
-    "py/src/theorydb_py/version.json": py_version.get("version", ""),
-}
-
-for path, version in versions.items():
-    if not isinstance(version, str) or not version.strip():
-        fail(f"missing version in {path}")
-
-parsed = {path: semver_info(version) for path, version in versions.items()}
-
-stable_version = versions[".release-please-manifest.json"]
-if parsed[".release-please-manifest.json"][2]:
-    fail(f"stable manifest is a prerelease: {stable_version}")
-
-target_tuple, target_version = max((info[0], info[1]) for info in parsed.values())
-
-if parsed[".release-please-manifest.json"][0] > target_tuple:
-    fail(
-        "stable manifest is ahead of derived promotion baseline "
-        f"({stable_version} > {target_version})"
-    )
-
-changes: list[tuple[str, str, str]] = []
-
-
-def plan(path: str, current: str, desired: str) -> None:
-    if current != desired:
-        changes.append((path, current, desired))
-
-
-plan(".release-please-manifest.premain.json", versions[".release-please-manifest.premain.json"], target_version)
-plan("ts/package.json", versions["ts/package.json"], target_version)
-plan("ts/package-lock.json", versions["ts/package-lock.json"], target_version)
-plan("ts/package-lock.json packages['']", versions["ts/package-lock.json packages['']"], target_version)
-plan("py/src/theorydb_py/version.json", versions["py/src/theorydb_py/version.json"], target_version)
-
-print(f"stable-promotion: target={target_version}")
-print(f"stable-promotion: stable-manifest={stable_version} (validated, not advanced)")
-
-for path, current, desired in changes:
-    print(f"stable-promotion: PLAN {path}: {current} -> {desired}")
-
-print("stable-promotion: PASS (dry-run)")
-PY
-  cat /tmp/tabletheory-stable-promotion-check.$$
-  rm -f /tmp/tabletheory-stable-promotion-check.$$
-  fail "stable promotion dry-run failed"
-else
-  rm -f /tmp/tabletheory-stable-promotion-check.$$
 fi
 
 if grep -RInE 'git push +origin +(main|premain|staging)|git push +[^[:space:]]+ +(main|premain|staging)' .github/workflows scripts | grep -v 'verify-release-cycle-state.sh'; then

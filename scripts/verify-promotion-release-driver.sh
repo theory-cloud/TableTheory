@@ -190,9 +190,9 @@ metadata_path = Path(sys.argv[1])
 base = os.environ["BASE_REF"]
 head = os.environ["HEAD_REF"]
 
-rc_version_re = re.compile(r"^v?\d+\.\d+\.\d+-rc\.\d+$")
+rc_version_re = re.compile(r"^v?\d+\.\d+\.\d+-rc(?:\.\d+)?$")
 stable_version_re = re.compile(r"^v?\d+\.\d+\.\d+$")
-rc_title_re = re.compile(r"^chore\(premain\): release \d+\.\d+\.\d+-rc\.\d+$")
+rc_title_re = re.compile(r"^chore\(premain\): release \d+\.\d+\.\d+-rc(?:\.\d+)?$")
 stable_title_re = re.compile(r"^chore\(main\): release \d+\.\d+\.\d+$")
 any_rc_re = re.compile(r"\d+\.\d+\.\d+-rc(?:[.\-\w]*)?")
 
@@ -277,44 +277,14 @@ def read_json(path: str) -> object:
 
 
 def pending_stable_promotion_version() -> str:
-    stable = read_json(".release-please-manifest.json").get(".", "")
-    premain = read_json(".release-please-manifest.premain.json").get(".", "")
-    ts_package = read_json("ts/package.json").get("version", "")
-    ts_lock = read_json("ts/package-lock.json")
-    ts_lock_root = ts_lock.get("version", "")
-    ts_lock_pkg = ts_lock.get("packages", {}).get("", {}).get("version", "")
-    py_version = read_json("py/src/theorydb_py/version.json").get("version", "")
+    manifest = read_json(".release-please-manifest.json").get(".", "")
 
-    if not stable or not isinstance(stable, str):
-        fail(".release-please-manifest.json is missing a stable version")
-    if "-rc" in stable:
-        fail(f"main stable manifest must not be RC-shaped ({stable})")
-
-    pending_files = {
-        ".release-please-manifest.premain.json": premain,
-        "ts/package.json": ts_package,
-        "ts/package-lock.json": ts_lock_root,
-        "ts/package-lock.json packages['']": ts_lock_pkg,
-        "py/src/theorydb_py/version.json": py_version,
-    }
-    first_label, first_version = next(iter(pending_files.items()))
-    if not isinstance(first_version, str) or not rc_version_re.match(first_version):
+    if not isinstance(manifest, str) or not rc_version_re.match(manifest):
         fail(
-            "premain -> main promotion must carry an RC pending stable "
-            f"promotion state with numbered -rc.N syntax; {first_label} is {first_version!r}"
+            "premain -> main promotion must carry a single-manifest RC "
+            f"with X.Y.Z-rc or X.Y.Z-rc.N syntax; .release-please-manifest.json is {manifest!r}"
         )
-    for label, version in pending_files.items():
-        if version != first_version:
-            fail(
-                "pending stable promotion files are inconsistent "
-                f"({label} {version!r} != {first_version!r})"
-            )
-    if parse_base(first_version) <= parse_base(stable):
-        fail(
-            "pending stable promotion RC must be ahead of the stable manifest "
-            f"({first_version} <= {stable})"
-        )
-    return first_version
+    return manifest
 
 
 title, body, commits = read_metadata()
@@ -323,7 +293,7 @@ pr_text = "\n\n".join([title, body])
 
 if base == "premain" and head == "release-please--branches--premain":
     if not rc_title_re.fullmatch(title):
-        fail(f"generated premain release-please PR must be numbered RC-shaped, got {title!r}")
+        fail(f"generated premain release-please PR must be RC-shaped, got {title!r}")
     print(f"promotion-release-driver: PASS (generated premain RC PR {title!r})")
     raise SystemExit(0)
 
@@ -341,7 +311,7 @@ if base == "premain":
     if invalid:
         fail(
             "staging -> premain Release-As footers must be RC-shaped "
-            f"X.Y.Z-rc.N, got {', '.join(invalid)}"
+            f"X.Y.Z-rc or X.Y.Z-rc.N, got {', '.join(invalid)}"
         )
     if versions:
         print(
