@@ -456,12 +456,13 @@ assert_selector_failure() {
 run_merge_group_target_fixture() {
   local target_branch="$1"
   local source_head="$2"
+  local payload_shape="${3:-payload-head}"
 
   local fixture
   fixture="$(mktemp -d)"
   tmpdirs+=("${fixture}")
 
-  python3 - "${fixture}/event.json" "${target_branch}" "${source_head}" <<'PY'
+  python3 - "${fixture}/event.json" "${target_branch}" "${source_head}" "${payload_shape}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -469,22 +470,21 @@ from pathlib import Path
 path = Path(sys.argv[1])
 target_branch = sys.argv[2]
 source_head = sys.argv[3]
-path.write_text(
-    json.dumps(
+payload_shape = sys.argv[4]
+merge_group = {
+    "base_ref": f"refs/heads/{target_branch}",
+    "head_ref": f"refs/heads/gh-readonly-queue/{target_branch}/pr-123-deadbeef",
+}
+if payload_shape == "payload-head":
+    merge_group["pull_requests"] = [
         {
-            "merge_group": {
-                "base_ref": f"refs/heads/{target_branch}",
-                "head_ref": f"refs/heads/gh-readonly-queue/{target_branch}/pr-123-deadbeef",
-                "pull_requests": [
-                    {
-                        "number": 123,
-                        "base": {"ref": target_branch},
-                        "head": {"ref": source_head},
-                    }
-                ],
-            }
+            "number": 123,
+            "base": {"ref": target_branch},
+            "head": {"ref": source_head},
         }
-    ),
+    ]
+path.write_text(
+    json.dumps({"merge_group": merge_group}),
     encoding="utf-8",
 )
 PY
@@ -494,15 +494,39 @@ PY
 
   local output_file="${fixture}/target.out"
   local github_output="${fixture}/github-output"
+  local -a env_args=(
+    GITHUB_EVENT_NAME=merge_group
+    GITHUB_EVENT_PATH="${fixture}/event.json"
+    GITHUB_REF="refs/heads/gh-readonly-queue/${target_branch}/pr-123-deadbeef"
+    GITHUB_REF_NAME="gh-readonly-queue/${target_branch}/pr-123-deadbeef"
+    GITHUB_REPOSITORY="${repo}"
+    GITHUB_OUTPUT="${github_output}"
+  )
+
+  if [[ "${payload_shape}" == "api-head" ]]; then
+    mkdir -p "${fixture}/bin"
+    cat >"${fixture}/bin/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$#" -eq 7 && "$1" == "pr" && "$2" == "view" && "$3" == "123" && "$4" == "--repo" && "$6" == "--json" && "$7" == "headRefName" ]]; then
+  printf '{"headRefName":"%s"}\n' "${STUB_GH_HEAD_REF:-}"
+  exit 0
+fi
+
+echo "unexpected gh arguments: $*" >&2
+exit 1
+SH
+    chmod +x "${fixture}/bin/gh"
+    env_args+=(
+      GH_TOKEN=stub-token
+      PATH="${fixture}/bin:${PATH}"
+      STUB_GH_HEAD_REF="${source_head}"
+    )
+  fi
+
   set +e
-  env \
-    GITHUB_EVENT_NAME=merge_group \
-    GITHUB_EVENT_PATH="${fixture}/event.json" \
-    GITHUB_REF="refs/heads/gh-readonly-queue/${target_branch}/pr-123-deadbeef" \
-    GITHUB_REF_NAME="gh-readonly-queue/${target_branch}/pr-123-deadbeef" \
-    GITHUB_REPOSITORY="${repo}" \
-    GITHUB_OUTPUT="${github_output}" \
-    bash "${resolver_script}" >"${output_file}" 2>&1
+  env "${env_args[@]}" bash "${resolver_script}" >"${output_file}" 2>&1
   local status=$?
   set -e
 
@@ -513,6 +537,7 @@ assert_target_result() {
   local output_pair="$1"
   local expected_branch="$2"
   local expected_head="$3"
+  local expected_source="${4:-}"
 
   local output_file="${output_pair%%:*}"
   local remainder="${output_pair#*:}"
@@ -539,6 +564,44 @@ assert_target_result() {
   if ! grep -Fq "merge_group source head ${expected_head}" "${output_file}"; then
     cat "${output_file}"
     echo "release-hygiene-policy-test: target resolver output missing derived head ${expected_head}"
+    exit 1
+  fi
+  if [[ -n "${expected_source}" ]] && ! grep -Fq "(${expected_source})" "${output_file}"; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: target resolver output missing source ${expected_source}"
+    exit 1
+  fi
+}
+
+assert_target_empty_head_result() {
+  local output_pair="$1"
+  local expected_branch="$2"
+
+  local output_file="${output_pair%%:*}"
+  local remainder="${output_pair#*:}"
+  local github_output="${remainder%%:*}"
+  local status="${remainder#*:}"
+
+  if [[ "${status}" -ne 0 ]]; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: target resolver expected success, got ${status}"
+    exit 1
+  fi
+  if ! grep -Fxq "branch=${expected_branch}" "${github_output}"; then
+    cat "${output_file}"
+    cat "${github_output}"
+    echo "release-hygiene-policy-test: target branch mismatch; expected ${expected_branch}"
+    exit 1
+  fi
+  if ! grep -Fxq "head=" "${github_output}"; then
+    cat "${output_file}"
+    cat "${github_output}"
+    echo "release-hygiene-policy-test: queued head should remain empty"
+    exit 1
+  fi
+  if ! grep -Fq "merge_group source head unavailable from payload/API" "${output_file}"; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: target resolver output missing empty-head diagnostic"
     exit 1
   fi
 }
@@ -723,6 +786,20 @@ expect_failure_contains \
     --base-sha "${base_sha}" \
     --head-sha "${head_sha}" \
     --title "chore(main): release 2.0.0-rc" \
+    --ref "refs/heads/main=${base_sha}" \
+    --ref "refs/heads/release-please--branches--main=${head_sha}"
+
+expect_success_contains \
+  "release-lane-provenance: PASS" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base main \
+    --head release-please--branches--main \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "chore(main): release 2.0.0" \
     --ref "refs/heads/main=${base_sha}" \
     --ref "refs/heads/release-please--branches--main=${head_sha}"
 
@@ -1291,6 +1368,15 @@ assert_target_result "${target_result}" main premain
 target_result="$(run_merge_group_target_fixture main "feature/not-premain")"
 assert_target_result "${target_result}" main "feature/not-premain"
 
+target_result="$(run_merge_group_target_fixture main premain api-head)"
+assert_target_result "${target_result}" main premain "gh pr view 123"
+
+target_result="$(run_merge_group_target_fixture main "feature/not-premain" api-head)"
+assert_target_result "${target_result}" main "feature/not-premain" "gh pr view 123"
+
+target_result="$(run_merge_group_target_fixture main "" api-head)"
+assert_target_empty_head_result "${target_result}" main
+
 run_queued_main_cycle_step_fixture \
   premain \
   0 \
@@ -1300,6 +1386,11 @@ run_queued_main_cycle_step_fixture \
   "feature/not-premain" \
   1 \
   "pending stable promotion mode is only allowed for premain -> main (head branch: feature/not-premain)"
+
+run_queued_main_cycle_step_fixture \
+  "" \
+  1 \
+  "queued main pending stable promotion could not derive merge_group PR head"
 
 grep -Fq "pending stable promotion accepted on queued main merge group" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release hygiene must allow queued main pending stable promotion"
