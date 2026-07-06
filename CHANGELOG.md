@@ -32,6 +32,128 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [2.0.0-rc](https://github.com/theory-cloud/TableTheory/compare/v1.10.1...v2.0.0-rc) (2026-07-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* promote TableTheory product strengthening program
+* **py:** the deprecated theorydb_py Python import package is removed in v2; consumers must import tabletheory_py.
+* **query:** Go consumers must stop constructing pkg/query.MainExecutor, query.NewExecutor, or pkg/query.DynamoDBAPI directly; use DB.Model/tabletheory.Model flows for execution and query.UnmarshalItem(s) or NewWithClient plus pkg/testing/fakedb for tests.
+* **core:** Go callers can no longer pass arbitrary opts ...any values to AutoMigrateWithOptions or CreateTable; use schema.AutoMigrateOption and schema.TableOption values or concrete slices.
+* **ts:** TypeScript consumers must import FaceTheory ISR, release-state, and lease helpers from @theory-cloud/tabletheory-ts/facetheory, /release-state, and /lease; the root package now exposes only generic ORM APIs.
+* **py:** Python consumers must import tabletheory_py as the canonical runtime package; theorydb_py is no longer the implementation package and remains only as a DeprecationWarning transition shim.
+* **ts:** TypeScript now unmarshals DynamoDB N and NS values to canonical decimal strings by default; consumers that intentionally want historical JavaScript Number coercion must configure numberUnmarshalMode: 'number'.
+* **core:** Go consumers must replace DB.Transaction, ExtendedDB.TransactionFunc, core.Tx, mocks, and pkg/testing helpers built around the non-atomic callback API with the DynamoDB-backed Transact()/TransactWrite transaction builder.
+* Go writes now persist []byte and set-tagged numeric/binary slices as canonical DynamoDB B/NS/BS/NULL shapes and reject unsupported set element types. Legacy shape-driven reads remain, but consumers with raw filters or conditions over old list-shaped data may need backfill.
+
+### Features
+
+* **api:** add typed API surfaces ([b82860c](https://github.com/theory-cloud/TableTheory/commit/b82860c25d4fe4e1336642ab95843f03b5fb779f))
+* **ci:** adopt merge queue for protected branches ([4cf17fb](https://github.com/theory-cloud/TableTheory/commit/4cf17fb6d93ce9d3c9a0f245b22f1218287be089))
+* **cli:** add DMS validate and codegen ([990c07b](https://github.com/theory-cloud/TableTheory/commit/990c07ba97f52129a155a2ddc21909e7f6701adf))
+* **cli:** add init scaffold command ([d625d6e](https://github.com/theory-cloud/TableTheory/commit/d625d6ef26a0d598bae6190dac6e37499d442fce))
+* **cli:** generate CDK table constructs from DMS ([d220248](https://github.com/theory-cloud/TableTheory/commit/d220248985a2f88c4968bb8eedb1f88e810eb275))
+* **contract:** add cross-runtime interop scenario support ([509b103](https://github.com/theory-cloud/TableTheory/commit/509b103cab64e939241727819a59324e0e3c1942))
+* **contract:** add GSI projection P1 scenarios ([b058043](https://github.com/theory-cloud/TableTheory/commit/b0580435dd7cdd6952bb54cfdfbfe78e91175c9f))
+* **contract:** add key-contract v0.2 transforms spec ([338d8f3](https://github.com/theory-cloud/TableTheory/commit/338d8f38afd1319007b8e7d90346442c9225e839))
+* **contract:** add naming and encryption parity scenarios ([2cf26b6](https://github.com/theory-cloud/TableTheory/commit/2cf26b6338efe6ab60f8531156045080fbf5e147))
+* **contract:** add native count P1 scenario ([46ad3ca](https://github.com/theory-cloud/TableTheory/commit/46ad3ca9b1c577bdf29ab666eed17083fcb76a6e))
+* **contract:** add optional get P1 scenario ([70f4237](https://github.com/theory-cloud/TableTheory/commit/70f423716efea46238ca582f78d862e583ee92a0))
+* **contract:** add pagination cursor scenarios ([c036ba5](https://github.com/theory-cloud/TableTheory/commit/c036ba50f2240bdb55267c093ea6794a55347116))
+* **contract:** add query and scan ops to the scenario harness ([f2d7f37](https://github.com/theory-cloud/TableTheory/commit/f2d7f37311a1a5edadf59291e4597af08fd4e0b8))
+* **contract:** add query semantics P1 scenarios ([b351bcc](https://github.com/theory-cloud/TableTheory/commit/b351bcc3b710f12b00c5dc13b2888f928e965659))
+* **contract:** add transaction and lazy iteration scenarios ([49d7686](https://github.com/theory-cloud/TableTheory/commit/49d76862f1908fe2ae8246629b138332e168f8eb))
+* **contract:** add type matrix P0 scenario ([87c852b](https://github.com/theory-cloud/TableTheory/commit/87c852b6cc56ad2b19cabf26ccf0fdd6a8af065b))
+* **contract:** add version-conflict error scenario ([fc57f56](https://github.com/theory-cloud/TableTheory/commit/fc57f56c1e756fb590890c0fa095f1bf48ca40b6))
+* **contract:** generate runner models from DMS ([6012701](https://github.com/theory-cloud/TableTheory/commit/6012701977aff5fe8b8e8ef91d91982dfd69de76))
+* **contract:** implement item_equals and cursor_equals assertions ([af9d827](https://github.com/theory-cloud/TableTheory/commit/af9d827cd9db11651e8f5613962fa46890540e28))
+* **contract:** pin exact number precision scenario ([df1855e](https://github.com/theory-cloud/TableTheory/commit/df1855e02c45f04b85d212647e40c6bb6342a759))
+* **core:** remove non-atomic Transaction API in favor of Transact() ([5241ba1](https://github.com/theory-cloud/TableTheory/commit/5241ba10eabc3801fbc9ec48e42d7c8ab319b148))
+* **core:** require typed schema options ([9d86388](https://github.com/theory-cloud/TableTheory/commit/9d86388032785702ee5f877eb8aab06b0b698ea3))
+* **docs:** generate API references from source ([88c7d94](https://github.com/theory-cloud/TableTheory/commit/88c7d9445662bfac78856e199c73db7ef9773369))
+* **docs:** ship generative-coding artifacts ([feb423e](https://github.com/theory-cloud/TableTheory/commit/feb423e4a8c5d6e3d13e8c88a12497e04e555dba))
+* **examples:** add DynamoDB-Local variant to cdk-multilang ([dcf1867](https://github.com/theory-cloud/TableTheory/commit/dcf18678dbefca5a2ac55ed19a7ec5c63a2d4855))
+* **examples:** add one-command Go local quickstart ([35635a9](https://github.com/theory-cloud/TableTheory/commit/35635a9c34770cbb1d69687db3d02f8bb4bfa613))
+* **go:** add injectable DynamoDB client constructor ([9f4d17a](https://github.com/theory-cloud/TableTheory/commit/9f4d17ab756f3a66615ca3d8bd275aa20817cb3f))
+* **go:** add state-backed DynamoDB fake ([f36cc70](https://github.com/theory-cloud/TableTheory/commit/f36cc709f699bfa1991458a1c565c8d97327c9a0))
+* **keycontract:** implement v0.2 transforms across runtimes ([041cc73](https://github.com/theory-cloud/TableTheory/commit/041cc7303b21e23e22df277639ad30b0dff76ca2))
+* **make:** add rubric-fast contributor gate ([579b0a7](https://github.com/theory-cloud/TableTheory/commit/579b0a78fdd9903cebddcf2d947ace97936259bb))
+* promote TableTheory product strengthening program ([5130b5d](https://github.com/theory-cloud/TableTheory/commit/5130b5dd35e66b05a3ca4ce2020dd8d659007a26))
+* **py:** add DMS equivalence gate ([f169d2a](https://github.com/theory-cloud/TableTheory/commit/f169d2a783c26be98acaada344f6c06b4597074a))
+* **py:** add native query and scan count ([21b50d2](https://github.com/theory-cloud/TableTheory/commit/21b50d2ae2f13df5a3ab32c872593593c5d94767))
+* **py:** add optional get API ([cb4c52d](https://github.com/theory-cloud/TableTheory/commit/cb4c52d305662712929b10aaf57c8c57831711be))
+* **py:** add schema migration and transform support ([7ef69c1](https://github.com/theory-cloud/TableTheory/commit/7ef69c17e9b83c76e93174637af972bcd032cc76))
+* **py:** add stateful DynamoDB testkit fake ([4616356](https://github.com/theory-cloud/TableTheory/commit/46163564d5bfc9051b988f8c0d914d7f5666a03d))
+* **py:** add tabletheory_py canonical import alias ([58723c2](https://github.com/theory-cloud/TableTheory/commit/58723c2e01ad9ec270b2cfdef43f3803f4c9e442))
+* **py:** make tabletheory_py the canonical package ([ea60a1a](https://github.com/theory-cloud/TableTheory/commit/ea60a1a4ac0ae80e716b9917e38824218840792a))
+* **py:** remove legacy theorydb_py shim ([2aa4a46](https://github.com/theory-cloud/TableTheory/commit/2aa4a4625362f5a69829efe9dbcd64996648ca66))
+* **py:** support Python 3.12+ ([e1100ac](https://github.com/theory-cloud/TableTheory/commit/e1100accb49d2c59cfe862de985074ccfa4352fd))
+* **query:** add optional first helper in Go ([9b6eec3](https://github.com/theory-cloud/TableTheory/commit/9b6eec30a3de5a3f748d19c60e297fccffd5a819))
+* **query:** remove deprecated MainExecutor ([90997b4](https://github.com/theory-cloud/TableTheory/commit/90997b4069809dd41a93cc15143fa9842daf73fa))
+* **query:** use native DynamoDB count in Go ([c2467dc](https://github.com/theory-cloud/TableTheory/commit/c2467dc7e47a08c9b0ef03f2ff35f453b5f2359a))
+* **release:** publish pip find-links index for Python releases ([fe4ebbb](https://github.com/theory-cloud/TableTheory/commit/fe4ebbbd49fc4c16db6c9a3182285ede3ee9a48b))
+* **release:** publish tabletheory CLI as a release asset ([adf1e3d](https://github.com/theory-cloud/TableTheory/commit/adf1e3d16af754438895a26fa06e72509fc70138))
+* **ts:** add DMS equivalence gate ([688217c](https://github.com/theory-cloud/TableTheory/commit/688217cd2375479426faf7a4c8b1b1b80ce6bb80))
+* **ts:** add domain subpath exports ([eceff7a](https://github.com/theory-cloud/TableTheory/commit/eceff7ac19716b0c89a85205900729c933bf81dd))
+* **ts:** add exact number unmarshal mode ([54ecfcc](https://github.com/theory-cloud/TableTheory/commit/54ecfcc3f3d915e5016ecfff135565217b8c2da5))
+* **ts:** add native query and scan count ([f6d2030](https://github.com/theory-cloud/TableTheory/commit/f6d2030a05a691e1c38ed1c81f1b66928a8a8ee2))
+* **ts:** add optional get API ([66840a0](https://github.com/theory-cloud/TableTheory/commit/66840a07ffb286ed4cd92ef9baf35f5f59ca8d42))
+* **ts:** add schema migration and transform support ([6753cc5](https://github.com/theory-cloud/TableTheory/commit/6753cc51972de00da784e81aed90ed5ae62170b6))
+* **ts:** add stateful DynamoDB testkit fake ([01c9e06](https://github.com/theory-cloud/TableTheory/commit/01c9e06090239b97f2976739d9d13c15d4d0bfa9))
+* **ts:** declare AWS SDK clients as peer dependencies ([0353a2f](https://github.com/theory-cloud/TableTheory/commit/0353a2f0d0fc40b318d27db1536f4fb8c0779e5e))
+* **ts:** default to precision-safe number unmarshaling ([7813d7e](https://github.com/theory-cloud/TableTheory/commit/7813d7e193f41319cdd72c9266a75f126a496238))
+* **ts:** ground optimizer index selection ([2f3af60](https://github.com/theory-cloud/TableTheory/commit/2f3af609f2dfe0e9cb802dac963ac7eaec0b884c))
+* **ts:** move domain helpers to subpath exports ([54d8cc0](https://github.com/theory-cloud/TableTheory/commit/54d8cc09800defb988af9d49ab74ae633c07dfc4))
+* **ts:** support Node 20 LTS and CommonJS consumers ([5e039c9](https://github.com/theory-cloud/TableTheory/commit/5e039c91ece867ff1881daf9504adb312b1cc380))
+
+
+### Bug Fixes
+
+* **ci:** accept unnumbered release-please RC PRs ([e5c26aa](https://github.com/theory-cloud/TableTheory/commit/e5c26aae6e306f6c4eee068b2cdea04f07d9b080))
+* **ci:** accept unnumbered release-please RC PRs ([bfc8e52](https://github.com/theory-cloud/TableTheory/commit/bfc8e529af69383619872b6fa48a37e18c689c44))
+* **ci:** allow pinned runtime matrices in toolchain check ([7285b0c](https://github.com/theory-cloud/TableTheory/commit/7285b0cb0cef11a6ad4318759c1e15471735c850))
+* **ci:** select v2 verifiers for protected promotions ([9e447d4](https://github.com/theory-cloud/TableTheory/commit/9e447d4a15bcc6abd606f94217b38f3a8a75b6a2))
+* **ci:** select v2 verifiers for protected promotions ([b8d3cd2](https://github.com/theory-cloud/TableTheory/commit/b8d3cd2c7ccb673a8d3a47a1aa4f0496ebe6cb50))
+* **ci:** support premain compatibility checks ([dfdcf97](https://github.com/theory-cloud/TableTheory/commit/dfdcf97f3444f6cb2e8c8aceaa7097e209a9ba7b))
+* **ci:** support premain compatibility checks ([5dd6bde](https://github.com/theory-cloud/TableTheory/commit/5dd6bdeeda4dc3735f70947a731e6893f47496f1))
+* **cli:** show persisted version in Go scaffold ([ed96d22](https://github.com/theory-cloud/TableTheory/commit/ed96d22d6327a384352a86c8d702ad120f353c4e))
+* complete M6 review rework ([1e866c8](https://github.com/theory-cloud/TableTheory/commit/1e866c89999fb054041e83984a59ef3281e81fef))
+* **contract:** assert DynamoDB numbers as canonical decimal strings ([e14c485](https://github.com/theory-cloud/TableTheory/commit/e14c485f8f1d088f92b029900f7e03812dd66d9b))
+* **contract:** fail closed on interop read assertions ([929a101](https://github.com/theory-cloud/TableTheory/commit/929a101c8fd46de0bb1bb297fb07c8f9ce41ca10))
+* **contract:** map encryption error codes in Go driver ([85eeeea](https://github.com/theory-cloud/TableTheory/commit/85eeeea9b46ea6a008f63e6e8e7c7a7745f6b95b))
+* **contract:** use consistent reads for raw-item assertions in all runners ([3758b21](https://github.com/theory-cloud/TableTheory/commit/3758b215772744eada1dea44029c73d05ef8d9be))
+* **dms:** align naming convention enum ([8e76cdc](https://github.com/theory-cloud/TableTheory/commit/8e76cdcd529baa16a38e42bb45cd0ff9cb3cc18e))
+* **dms:** make Python codegen dataclass ordering safe ([0e7f7a4](https://github.com/theory-cloud/TableTheory/commit/0e7f7a41734c7a774359763bedbec2f35e3082e5))
+* **go:** classify AWS errors with errors.As ([45efbf3](https://github.com/theory-cloud/TableTheory/commit/45efbf3d1f92ff877a892cf3816e3a8b82267a06))
+* **go:** distinguish version conflict errors ([0c83ff1](https://github.com/theory-cloud/TableTheory/commit/0c83ff1a952027eb11b4d6ee4ac66ecf07c62624))
+* **go:** satisfy update executor lint ([6718067](https://github.com/theory-cloud/TableTheory/commit/6718067662ea710fa4e4d3452290eb3dddd29b38))
+* **gov:** store repo-relative evidence paths in rubric report ([4684391](https://github.com/theory-cloud/TableTheory/commit/46843919e80afdd120deb5be7ac3d9ea55d13c42))
+* keep correctness-trap deprecations lint-clean ([5c0052a](https://github.com/theory-cloud/TableTheory/commit/5c0052a8a8590e2e9d673ef7c64ba5bd57a52fc1))
+* **lambda:** return cached init error instead of (nil, nil) after failed cold start ([ad0837a](https://github.com/theory-cloud/TableTheory/commit/ad0837af2bf756ed59f8248b0ae78d0d876baf37))
+* **lambda:** synchronize lambdaTimeoutBuffer access ([ecd8e40](https://github.com/theory-cloud/TableTheory/commit/ecd8e40dacfd70607ed60f573c9e8d9974efd061))
+* **lambda:** synchronize timeout buffer reads ([353edb8](https://github.com/theory-cloud/TableTheory/commit/353edb859273f235365f94e90502cf8cfefed3c7))
+* **mocks:** fail assertions instead of panicking on type mismatches ([02bd5ec](https://github.com/theory-cloud/TableTheory/commit/02bd5ec0dae0ac61bd90030670e619620ec89796))
+* **model:** improve tag validation diagnostics ([efc8484](https://github.com/theory-cloud/TableTheory/commit/efc8484d563382923760ff1f0a7ee862a2563f8b))
+* **py:** distinguish version conflict errors ([cf76ce4](https://github.com/theory-cloud/TableTheory/commit/cf76ce4d96db5426362e836ab339b832b6da6758))
+* **py:** keep count helpers within size gate ([96fb8e7](https://github.com/theory-cloud/TableTheory/commit/96fb8e7d0cdbfbb507b622763407b99858085903))
+* **py:** keep key contract exports lazy ([961c10f](https://github.com/theory-cloud/TableTheory/commit/961c10ff77d58a46075a8a51d44a19f5723845a8))
+* **py:** keep storage type helper typed for build verification ([95a7dde](https://github.com/theory-cloud/TableTheory/commit/95a7ddeb7a9a61a459125d5acffa64154baeb016))
+* **py:** preserve legacy shims without wildcards ([b29800a](https://github.com/theory-cloud/TableTheory/commit/b29800af29339d4ecbf33e4207c809213b87dc80))
+* **py:** reject unsupported union annotations and unify storage-type resolution ([64c2ad1](https://github.com/theory-cloud/TableTheory/commit/64c2ad1221416d650081f1a048c03404edb24751))
+* **query:** keep native count gates green ([9fbac15](https://github.com/theory-cloud/TableTheory/commit/9fbac15eff90809139cd03dc0d648e40d8f09492))
+* **release:** accept release-please first RC publishing ([e117879](https://github.com/theory-cloud/TableTheory/commit/e1178795dd6df7130cc6558a875b1ee4848f4701))
+* **release:** accept release-please first RC publishing ([0d0873e](https://github.com/theory-cloud/TableTheory/commit/0d0873e9b8d6603d1ef9456053134a7796d7d50b))
+* **release:** read branch-sync JSON from git refs ([c7da8e7](https://github.com/theory-cloud/TableTheory/commit/c7da8e7e37a04af6003735d04882ce8c79bb3818))
+* **release:** read branch-sync JSON from git refs ([aec7779](https://github.com/theory-cloud/TableTheory/commit/aec7779fee10c21e59c45a9b022cc7cd14440a13))
+* **release:** tolerate Python version path transition ([f698ffd](https://github.com/theory-cloud/TableTheory/commit/f698ffd3c1162c2c88b36a1756d4fe33dd1b4440))
+* resolve PR export checks ([9c7bee4](https://github.com/theory-cloud/TableTheory/commit/9c7bee47f98869673c112900cb79113e05ce4fed))
+* **rubric:** enforce generated model drift gate ([8c1673d](https://github.com/theory-cloud/TableTheory/commit/8c1673deedd16382388e8ad9fbc9060713b8409a))
+* **testing:** return explicit error from DefaultDBFactory instead of nil DB ([a3bcb5b](https://github.com/theory-cloud/TableTheory/commit/a3bcb5beeb47fa44cd854294ac0a76b2822f369c))
+* **transaction:** document non-atomic DB.Transaction and deprecate in favor of Transact() ([371cb04](https://github.com/theory-cloud/TableTheory/commit/371cb04628d77afc345b8eea4fb82ec22344d04c))
+* **ts:** build package exports in unit test ([2a9ebb1](https://github.com/theory-cloud/TableTheory/commit/2a9ebb12109443e02125883e0e913d715c0b2a45))
+* **ts:** distinguish version conflict errors ([e509a72](https://github.com/theory-cloud/TableTheory/commit/e509a7299a360d4365e626d79440fffc0a255829))
+
 ## [1.10.1](https://github.com/theory-cloud/TableTheory/compare/v1.10.0...v1.10.1) (2026-06-18)
 
 
