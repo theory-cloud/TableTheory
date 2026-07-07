@@ -231,23 +231,6 @@ jobs:
             echo "head=${queued_head}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Verify human promotion release driver
-        if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
-        working-directory: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          set -euo pipefail
-
-          bash ../trusted-release/scripts/verify-promotion-release-driver.sh \
-            --repo "${GITHUB_REPOSITORY}" \
-            --base "${GITHUB_BASE_REF}" \
-            --head "${GITHUB_HEAD_REF}" \
-            --pr "${PR_NUMBER}"
-
       - name: Resolve release verifier source
         if: github.event_name == 'pull_request'
         id: verifier-source
@@ -314,6 +297,11 @@ jobs:
               "accept release-please first RC and numbered later RC version syntax" "release-please first-RC version marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
               "release-please v5" "release-please-action v5 policy marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-promotion-release-driver.sh" \
+              "manifest-derived stable Release-As" "manifest-derived stable promotion marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "release-hygiene must run the promotion driver from the resolved verifier source" \
+              "resolved promotion-driver supply-chain marker" "${reasons_name}"
           }
 
           trusted_reasons=()
@@ -345,6 +333,25 @@ jobs:
             echo "label=${verifier_label}"
           } >> "${GITHUB_OUTPUT}"
           echo "release-verifier-source: selected ${verifier_label} (${verifier_root})"
+
+      - name: Verify human promotion release driver
+        if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
+        working-directory: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          VERIFIER_ROOT: ${{ steps.verifier-source.outputs.root }}
+          VERIFIER_LABEL: ${{ steps.verifier-source.outputs.label }}
+        run: |
+          set -euo pipefail
+          echo "promotion-release-driver: using ${VERIFIER_LABEL} verifier source (${VERIFIER_ROOT})"
+          bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base "${GITHUB_BASE_REF}" \
+            --head "${GITHUB_HEAD_REF}" \
+            --pr "${PR_NUMBER}"
 
       - name: Verify release cycle state
         if: github.event_name == 'pull_request'

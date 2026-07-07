@@ -64,7 +64,9 @@ published requires:
 - **post-release sync**: back-merge `main` into `staging` so the next cycle starts from the latest stable baseline
 - **in-flight RC repair (exceptional)**: when `premain` already contains `staging` and RC release content must be
   reconciled back into `staging` to avoid forward merge conflicts, open a premain-derived repair PR back to `staging`.
-  This is not the normal release hop and must remain provenance-verified as a repair state.
+  Follow-up repair PRs to `staging` may preserve that already-accepted RC manifest until stable publication, but must be
+  based on current `staging` and must not change the RC baseline. This is not the normal release hop and must remain
+  provenance-verified as a repair state.
 
 The cross-framework release lane is exactly `staging -> premain -> main -> staging`. `staging` is the only branch that
 requires the full gov-infra rubric, and only on PRs targeting `staging` plus manual workflow dispatch. PRs targeting
@@ -153,7 +155,8 @@ Release watchpoints and stop conditions:
 - Stop if `main` carries an RC manifest outside explicit single-manifest pending stable promotion.
 - Stop if `.release-please-manifest.json` is an RC version on `staging`, unless the PR is a verified in-flight premain RC
   repair where `premain` already contains `staging` and the release content is being reconciled to avoid forward merge
-  conflicts. Stop if the retired `.release-please-manifest.premain.json` appears on release branches.
+  conflicts, or a verified follow-up repair that preserves the already-accepted `staging` RC manifest before stable
+  publication. Stop if the retired `.release-please-manifest.premain.json` appears on release branches.
 - Stop if `premain` release track is behind `origin/main`, or if `staging` lacks the latest stable baseline after a stable
   release.
 - Stop if SEC-2/govulncheck still observes Go `1.26.3`, COM-8 branch/version sync fails, or release-please opens a
