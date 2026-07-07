@@ -20,13 +20,41 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Verify release cycle state
+      - name: Classify release cycle state
+        id: cycle
         run: |
-          bash scripts/verify-branch-version-sync.sh
-          bash scripts/verify-release-cycle-state.sh
+          set -euo pipefail
+
+          strict_log="$(mktemp)"
+          repair_log="$(mktemp)"
+          cleanup() {
+            rm -f "${strict_log}" "${repair_log}"
+          }
+          trap cleanup EXIT
+
+          if {
+            bash scripts/verify-branch-version-sync.sh
+            bash scripts/verify-release-cycle-state.sh
+          } >"${strict_log}" 2>&1; then
+            cat "${strict_log}"
+            echo "pending_stable_repair=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          if bash scripts/verify-premain-pending-stable-repair.sh >"${repair_log}" 2>&1; then
+            cat "${repair_log}"
+            echo "prerelease-pr: pending stable repair accepted; skipping RC PR generation"
+            echo "pending_stable_repair=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          cat "${strict_log}"
+          cat "${repair_log}"
+          exit 1
 
       - name: Release Please (PR only)
         id: release
+        if: steps.cycle.outputs.pending_stable_repair != 'true'
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
@@ -36,6 +64,7 @@ jobs:
           skip-github-release: true
 
       - name: Verify prerelease Release PR postcondition
+        if: steps.cycle.outputs.pending_stable_repair != 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
