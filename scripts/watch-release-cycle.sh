@@ -334,7 +334,7 @@ if [[ "${skip_github}" -eq 0 ]] && command -v gh >/dev/null 2>&1 && gh auth stat
         2>/dev/null || true
     )"
     if [[ -z "${pending_prs}" ]]; then
-      fail "origin/main pending stable promotion ${main_pending_version} has no open stable release-please PR; pause and investigate"
+      fail "origin/main pending stable promotion ${main_pending_version} has no open stable Release PR; pause and investigate"
     else
       while IFS= read -r pr; do
         pass "pending stable promotion has open stable release PR: ${pr}"

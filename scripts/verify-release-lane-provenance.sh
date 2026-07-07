@@ -4,7 +4,7 @@ set -euo pipefail
 # Read-only provenance guard for release-lane pull requests. It rejects branch
 # name spoofing by requiring the PR head/base repositories to be this repository.
 # By default it also verifies the PR head/base SHAs against live same-repository
-# branch refs for the manual-freeze fallback. In the normal v2 path,
+# branch refs for the manual-freeze mode. In the normal v2 path,
 # --queue-freshness delegates that live-ref freshness guard to the protected
 # branch merge queue while retaining same-repository and release-branch checks.
 

@@ -129,24 +129,24 @@ Stable promotion path:
 - Open the promotion PR from `premain` to `main` and merge it through the merge queue; do not create a local
   stable-normalization branch as the normal path.
 - After the `premain` -> `main` promotion merges, `main` may briefly contain a single-manifest RC. This state is allowed
-  only until `.github/workflows/release-pr.yml` opens the stable release-please PR and that PR merges.
+  only until `.github/workflows/release-pr.yml` opens the deterministic stable Release PR and that PR merges.
 - Pending stable promotion is explicit automation state only:
   `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true` may be used by the release workflows to verify the single-manifest
   RC on `main`, and `.github/workflows/release.yml` must skip stable release creation while that state is present.
 - `.github/workflows/release-pr.yml` computes the stable `release-as` value from the single-manifest RC baseline (for
-  THE-1869, `1.9.3`) and opens the stable release-please PR.
-- The stable release-please PR must normalize `.release-please-manifest.json` and `CHANGELOG.md` to stable state.
+  THE-1869, `1.9.3`) and opens the deterministic stable Release PR.
+- The stable Release PR must normalize `.release-please-manifest.json` and `CHANGELOG.md` to stable state.
   TypeScript/Python asset versions are generated from `tag_name` at release-build time and must not be committed by the
   release workflow.
-- After the stable release-please PR merges, strict stable state is required again: run
+- After the stable Release PR merges, strict stable state is required again: run
   `bash scripts/verify-release-cycle-state.sh` without the pending env var, and confirm the single manifest is stable.
-- If pending state persists because release-please did not open the stable PR, pause and investigate the workflow/check
+- If pending state persists because release-pr.yml did not open the stable PR, pause and investigate the workflow/check
   failure. Do not patch `main`, retag, edit releases, or hand-edit manifests to advance the cycle.
 - After the stable release is published, do not let CI push sync commits to `premain` or `staging`. The next operator step
   is a normal PR backmerge from `main` to `staging`; `premain` receives that baseline through the next
   `staging` -> `premain` promotion.
-- No local stable-normalization helper is part of the normal path. Stable manifest and changelog normalization belong to
-  the generated stable release-please PR; post-stable baseline sync belongs to a normal `main` -> `staging` PR.
+- No manual local stable-normalization helper is part of the normal path. Stable manifest and changelog normalization belong to
+  the workflow-generated deterministic stable Release PR; post-stable baseline sync belongs to a normal `main` -> `staging` PR.
 
 Release watchpoints and stop conditions:
 
@@ -161,7 +161,7 @@ Release watchpoints and stop conditions:
   release.
 - Stop if SEC-2/govulncheck still observes Go `1.26.3`, COM-8 branch/version sync fails, or release-please opens a
   stable PR for an RC version.
-- Stop if `main` remains in pending stable promotion and no stable release-please PR opens for the computed stable
+- Stop if `main` remains in pending stable promotion and no stable Release PR opens for the computed stable
   version.
 - Stop if release-please reports "No user facing commits" on a `premain` or `main` gate. Fix the staging content, PR
   squash title, or `Release-As:` footer through normal PR flow; do not recover through tags, resets, direct pushes,

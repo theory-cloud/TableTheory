@@ -27,9 +27,9 @@ Recovery must stay inside the normal protected-branch and release-please flow:
 5. After verifying that `v1.9.3-rc.1` is published, non-draft, marked prerelease, tagged, and asset-complete, promote
    `premain` to `main` through a PR.
 6. Let `release.yml` skip stable publishing during the temporary pending stable-promotion state.
-7. Let `release-pr.yml` open the stable release-please PR with `release-as: 1.9.3`. If pending stable promotion persists
+7. Let `release-pr.yml` open the deterministic stable Release PR with `release-as: 1.9.3`. If pending stable promotion persists
    without an open generated stable PR, stop and investigate the workflow instead of patching `main` by hand.
-8. Merge the stable release-please PR; release-please must normalize `.release-please-manifest.json` and `CHANGELOG.md`
+8. Merge the deterministic stable Release PR; it must normalize `.release-please-manifest.json` and `CHANGELOG.md`
    to `1.9.3`. TypeScript/Python asset versions are generated from the stable tag in the release-build workspace and are
    verified inside the tarball/wheel/sdist before upload.
 9. Let CI publish the generated immutable `v1.9.3` stable release.
@@ -39,7 +39,7 @@ Recovery must stay inside the normal protected-branch and release-please flow:
 During this recovery, a reconciliation PR to `staging` may merge current `premain` first to surface promotion conflicts
 before they reach `main`; it must still keep `.release-please-manifest.json` coherent with the single-manifest lane and
 must not reintroduce retired prerelease manifests or committed RC package-version churn. Any pending stable-promotion
-state is resolved by the generated stable release-please PR plus the normal `main` -> `staging` backmerge after `v1.9.3`
+state is resolved by the generated deterministic stable Release PR plus the normal `main` -> `staging` backmerge after `v1.9.3`
 publishes.
 
 ## Stop Conditions
