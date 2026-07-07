@@ -38,6 +38,10 @@ TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` 
 - A `premain` -> `main` PR is valid only when the single manifest carries a numbered RC that can become stable. The
   follow-up deterministic Release PR targeting `main` must be stable-shaped; RC-shaped main release PRs and releases
   are forbidden.
+- While `main` is already in the explicit pending stable-promotion state, a release-CI repair that reaches `premain`
+  must not start another prerelease cycle. Premain prerelease workflows verify that `premain` and `origin/main` carry the
+  exact same RC plus deterministic stable Release PR support, then no-op cleanly until the repaired `premain` can promote
+  to `main`.
 - A **release** is cut by merging the stable Release PR, which normalizes `.release-please-manifest.json` and
   `CHANGELOG.md` to stable state before the stable release workflow publishes `vX.Y.Z`.
 - After the stable release publishes, the next operator step is a normal PR backmerge from `main` to `staging`; `premain`

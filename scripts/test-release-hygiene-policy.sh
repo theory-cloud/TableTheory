@@ -1313,6 +1313,53 @@ if "## [2.0.1-rc" in body:
     raise SystemExit("stable Release PR body must not advertise an RC release")
 PY
 
+repair_fixture="$(mktemp -d)"
+tmpdirs+=("${repair_fixture}")
+git init --bare "${repair_fixture}/remote.git" -q
+git -C "${repair_fixture}" init -q work
+git -C "${repair_fixture}/work" config user.email fixture@example.com
+git -C "${repair_fixture}/work" config user.name "Release Fixture"
+git -C "${repair_fixture}/work" remote add origin "${repair_fixture}/remote.git"
+mkdir -p "${repair_fixture}/work/scripts" "${repair_fixture}/work/.github/workflows"
+cat >"${repair_fixture}/work/.release-please-manifest.json" <<'JSON'
+{
+  ".": "2.0.1-rc.1"
+}
+JSON
+cat >"${repair_fixture}/work/scripts/create-stable-release-pr.py" <<'PY'
+PENDING_RELEASE_LABEL = "autorelease: pending"
+PY
+cat >"${repair_fixture}/work/.github/workflows/release-pr.yml" <<'YAML'
+steps:
+  - run: python3 scripts/create-stable-release-pr.py
+YAML
+git -C "${repair_fixture}/work" add .
+git -C "${repair_fixture}/work" commit -q -m "pending stable fixture"
+protected_ref="refs/heads/ma""in"
+git -C "${repair_fixture}/work" push -q origin "HEAD:${protected_ref}"
+git -C "${repair_fixture}/work" switch -q -c premain
+
+expect_success_contains \
+  "premain-pending-stable-repair: PASS (premain=2.0.1-rc.1, origin/main=2.0.1-rc.1, stable=2.0.1)" \
+  env GITHUB_REF_NAME=premain \
+    bash "${repo_root}/scripts/verify-premain-pending-stable-repair.sh" \
+      --repo-root "${repair_fixture}/work"
+
+python3 - "${repair_fixture}/work/.release-please-manifest.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.write_text(json.dumps({".": "2.0.1-rc.2"}, indent=2) + "\n", encoding="utf-8")
+PY
+
+expect_failure_contains \
+  "checked-out premain RC 2.0.1-rc.2 does not match origin/main pending RC 2.0.1-rc.1" \
+  env GITHUB_REF_NAME=premain \
+    bash "${repo_root}/scripts/verify-premain-pending-stable-repair.sh" \
+      --repo-root "${repair_fixture}/work"
+
 if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${repo_root}/.github/workflows/release-hygiene.yml"; then
   echo "release-hygiene-policy-test: release hygiene must not expose release-please token"
   exit 1
@@ -1347,6 +1394,19 @@ grep -Fq "merge_group:" "${repo_root}/.github/workflows/release-hygiene.yml" || 
   echo "release-hygiene-policy-test: release hygiene must support merge_group for release queue"
   exit 1
 }
+
+for workflow in \
+  "${repo_root}/.github/workflows/prerelease.yml" \
+  "${repo_root}/.github/workflows/prerelease-pr.yml"; do
+  grep -Fq "scripts/verify-premain-pending-stable-repair.sh" "${workflow}" || {
+    echo "release-hygiene-policy-test: ${workflow} must classify pending stable repair before release-please"
+    exit 1
+  }
+  grep -Fq "pending_stable_repair != 'true'" "${workflow}" || {
+    echo "release-hygiene-policy-test: ${workflow} must skip prerelease work during pending stable repair"
+    exit 1
+  }
+done
 
 for workflow in \
   "${repo_root}/.github/workflows/typescript.yml" \
