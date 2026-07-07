@@ -14,9 +14,9 @@
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "3.1079.0",
-    "@aws-sdk/client-kms": "3.1079.0",
-    "@aws-sdk/client-s3": "3.1079.0",
+    "@aws-sdk/client-dynamodb": "3.1080.0",
+    "@aws-sdk/client-kms": "3.1080.0",
+    "@aws-sdk/client-s3": "3.1080.0",
     "aws-cdk-lib": "2.261.0",
     "constructs": "10.6.0"
   },
