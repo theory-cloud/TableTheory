@@ -8,7 +8,7 @@ package mocks
 import (
 	"fmt"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
 )
 
 // 🏗️ STEP 1: Define your model
@@ -70,7 +70,7 @@ func (s *UserService) UpdateUserEmail(id, newEmail string) error {
 /*
 Package Usage Summary:
 
-1. Import the mocks: import "github.com/theory-cloud/tabletheory/pkg/mocks"
+1. Import the mocks: import "github.com/theory-cloud/tabletheory/v2/pkg/mocks"
 
 2. Create mock instances:
    mockDB := new(mocks.MockDB)

@@ -8,8 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/model"
-	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
+	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
 )
 
 func TestSafeMarshaler_getOrBuildSafeStructMarshaler_RebuildsOnBadCache_COV6(t *testing.T) {

@@ -75,7 +75,9 @@ require_file() {
 }
 
 required_files=(
+  "go.mod"
   "scripts/prepare-release-package-versions.py"
+  "scripts/verify-go-semantic-import-version.sh"
   "scripts/verify-release-package-version-assets.py"
   "scripts/watch-release-cycle.sh"
   ".release-please-manifest.json"
@@ -87,6 +89,12 @@ required_files=(
 for path in "${required_files[@]}"; do
   require_file "${path}"
 done
+
+if [[ "${failures}" -eq 0 ]]; then
+  if ! bash "${script_dir}/verify-go-semantic-import-version.sh" --repo-root "${repo_root}"; then
+    failures=$((failures + 1))
+  fi
+fi
 
 if [[ "${failures}" -eq 0 ]]; then
   if ! release_cycle_verify_local_state "${repo_root}"; then

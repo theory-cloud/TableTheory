@@ -31,11 +31,11 @@ AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 \
 
 ## Installing the runtime
 
-This scaffold pins `github.com/theory-cloud/tabletheory`. TableTheory is distributed
+This scaffold pins `{{.GoModulePath}}`. TableTheory is distributed
 through GitHub Releases; update to a specific release with:
 
 ```bash
-go get github.com/theory-cloud/tabletheory@vX.Y.Z
+go get {{.GoModulePath}}@{{.GoModuleVersion}}
 ```
 
 ## Generative coding artifacts

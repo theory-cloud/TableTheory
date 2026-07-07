@@ -148,7 +148,7 @@ package services
 import (
     "time"
     "github.com/google/uuid"
-    "github.com/theory-cloud/tabletheory/pkg/core"
+    "github.com/theory-cloud/tabletheory/v2/pkg/core"
     "todo-app/models"
 )
 
@@ -330,7 +330,7 @@ import (
     "testing"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/mock"
-    "github.com/theory-cloud/tabletheory/pkg/mocks"
+    "github.com/theory-cloud/tabletheory/v2/pkg/mocks"
     "todo-app/models"
     "todo-app/services"
 )

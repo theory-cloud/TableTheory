@@ -12,7 +12,7 @@ import (
 	kmsTypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/stretchr/testify/require"
 
-	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
 )
 
 type fakeKMS struct {

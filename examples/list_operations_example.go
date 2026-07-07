@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/theory-cloud/tabletheory"
+	"github.com/theory-cloud/tabletheory/v2"
 )
 
 // Product represents a product with tags

@@ -10,8 +10,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/pkg/model"
-	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
+	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
 )
 
 // MarshalerType defines the type of marshaler to use

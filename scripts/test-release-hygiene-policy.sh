@@ -300,12 +300,14 @@ write_v2_verifier_fixture() {
 required_files=(
   "scripts/prepare-release-package-versions.py"
   "py/src/tabletheory_py/version.json"
+  "scripts/verify-go-semantic-import-version.sh"
 )
 SH
   cat >"${root}/scripts/verify-branch-release-supply-chain.sh" <<'SH'
 #!/usr/bin/env bash
 required_files=(
   "scripts/prepare-release-package-versions.py"
+  "scripts/verify-go-semantic-import-version.sh"
 )
 require_fixed "manifest-file:\s*\.release-please-manifest\.json" "${p}" \
   "prerelease workflow must reference the single release-please manifest"
@@ -670,7 +672,13 @@ run_queued_main_cycle_step_fixture() {
     "${fixture}/ts" \
     "${fixture}/py/src/tabletheory_py"
   cp "${repo_root}/scripts/verify-release-cycle-state.sh" "${fixture}/scripts/verify-release-cycle-state.sh"
+  cp "${repo_root}/scripts/verify-go-semantic-import-version.sh" "${fixture}/scripts/verify-go-semantic-import-version.sh"
   cp "${repo_root}/scripts/lib/release-cycle-core.sh" "${fixture}/scripts/lib/release-cycle-core.sh"
+  cat >"${fixture}/go.mod" <<'EOF_GO_MOD'
+module github.com/theory-cloud/tabletheory
+
+go 1.26
+EOF_GO_MOD
   cat >"${fixture}/.release-please-manifest.json" <<'JSON'
 {".":"1.10.1-rc.1"}
 JSON
@@ -965,6 +973,13 @@ touch \
   "${pending_fixture}/scripts/prepare-release-package-versions.py" \
   "${pending_fixture}/scripts/verify-release-package-version-assets.py" \
   "${pending_fixture}/scripts/watch-release-cycle.sh"
+cp "${repo_root}/scripts/verify-go-semantic-import-version.sh" \
+  "${pending_fixture}/scripts/verify-go-semantic-import-version.sh"
+cat >"${pending_fixture}/go.mod" <<'EOF_GO_MOD'
+module github.com/theory-cloud/tabletheory
+
+go 1.26
+EOF_GO_MOD
 
 run_in_pending_fixture() (
   cd "${pending_fixture}"
@@ -1721,6 +1736,11 @@ grep -Fq "pulls/\${PR_NUMBER}/files" "${repo_root}/.github/workflows/release-hyg
 bootstrap_scope_section="$(sed -n '/Verify release-hygiene bootstrap scope/,/Verify release-lane same-repository provenance/p' "${repo_root}/.github/workflows/release-hygiene.yml")"
 grep -Fq "scripts/verify-release-cycle-state.sh" <<<"${bootstrap_scope_section}" || {
   echo "release-hygiene-policy-test: main bootstrap guard must allow verify-release-cycle-state bootstrap repairs"
+  exit 1
+}
+
+grep -Fq "scripts/verify-go-semantic-import-version.sh" <<<"${bootstrap_scope_section}" || {
+  echo "release-hygiene-policy-test: main bootstrap guard must allow Go semantic import verifier bootstrap repairs"
   exit 1
 }
 

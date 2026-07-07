@@ -274,7 +274,7 @@ import (
     "time"
     
     "github.com/aws/aws-lambda-go/lambda"
-    "github.com/theory-cloud/tabletheory"
+    "github.com/theory-cloud/tabletheory/v2"
     "github.com/theory-cloud/limited"
 )
 
@@ -365,7 +365,7 @@ import (
     "fmt"
     "time"
     
-    "github.com/theory-cloud/tabletheory/pkg/core"
+    "github.com/theory-cloud/tabletheory/v2/pkg/core"
     "github.com/theory-cloud/limited"
 )
 
@@ -477,7 +477,7 @@ import (
     "fmt"
     "time"
     
-    "github.com/theory-cloud/tabletheory/pkg/core"
+    "github.com/theory-cloud/tabletheory/v2/pkg/core"
 )
 
 type RateLimitService struct {
@@ -549,7 +549,7 @@ import (
     "time"
     
     "github.com/google/uuid"
-    "github.com/theory-cloud/tabletheory/pkg/core"
+    "github.com/theory-cloud/tabletheory/v2/pkg/core"
 )
 
 type IdempotencyService struct {
@@ -768,7 +768,7 @@ if result.Error != nil {
 Use TableTheory's mock interfaces for unit testing:
 
 ```go
-import "github.com/theory-cloud/tabletheory/pkg/mocks"
+import "github.com/theory-cloud/tabletheory/v2/pkg/mocks"
 
 func TestRateLimit(t *testing.T) {
     mockDB := mocks.NewMockDB()

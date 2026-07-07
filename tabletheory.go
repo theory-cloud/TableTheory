@@ -2,7 +2,7 @@
 //
 // Import path:
 //
-//	import "github.com/theory-cloud/tabletheory"
+//	import "github.com/theory-cloud/tabletheory/v2"
 //
 // Implementation lives in `internal/theorydb` so the repo root stays minimal.
 package tabletheory
@@ -13,11 +13,11 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	internaltheorydb "github.com/theory-cloud/tabletheory/internal/theorydb"
-	"github.com/theory-cloud/tabletheory/pkg/core"
-	"github.com/theory-cloud/tabletheory/pkg/schema"
-	"github.com/theory-cloud/tabletheory/pkg/session"
-	"github.com/theory-cloud/tabletheory/pkg/typed"
+	internaltheorydb "github.com/theory-cloud/tabletheory/v2/internal/theorydb"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
+	"github.com/theory-cloud/tabletheory/v2/pkg/schema"
+	"github.com/theory-cloud/tabletheory/v2/pkg/session"
+	"github.com/theory-cloud/tabletheory/v2/pkg/typed"
 )
 
 type (

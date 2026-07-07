@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/examples/blog/models"
+	"github.com/theory-cloud/tabletheory/v2/examples/blog/models"
 )
 
 // NotificationType represents the type of notification
