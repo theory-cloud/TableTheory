@@ -7,7 +7,7 @@
 - id: go
   label: Go
   icon: go-mark
-  install: "go get github.com/theory-cloud/tabletheory@vX.Y.Z"
+  install: "go get github.com/theory-cloud/tabletheory/v2@vX.Y.Z"
   lang: go
   snippet: |
     package main
@@ -16,7 +16,7 @@
         "log"
 
         "github.com/aws/aws-lambda-go/lambda"
-        "github.com/theory-cloud/tabletheory"
+        "github.com/theory-cloud/tabletheory/v2"
     )
 
     // Models are plain Go structs with theorydb: + json: struct tags.

@@ -43,6 +43,7 @@ write_version_files() {
   local py="$5"
   local toolchain="${6:-go1.26.4}"
   local py_path_mode="${7:-canonical}"
+  local go_major module_path
 
   mkdir -p \
     "${root}/ts" \
@@ -77,7 +78,13 @@ write_version_files() {
       exit 1
       ;;
   esac
-  printf 'module fixture\n\ngo 1.26\ntoolchain %s\n' "${toolchain}" >"${root}/go.mod"
+  go_major="${stable#v}"
+  go_major="${go_major%%.*}"
+  module_path="github.com/theory-cloud/tabletheory"
+  if [[ "${go_major}" =~ ^[0-9]+$ && "${go_major}" -ge 2 ]]; then
+    module_path="${module_path}/v${go_major}"
+  fi
+  printf 'module %s\n\ngo 1.26\ntoolchain %s\n' "${module_path}" "${toolchain}" >"${root}/go.mod"
   printf 'module fixture/example\n\ngo 1.26\ntoolchain %s\n' "${toolchain}" >"${root}/examples/multi-tenant/go.mod"
 
   cat >"${root}/scripts/prepare-release-package-versions.py" <<'STUB'
@@ -87,6 +94,11 @@ STUB
   cat >"${root}/scripts/verify-release-package-version-assets.py" <<'STUB'
 #!/usr/bin/env python3
 print("release-package-version-assets: PASS (fixture)")
+STUB
+  cat >"${root}/scripts/verify-go-semantic-import-version.sh" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "go-semantic-import: PASS (fixture stub)"
 STUB
   cat >"${root}/scripts/watch-release-cycle.sh" <<'STUB'
 #!/usr/bin/env bash
@@ -292,6 +304,50 @@ run_branch_version_sync_fixture \
   "1.10.1-rc." \
   1 \
   "branch-version-sync: FAIL (checked-out .release-please-manifest.json has invalid version '1.10.1-rc.')"
+
+run_go_semantic_import_fixture() {
+  local manifest="$1"
+  local module_path="$2"
+  local expected_status="$3"
+  local expected_output="$4"
+
+  local work output status
+  work="$(mktemp -d)"
+  tmpdirs+=("${work}")
+  mkdir -p "${work}"
+  printf '{".":"%s"}\n' "${manifest}" >"${work}/.release-please-manifest.json"
+  printf 'module %s\n\ngo 1.26\n' "${module_path}" >"${work}/go.mod"
+
+  set +e
+  output="$(bash "${repo_root}/scripts/verify-go-semantic-import-version.sh" --repo-root "${work}" 2>&1)"
+  status=$?
+  set -e
+
+  if [[ "${status}" -ne "${expected_status}" ]]; then
+    printf '%s\n' "${output}"
+    echo "release-verifier-policy-test: go-semantic-import fixture ${manifest}/${module_path}: expected ${expected_status}, got ${status}"
+    exit 1
+  fi
+  expect_contains "${output}" "${expected_output}" "go-semantic-import fixture"
+}
+
+run_go_semantic_import_fixture \
+  "2.0.1" \
+  "github.com/theory-cloud/tabletheory/v2" \
+  0 \
+  "go-semantic-import: PASS"
+
+run_go_semantic_import_fixture \
+  "2.0.1" \
+  "github.com/theory-cloud/tabletheory" \
+  1 \
+  "manifest 2.0.1 requires module github.com/theory-cloud/tabletheory/v2"
+
+run_go_semantic_import_fixture \
+  "1.10.1" \
+  "github.com/theory-cloud/tabletheory/v2" \
+  1 \
+  "manifest 1.10.1 requires module github.com/theory-cloud/tabletheory"
 
 for fixture in "${fixtures_dir}"/cycle-*; do
   run_cycle_fixture "${fixture}"

@@ -12,13 +12,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/internal/encryption"
-	"github.com/theory-cloud/tabletheory/pkg/core"
-	customerrors "github.com/theory-cloud/tabletheory/pkg/errors"
-	"github.com/theory-cloud/tabletheory/pkg/model"
-	"github.com/theory-cloud/tabletheory/pkg/query"
-	"github.com/theory-cloud/tabletheory/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
+	"github.com/theory-cloud/tabletheory/v2/internal/encryption"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
+	customerrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	"github.com/theory-cloud/tabletheory/v2/pkg/query"
+	"github.com/theory-cloud/tabletheory/v2/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
 )
 
 const maxTransactGetItems = 100

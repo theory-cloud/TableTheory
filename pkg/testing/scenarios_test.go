@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	theorydbtesting "github.com/theory-cloud/tabletheory/pkg/testing"
+	theorydbtesting "github.com/theory-cloud/tabletheory/v2/pkg/testing"
 )
 
 func TestCommonScenarios_OtherSetups(t *testing.T) {

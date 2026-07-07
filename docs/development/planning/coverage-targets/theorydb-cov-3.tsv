@@ -1,24 +1,24 @@
 # TableTheory Coverage Roadmap — COV-3 targets
 # Format: <package> <min_percent>
-github.com/theory-cloud/tabletheory 50
-github.com/theory-cloud/tabletheory/internal/expr 50
-github.com/theory-cloud/tabletheory/internal/numutil 50
-github.com/theory-cloud/tabletheory/internal/reflectutil 50
-github.com/theory-cloud/tabletheory/pkg/consistency 50
-github.com/theory-cloud/tabletheory/pkg/core 50
-github.com/theory-cloud/tabletheory/pkg/errors 50
-github.com/theory-cloud/tabletheory/pkg/index 50
-github.com/theory-cloud/tabletheory/pkg/interfaces 50
-github.com/theory-cloud/tabletheory/pkg/marshal 50
-github.com/theory-cloud/tabletheory/pkg/mocks 50
-github.com/theory-cloud/tabletheory/pkg/model 50
-github.com/theory-cloud/tabletheory/pkg/naming 50
-github.com/theory-cloud/tabletheory/pkg/protection 50
-github.com/theory-cloud/tabletheory/pkg/query 50
-github.com/theory-cloud/tabletheory/pkg/schema 50
-github.com/theory-cloud/tabletheory/pkg/session 50
-github.com/theory-cloud/tabletheory/pkg/testing 50
-github.com/theory-cloud/tabletheory/pkg/transaction 50
-github.com/theory-cloud/tabletheory/pkg/types 50
-github.com/theory-cloud/tabletheory/pkg/validation 50
+github.com/theory-cloud/tabletheory/v2 50
+github.com/theory-cloud/tabletheory/v2/internal/expr 50
+github.com/theory-cloud/tabletheory/v2/internal/numutil 50
+github.com/theory-cloud/tabletheory/v2/internal/reflectutil 50
+github.com/theory-cloud/tabletheory/v2/pkg/consistency 50
+github.com/theory-cloud/tabletheory/v2/pkg/core 50
+github.com/theory-cloud/tabletheory/v2/pkg/errors 50
+github.com/theory-cloud/tabletheory/v2/pkg/index 50
+github.com/theory-cloud/tabletheory/v2/pkg/interfaces 50
+github.com/theory-cloud/tabletheory/v2/pkg/marshal 50
+github.com/theory-cloud/tabletheory/v2/pkg/mocks 50
+github.com/theory-cloud/tabletheory/v2/pkg/model 50
+github.com/theory-cloud/tabletheory/v2/pkg/naming 50
+github.com/theory-cloud/tabletheory/v2/pkg/protection 50
+github.com/theory-cloud/tabletheory/v2/pkg/query 50
+github.com/theory-cloud/tabletheory/v2/pkg/schema 50
+github.com/theory-cloud/tabletheory/v2/pkg/session 50
+github.com/theory-cloud/tabletheory/v2/pkg/testing 50
+github.com/theory-cloud/tabletheory/v2/pkg/transaction 50
+github.com/theory-cloud/tabletheory/v2/pkg/types 50
+github.com/theory-cloud/tabletheory/v2/pkg/validation 50
 

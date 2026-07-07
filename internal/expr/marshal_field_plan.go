@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/theory-cloud/tabletheory/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
 )
 
 type marshalFieldConverterLookup interface {

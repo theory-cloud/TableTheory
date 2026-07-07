@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/runner"
-	"github.com/theory-cloud/tabletheory/pkg/query"
+	"github.com/theory-cloud/tabletheory/v2/pkg/query"
 )
 
 func TestCursor_Golden_v01_Corpus(t *testing.T) {

@@ -10,12 +10,14 @@ of that repository state to 2.0.1 on the generated release branch.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import json
 import os
 import re
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 SEMVER_RE = re.compile(r"^(?P<base>\d+\.\d+\.\d+)(?P<pre>-rc(?:\.\d+)?)?(?:\+[0-9A-Za-z.-]+)?$")
@@ -28,6 +30,7 @@ def run(
     *,
     cwd: Path,
     env: dict[str, str] | None = None,
+    input_text: str | None = None,
     capture: bool = False,
     check: bool = True,
     display_args: list[str] | None = None,
@@ -36,6 +39,7 @@ def run(
         args,
         cwd=cwd,
         env=env,
+        input=input_text,
         text=True,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
@@ -75,11 +79,12 @@ def stable_base(version: str) -> str:
     return match.group("base")
 
 
+def manifest_text(version: str) -> str:
+    return json.dumps({".": version}, indent=2) + "\n"
+
+
 def write_manifest(repo_root: Path, version: str) -> None:
-    (repo_root / ".release-please-manifest.json").write_text(
-        json.dumps({".": version}, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    (repo_root / ".release-please-manifest.json").write_text(manifest_text(version), encoding="utf-8")
 
 
 def stable_changelog_section(repo: str, rc_version: str, version: str, today: str) -> str:
@@ -108,9 +113,7 @@ def stable_pull_request_body(repo: str, rc_version: str, version: str, today: st
     )
 
 
-def write_changelog(repo_root: Path, repo: str, rc_version: str, version: str, today: str) -> None:
-    path = repo_root / "CHANGELOG.md"
-    text = path.read_text(encoding="utf-8")
+def updated_changelog_text(text: str, repo: str, rc_version: str, version: str, today: str) -> str:
     section = stable_changelog_section(repo, rc_version, version, today)
     stable_header = re.compile(rf"^## \[{re.escape(version)}\].*$", re.MULTILINE)
 
@@ -119,9 +122,7 @@ def write_changelog(repo_root: Path, repo: str, rc_version: str, version: str, t
         line_end = text.find("\n", match.start())
         if line_end == -1:
             line_end = len(text)
-        text = text[: match.start()] + section.rstrip("\n") + text[line_end:]
-        path.write_text(text, encoding="utf-8")
-        return
+        return text[: match.start()] + section.rstrip("\n") + text[line_end:]
 
     unreleased = re.search(r"^## Unreleased\s*$", text, re.MULTILINE)
     if not unreleased:
@@ -134,7 +135,15 @@ def write_changelog(repo_root: Path, repo: str, rc_version: str, version: str, t
     insert_at = next_version.start()
     prefix = text[:insert_at].rstrip() + "\n\n"
     suffix = text[insert_at:].lstrip("\n")
-    path.write_text(prefix + section + "\n" + suffix, encoding="utf-8")
+    return prefix + section + "\n" + suffix
+
+
+def write_changelog(repo_root: Path, repo: str, rc_version: str, version: str, today: str) -> None:
+    path = repo_root / "CHANGELOG.md"
+    path.write_text(
+        updated_changelog_text(path.read_text(encoding="utf-8"), repo, rc_version, version, today),
+        encoding="utf-8",
+    )
 
 
 def ensure_git_identity(repo_root: Path) -> None:
@@ -150,24 +159,208 @@ def git_status(repo_root: Path) -> str:
     return run(["git", "status", "--porcelain"], cwd=repo_root, capture=True)
 
 
-def authenticated_remote(repo: str, token: str) -> str:
-    return f"https://x-access-token:{token}@github.com/{repo}.git"
-
-
-def branch_lease(repo_root: Path, remote: str, head: str) -> str:
-    output = run(
-        ["git", "ls-remote", "--heads", remote, head],
-        cwd=repo_root,
-        capture=True,
-        display_args=["git", "ls-remote", "--heads", "https://github.com/OWNER/REPO.git", head],
-    ).strip()
-    if not output:
-        return f"--force-with-lease=refs/heads/{head}:"
-    first_line = output.splitlines()[0]
-    sha = first_line.split()[0]
+def git_sha(repo_root: Path, rev: str) -> str:
+    sha = run(["git", "rev-parse", "--verify", rev], cwd=repo_root, capture=True).strip()
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
-        fail(f"could not read current remote head SHA for {head}")
-    return f"--force-with-lease=refs/heads/{head}:{sha}"
+        fail(f"could not resolve git revision {rev}")
+    return sha
+
+
+def gh_api_json(
+    repo_root: Path,
+    args: list[str],
+    *,
+    payload: dict[str, object] | None = None,
+    check: bool = True,
+) -> dict[str, object] | None:
+    completed = subprocess.run(
+        ["gh", "api", *args],
+        cwd=repo_root,
+        input=json.dumps(payload) if payload is not None else None,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        if check:
+            sys.stderr.write(completed.stdout)
+            sys.stderr.write(completed.stderr)
+            raise SystemExit(f"stable-release-pr: FAIL (gh api {' '.join(args)} exited {completed.returncode})")
+        return None
+    if not completed.stdout.strip():
+        return {}
+    try:
+        parsed = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        fail(f"gh api {' '.join(args)} returned malformed JSON: {exc}")
+    if not isinstance(parsed, dict):
+        fail(f"gh api {' '.join(args)} returned non-object JSON")
+    return parsed
+
+
+def gh_graphql(repo_root: Path, query: str, variables: dict[str, object]) -> dict[str, object]:
+    parsed = gh_api_json(
+        repo_root,
+        ["graphql", "--input", "-"],
+        payload={"query": query, "variables": variables},
+    )
+    assert parsed is not None
+    errors = parsed.get("errors")
+    if errors:
+        fail(f"GitHub GraphQL mutation failed: {json.dumps(errors, sort_keys=True)}")
+    data = parsed.get("data")
+    if not isinstance(data, dict):
+        fail("GitHub GraphQL response did not contain data")
+    return data
+
+
+def github_ref_sha(repo_root: Path, repo: str, branch: str, *, required: bool) -> str | None:
+    parsed = gh_api_json(repo_root, [f"repos/{repo}/git/ref/heads/{branch}"], check=required)
+    if parsed is None:
+        return None
+    obj = parsed.get("object")
+    sha = obj.get("sha") if isinstance(obj, dict) else None
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        fail(f"could not read refs/heads/{branch} from GitHub")
+    return sha
+
+
+def github_commit_verification(repo_root: Path, repo: str, sha: str) -> tuple[bool, str, list[str]]:
+    commit_details = gh_api_json(repo_root, [f"repos/{repo}/commits/{sha}"])
+    assert commit_details is not None
+    commit = commit_details.get("commit")
+    verification = commit.get("verification", {}) if isinstance(commit, dict) else {}
+    parents = [parent.get("sha", "") for parent in commit_details.get("parents", []) if isinstance(parent, dict)]
+    verified = bool(isinstance(verification, dict) and verification.get("verified"))
+    reason = str(verification.get("reason", "unknown")) if isinstance(verification, dict) else "unknown"
+    return verified, reason, parents
+
+
+def github_file_text(repo_root: Path, repo: str, path: str, ref: str) -> str:
+    encoded_path = urllib.parse.quote(path, safe="")
+    parsed = gh_api_json(repo_root, [f"repos/{repo}/contents/{encoded_path}?ref={ref}"])
+    assert parsed is not None
+    if parsed.get("encoding") != "base64" or not isinstance(parsed.get("content"), str):
+        fail(f"could not read {path} from refs/heads/{ref}")
+    return base64.b64decode(parsed["content"]).decode("utf-8")
+
+
+def existing_signed_branch_match(
+    repo_root: Path,
+    repo: str,
+    head: str,
+    base_sha: str,
+    files: dict[str, str],
+) -> str | None:
+    current = github_ref_sha(repo_root, repo, head, required=False)
+    if current is None:
+        return None
+
+    verified, reason, parents = github_commit_verification(repo_root, repo, current)
+    if not verified:
+        print(f"stable-release-pr: replacing unsigned generated branch {head} ({current[:7]}: {reason})")
+        return None
+    if parents != [base_sha]:
+        print(f"stable-release-pr: replacing generated branch {head} because parent does not match live base")
+        return None
+
+    for path, expected in files.items():
+        if github_file_text(repo_root, repo, path, head) != expected:
+            print(f"stable-release-pr: replacing generated branch {head} because {path} is stale")
+            return None
+
+    print(f"stable-release-pr: existing GitHub-signed commit {current[:7]} already normalizes {head}")
+    return current
+
+
+def create_or_reset_branch(repo_root: Path, repo: str, branch: str, sha: str) -> None:
+    current = github_ref_sha(repo_root, repo, branch, required=False)
+    if current == sha:
+        return
+    if current is None:
+        gh_api_json(
+            repo_root,
+            ["--method", "POST", f"repos/{repo}/git/refs", "--input", "-"],
+            payload={"ref": f"refs/heads/{branch}", "sha": sha},
+        )
+    else:
+        gh_api_json(
+            repo_root,
+            ["--method", "PATCH", f"repos/{repo}/git/refs/heads/{branch}", "--input", "-"],
+            payload={"sha": sha, "force": True},
+        )
+    updated = github_ref_sha(repo_root, repo, branch, required=True)
+    if updated != sha:
+        fail(f"refs/heads/{branch} did not reset to expected base {sha}")
+
+
+def create_github_signed_commit_on_branch(
+    repo_root: Path,
+    repo: str,
+    base: str,
+    head: str,
+    title: str,
+    files: dict[str, str],
+) -> str:
+    base_sha = github_ref_sha(repo_root, repo, base, required=True)
+    local_head = git_sha(repo_root, "HEAD")
+    if base_sha != local_head:
+        fail(f"checked-out HEAD {local_head} does not match live refs/heads/{base} {base_sha}")
+
+    existing = existing_signed_branch_match(repo_root, repo, head, base_sha, files)
+    if existing is not None:
+        return existing
+
+    # Reset the generated release branch to the live base before asking GitHub to
+    # create the release commit. This replaces any earlier unsigned/generated
+    # commit instead of appending a signed commit on top of it.
+    create_or_reset_branch(repo_root, repo, head, base_sha)
+
+    additions = [
+        {
+            "path": path,
+            "contents": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+        }
+        for path, content in files.items()
+    ]
+    query = """
+mutation CreateStableReleaseCommit($input: CreateCommitOnBranchInput!) {
+  createCommitOnBranch(input: $input) {
+    commit {
+      oid
+    }
+  }
+}
+"""
+    data = gh_graphql(
+        repo_root,
+        query,
+        {
+            "input": {
+                "branch": {"repositoryNameWithOwner": repo, "branchName": head},
+                "message": {"headline": title},
+                "fileChanges": {"additions": additions},
+                "expectedHeadOid": base_sha,
+            }
+        },
+    )
+    payload = data.get("createCommitOnBranch")
+    commit = payload.get("commit") if isinstance(payload, dict) else None
+    commit_sha = commit.get("oid") if isinstance(commit, dict) else None
+    if not isinstance(commit_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
+        fail("GitHub GraphQL response did not include the created commit SHA")
+
+    branch_sha = github_ref_sha(repo_root, repo, head, required=True)
+    if branch_sha != commit_sha:
+        fail(f"refs/heads/{head} moved unexpectedly after GitHub commit creation")
+
+    verified, reason, _parents = github_commit_verification(repo_root, repo, commit_sha)
+    if not verified:
+        fail(f"GitHub did not report a verified signature for generated commit {commit_sha}: {reason}")
+
+    print(f"stable-release-pr: GitHub-signed commit {commit_sha[:7]} created on {head}")
+    return commit_sha
 
 
 def ensure_pending_label(repo_root: Path, repo: str) -> None:
@@ -263,34 +456,32 @@ def main() -> int:
     if git_status(repo_root):
         fail("working tree must be clean before generating stable Release PR")
 
-    run(["git", "checkout", "-B", args.head, "HEAD"], cwd=repo_root)
-    write_manifest(repo_root, expected)
-    write_changelog(repo_root, args.repo, rc_version, expected, today)
+    desired_files = {
+        ".release-please-manifest.json": manifest_text(expected),
+        "CHANGELOG.md": updated_changelog_text(
+            (repo_root / "CHANGELOG.md").read_text(encoding="utf-8"),
+            args.repo,
+            rc_version,
+            expected,
+            today,
+        ),
+    }
 
-    status = git_status(repo_root)
-    if not status:
+    if all((repo_root / path).read_text(encoding="utf-8") == content for path, content in desired_files.items()):
         print(f"stable-release-pr: PASS ({args.head} already normalizes {expected})")
         return 0
 
-    ensure_git_identity(repo_root)
-    run(["git", "add", ".release-please-manifest.json", "CHANGELOG.md"], cwd=repo_root)
-    run(["git", "commit", "-m", title], cwd=repo_root)
-
     if args.dry_run:
+        run(["git", "checkout", "-B", args.head, "HEAD"], cwd=repo_root)
+        for path, content in desired_files.items():
+            (repo_root / path).write_text(content, encoding="utf-8")
+        ensure_git_identity(repo_root)
+        run(["git", "add", *desired_files.keys()], cwd=repo_root)
+        run(["git", "commit", "-m", title], cwd=repo_root)
         print(f"stable-release-pr: dry-run generated {title} on {args.head}")
         return 0
 
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or os.environ.get("RELEASE_PLEASE_TOKEN")
-    if not token:
-        fail("missing GH_TOKEN/GITHUB_TOKEN/RELEASE_PLEASE_TOKEN for branch push and PR upsert")
-
-    remote = authenticated_remote(args.repo, token)
-    lease = branch_lease(repo_root, remote, args.head)
-    run(
-        ["git", "push", remote, f"HEAD:refs/heads/{args.head}", lease],
-        cwd=repo_root,
-        display_args=["git", "push", f"https://github.com/{args.repo}.git", f"HEAD:refs/heads/{args.head}", lease],
-    )
+    create_github_signed_commit_on_branch(repo_root, args.repo, args.base, args.head, title, desired_files)
     upsert_pr(repo_root, args.repo, args.base, args.head, title, body)
     print(f"stable-release-pr: PASS ({args.head} -> {args.base}, version {expected})")
     return 0

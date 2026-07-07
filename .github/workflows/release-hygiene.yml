@@ -48,6 +48,7 @@ jobs:
               scripts/verify-promotion-release-driver.sh|\
               scripts/test-release-hygiene-policy.sh|\
               scripts/verify-release-cycle-state.sh|\
+              scripts/verify-go-semantic-import-version.sh|\
               scripts/verify-branch-release-supply-chain.sh)
                 ;;
               *)
@@ -287,8 +288,12 @@ jobs:
               "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
               "py/src/tabletheory_py/version.json" "canonical Python version marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
+              "scripts/verify-go-semantic-import-version.sh" "Go semantic import verifier marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
               "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "scripts/verify-go-semantic-import-version.sh" "Go semantic import supply-chain marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
               "single release-please manifest" "single-manifest policy marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
