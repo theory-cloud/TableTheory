@@ -104,13 +104,52 @@ load_fixture() {
 
 run_cycle_fixture() {
   local fixture="$1"
-  unset kind branch head_ref pending_env stable premain ts py expected_exit expected_text
+  unset kind branch head_ref pending_env stable premain ts py expected_exit expected_text premain_rc_repair staging_rc_followup main_stable
   load_fixture "${fixture}"
 
   local work output status
   work="$(mktemp -d)"
   tmpdirs+=("${work}")
-  write_version_files "${work}" "${stable}" "${premain}" "${ts}" "${py}"
+  if [[ "${staging_rc_followup:-false}" == "true" ]]; then
+    git -C "${work}" init -q
+    git -C "${work}" config user.email fixture@example.com
+    git -C "${work}" config user.name "Release Fixture"
+
+    write_version_files "${work}" "${main_stable}" "" "${ts}" "${py}"
+    git -C "${work}" add .
+    git -C "${work}" commit -q -m "fixture main"
+    git -C "${work}" update-ref refs/remotes/origin/main HEAD
+    git -C "${work}" branch -M staging
+
+    write_version_files "${work}" "${stable}" "${premain}" "${ts}" "${py}"
+    git -C "${work}" add .
+    git -C "${work}" commit -q -m "fixture accepted staging rc"
+    git -C "${work}" update-ref refs/remotes/origin/staging HEAD
+
+    git -C "${work}" checkout -q -b fixture/from-staging
+    git -C "${work}" commit -q --allow-empty -m "fixture staging rc follow-up repair"
+  elif [[ "${premain_rc_repair:-false}" == "true" ]]; then
+    git -C "${work}" init -q
+    git -C "${work}" config user.email fixture@example.com
+    git -C "${work}" config user.name "Release Fixture"
+
+    write_version_files "${work}" "${main_stable}" "" "${ts}" "${py}"
+    git -C "${work}" add .
+    git -C "${work}" commit -q -m "fixture main"
+    git -C "${work}" update-ref refs/remotes/origin/main HEAD
+    git -C "${work}" branch -M staging
+    git -C "${work}" update-ref refs/remotes/origin/staging HEAD
+
+    write_version_files "${work}" "${stable}" "${premain}" "${ts}" "${py}"
+    git -C "${work}" add .
+    git -C "${work}" commit -q -m "fixture premain rc"
+    git -C "${work}" update-ref refs/remotes/origin/premain HEAD
+
+    git -C "${work}" checkout -q -b fixture/from-premain
+    git -C "${work}" commit -q --allow-empty -m "fixture premain rc repair"
+  else
+    write_version_files "${work}" "${stable}" "${premain}" "${ts}" "${py}"
+  fi
 
   set +e
   output="$(

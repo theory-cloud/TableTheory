@@ -199,7 +199,7 @@ func validateStep(label string, i int, step Step) error {
 	}
 	switch step.Op {
 	case "sleep":
-		return nil
+		return validateExpectation(prefix, step.Expect)
 	case "create", "update", "save":
 		if len(step.Item) == 0 {
 			return fmt.Errorf("%s %s: item is required", prefix, step.Op)
@@ -209,9 +209,13 @@ func validateStep(label string, i int, step Step) error {
 			return fmt.Errorf("%s %s: key is required", prefix, step.Op)
 		}
 	case "query":
-		return validateQueryReadRequest(step.Query, fmt.Sprintf("%s query", prefix))
+		if err := validateQueryReadRequest(step.Query, fmt.Sprintf("%s query", prefix)); err != nil {
+			return err
+		}
 	case "scan":
-		return validateScanReadRequest(step.Scan, fmt.Sprintf("%s scan", prefix))
+		if err := validateScanReadRequest(step.Scan, fmt.Sprintf("%s scan", prefix)); err != nil {
+			return err
+		}
 	case "count":
 		if step.Count == nil {
 			return fmt.Errorf("%s count: count is required", prefix)
@@ -222,9 +226,14 @@ func validateStep(label string, i int, step Step) error {
 			return fmt.Errorf("%s count: exactly one of count.query or count.scan is required", prefix)
 		}
 		if hasQuery {
-			return validateQueryReadRequest(step.Count.Query, fmt.Sprintf("%s count.query", prefix))
+			if err := validateQueryReadRequest(step.Count.Query, fmt.Sprintf("%s count.query", prefix)); err != nil {
+				return err
+			}
+		} else {
+			if err := validateScanReadRequest(step.Count.Scan, fmt.Sprintf("%s count.scan", prefix)); err != nil {
+				return err
+			}
 		}
-		return validateScanReadRequest(step.Count.Scan, fmt.Sprintf("%s count.scan", prefix))
 	case "transact_get":
 		if step.TransactGet == nil || len(step.TransactGet.Items) == 0 {
 			return fmt.Errorf("%s transact_get: transact_get.items are required", prefix)
@@ -280,7 +289,90 @@ func validateStep(label string, i int, step Step) error {
 	default:
 		return fmt.Errorf("%s: unsupported op %q", prefix, step.Op)
 	}
+	return validateExpectation(prefix, step.Expect)
+}
+
+func validateExpectation(prefix string, expect Expectation) error {
+	for _, field := range []struct {
+		name  string
+		value map[string]any
+	}{
+		{name: "item_contains", value: expect.ItemContains},
+		{name: "item_equals", value: expect.ItemEquals},
+		{name: "raw_item_contains", value: expect.RawItemContains},
+	} {
+		if field.value != nil && len(field.value) == 0 {
+			return fmt.Errorf("%s expect.%s must not be empty", prefix, field.name)
+		}
+	}
+	for _, field := range []struct {
+		name  string
+		value map[string]string
+	}{
+		{name: "raw_attribute_types", value: expect.RawAttributeTypes},
+		{name: "item_field_equals_var", value: expect.ItemFieldEqualsVar},
+		{name: "item_field_not_equals_var", value: expect.ItemFieldNotEqualsVar},
+	} {
+		if field.value != nil && len(field.value) == 0 {
+			return fmt.Errorf("%s expect.%s must not be empty", prefix, field.name)
+		}
+	}
+	for _, field := range []struct {
+		name  string
+		value []string
+	}{
+		{name: "errors", value: expect.Errors},
+		{name: "items_missing_fields", value: expect.ItemsMissingFields},
+		{name: "item_has_fields", value: expect.ItemHasFields},
+		{name: "item_missing_fields", value: expect.ItemMissingFields},
+	} {
+		if field.value != nil && len(field.value) == 0 {
+			return fmt.Errorf("%s expect.%s must not be empty", prefix, field.name)
+		}
+	}
+	if expect.ItemsContains != nil {
+		if len(expect.ItemsContains) == 0 {
+			return fmt.Errorf("%s expect.items_contains must not be empty", prefix)
+		}
+		for j, item := range expect.ItemsContains {
+			if len(item) == 0 {
+				return fmt.Errorf("%s expect.items_contains[%d] must not be empty", prefix, j)
+			}
+		}
+	}
+
+	hasErrorExpectation := expect.Error != "" || len(expect.Errors) > 0
+	hasDataAssertion := expectationHasItemAssertion(expect) ||
+		expectationHasRawItemAssertion(expect) ||
+		expectationHasReadAssertion(expect)
+	if hasErrorExpectation && hasDataAssertion {
+		return fmt.Errorf("%s expect: item/read assertions cannot be combined with error expectations", prefix)
+	}
 	return nil
+}
+
+func expectationHasItemAssertion(expect Expectation) bool {
+	return len(expect.ItemContains) > 0 ||
+		len(expect.ItemEquals) > 0 ||
+		len(expect.ItemHasFields) > 0 ||
+		len(expect.ItemMissingFields) > 0 ||
+		len(expect.RawAttributeTypes) > 0 ||
+		len(expect.ItemFieldEqualsVar) > 0 ||
+		len(expect.ItemFieldNotEqualsVar) > 0
+}
+
+func expectationHasRawItemAssertion(expect Expectation) bool {
+	return len(expect.ItemMissingFields) > 0 ||
+		len(expect.RawAttributeTypes) > 0 ||
+		len(expect.RawItemContains) > 0
+}
+
+func expectationHasReadAssertion(expect Expectation) bool {
+	return expect.ItemCount != nil ||
+		expect.Count != nil ||
+		len(expect.ItemsContains) > 0 ||
+		len(expect.ItemsMissingFields) > 0 ||
+		expect.CursorEquals != nil
 }
 
 func validateQueryReadRequest(req *ReadRequest, prefix string) error {

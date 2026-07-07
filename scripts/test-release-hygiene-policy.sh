@@ -51,6 +51,18 @@ expect_failure_contains() {
   fi
 }
 
+expect_contains() {
+  local output="$1"
+  local expected="$2"
+  local context="$3"
+
+  if [[ -n "${expected}" ]] && ! grep -Fq "${expected}" <<<"${output}"; then
+    printf '%s\n' "${output}"
+    echo "release-hygiene-policy-test: ${context}: expected output to contain: ${expected}"
+    exit 1
+  fi
+}
+
 write_prerelease_postcondition_fixture() {
   local root="$1"
   local version="$2"
@@ -205,16 +217,21 @@ PY
 
 extract_workflow_step_run() {
   local step_name="$1"
+  local occurrence="${2:-1}"
 
-  python3 - "${repo_root}/.github/workflows/release-hygiene.yml" "${step_name}" <<'PY'
+  python3 - "${repo_root}/.github/workflows/release-hygiene.yml" "${step_name}" "${occurrence}" <<'PY'
 import re
 import sys
 
-workflow_path, step_name = sys.argv[1], sys.argv[2]
+workflow_path, step_name, occurrence = sys.argv[1], sys.argv[2], int(sys.argv[3])
 lines = open(workflow_path, "r", encoding="utf-8").read().splitlines()
+seen = 0
 
 for idx, line in enumerate(lines):
     if not re.match(r"\s*-\s+name:\s*" + re.escape(step_name) + r"\s*$", line):
+        continue
+    seen += 1
+    if seen != occurrence:
         continue
 
     search_idx = idx + 1
@@ -296,7 +313,50 @@ require_fixed "-rc(\\.[0-9]+)?" "${provenance}" \
   "release-lane provenance guard must accept release-please first RC and numbered later RC PR titles"
 require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
   "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"
+require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${p}" \
+  "prerelease workflow must pin release-please v5 by commit SHA"
+require_fixed "release-hygiene must run the promotion driver from the resolved verifier source" "${h}" \
+  "release-hygiene supply-chain verifier must require resolved promotion verifier source"
 SH
+  cat >"${root}/scripts/verify-promotion-release-driver.sh" <<'SH'
+#!/usr/bin/env bash
+echo "manifest-derived stable Release-As"
+SH
+}
+
+write_v2_legacy_promotion_source_verifier_fixture() {
+  local root="$1"
+
+  write_v2_verifier_fixture "${root}"
+  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+text = text.replace(
+    'require_fixed "release-hygiene must run the promotion driver from the resolved verifier source" "${h}" \\\n'
+    '  "release-hygiene supply-chain verifier must require resolved promotion verifier source"\n',
+    "",
+)
+path.write_text(text, encoding="utf-8")
+PY
+}
+
+write_v2_release_please_v4_verifier_fixture() {
+  local root="$1"
+
+  write_v2_verifier_fixture "${root}"
+  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+text = text.replace(r"\bv5\b", r"\bv4\b")
+text = text.replace("release-please v5", "release-please v4")
+path.write_text(text, encoding="utf-8")
+PY
 }
 
 write_v2_numbered_rc_verifier_fixture() {
@@ -344,13 +404,17 @@ run_verifier_source_selector_fixture() {
   mkdir -p "${fixture}/trusted-release" "${fixture}/pr"
   case "${trusted_shape}" in
     v1) write_v1_verifier_fixture "${fixture}/trusted-release" ;;
+    v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/trusted-release" ;;
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/trusted-release" ;;
+    v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/trusted-release" ;;
     v2) write_v2_verifier_fixture "${fixture}/trusted-release" ;;
     *) echo "release-hygiene-policy-test: unknown trusted fixture ${trusted_shape}" >&2; exit 1 ;;
   esac
   case "${head_shape}" in
     v1) write_v1_verifier_fixture "${fixture}/pr" ;;
+    v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/pr" ;;
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/pr" ;;
+    v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/pr" ;;
     v2) write_v2_verifier_fixture "${fixture}/pr" ;;
     *) echo "release-hygiene-policy-test: unknown head fixture ${head_shape}" >&2; exit 1 ;;
   esac
@@ -434,6 +498,213 @@ assert_selector_failure() {
     echo "release-hygiene-policy-test: selector failure output missing: ${expected_output}"
     exit 1
   fi
+}
+
+run_merge_group_target_fixture() {
+  local target_branch="$1"
+  local source_head="$2"
+  local payload_shape="${3:-payload-head}"
+
+  local fixture
+  fixture="$(mktemp -d)"
+  tmpdirs+=("${fixture}")
+
+  python3 - "${fixture}/event.json" "${target_branch}" "${source_head}" "${payload_shape}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+target_branch = sys.argv[2]
+source_head = sys.argv[3]
+payload_shape = sys.argv[4]
+merge_group = {
+    "base_ref": f"refs/heads/{target_branch}",
+    "head_ref": f"refs/heads/gh-readonly-queue/{target_branch}/pr-123-deadbeef",
+}
+if payload_shape == "payload-head":
+    merge_group["pull_requests"] = [
+        {
+            "number": 123,
+            "base": {"ref": target_branch},
+            "head": {"ref": source_head},
+        }
+    ]
+path.write_text(
+    json.dumps({"merge_group": merge_group}),
+    encoding="utf-8",
+)
+PY
+
+  local resolver_script="${fixture}/target.sh"
+  extract_workflow_step_run "Resolve release hygiene target branch" >"${resolver_script}"
+
+  local output_file="${fixture}/target.out"
+  local github_output="${fixture}/github-output"
+  local -a env_args=(
+    GITHUB_EVENT_NAME=merge_group
+    GITHUB_EVENT_PATH="${fixture}/event.json"
+    GITHUB_REF="refs/heads/gh-readonly-queue/${target_branch}/pr-123-deadbeef"
+    GITHUB_REF_NAME="gh-readonly-queue/${target_branch}/pr-123-deadbeef"
+    GITHUB_REPOSITORY="${repo}"
+    GITHUB_OUTPUT="${github_output}"
+  )
+
+  if [[ "${payload_shape}" == "api-head" ]]; then
+    mkdir -p "${fixture}/bin"
+    cat >"${fixture}/bin/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$#" -eq 7 && "$1" == "pr" && "$2" == "view" && "$3" == "123" && "$4" == "--repo" && "$6" == "--json" && "$7" == "headRefName" ]]; then
+  printf '{"headRefName":"%s"}\n' "${STUB_GH_HEAD_REF:-}"
+  exit 0
+fi
+
+echo "unexpected gh arguments: $*" >&2
+exit 1
+SH
+    chmod +x "${fixture}/bin/gh"
+    env_args+=(
+      GH_TOKEN=stub-token
+      PATH="${fixture}/bin:${PATH}"
+      STUB_GH_HEAD_REF="${source_head}"
+    )
+  fi
+
+  set +e
+  env "${env_args[@]}" bash "${resolver_script}" >"${output_file}" 2>&1
+  local status=$?
+  set -e
+
+  printf '%s\n' "${output_file}:${github_output}:${status}"
+}
+
+assert_target_result() {
+  local output_pair="$1"
+  local expected_branch="$2"
+  local expected_head="$3"
+  local expected_source="${4:-}"
+
+  local output_file="${output_pair%%:*}"
+  local remainder="${output_pair#*:}"
+  local github_output="${remainder%%:*}"
+  local status="${remainder#*:}"
+
+  if [[ "${status}" -ne 0 ]]; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: target resolver expected success, got ${status}"
+    exit 1
+  fi
+  if ! grep -Fxq "branch=${expected_branch}" "${github_output}"; then
+    cat "${output_file}"
+    cat "${github_output}"
+    echo "release-hygiene-policy-test: target branch mismatch; expected ${expected_branch}"
+    exit 1
+  fi
+  if ! grep -Fxq "head=${expected_head}" "${github_output}"; then
+    cat "${output_file}"
+    cat "${github_output}"
+    echo "release-hygiene-policy-test: queued head mismatch; expected ${expected_head}"
+    exit 1
+  fi
+  if ! grep -Fq "merge_group source head ${expected_head}" "${output_file}"; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: target resolver output missing derived head ${expected_head}"
+    exit 1
+  fi
+  if [[ -n "${expected_source}" ]] && ! grep -Fq "(${expected_source})" "${output_file}"; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: target resolver output missing source ${expected_source}"
+    exit 1
+  fi
+}
+
+assert_target_empty_head_result() {
+  local output_pair="$1"
+  local expected_branch="$2"
+
+  local output_file="${output_pair%%:*}"
+  local remainder="${output_pair#*:}"
+  local github_output="${remainder%%:*}"
+  local status="${remainder#*:}"
+
+  if [[ "${status}" -ne 0 ]]; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: target resolver expected success, got ${status}"
+    exit 1
+  fi
+  if ! grep -Fxq "branch=${expected_branch}" "${github_output}"; then
+    cat "${output_file}"
+    cat "${github_output}"
+    echo "release-hygiene-policy-test: target branch mismatch; expected ${expected_branch}"
+    exit 1
+  fi
+  if ! grep -Fxq "head=" "${github_output}"; then
+    cat "${output_file}"
+    cat "${github_output}"
+    echo "release-hygiene-policy-test: queued head should remain empty"
+    exit 1
+  fi
+  if ! grep -Fq "merge_group source head unavailable from payload/API" "${output_file}"; then
+    cat "${output_file}"
+    echo "release-hygiene-policy-test: target resolver output missing empty-head diagnostic"
+    exit 1
+  fi
+}
+
+run_queued_main_cycle_step_fixture() {
+  local queue_head="$1"
+  local expected_status="$2"
+  local expected_text="$3"
+
+  local fixture
+  fixture="$(mktemp -d)"
+  tmpdirs+=("${fixture}")
+
+  mkdir -p \
+    "${fixture}/.github/workflows" \
+    "${fixture}/scripts/lib" \
+    "${fixture}/ts" \
+    "${fixture}/py/src/tabletheory_py"
+  cp "${repo_root}/scripts/verify-release-cycle-state.sh" "${fixture}/scripts/verify-release-cycle-state.sh"
+  cp "${repo_root}/scripts/lib/release-cycle-core.sh" "${fixture}/scripts/lib/release-cycle-core.sh"
+  cat >"${fixture}/.release-please-manifest.json" <<'JSON'
+{".":"1.10.1-rc.1"}
+JSON
+  cat >"${fixture}/ts/package.json" <<'JSON'
+{"version":"1.10.0"}
+JSON
+  cat >"${fixture}/ts/package-lock.json" <<'JSON'
+{"version":"1.10.0","packages":{"":{"version":"1.10.0"}}}
+JSON
+  cat >"${fixture}/py/src/tabletheory_py/version.json" <<'JSON'
+{"version":"1.10.0"}
+JSON
+  touch \
+    "${fixture}/.github/workflows/release-hygiene.yml" \
+    "${fixture}/scripts/prepare-release-package-versions.py" \
+    "${fixture}/scripts/verify-release-package-version-assets.py" \
+    "${fixture}/scripts/watch-release-cycle.sh"
+
+  local cycle_script="${fixture}/cycle-step.sh"
+  extract_workflow_step_run "Verify release cycle state" 2 >"${cycle_script}"
+
+  local output status
+  set +e
+  output="$(
+    cd "${fixture}"
+    TARGET_BRANCH=main QUEUE_HEAD_REF="${queue_head}" bash "${cycle_script}" 2>&1
+  )"
+  status=$?
+  set -e
+
+  if [[ "${status}" -ne "${expected_status}" ]]; then
+    printf '%s\n' "${output}"
+    echo "release-hygiene-policy-test: queued main cycle step ${queue_head}: expected ${expected_status}, got ${status}"
+    exit 1
+  fi
+  expect_contains "${output}" "${expected_text}" "queued main cycle step ${queue_head}"
 }
 
 common_args=(
@@ -550,6 +821,48 @@ expect_failure_contains \
     --title "chore(premain): release 1.9.3-beta.1" \
     --ref "refs/heads/premain=${base_sha}" \
     --ref "refs/heads/release-please--branches--premain=${head_sha}"
+
+expect_failure_contains \
+  "main PR must not advertise an RC version" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base main \
+    --head release-please--branches--main \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "chore(main): release 2.0.0-rc" \
+    --ref "refs/heads/main=${base_sha}" \
+    --ref "refs/heads/release-please--branches--main=${head_sha}"
+
+expect_success_contains \
+  "release-lane-provenance: PASS" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base main \
+    --head release-please--branches--main \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "chore(main): release 2.0.0" \
+    --ref "refs/heads/main=${base_sha}" \
+    --ref "refs/heads/release-please--branches--main=${head_sha}"
+
+expect_failure_contains \
+  "main PR must not advertise an RC version" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base main \
+    --head premain \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "Promote 2.0.0-rc.1 to main" \
+    --ref "refs/heads/main=${base_sha}" \
+    --ref "refs/heads/premain=${head_sha}"
 
 expect_success_contains \
   "stale merged premain release-please RC PR" \
@@ -712,9 +1025,31 @@ expect_failure_contains \
       --body "Release-As: 1.10.2" \
       --dry-run
 
-expect_failure_contains \
-  "requires a stable Release-As footer" \
+expect_success_contains \
+  "manifest-derived stable Release-As" \
   run_in_pending_fixture \
+    bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+      --base main \
+      --head premain \
+      --title "Promote premain to main" \
+      --body "" \
+      --dry-run
+
+stable_manifest_fixture="$(mktemp -d)"
+tmpdirs+=("${stable_manifest_fixture}")
+cp -R "${pending_fixture}/." "${stable_manifest_fixture}/"
+cat >"${stable_manifest_fixture}/.release-please-manifest.json" <<'JSON'
+{".":"1.10.1"}
+JSON
+
+run_in_stable_manifest_fixture() (
+  cd "${stable_manifest_fixture}"
+  "$@"
+)
+
+expect_failure_contains \
+  "must carry a single-manifest RC" \
+  run_in_stable_manifest_fixture \
     bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
       --base main \
       --head premain \
@@ -905,6 +1240,21 @@ grep -Fq "merge_group:" "${repo_root}/.github/workflows/quality-gates.yml" || {
   exit 1
 }
 
+grep -Fq "fetch-depth: 0" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must fetch full history for in-flight premain RC repair verification"
+  exit 1
+}
+
+grep -Fq "+refs/heads/premain:refs/remotes/origin/premain" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must fetch origin/premain for in-flight premain RC repair verification"
+  exit 1
+}
+
+grep -Fq "+refs/heads/staging:refs/remotes/origin/staging" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must fetch origin/staging for in-flight premain RC repair verification"
+  exit 1
+}
+
 grep -Fq "merge_group:" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release hygiene must support merge_group for release queue"
   exit 1
@@ -962,8 +1312,8 @@ grep -Fq "premain:staging|main:premain" "${repo_root}/.github/workflows/release-
   exit 1
 }
 
-grep -Fq "trusted base lacks v2 single-manifest support or RC-first verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must document old trusted-script and RC-first fallback reasons"
+grep -Fq "trusted base lacks v2 single-manifest support, RC-first verifier support, or release-please v5 verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must document old trusted-script, RC-first, and release-please v5 fallback reasons"
   exit 1
 }
 
@@ -992,6 +1342,11 @@ grep -Fq "accept release-please first RC and numbered later RC version syntax" "
   exit 1
 }
 
+grep -Fq "release-please v5" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect the release-please-action v5 policy marker"
+  exit 1
+}
+
 grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-release-cycle-state.sh"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release-cycle state must use the resolved verifier source"
   exit 1
@@ -999,6 +1354,21 @@ grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-release-cycle-state.sh"' "${repo
 
 grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-branch-release-supply-chain.sh"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: branch release supply-chain must use the resolved verifier source"
+  exit 1
+}
+
+grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: promotion driver must use the resolved verifier source"
+  exit 1
+}
+
+grep -Fq "manifest-derived stable Release-As" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect the manifest-derived stable promotion marker"
+  exit 1
+}
+
+grep -Fq "resolved promotion-driver supply-chain marker" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect the resolved promotion-driver supply-chain marker"
   exit 1
 }
 
@@ -1012,7 +1382,19 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-release-please-v4 v2 \
+    premain staging \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "." \
+  "protected-pr-head-v2" \
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1024,7 +1406,19 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-legacy-promotion-source v2 \
+    premain staging \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "." \
+  "protected-pr-head-v2" \
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1084,7 +1478,7 @@ assert_selector_result \
   "${selector_result}" \
   "../trusted-release" \
   "trusted-base" \
-  "trusted base supports v2 single-manifest and RC-first verifier markers"
+  "trusted base supports v2 single-manifest, RC-first, and release-please v5 verifier markers"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1094,15 +1488,55 @@ selector_result="$(
 )"
 assert_selector_failure \
   "${selector_result}" \
-  "protected PR head lacks v2 single-manifest support or RC-first verifier support"
+  "protected PR head lacks v2 single-manifest support, RC-first verifier support, or release-please v5 verifier support"
+
+target_result="$(run_merge_group_target_fixture main premain)"
+assert_target_result "${target_result}" main premain
+
+target_result="$(run_merge_group_target_fixture main "feature/not-premain")"
+assert_target_result "${target_result}" main "feature/not-premain"
+
+target_result="$(run_merge_group_target_fixture main premain api-head)"
+assert_target_result "${target_result}" main premain "gh pr view 123"
+
+target_result="$(run_merge_group_target_fixture main "feature/not-premain" api-head)"
+assert_target_result "${target_result}" main "feature/not-premain" "gh pr view 123"
+
+target_result="$(run_merge_group_target_fixture main "" api-head)"
+assert_target_empty_head_result "${target_result}" main
+
+run_queued_main_cycle_step_fixture \
+  premain \
+  0 \
+  "pending stable promotion accepted on queued main merge group from premain"
+
+run_queued_main_cycle_step_fixture \
+  "feature/not-premain" \
+  1 \
+  "pending stable promotion mode is only allowed for premain -> main (head branch: feature/not-premain)"
+
+run_queued_main_cycle_step_fixture \
+  "" \
+  1 \
+  "queued main pending stable promotion could not derive merge_group PR head"
 
 grep -Fq "pending stable promotion accepted on queued main merge group" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release hygiene must allow queued main pending stable promotion"
   exit 1
 }
 
-grep -Fq "../trusted-release/scripts/verify-promotion-release-driver.sh" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: promotion driver must run from trusted checkout"
+grep -Fq 'GITHUB_HEAD_REF="${QUEUE_HEAD_REF}"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: queued main pending fallback must use the derived merge_group head"
+  exit 1
+}
+
+if grep -Fq 'GITHUB_HEAD_REF=premain RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true' "${repo_root}/.github/workflows/release-hygiene.yml"; then
+  echo "release-hygiene-policy-test: queued main pending fallback must not fabricate GITHUB_HEAD_REF=premain"
+  exit 1
+fi
+
+grep -Fq "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: promotion driver must log the selected verifier source"
   exit 1
 }
 

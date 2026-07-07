@@ -116,6 +116,32 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
     "quality-gates must support workflow_dispatch"
   require_fixed "run: make rubric" "${q}" \
     "quality-gates must run the full rubric"
+  require_fixed "fetch-depth: 0" "${q}" \
+    "quality-gates must checkout full history for in-flight premain RC repair verification"
+  require_fixed "+refs/heads/premain:refs/remotes/origin/premain" "${q}" \
+    "quality-gates must fetch origin/premain for in-flight premain RC repair verification"
+  require_fixed "+refs/heads/staging:refs/remotes/origin/staging" "${q}" \
+    "quality-gates must fetch origin/staging for in-flight premain RC repair verification"
+  require_fixed "+refs/heads/main:refs/remotes/origin/main" "${q}" \
+    "quality-gates must fetch origin/main for release-cycle state comparison"
+  require_fixed 'python-version: "3.12"' "${q}" \
+    "quality-gates must cover Python 3.12 before staging merge"
+  require_fixed "Run Python 3.12 pre-merge compatibility" "${q}" \
+    "quality-gates must name the Python 3.12 pre-merge compatibility step"
+  require_fixed "uv --directory py run pytest -q tests/unit" "${q}" \
+    "quality-gates Python 3.12 check must include unit tests"
+  require_fixed "uv --directory py run pytest -q tests/integration" "${q}" \
+    "quality-gates Python 3.12 check must include integration tests"
+  require_fixed 'node-version: "20"' "${q}" \
+    "quality-gates must cover Node 20 before staging merge"
+  require_fixed "Run Node 20 pre-merge compatibility" "${q}" \
+    "quality-gates must name the Node 20 pre-merge compatibility step"
+  require_fixed "npm --prefix ts run test:integration" "${q}" \
+    "quality-gates Node 20 check must include integration tests"
+  require_fixed "Restore Python 3.14 for rubric" "${q}" \
+    "quality-gates must restore Python 3.14 before make rubric"
+  require_fixed "Restore Node 24 for rubric" "${q}" \
+    "quality-gates must restore Node 24 before make rubric"
   require_fixed "gov-infra/evidence" "${q}" \
     "quality-gates must upload gov-infra evidence artifacts"
   legacy_evidence_path="hgm""-infra/evidence"
@@ -132,6 +158,13 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
     fail "quality-gates must not carry premain/main pending-promotion logic"
   fi
 fi
+
+require_fixed "mode=premain-rc-repair" "scripts/lib/release-cycle-core.sh" \
+  "release-cycle-state must expose verified in-flight premain RC repair mode"
+require_fixed "origin/premain does not contain origin/staging" "scripts/lib/release-cycle-core.sh" \
+  "release-cycle-state must prove premain contains staging before accepting RC repair into staging"
+require_fixed "mode=staging-rc-followup-repair" "scripts/lib/release-cycle-core.sh" \
+  "release-cycle-state must expose verified staging RC follow-up repair mode"
 
 if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   h=".github/workflows/release-hygiene.yml"
@@ -169,12 +202,18 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must forbid RC-shaped main Release PRs"
   require_fixed "scripts/verify-promotion-release-driver.sh" "${h}" \
     "release-hygiene must verify human promotion release drivers"
+  require_fixed "manifest-derived stable Release-As" "${h}" \
+    "release-hygiene verifier selector must detect manifest-derived stable promotion driver support"
+  require_fixed "resolved promotion-driver supply-chain marker" "${h}" \
+    "release-hygiene verifier selector must detect resolved promotion-driver supply-chain support"
   require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
     "release-hygiene must run the release driver guard on staging -> premain PRs"
   require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \
     "release-hygiene must run the release driver guard on premain -> main PRs"
-  require_fixed "../trusted-release/scripts/verify-promotion-release-driver.sh" "${h}" \
-    "release-hygiene must run the promotion driver from trusted checkout"
+  require_fixed 'bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh"' "${h}" \
+    "release-hygiene must run the promotion driver from the resolved verifier source"
+  require_fixed "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${h}" \
+    "release-hygiene must log the promotion-driver verifier source"
   require_fixed "pending stable promotion accepted on queued main merge group" "${h}" \
     "release-hygiene must allow queued main pending stable promotion validation"
   if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${h}"; then
@@ -240,8 +279,8 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
   p=".github/workflows/prerelease.yml"
   require_regex 'branches:.*premain' "${p}" \
     "prerelease workflow must target premain"
-  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${p}" \
-    "prerelease workflow must pin release-please v4 by commit SHA"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${p}" \
+    "prerelease workflow must pin release-please v5 by commit SHA"
   require_regex 'contents:\s*write' "${p}" \
     "prerelease workflow must request contents: write"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${p}" \
@@ -288,8 +327,8 @@ if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
   pp=".github/workflows/prerelease-pr.yml"
   require_regex 'branches:.*premain' "${pp}" \
     "prerelease-pr workflow must target premain"
-  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${pp}" \
-    "prerelease-pr workflow must pin release-please v4 by commit SHA"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${pp}" \
+    "prerelease-pr workflow must pin release-please v5 by commit SHA"
   require_regex 'config-file:\s*release-please-config\.premain\.json' "${pp}" \
     "prerelease-pr workflow must reference release-please-config.premain.json"
   require_regex 'manifest-file:\s*\.release-please-manifest\.json' "${pp}" \
@@ -310,8 +349,8 @@ if [[ -f ".github/workflows/release.yml" ]]; then
   r=".github/workflows/release.yml"
   require_regex 'branches:.*main' "${r}" \
     "release workflow must target main"
-  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv4\b' "${r}" \
-    "release workflow must pin release-please v4 by commit SHA"
+  require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${r}" \
+    "release workflow must pin release-please v5 by commit SHA"
   require_regex 'contents:\s*write' "${r}" \
     "release workflow must request contents: write"
   require_regex 'config-file:\s*release-please-config\.json' "${r}" \

@@ -32,6 +32,37 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [2.0.1-rc.1](https://github.com/theory-cloud/TableTheory/compare/v2.0.1-rc...v2.0.1-rc.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* **ci:** allow premain rc repair into staging ([22e0750](https://github.com/theory-cloud/TableTheory/commit/22e0750e0afb590e21d89427ae91cd7fc1bd24d8))
+* **ci:** allow staging rc follow-up repair ([b0aa876](https://github.com/theory-cloud/TableTheory/commit/b0aa876c52cea79e2c570ff6afb14f23cf3bc43b))
+* **ci:** derive stable promotion intent ([1d23401](https://github.com/theory-cloud/TableTheory/commit/1d23401a500c420c81d58202b18467ebffae634e))
+* **ci:** derive stable promotion intent from premain ([df53986](https://github.com/theory-cloud/TableTheory/commit/df539866d75d807e77f412c6af904000accb725a))
+* **ci:** detect resolved supply-chain verifier ([079810a](https://github.com/theory-cloud/TableTheory/commit/079810a06f1e2de11644e6449c3890aa8c85e9e1))
+* **ci:** detect resolved supply-chain verifier ([1b154a7](https://github.com/theory-cloud/TableTheory/commit/1b154a7d337a26e1ff478834471851753169a50d))
+* **ci:** use resolved promotion verifier ([e389b3b](https://github.com/theory-cloud/TableTheory/commit/e389b3b8d4427c717a2e070c832830e99dffab92))
+* **ci:** use resolved promotion verifier ([31d5b2d](https://github.com/theory-cloud/TableTheory/commit/31d5b2dbe523d5a9d063afe42abd2af4cfc72031))
+
+## [2.0.1-rc](https://github.com/theory-cloud/TableTheory/compare/v2.0.0...v2.0.1-rc) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ci:** add fuzz smoke timeout margin ([31c56e5](https://github.com/theory-cloud/TableTheory/commit/31c56e5d81f6d60f165d4fefb09a0de1b8f28ad8))
+* **ci:** cover lower runtime staging gates ([6b11553](https://github.com/theory-cloud/TableTheory/commit/6b115533965c202ba62be2903b26407483a9e2a6))
+* **ci:** derive queued main release head ([28ff9a0](https://github.com/theory-cloud/TableTheory/commit/28ff9a0fee3b7379db6c0bbfd75015c7b2b72e44))
+* **ci:** harden post-v2 release hygiene gates ([757af07](https://github.com/theory-cloud/TableTheory/commit/757af0787f6c75f03db46f6d4aa61054aeb1d565))
+* **ci:** no-op stable release-pr after publish ([e051377](https://github.com/theory-cloud/TableTheory/commit/e0513772cf261d7751c20044beb369135ec9ebac))
+* **ci:** no-op stable release-pr after publish ([7c393bb](https://github.com/theory-cloud/TableTheory/commit/7c393bb7fab29c742e8e3eedc5b5ebffab593310))
+* **ci:** select v5 verifier for promotions ([3b08dd6](https://github.com/theory-cloud/TableTheory/commit/3b08dd647f2c11a1c3249a256e0bdc996d076efc))
+* **ci:** select v5 verifier for promotions ([41342b1](https://github.com/theory-cloud/TableTheory/commit/41342b1516e647d372c59dfd0b7530cdfad69940))
+* **ci:** split Python lower-runtime pytest ([8cb0170](https://github.com/theory-cloud/TableTheory/commit/8cb017095c58d7b7b45115e3691f35131b3710c4))
+* **contract:** harden harness assertion semantics ([84c7670](https://github.com/theory-cloud/TableTheory/commit/84c7670c4e88cf27808bbfbd3685845e6fc9963a))
+* **release:** reject RC-shaped main PR titles ([d38ecc4](https://github.com/theory-cloud/TableTheory/commit/d38ecc4dd84460ba3d2d620c74a8ca690fb52bff))
+
 ## [2.0.0](https://github.com/theory-cloud/TableTheory/compare/v2.0.0-rc...v2.0.0) (2026-07-06)
 
 

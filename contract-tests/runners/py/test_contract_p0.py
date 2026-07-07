@@ -102,9 +102,83 @@ def _load_scenarios() -> list[dict[str, Any]]:
 
 def _load_scenarios_from(name: str) -> list[dict[str, Any]]:
     scenario_dir = _repo_root() / "contract-tests" / "scenarios" / name
-    scenarios = [_load_yaml(path) for path in sorted(scenario_dir.glob("*.yml"))]
+    scenarios = []
+    for path in sorted(scenario_dir.glob("*.yml")):
+        scenario = _load_yaml(path)
+        _validate_scenario_expectations(scenario, path)
+        scenarios.append(scenario)
     assert scenarios
     return scenarios
+
+
+_EXPECTATION_MAP_KEYS = {
+    "item_contains",
+    "item_equals",
+    "raw_item_contains",
+    "raw_attribute_types",
+    "item_field_equals_var",
+    "item_field_not_equals_var",
+}
+
+_EXPECTATION_LIST_KEYS = {
+    "errors",
+    "items_missing_fields",
+    "item_has_fields",
+    "item_missing_fields",
+}
+
+_ITEM_ASSERTION_KEYS = {
+    "item_contains",
+    "item_equals",
+    "item_has_fields",
+    "item_missing_fields",
+    "raw_attribute_types",
+    "raw_item_contains",
+    "item_field_equals_var",
+    "item_field_not_equals_var",
+}
+
+_READ_ASSERTION_KEYS = {
+    "item_count",
+    "count",
+    "items_contains",
+    "items_missing_fields",
+    "cursor_equals",
+}
+
+
+def _validate_scenario_expectations(scenario: dict[str, Any], path: Path) -> None:
+    for label in ("steps", "seed_steps", "read_steps"):
+        for index, step in enumerate(scenario.get(label, []) or []):
+            expect = step.get("expect")
+            if expect is not None:
+                _validate_expectation(expect, f"{path} {label}[{index}] expect")
+
+
+def _validate_expectation(expect: dict[str, Any], prefix: str) -> None:
+    assert isinstance(expect, dict), f"{prefix} must be a map"
+
+    for key in _EXPECTATION_MAP_KEYS:
+        if key in expect:
+            assert isinstance(expect[key], dict) and expect[key], f"{prefix}.{key} must not be empty"
+
+    for key in _EXPECTATION_LIST_KEYS:
+        if key in expect:
+            assert isinstance(expect[key], list) and expect[key], f"{prefix}.{key} must not be empty"
+
+    if "items_contains" in expect:
+        items_contains = expect["items_contains"]
+        assert isinstance(items_contains, list) and items_contains, (
+            f"{prefix}.items_contains must not be empty"
+        )
+        for index, item in enumerate(items_contains):
+            assert isinstance(item, dict) and item, f"{prefix}.items_contains[{index}] must not be empty"
+
+    has_error_expectation = bool(expect.get("error")) or bool(expect.get("errors"))
+    has_data_assertion = any(key in expect for key in _ITEM_ASSERTION_KEYS | _READ_ASSERTION_KEYS)
+    assert not (has_error_expectation and has_data_assertion), (
+        f"{prefix}: item/read assertions cannot be combined with error expectations"
+    )
 
 
 _MODEL_DEFINITIONS: dict[str, Any] = {
@@ -1048,6 +1122,33 @@ def test_assert_read_expectation_fails_closed_on_read_assertion_error_without_ok
             error=RuntimeError("read failed"),
             result={},
             model=_minimal_user_model(),
+        )
+
+
+def test_assert_expectation_rejects_raw_assertions_with_error_expectations() -> None:
+    with pytest.raises(AssertionError, match="item assertions cannot be combined with error expectations"):
+        _assert_expectation(
+            {"error": "ErrItemNotFound", "raw_item_contains": {"PK": "USER#fail-closed"}},
+            error=NotFoundError("missing seeded item"),
+            item=None,
+            raw=None,
+            model=_minimal_user_model(),
+            variables={},
+        )
+
+
+def test_validate_expectation_rejects_empty_assertion_maps() -> None:
+    with pytest.raises(AssertionError, match="expect.item_equals must not be empty"):
+        _validate_expectation({"item_equals": {}}, "unit.yml steps[0] expect")
+
+
+def test_validate_expectation_rejects_assertions_combined_with_errors() -> None:
+    with pytest.raises(
+        AssertionError, match="item/read assertions cannot be combined with error expectations"
+    ):
+        _validate_expectation(
+            {"error": "ErrItemNotFound", "item_contains": {"PK": "USER#error"}},
+            "unit.yml steps[0] expect",
         )
 
 

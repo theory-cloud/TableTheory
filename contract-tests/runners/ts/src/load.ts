@@ -177,6 +177,95 @@ function validateStep(
         `${filePath} ${label}[${index}]: unsupported op ${String(step.op)}`,
       );
   }
+  validateExpectation(step.expect, `${filePath} ${label}[${index}] expect`);
+}
+
+const expectationMapKeys = [
+  "item_contains",
+  "item_equals",
+  "raw_item_contains",
+  "raw_attribute_types",
+  "item_field_equals_var",
+  "item_field_not_equals_var",
+] as const;
+
+const expectationArrayKeys = [
+  "errors",
+  "items_missing_fields",
+  "item_has_fields",
+  "item_missing_fields",
+] as const;
+
+const itemAssertionKeys = [
+  "item_contains",
+  "item_equals",
+  "item_has_fields",
+  "item_missing_fields",
+  "raw_attribute_types",
+  "raw_item_contains",
+  "item_field_equals_var",
+  "item_field_not_equals_var",
+] as const;
+
+const readAssertionKeys = [
+  "item_count",
+  "count",
+  "items_contains",
+  "items_missing_fields",
+  "cursor_equals",
+] as const;
+
+function validateExpectation(
+  expect: Scenario["steps"][number]["expect"] | undefined,
+  prefix: string,
+): void {
+  if (expect === undefined) return;
+
+  for (const key of expectationMapKeys) {
+    if (!Object.hasOwn(expect, key)) continue;
+    requirePlainObject(expect[key], `${prefix}.${key} must not be empty`);
+  }
+
+  for (const key of expectationArrayKeys) {
+    if (!Object.hasOwn(expect, key)) continue;
+    const value = expect[key];
+    if (!Array.isArray(value) || value.length === 0) {
+      throw new Error(`${prefix}.${key} must not be empty`);
+    }
+  }
+
+  if (Object.hasOwn(expect, "items_contains")) {
+    const value = expect.items_contains;
+    if (!Array.isArray(value) || value.length === 0) {
+      throw new Error(`${prefix}.items_contains must not be empty`);
+    }
+    for (const [index, item] of value.entries()) {
+      requirePlainObject(
+        item,
+        `${prefix}.items_contains[${index}] must not be empty`,
+      );
+    }
+  }
+
+  const hasErrorExpectation =
+    (typeof expect.error === "string" && expect.error.length > 0) ||
+    (Array.isArray(expect.errors) && expect.errors.length > 0);
+  const hasDataAssertion = expectationHasAnyKey(expect, [
+    ...itemAssertionKeys,
+    ...readAssertionKeys,
+  ]);
+  if (hasErrorExpectation && hasDataAssertion) {
+    throw new Error(
+      `${prefix}: item/read assertions cannot be combined with error expectations`,
+    );
+  }
+}
+
+function expectationHasAnyKey(
+  expect: NonNullable<Scenario["steps"][number]["expect"]>,
+  keys: readonly (keyof NonNullable<Scenario["steps"][number]["expect"]>)[],
+): boolean {
+  return keys.some((key) => Object.hasOwn(expect, key));
 }
 
 function requireCountRequest(value: unknown, prefix: string): void {

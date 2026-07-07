@@ -42,6 +42,11 @@ TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` 
   `CHANGELOG.md` to stable state before the stable release workflow publishes `vX.Y.Z`.
 - After the stable release publishes, the next operator step is a normal PR backmerge from `main` to `staging`; `premain`
   receives the new baseline through the next `staging` -> `premain` promotion.
+- During an active RC, a premain-derived repair PR back to `staging` is allowed only when `premain` already contains
+  `staging` and RC release content must be reconciled to avoid forward merge conflicts. This is an exceptional in-flight
+  RC repair state, not the normal release hop; ordinary RC manifest state on `staging` remains forbidden. Follow-up
+  repair PRs to `staging` may preserve the already-accepted RC manifest until stable publication, but must be based on
+  current `staging` and must not change the RC baseline.
 - Hotfixes should still follow `staging` -> `premain` -> `main` so the release lane stays linear.
 
 ## Post-release backmerge (operator PR)
@@ -207,7 +212,10 @@ Release-lane quality workflow expectations:
 Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--strict` before merge/release gates. Pause on:
 
 - `origin/main` carrying an RC manifest outside the explicit single-manifest pending stable-promotion window.
-- `.release-please-manifest.json` set to an RC version on `staging`.
+- `.release-please-manifest.json` set to an RC version on `staging`, unless it is a verified in-flight premain RC repair
+  where `premain` already contains `staging` and the RC release content is being reconciled to avoid forward merge
+  conflicts, or a verified follow-up repair that preserves the already-accepted `staging` RC manifest before stable
+  publication.
 - the retired `.release-please-manifest.premain.json` appearing on release branches.
 - `origin/premain` release track behind `origin/main`.
 - `origin/staging` missing the latest stable baseline after a stable release.

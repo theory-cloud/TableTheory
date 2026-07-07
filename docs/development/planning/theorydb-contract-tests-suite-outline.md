@@ -35,6 +35,10 @@ Contract tests run scenarios against an implementation through a **Driver** inte
 Raw DynamoDB item assertions (`item_missing_fields`, `raw_attribute_types`, and exact raw item comparisons) MUST use
 strongly consistent reads in every runner. Eventual raw reads make the harness itself a source of parity drift.
 
+Go contract-runner invocations MUST use `-count=1` in repository verification scripts and local documentation. The Go
+runner is a nested module that reads shared YAML fixtures outside its module root, so repeated harness runs must execute
+fresh instead of relying on Go's package-test cache.
+
 ## Proposed folder layout (contract repo)
 
 ```text
@@ -219,6 +223,16 @@ Minimum assertions required for v0.1:
 
 Value encoding in scenario files is “logical” (strings/numbers/bools/arrays/objects); the runner encodes based on DMS
 attribute `type`.
+
+Assertion validity rules:
+- Assertion collection keys MUST be omitted when unused. Present-but-empty maps/lists such as `item_contains: {}`,
+  `item_equals: {}`, `raw_item_contains: {}`, `raw_attribute_types: {}`, `items_contains: []`, or
+  `items_missing_fields: []` are invalid because they do not assert observable behavior consistently across runtimes.
+- `errors: []` is invalid; use `error: <ErrorCode>` for one code or a non-empty `errors: [...]` union for multi-code
+  assertions.
+- Item/raw-item/read assertions MUST NOT be combined with `error` or `errors`. Assertions that inspect returned data
+  (`item_contains`, `item_equals`, raw item assertions, `item_count`, `count`, `items_contains`, `cursor_equals`, and
+  related field-presence assertions) imply a successful operation/read even when `ok: true` is omitted.
 
 Comparison rules:
 - DynamoDB `N` values MUST be asserted as their canonical decimal strings. Runners compare the DynamoDB wire string
