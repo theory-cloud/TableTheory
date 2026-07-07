@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -18,11 +19,14 @@ var templatesFS embed.FS
 
 // defaultRuntimeVersion is the TableTheory release the generated scaffold pins.
 // It can be overridden with --runtime-version.
-const defaultRuntimeVersion = "1.10.0"
+var defaultRuntimeVersion = "2.0.2"
+
+const goModuleBase = "github.com/theory-cloud/tabletheory"
 
 type initData struct {
 	Module           string
 	Lang             string
+	GoModulePath     string
 	GoModuleVersion  string
 	TsPackageVersion string
 	PyPackageVersion string
@@ -53,12 +57,14 @@ func initScaffold(args []string, stdout io.Writer, stderr io.Writer) error {
 		return ensureErr
 	}
 
+	normalizedRuntimeVersion := strings.TrimPrefix(*runtimeVersion, "v")
 	data := initData{
 		Module:           resolveModuleName(*module, targetDir),
 		Lang:             langKey,
-		GoModuleVersion:  "v" + *runtimeVersion,
-		TsPackageVersion: *runtimeVersion,
-		PyPackageVersion: *runtimeVersion,
+		GoModulePath:     goModulePathForRuntimeVersion(normalizedRuntimeVersion),
+		GoModuleVersion:  "v" + normalizedRuntimeVersion,
+		TsPackageVersion: normalizedRuntimeVersion,
+		PyPackageVersion: normalizedRuntimeVersion,
 	}
 
 	written, err := renderTemplateTree(targetDir, "shared", data)
@@ -81,6 +87,18 @@ func initScaffold(args []string, stdout io.Writer, stderr io.Writer) error {
 	msg.WriteString(initNextSteps(langKey))
 	_, err = io.WriteString(stdout, msg.String())
 	return err
+}
+
+func goModulePathForRuntimeVersion(version string) string {
+	majorPart := version
+	if dot := strings.Index(majorPart, "."); dot >= 0 {
+		majorPart = majorPart[:dot]
+	}
+	major, err := strconv.Atoi(majorPart)
+	if err != nil || major < 2 {
+		return goModuleBase
+	}
+	return fmt.Sprintf("%s/v%d", goModuleBase, major)
 }
 
 func normalizeInitLang(lang string) (string, error) {

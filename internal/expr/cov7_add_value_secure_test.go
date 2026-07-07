@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/internal/anonymous"
+	"github.com/theory-cloud/tabletheory/v2/internal/anonymous"
 )
 
 type cov7Converter struct {

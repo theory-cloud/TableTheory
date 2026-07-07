@@ -6,8 +6,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
-	queryPkg "github.com/theory-cloud/tabletheory/pkg/query"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
+	queryPkg "github.com/theory-cloud/tabletheory/v2/pkg/query"
 )
 
 type recordingBatchExecutor struct {

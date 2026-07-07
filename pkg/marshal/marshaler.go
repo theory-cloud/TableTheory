@@ -12,13 +12,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/internal/anonymous"
-	"github.com/theory-cloud/tabletheory/internal/expr"
-	"github.com/theory-cloud/tabletheory/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/pkg/model"
-	"github.com/theory-cloud/tabletheory/pkg/naming"
-	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
+	"github.com/theory-cloud/tabletheory/v2/internal/anonymous"
+	"github.com/theory-cloud/tabletheory/v2/internal/expr"
+	"github.com/theory-cloud/tabletheory/v2/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	"github.com/theory-cloud/tabletheory/v2/pkg/naming"
+	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
 )
 
 // Marshaler provides high-performance marshaling to DynamoDB AttributeValues

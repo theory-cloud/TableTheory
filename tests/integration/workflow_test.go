@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/tests"
+	"github.com/theory-cloud/tabletheory/v2/tests"
 )
 
 // User model for testing

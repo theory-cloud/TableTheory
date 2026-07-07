@@ -10,9 +10,9 @@ import (
 	ddbTypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/marshal"
-	"github.com/theory-cloud/tabletheory/pkg/model"
-	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
+	"github.com/theory-cloud/tabletheory/v2/pkg/marshal"
+	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
 )
 
 type cov5StringConverter struct{}

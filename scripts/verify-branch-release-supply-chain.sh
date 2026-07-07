@@ -54,6 +54,7 @@ required_files=(
   "release-please-config.premain.json"
   "release-please-config.json"
   ".release-please-manifest.json"
+  "scripts/verify-go-semantic-import-version.sh"
   "scripts/prepare-release-package-versions.py"
   "scripts/verify-release-package-version-assets.py"
   "scripts/verify-release-package-version-build.sh"
@@ -171,6 +172,10 @@ require_fixed "origin/premain does not contain origin/staging" "scripts/lib/rele
   "release-cycle-state must prove premain contains staging before accepting RC repair into staging"
 require_fixed "mode=staging-rc-followup-repair" "scripts/lib/release-cycle-core.sh" \
   "release-cycle-state must expose verified staging RC follow-up repair mode"
+require_fixed "scripts/verify-go-semantic-import-version.sh" "scripts/verify-release-cycle-state.sh" \
+  "release-cycle-state must verify Go semantic import path against manifest major"
+require_fixed "scripts/verify-go-semantic-import-version.sh" "scripts/verify-builds.sh" \
+  "build verification must include Go semantic import versioning"
 
 if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   h=".github/workflows/release-hygiene.yml"
@@ -214,6 +219,10 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene verifier selector must detect resolved promotion-driver supply-chain support"
   require_fixed "deterministic stable Release PR marker" "${h}" \
     "release-hygiene verifier selector must detect deterministic stable Release PR support"
+  require_fixed "Go semantic import verifier marker" "${h}" \
+    "release-hygiene verifier selector must detect Go semantic import verifier support"
+  require_fixed "Go semantic import supply-chain marker" "${h}" \
+    "release-hygiene verifier selector must detect Go semantic import supply-chain support"
   require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
     "release-hygiene must run the release driver guard on staging -> premain PRs"
   require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \
@@ -464,10 +473,14 @@ if [[ -f "scripts/create-stable-release-pr.py" ]]; then
     "stable Release PR generator must create a Release Please-compatible body"
   require_fixed "autorelease: pending" "${stable_pr_generator}" \
     "stable Release PR generator must apply the Release Please pending label"
-  require_fixed "--force-with-lease=refs/heads/" "${stable_pr_generator}" \
-    "stable Release PR generator must update the generated branch through explicit force-with-lease"
-  require_fixed "display_args" "${stable_pr_generator}" \
-    "stable Release PR generator must redact token-bearing git push diagnostics"
+  require_fixed "createCommitOnBranch" "${stable_pr_generator}" \
+    "stable Release PR generator must create the release commit through GitHub's signed commit path"
+  require_fixed "expectedHeadOid" "${stable_pr_generator}" \
+    "stable Release PR generator must use GitHub branch-head lease protection"
+  require_fixed "GitHub did not report a verified signature" "${stable_pr_generator}" \
+    "stable Release PR generator must reject unsigned generated commits"
+  require_fixed "create_or_reset_branch" "${stable_pr_generator}" \
+    "stable Release PR generator must replace stale generated branch heads before creating the signed commit"
 fi
 
 if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then

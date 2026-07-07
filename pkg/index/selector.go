@@ -3,7 +3,7 @@ package index
 import (
 	"strings"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
 )
 
 // Selector helps select the optimal index for a query

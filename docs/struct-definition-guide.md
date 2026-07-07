@@ -121,7 +121,7 @@ Rules:
 
 - `session.Config.KMSKeyARN` is required for any model with encrypted fields (TableTheory fails closed if it is empty).
 - Encrypted fields cannot be used as `pk`, `sk`, or any GSI/LSI key.
-- Encrypted fields are not queryable/filterable (ciphertext is non-deterministic). Attempts are rejected with `errors.ErrEncryptedFieldNotQueryable` (from `github.com/theory-cloud/tabletheory/pkg/errors`). If you need lookups, index a separate deterministic value (e.g., a hash).
+- Encrypted fields are not queryable/filterable (ciphertext is non-deterministic). Attempts are rejected with `errors.ErrEncryptedFieldNotQueryable` (from `github.com/theory-cloud/tabletheory/v2/pkg/errors`). If you need lookups, index a separate deterministic value (e.g., a hash).
 
 ```go
 type Customer struct {
