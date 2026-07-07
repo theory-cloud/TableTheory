@@ -92,7 +92,7 @@ implementation PRs merge:
 - Generated release-please PRs must also pass through the queue so their release tag/release workflow observes the same
   branch tip that was checked.
 
-If merge queue is unavailable, the fallback is a documented manual merge freeze: one release-lane PR open at a time, no
+If merge queue is unavailable, the documented manual-freeze mode is: one release-lane PR open at a time, no
 parallel promotion/release-please merges, and a fresh strict release-lane verification immediately before merge.
 
 THE-2450 repo-owned implementation:
@@ -103,7 +103,7 @@ THE-2450 repo-owned implementation:
   pending-stable-promotion state that a `premain` -> `main` promotion PR creates.
 - Pull-request provenance still rejects forks/name-spoofing and illegal release-lane source branches before checking out
   PR-head code. The prior live-ref equality check is not required in the normal PR path because the merge queue validates
-  freshness against the protected branch tip; it remains available as the strict manual-freeze fallback.
+  freshness against the protected branch tip; it remains available as the strict manual-freeze check.
 - Live GitHub branch-protection/ruleset changes are operator-owned and cannot be completed through a normal signed PR.
 
 ## Guard disposition map
@@ -114,7 +114,7 @@ THE-2450 repo-owned implementation:
 | `.github/workflows/release-hygiene.yml` | Lightweight trusted release checks for `premain`/`main` PRs | **Keep, update** | Continue provenance and release-hygiene checks; remove checks that only mention the retired prerelease manifest. |
 | `.github/workflows/prerelease-pr.yml` | Opens generated RC release-please PRs on `premain` | **Keep, update** | Use single manifest path and native prerelease config; paths-ignore no longer includes SDK version files as release state. |
 | `.github/workflows/prerelease.yml` | Publishes prerelease GitHub Releases and assets | **Keep, update** | Use single manifest path; generate TS/Py versions from `tag_name` before packaging. |
-| `.github/workflows/release-pr.yml` | Opens stable release-please PRs on `main` after pending promotion | **Keep, update** | Compute stable `release-as` from the single-manifest RC baseline; keep stable PR postcondition checks. |
+| `.github/workflows/release-pr.yml` | Opens deterministic stable Release PRs on `main` after pending promotion | **Keep, update** | Compute the stable version from the single-manifest RC baseline; keep stable PR postcondition checks. |
 | `.github/workflows/release.yml` | Publishes stable GitHub Releases and assets | **Keep, update** | Skip publish only during explicit single-manifest pending stable promotion; generate TS/Py versions from `tag_name` before packaging. |
 | `release-please-config.json` | Stable release-please config plus extra-files normalization | **Keep, simplify** | Remove `.release-please-manifest.premain.json` and SDK version-file extra-files once generated package versions are proven. |
 | `release-please-config.premain.json` | Prerelease release-please config | **Keep initially, possibly merge later** | It may remain branch-specific config while using the single manifest; evaluate config merge only after native prerelease dry-run. |
@@ -133,10 +133,10 @@ THE-2450 repo-owned implementation:
 | `scripts/verify-prerelease-pr-postcondition.sh` | Ensures generated RC PR exists and is RC-shaped | **Keep, update** | Must validate native prerelease PR shape and single manifest diff. |
 | `scripts/verify-main-release-pr-postcondition.sh` | Ensures stable PR shape and forbids RC main release PRs | **Keep, update** | Must validate single manifest stable diff and no SDK version-source commits. |
 | `scripts/verify-release-created-postcondition.sh` | Fails publish workflows that should have created a release | **Keep** | Immutable release/publish postcondition remains load-bearing. |
-| `scripts/prepare-stable-promotion.sh` | Diagnostic/fallback stable-promotion helper | **Retired by TTIP-113** | Stable normalization is owned by `release-pr.yml` and the generated stable release-please PR. |
+| `scripts/prepare-stable-promotion.sh` | Retired stable-promotion helper | **Retired by TTIP-113** | Stable normalization is owned by `release-pr.yml` and the generated deterministic stable Release PR. |
 | `scripts/sync-post-stable-release-baselines.sh` | Deprecated dry-run helper for old baseline sync | **Retired by TTIP-113** | V2 keeps normal `main -> staging` PR backmerge; no direct sync helper remains. |
 | `scripts/test-release-hygiene-policy.sh` | Policy tests for provenance/promotion/publish guards | **Keep, update** | Add single-manifest promotion and generated-version assertions. |
-| `scripts/test-release-pr-tool-policy.sh` | Ensures pinned release-please CLI path for privileged stable PR workflow | **Keep** | Still protects release-pr privileged token path if CLI remains. |
+| `scripts/test-release-pr-tool-policy.sh` | Ensures deterministic stable Release PR generation stays on the blessed path | **Keep, update** | Protects the privileged release-pr token path from reintroducing ad-hoc release-please CLI execution. |
 | `scripts/test-release-verifier-policy.sh` | Fixture matrix for release verifier PASS/WARN/FAIL judgments | **Keep, update** | Extend fixtures to one-manifest good/bad states before changing guards. |
 | `scripts/verify-cli-release-assets.sh` | Dry-run proof for CLI asset matrix | **Keep** | Independent of manifest model; still proves Go CLI assets build. |
 | `gov-infra/verifiers/gov-verify-rubric.sh` COM-8 | Rubric release supply-chain gate | **Keep, update call graph only** | COM-8 remains the release-lane gate identity. |
@@ -150,7 +150,7 @@ THE-2450 guard disposition details:
 | Fork or name-spoofed release-lane PR checks out untrusted code | **Retained** | `release-hygiene.yml` still runs `verify-release-lane-provenance.sh` from the trusted base checkout before PR-head checkout. |
 | Illegal `premain`/`main` source branch or RC/stable release-please title shape | **Retained** | `verify-release-lane-provenance.sh` still allows only `staging`/generated RC heads for `premain` and `premain`/generated stable heads for `main`. |
 | Human promotion lacks release intent / lets release-please report "No user facing commits" | **Retained** | `verify-promotion-release-driver.sh` still runs on `staging` -> `premain` and `premain` -> `main` PRs. |
-| PR-event base/head SHA must equal current live branch refs | **Covered by queue semantics in normal path; retained for fallback** | The protected branch merge queue validates the queued merge ref against the target branch tip before merge. The strict live-ref check remains the default in `verify-release-lane-provenance.sh` for manual-freeze fallback; the workflow uses `--queue-freshness`. |
+| PR-event base/head SHA must equal current live branch refs | **Covered by queue semantics in normal path; retained for explicit manual-freeze checks** | The protected branch merge queue validates the queued merge ref against the target branch tip before merge. The strict live-ref check remains the default in `verify-release-lane-provenance.sh` for manual-freeze checks; the workflow uses `--queue-freshness`. |
 | Release-cycle state, supply-chain scaffolding, main RC release-PR postcondition | **Retained and extended to queue refs** | `release-hygiene.yml` runs these checks on both PR-head checkouts and `merge_group` queue refs. |
 | Stable-promotion single-manifest RC on queued `main` merge group | **Replaced by kept pending-promotion check** | Queue validation first tries strict stable state, then accepts only explicit pending stable promotion mode for queued `main` refs. |
 

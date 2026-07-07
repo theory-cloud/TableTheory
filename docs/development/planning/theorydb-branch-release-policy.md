@@ -33,12 +33,16 @@ TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` 
   or the promotion PR squash title/body/footer.
 - A **stable release** is prepared by verifying the intended RC release, then opening and merging the `premain` -> `main`
   promotion PR. The promoted single manifest may briefly be RC-shaped on `main`; `release.yml` must skip publication in
-  that state and `release-pr.yml` must open the generated stable release-please PR with `release-as` computed from the RC
+  that state and `release-pr.yml` must open the deterministic stable Release PR with `release-as` computed from the RC
   base.
 - A `premain` -> `main` PR is valid only when the single manifest carries a numbered RC that can become stable. The
-  follow-up generated release-please PR targeting `main` must be stable-shaped; RC-shaped main release PRs and releases
+  follow-up deterministic Release PR targeting `main` must be stable-shaped; RC-shaped main release PRs and releases
   are forbidden.
-- A **release** is cut by merging the stable release-please PR, which normalizes `.release-please-manifest.json` and
+- While `main` is already in the explicit pending stable-promotion state, a release-CI repair that reaches `premain`
+  must not start another prerelease cycle. Premain prerelease workflows verify that `premain` and `origin/main` carry the
+  exact same RC plus deterministic stable Release PR support, then no-op cleanly until the repaired `premain` can promote
+  to `main`.
+- A **release** is cut by merging the stable Release PR, which normalizes `.release-please-manifest.json` and
   `CHANGELOG.md` to stable state before the stable release workflow publishes `vX.Y.Z`.
 - After the stable release publishes, the next operator step is a normal PR backmerge from `main` to `staging`; `premain`
   receives the new baseline through the next `staging` -> `premain` promotion.
@@ -60,7 +64,7 @@ The normal stable promotion path does not use a local stable-normalization branc
 changelog updates; the TypeScript/Python release asset versions are generated from the release tag in the release-build
 workspace and verified inside the tarball/wheel/sdist before upload.
 
-No post-stable sync helper or local stable-normalization helper remains in the release lane. Recovery remains PR-based:
+No post-stable sync helper or manual local stable-normalization helper remains in the release lane. Stable normalization is workflow-generated; recovery remains PR-based:
 if a branch is stranded, create a new PR branch from the correct base and replay only the needed file state. Do not retag,
 overwrite release assets, force-push, delete branches, mutate GitHub releases, or direct-push protected branches.
 
@@ -115,7 +119,7 @@ Release-lane v2 keeps the provenance checks that identify *what* is allowed to e
 The old required PR-time "event base/head SHA must equal the current live branch ref" guard is retired from the normal
 release-hygiene PR path because the merge queue now validates the exact queued merge ref against the latest protected
 branch tip before merge. The strict live-ref check remains in `scripts/verify-release-lane-provenance.sh` for documented
-manual-freeze fallback use if merge queue is unavailable.
+manual-freeze use if merge queue is unavailable.
 
 ## Automated releases (required)
 
@@ -162,10 +166,10 @@ If an asset upload or publish step has no `tag_name`, fail the workflow. If a Gi
 assets are missing, use a documented asset recovery workflow only after confirming the tag and release are immutable and
 correct.
 
-Generated release-please PR merges are the publish steps. If a generated RC PR merge on `premain` or generated stable PR
+Generated release PR merges are the publish steps. If a generated RC release-please PR merge on `premain` or deterministic stable Release PR
 merge on `main` reports `release_created=false`, fail loudly; do not treat the publish workflow as green. Plain
 `staging` -> `premain` and `premain` -> `main` promotion merges are PR-generation setup only when `prerelease-pr.yml` or
-`release-pr.yml` is responsible for and required to open the generated release-please PR.
+`release-pr.yml` is responsible for and required to open the deterministic stable Release PR.
 
 Before promoting `premain` to `main`, confirm the intended RC is actually published: it must be non-draft, marked as a
 GitHub prerelease, have a `publishedAt` timestamp, resolve through `refs/tags/vX.Y.Z-rc.N`, use a tag-addressed release
@@ -176,7 +180,7 @@ not sufficient evidence that a release is healthy.
 
 - **Single shared repo version:** Go, TypeScript, and Python use the same GitHub tag/release version.
 - **Single release-please manifest:** `.release-please-manifest.json` is the only release-please manifest. `premain` may
-  carry `X.Y.Z-rc.N`; `main` must normalize to stable through the generated stable release-please PR.
+  carry `X.Y.Z-rc.N`; `main` must normalize to stable through the generated stable Release PR.
 - **No registry publishing:** TypeScript is not published to npm and Python is not published to PyPI; GitHub releases are
   the source of truth.
 - **Tag-derived package versions:** release workflows, not release-please manifests, stamp TypeScript/Python package
@@ -221,8 +225,8 @@ Run `bash scripts/watch-release-cycle.sh` during a release and rerun with `--str
 - `origin/staging` missing the latest stable baseline after a stable release.
 - SEC-2/govulncheck still observing Go `1.26.3`.
 - COM-8 branch/version sync failing.
-- release-please opening a stable PR for an RC version.
-- `origin/main` in pending stable promotion without an open stable release-please PR for the computed stable version.
+- release-pr.yml opening a stable PR for an RC version.
+- `origin/main` in pending stable promotion without an open stable Release PR for the computed stable version.
 - `prerelease-pr.yml` completing after a `staging` -> `premain` promotion without an open generated RC release-please PR
   targeting `premain`.
 - release-please reporting "No user facing commits" on a `premain` or `main` release-intent gate.

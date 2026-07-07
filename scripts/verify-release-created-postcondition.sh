@@ -166,7 +166,7 @@ if [[ "${pending_stable_promotion}" == "true" ]]; then
   if [[ -n "${tag_name}" ]]; then
     fail "stable workflow produced tag_name ${tag_name} during pending stable promotion"
   fi
-  echo "release-created-postcondition: PASS (plain premain -> main promotion is pending stable release PR generation; release-pr.yml must require the generated stable release-please PR)"
+  echo "release-created-postcondition: PASS (plain premain -> main promotion is pending stable release PR generation; release-pr.yml must require the deterministic stable Release PR)"
   exit 0
 fi
 

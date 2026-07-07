@@ -13,8 +13,6 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    env:
-      RELEASE_PLEASE_CLI_VERSION: "17.3.0"
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -83,7 +81,7 @@ jobs:
               raise SystemExit("")
 
           # A premain -> main promotion carries the single manifest RC forward.
-          # The stable release-please PR normalizes that RC baseline to X.Y.Z.
+          # The deterministic stable Release PR normalizes that RC baseline to X.Y.Z.
           print(manifest.split("+", 1)[0].split("-", 1)[0])
           PY
           )"
@@ -91,42 +89,24 @@ jobs:
           echo "release_as=${release_as}" >> "${GITHUB_OUTPUT}"
           echo "release-as: ${release_as:-<none>}"
 
-      - name: Release Please CLI (PR only)
+      - name: Create stable Release PR
+        if: steps.cycle.outputs.pending_stable_promotion == 'true'
         env:
-          RELEASE_AS: ${{ steps.version.outputs.release_as }}
-          PENDING_STABLE_PROMOTION: ${{ steps.cycle.outputs.pending_stable_promotion }}
-          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          EXPECTED_VERSION: ${{ steps.version.outputs.release_as }}
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [[ "${PENDING_STABLE_PROMOTION}" != "true" ]]; then
-            echo "release-pr: strict stable state; no single-manifest RC to normalize"
-            exit 0
-          fi
-
-          if [[ -z "${RELEASE_AS}" ]]; then
-            echo "release-pr: FAIL (single-manifest pending stable promotion did not compute a stable release-as)"
+          if [[ -z "${EXPECTED_VERSION}" ]]; then
+            echo "stable-release-pr: FAIL (single-manifest pending stable promotion did not compute a stable release-as)"
             exit 1
           fi
 
-          if [[ -z "${RELEASE_PLEASE_TOKEN}" ]]; then
-            echo "release-pr: FAIL (missing release-please token)"
-            exit 1
-          fi
-
-          args=(
-            release-pr
-            --repo-url "${GITHUB_REPOSITORY}"
-            --target-branch main
-            --config-file release-please-config.json
-            --manifest-file .release-please-manifest.json
-            --token "${RELEASE_PLEASE_TOKEN}"
-          )
-
-          args+=(--release-as "${RELEASE_AS}")
-
-          npm ci --prefix scripts/release-please-cli --ignore-scripts
-          scripts/release-please-cli/node_modules/.bin/release-please "${args[@]}"
+          python3 scripts/create-stable-release-pr.py \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --head release-please--branches--main \
+            --expected-version "${EXPECTED_VERSION}"
 
       - name: Verify stable Release PR postcondition
         if: steps.cycle.outputs.pending_stable_promotion == 'true'
