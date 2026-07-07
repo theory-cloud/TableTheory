@@ -59,6 +59,7 @@ required_files=(
   "scripts/verify-release-package-version-build.sh"
   "scripts/verify-main-release-pr-postcondition.sh"
   "scripts/verify-prerelease-pr-postcondition.sh"
+  "scripts/verify-premain-pending-stable-repair.sh"
   "scripts/verify-release-lane-provenance.sh"
   "scripts/verify-promotion-release-driver.sh"
   "scripts/verify-release-created-postcondition.sh"
@@ -298,6 +299,12 @@ if [[ -f ".github/workflows/prerelease.yml" ]]; then
     "prerelease workflow must verify release-cycle state before release-please"
   require_fixed "scripts/verify-branch-version-sync.sh" "${p}" \
     "prerelease workflow must verify branch version sync before release-please"
+  require_fixed "scripts/verify-premain-pending-stable-repair.sh" "${p}" \
+    "prerelease workflow must classify pending stable repair before release-please"
+  require_fixed "pending_stable_repair != 'true'" "${p}" \
+    "prerelease workflow must skip prerelease publication during pending stable repair"
+  require_fixed "pending stable repair accepted; skipping prerelease publication" "${p}" \
+    "prerelease workflow must log pending stable repair no-op"
   require_regex 'release_created' "${p}" \
     "prerelease workflow must use release-please outputs"
   require_fixed "scripts/verify-release-created-postcondition.sh" "${p}" \
@@ -344,6 +351,12 @@ if [[ -f ".github/workflows/prerelease-pr.yml" ]]; then
     "prerelease-pr workflow must verify release-cycle state before release-please"
   require_fixed "scripts/verify-branch-version-sync.sh" "${pp}" \
     "prerelease-pr workflow must verify branch version sync before release-please"
+  require_fixed "scripts/verify-premain-pending-stable-repair.sh" "${pp}" \
+    "prerelease-pr workflow must classify pending stable repair before release-please"
+  require_fixed "pending_stable_repair != 'true'" "${pp}" \
+    "prerelease-pr workflow must skip RC PR generation during pending stable repair"
+  require_fixed "pending stable repair accepted; skipping RC PR generation" "${pp}" \
+    "prerelease-pr workflow must log pending stable repair no-op"
   require_regex 'skip-github-release:\s*true' "${pp}" \
     "prerelease-pr workflow must set skip-github-release: true"
   require_fixed "scripts/verify-prerelease-pr-postcondition.sh" "${pp}" \
@@ -517,6 +530,16 @@ if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
     "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"
   require_fixed ".release-please-manifest.json" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require the single manifest"
+fi
+
+if [[ -f "scripts/verify-premain-pending-stable-repair.sh" ]]; then
+  premain_repair="scripts/verify-premain-pending-stable-repair.sh"
+  require_fixed "origin/main" "${premain_repair}" \
+    "premain pending-stable repair verifier must compare against origin/main"
+  require_fixed "scripts/create-stable-release-pr.py" "${premain_repair}" \
+    "premain pending-stable repair verifier must require deterministic stable PR support"
+  require_fixed "premain != main" "${premain_repair}" \
+    "premain pending-stable repair verifier must require exact RC equality"
 fi
 
 if grep -RInF "SYNC_RELEASE_BASELINE" .github/workflows; then

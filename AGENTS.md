@@ -130,6 +130,9 @@ Stable promotion path:
   stable-normalization branch as the normal path.
 - After the `premain` -> `main` promotion merges, `main` may briefly contain a single-manifest RC. This state is allowed
   only until `.github/workflows/release-pr.yml` opens the deterministic stable Release PR and that PR merges.
+- If a release-CI repair must move through `staging` -> `premain` while `main` is in that pending stable-promotion state,
+  premain prerelease workflows must verify that `premain` and `origin/main` carry the exact same RC and then no-op
+  successfully; they must not open or publish another RC.
 - Pending stable promotion is explicit automation state only:
   `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true` may be used by the release workflows to verify the single-manifest
   RC on `main`, and `.github/workflows/release.yml` must skip stable release creation while that state is present.
