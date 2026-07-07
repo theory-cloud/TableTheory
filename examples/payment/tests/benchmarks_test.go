@@ -11,10 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory"
-	payment "github.com/theory-cloud/tabletheory/examples/payment"
-	"github.com/theory-cloud/tabletheory/examples/payment/utils"
-	"github.com/theory-cloud/tabletheory/pkg/core"
+	"github.com/theory-cloud/tabletheory/v2"
+	payment "github.com/theory-cloud/tabletheory/v2/examples/payment"
+	"github.com/theory-cloud/tabletheory/v2/examples/payment/utils"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
 )
 
 // BenchmarkPaymentCreate benchmarks single payment creation

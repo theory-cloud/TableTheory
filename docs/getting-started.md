@@ -67,8 +67,8 @@ import (
     "strings"
     "time"
 
-    "github.com/theory-cloud/tabletheory"
-    "github.com/theory-cloud/tabletheory/pkg/session"
+    "github.com/theory-cloud/tabletheory/v2"
+    "github.com/theory-cloud/tabletheory/v2/pkg/session"
 )
 
 type Note struct {
@@ -140,7 +140,7 @@ func main() {
 
 ```bash
 # Add TableTheory to your project
-go get github.com/theory-cloud/tabletheory
+go get github.com/theory-cloud/tabletheory/v2@vX.Y.Z
 ```
 
 **What this does:**
@@ -182,7 +182,7 @@ package main
 
 import (
     "github.com/aws/aws-lambda-go/lambda"
-    "github.com/theory-cloud/tabletheory"
+    "github.com/theory-cloud/tabletheory/v2"
     "log"
 )
 
@@ -216,8 +216,8 @@ Use this for containers, CLI tools, or local testing.
 package main
 
 import (
-    "github.com/theory-cloud/tabletheory"
-    "github.com/theory-cloud/tabletheory/pkg/session"
+    "github.com/theory-cloud/tabletheory/v2"
+    "github.com/theory-cloud/tabletheory/v2/pkg/session"
     "log"
 )
 

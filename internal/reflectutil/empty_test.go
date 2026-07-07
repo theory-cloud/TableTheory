@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
 )
 
 func TestIsEmpty(t *testing.T) {

@@ -142,11 +142,12 @@ jobs:
           popd
 
           # tabletheory CLI binaries (linux/mac, amd64/arm64).
+          runtime_version="${TAG_NAME#v}"
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os="${target%/*}"
             arch="${target#*/}"
             CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \
-              go build -trimpath -ldflags="-s -w" \
+              go build -trimpath -ldflags="-s -w -X main.defaultRuntimeVersion=${runtime_version}" \
               -o "release-assets/tabletheory-${os}-${arch}" ./cmd/tabletheory
           done
           ( cd release-assets && sha256sum tabletheory-linux-* tabletheory-darwin-* > tabletheory-SHA256SUMS.txt )

@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/model"
+	"github.com/theory-cloud/tabletheory/v2/pkg/model"
 )
 
 func TestTransformValidator_validateModelType_RejectsNonStruct_COV5(t *testing.T) {

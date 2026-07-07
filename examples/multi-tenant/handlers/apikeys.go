@@ -13,9 +13,9 @@ import (
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/theory-cloud/tabletheory/examples/multi-tenant/models"
-	"github.com/theory-cloud/tabletheory/pkg/core"
-	derrors "github.com/theory-cloud/tabletheory/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v2/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
+	derrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
 )
 
 // APIKeyHandler handles API key management

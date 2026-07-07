@@ -14,11 +14,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
 
-	"github.com/theory-cloud/tabletheory"
-	"github.com/theory-cloud/tabletheory/examples/multi-tenant/handlers"
-	"github.com/theory-cloud/tabletheory/examples/multi-tenant/models"
-	"github.com/theory-cloud/tabletheory/pkg/core"
-	"github.com/theory-cloud/tabletheory/pkg/session"
+	"github.com/theory-cloud/tabletheory/v2"
+	"github.com/theory-cloud/tabletheory/v2/examples/multi-tenant/handlers"
+	"github.com/theory-cloud/tabletheory/v2/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
+	"github.com/theory-cloud/tabletheory/v2/pkg/session"
 )
 
 func main() {

@@ -8,9 +8,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/pkg/model"
-	"github.com/theory-cloud/tabletheory/pkg/schema"
-	pkgTypes "github.com/theory-cloud/tabletheory/pkg/types"
+	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	"github.com/theory-cloud/tabletheory/v2/pkg/schema"
+	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
 )
 
 // DB represents the main database connection interface

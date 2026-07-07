@@ -14,7 +14,7 @@ import (
 
 	"github.com/aws/smithy-go"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
 )
 
 func batchAPIError(code string) error {

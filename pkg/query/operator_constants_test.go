@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/pkg/query"
+	"github.com/theory-cloud/tabletheory/v2/pkg/query"
 )
 
 func TestOperatorConstantsAreStringCompatible(t *testing.T) {

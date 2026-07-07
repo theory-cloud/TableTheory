@@ -5,7 +5,7 @@ description: TableTheory for Go — installation, Lambda init, and the canonical
 
 # Go runtime
 
-TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
+TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory/v2`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
 
 The Go runtime is a peer implementation of the shared contract — not a
 reference implementation that TypeScript and Python port. Contract parity is
@@ -16,7 +16,7 @@ established by the shared scenarios, not by treating one runtime as canonical.
 TableTheory is distributed exclusively through immutable [GitHub Releases](https://github.com/theory-cloud/tabletheory/releases). Pin to a specific release tag:
 
 ```bash
-go get github.com/theory-cloud/tabletheory@vX.Y.Z
+go get github.com/theory-cloud/tabletheory/v2@vX.Y.Z
 ```
 
 Never depend on a moving `latest`.
@@ -32,7 +32,7 @@ import (
     "log"
 
     "github.com/aws/aws-lambda-go/lambda"
-    "github.com/theory-cloud/tabletheory"
+    "github.com/theory-cloud/tabletheory/v2"
 )
 
 type Note struct {

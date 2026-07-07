@@ -8,8 +8,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/theory-cloud/tabletheory/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v2/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
 )
 
 const defaultVersionField = "version"

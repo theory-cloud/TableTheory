@@ -55,7 +55,7 @@ echo "==> scaffolding Go quickstart"
 echo "==> resolving against the working tree"
 (
   cd "$SCAFFOLD"
-  go mod edit -replace "github.com/theory-cloud/tabletheory=${REPO_ROOT}"
+  go mod edit -replace "github.com/theory-cloud/tabletheory/v2=${REPO_ROOT}"
   go mod tidy
 )
 
