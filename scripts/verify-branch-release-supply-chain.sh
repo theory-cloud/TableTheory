@@ -464,10 +464,14 @@ if [[ -f "scripts/create-stable-release-pr.py" ]]; then
     "stable Release PR generator must create a Release Please-compatible body"
   require_fixed "autorelease: pending" "${stable_pr_generator}" \
     "stable Release PR generator must apply the Release Please pending label"
-  require_fixed "--force-with-lease=refs/heads/" "${stable_pr_generator}" \
-    "stable Release PR generator must update the generated branch through explicit force-with-lease"
-  require_fixed "display_args" "${stable_pr_generator}" \
-    "stable Release PR generator must redact token-bearing git push diagnostics"
+  require_fixed "createCommitOnBranch" "${stable_pr_generator}" \
+    "stable Release PR generator must create the release commit through GitHub's signed commit path"
+  require_fixed "expectedHeadOid" "${stable_pr_generator}" \
+    "stable Release PR generator must use GitHub branch-head lease protection"
+  require_fixed "GitHub did not report a verified signature" "${stable_pr_generator}" \
+    "stable Release PR generator must reject unsigned generated commits"
+  require_fixed "create_or_reset_branch" "${stable_pr_generator}" \
+    "stable Release PR generator must replace stale generated branch heads before creating the signed commit"
 fi
 
 if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
