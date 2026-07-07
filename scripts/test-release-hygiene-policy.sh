@@ -1307,6 +1307,15 @@ body = module.stable_pull_request_body(
 
 if module.PENDING_RELEASE_LABEL != "autorelease: pending":
     raise SystemExit("stable Release PR generator must use the Release Please pending label")
+source = module_path.read_text(encoding="utf-8")
+for required in (
+    "createCommitOnBranch",
+    "expectedHeadOid",
+    "GitHub did not report a verified signature",
+    "create_or_reset_branch",
+):
+    if required not in source:
+        raise SystemExit(f"stable Release PR generator must contain {required}")
 if "\n---\n\n\n## [2.0.1]" not in body:
     raise SystemExit("stable Release PR body must expose stable release notes between Release Please delimiters")
 if "## [2.0.1-rc" in body:
