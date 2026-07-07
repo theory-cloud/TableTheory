@@ -32,6 +32,22 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [2.0.1](https://github.com/theory-cloud/TableTheory/compare/v2.0.1-rc.2...v2.0.1) (2026-07-07)
+
+Stable promotion of `v2.0.1-rc.2`.
+
+
+## [2.0.1-rc.2](https://github.com/theory-cloud/TableTheory/compare/v2.0.1-rc.1...v2.0.1-rc.2) (2026-07-07)
+
+
+### Bug Fixes
+
+* **ci:** generate stable release pr deterministically ([de0daee](https://github.com/theory-cloud/TableTheory/commit/de0daeeff4d1a4beb395fded12296a3d3881581a))
+* **ci:** generate stable release pr deterministically ([bd3a49b](https://github.com/theory-cloud/TableTheory/commit/bd3a49b4f67b58d044561be9ec366db8aa69b1aa))
+* **ci:** no-op premain during pending stable repair ([4f202f1](https://github.com/theory-cloud/TableTheory/commit/4f202f14a5fc70ffe8dedaadaa97dcebbb187cca))
+* **ci:** no-op premain during pending stable repair ([1da1099](https://github.com/theory-cloud/TableTheory/commit/1da109999f0e576e0cd7e9e627ac4bd6cf39a150))
+* **ci:** run fuzz smoke with one worker ([0a45db7](https://github.com/theory-cloud/TableTheory/commit/0a45db7b934c2ba37eafda87180aa6b6b7775f4b))
+
 ## [2.0.1-rc.1](https://github.com/theory-cloud/TableTheory/compare/v2.0.1-rc...v2.0.1-rc.1) (2026-07-07)
 
 
