@@ -204,6 +204,8 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must verify human promotion release drivers"
   require_fixed "manifest-derived stable Release-As" "${h}" \
     "release-hygiene verifier selector must detect manifest-derived stable promotion driver support"
+  require_fixed "resolved promotion-driver supply-chain marker" "${h}" \
+    "release-hygiene verifier selector must detect resolved promotion-driver supply-chain support"
   require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
     "release-hygiene must run the release driver guard on staging -> premain PRs"
   require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \

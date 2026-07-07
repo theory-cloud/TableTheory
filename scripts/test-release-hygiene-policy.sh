@@ -315,11 +315,32 @@ require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
   "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"
 require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${p}" \
   "prerelease workflow must pin release-please v5 by commit SHA"
+require_fixed "release-hygiene must run the promotion driver from the resolved verifier source" "${h}" \
+  "release-hygiene supply-chain verifier must require resolved promotion verifier source"
 SH
   cat >"${root}/scripts/verify-promotion-release-driver.sh" <<'SH'
 #!/usr/bin/env bash
 echo "manifest-derived stable Release-As"
 SH
+}
+
+write_v2_legacy_promotion_source_verifier_fixture() {
+  local root="$1"
+
+  write_v2_verifier_fixture "${root}"
+  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+text = text.replace(
+    'require_fixed "release-hygiene must run the promotion driver from the resolved verifier source" "${h}" \\\n'
+    '  "release-hygiene supply-chain verifier must require resolved promotion verifier source"\n',
+    "",
+)
+path.write_text(text, encoding="utf-8")
+PY
 }
 
 write_v2_release_please_v4_verifier_fixture() {
@@ -385,6 +406,7 @@ run_verifier_source_selector_fixture() {
     v1) write_v1_verifier_fixture "${fixture}/trusted-release" ;;
     v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/trusted-release" ;;
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/trusted-release" ;;
+    v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/trusted-release" ;;
     v2) write_v2_verifier_fixture "${fixture}/trusted-release" ;;
     *) echo "release-hygiene-policy-test: unknown trusted fixture ${trusted_shape}" >&2; exit 1 ;;
   esac
@@ -392,6 +414,7 @@ run_verifier_source_selector_fixture() {
     v1) write_v1_verifier_fixture "${fixture}/pr" ;;
     v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/pr" ;;
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/pr" ;;
+    v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/pr" ;;
     v2) write_v2_verifier_fixture "${fixture}/pr" ;;
     *) echo "release-hygiene-policy-test: unknown head fixture ${head_shape}" >&2; exit 1 ;;
   esac
@@ -1344,6 +1367,11 @@ grep -Fq "manifest-derived stable Release-As" "${repo_root}/.github/workflows/re
   exit 1
 }
 
+grep -Fq "resolved promotion-driver supply-chain marker" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect the resolved promotion-driver supply-chain marker"
+  exit 1
+}
+
 selector_result="$(
   run_verifier_source_selector_fixture \
     v1 v2 \
@@ -1371,6 +1399,18 @@ assert_selector_result \
 selector_result="$(
   run_verifier_source_selector_fixture \
     v2-numbered-rc v2 \
+    premain staging \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "." \
+  "protected-pr-head-v2" \
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-legacy-promotion-source v2 \
     premain staging \
     "${repo}" "${repo}"
 )"
