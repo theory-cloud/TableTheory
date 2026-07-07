@@ -299,6 +299,9 @@ jobs:
               "release-please v5" "release-please-action v5 policy marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-promotion-release-driver.sh" \
               "manifest-derived stable Release-As" "manifest-derived stable promotion marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "release-hygiene must run the promotion driver from the resolved verifier source" \
+              "resolved promotion-driver supply-chain marker" "${reasons_name}"
           }
 
           trusted_reasons=()
