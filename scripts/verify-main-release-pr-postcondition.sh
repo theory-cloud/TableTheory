@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Read-only postcondition for the main Release PR workflow. It verifies that
-# pending stable promotion produced a stable release-please PR, not an RC PR,
-# and that the PR includes the files that normalize the single manifest.
+# pending stable promotion produced a deterministic stable Release PR, not an RC PR,
+# and that the PR includes the files, label, and Release Please-compatible body needed to publish the stable release.
 
 usage() {
   cat <<'USAGE'
@@ -14,7 +14,7 @@ Options:
   --forbid-rc-only          Only verify no open main release PR advertises an RC version.
   --repo OWNER/REPO         GitHub repository. Defaults to $GITHUB_REPOSITORY or theory-cloud/TableTheory.
   --base BRANCH            Release PR base branch. Defaults to main.
-  --head BRANCH            Release-please PR head branch. Defaults to release-please--branches--main.
+  --head BRANCH            Stable Release PR head branch. Defaults to release-please--branches--main.
   --dry-run                Read-only local validation mode; no GitHub state is changed.
   -h, --help               Show this help.
 
@@ -221,10 +221,11 @@ candidate_number="$(cat "${candidate_number_file}")"
 
 gh pr view "${candidate_number}" \
   --repo "${repo}" \
-  --json number,title,headRefName,baseRefName,url,files >"${details}"
+  --json number,title,headRefName,baseRefName,url,files,labels,body >"${details}"
 
 python3 - "${details}" "${expected_version}" "${base}" "${head}" <<'PY'
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -235,6 +236,7 @@ required_paths = {
     ".release-please-manifest.json",
     "CHANGELOG.md",
 }
+pending_label = "autorelease: pending"
 
 
 def fail(message: str) -> None:
@@ -259,8 +261,34 @@ missing = sorted(required_paths - paths)
 if missing:
     fail(f"PR #{pr.get('number')} missing single-manifest normalization files: {', '.join(missing)}")
 
+labels = {entry.get("name", "") for entry in pr.get("labels", [])}
+if pending_label not in labels:
+    fail(f"PR #{pr.get('number')} missing {pending_label!r} label required for stable release publication")
+
+body = (pr.get("body") or "").strip().replace("\r\n", "\n")
+lines = body.split("\n")
+try:
+    first = lines.index("---")
+    last = len(lines) - 1 - list(reversed(lines)).index("---")
+except ValueError:
+    fail(f"PR #{pr.get('number')} body is not Release Please-compatible: missing release-note delimiters")
+
+if last <= first:
+    fail(f"PR #{pr.get('number')} body is not Release Please-compatible: malformed release-note delimiters")
+
+notes = "\n".join(lines[first + 1 : last]).strip()
+if not notes:
+    fail(f"PR #{pr.get('number')} body is not Release Please-compatible: empty release notes")
+
+stable_header = f"## [{expected_version}]"
+if stable_header not in notes:
+    fail(f"PR #{pr.get('number')} release notes missing stable header {stable_header!r}")
+
+if re.match(r"^## \[[^\]]*-rc", notes):
+    fail(f"PR #{pr.get('number')} release notes are prerelease-shaped: {notes.splitlines()[0]}")
+
 print(
     "release-pr-postcondition: PASS "
-    f"(#{pr.get('number')} {expected_title}; single-manifest normalization files present)"
+    f"(#{pr.get('number')} {expected_title}; release files, label, and release notes present)"
 )
 PY

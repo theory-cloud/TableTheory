@@ -62,8 +62,8 @@ required_files=(
   "scripts/verify-release-lane-provenance.sh"
   "scripts/verify-promotion-release-driver.sh"
   "scripts/verify-release-created-postcondition.sh"
-  "scripts/release-please-cli/package.json"
-  "scripts/release-please-cli/package-lock.json"
+  "scripts/create-stable-release-pr.py"
+  "scripts/test-release-pr-tool-policy.sh"
   "scripts/watch-release-cycle.sh"
 )
 
@@ -74,19 +74,24 @@ done
 retired_files=(
   "scripts/prepare-stable-promotion.sh"
   "scripts/sync-post-stable-release-baselines.sh"
+  "scripts/release-please-cli"
 )
 
 for path in "${retired_files[@]}"; do
   if [[ -e "${path}" ]]; then
-    fail "${path} must remain retired; use release-please-owned stable PRs and normal main -> staging PR backmerges"
+    fail "${path} must remain retired; use deterministic stable Release PRs and normal main -> staging PR backmerges"
   fi
-  if grep -RInF "${path}" \
-    AGENTS.md \
-    docs/development/planning/theorydb-branch-release-policy.md \
-    docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md \
-    docs/development/planning/templates/high-risk-branch-release-policy.template.md \
-    scripts/test-release-*.sh \
-    .github/workflows >/dev/null 2>&1; then
+  grep_targets=(
+    AGENTS.md
+    docs/development/planning/theorydb-branch-release-policy.md
+    docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md
+    docs/development/planning/templates/high-risk-branch-release-policy.template.md
+    .github/workflows
+  )
+  if [[ "${path}" != "scripts/release-please-cli" ]]; then
+    grep_targets+=(scripts/test-release-*.sh)
+  fi
+  if grep -RInF "${path}" "${grep_targets[@]}" >/dev/null 2>&1; then
     fail "${path} must not be referenced by release docs or workflows after retirement"
   fi
 done
@@ -206,6 +211,8 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene verifier selector must detect manifest-derived stable promotion driver support"
   require_fixed "resolved promotion-driver supply-chain marker" "${h}" \
     "release-hygiene verifier selector must detect resolved promotion-driver supply-chain support"
+  require_fixed "deterministic stable Release PR marker" "${h}" \
+    "release-hygiene verifier selector must detect deterministic stable Release PR support"
   require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
     "release-hygiene must run the release driver guard on staging -> premain PRs"
   require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \
@@ -366,7 +373,7 @@ if [[ -f ".github/workflows/release.yml" ]]; then
   require_fixed "stable release creation is skipped" "${r}" \
     "release workflow must skip stable release creation during pending promotion"
   require_fixed "steps.cycle.outputs.pending_stable_promotion != 'true'" "${r}" \
-    "release workflow must gate stable release-please on strict release-cycle state"
+    "release workflow must gate stable release publication on strict release-cycle state"
   require_regex 'missing tag_name output' "${r}" \
     "release workflow must fail asset/publish steps when tag_name is missing"
   require_regex 'release_created' "${r}" \
@@ -375,7 +382,7 @@ if [[ -f ".github/workflows/release.yml" ]]; then
     "release workflow must require release_created/tag_name on generated stable release PR merges"
   require_fixed "generated stable release PR merge" "scripts/verify-release-created-postcondition.sh" \
     "release-created postcondition must classify generated stable release PR merges"
-  require_fixed "release-pr.yml must require the generated stable release-please PR" "scripts/verify-release-created-postcondition.sh" \
+  require_fixed "release-pr.yml must require the deterministic stable Release PR" "scripts/verify-release-created-postcondition.sh" \
     "stable publish postcondition must classify plain premain -> main promotions as PR-generation setup"
   require_fixed "main stable publish workflow observed an RC-shaped release message" "scripts/verify-release-created-postcondition.sh" \
     "stable publish postcondition must forbid RC-shaped main releases"
@@ -412,52 +419,42 @@ fi
 
 if [[ -f ".github/workflows/release-pr.yml" ]]; then
   rp=".github/workflows/release-pr.yml"
-  require_regex 'branches:.*main' "${rp}" \
-    "release-pr workflow must target main"
+  require_regex 'branches:.*main' "${rp}"     "release-pr workflow must target main"
   if grep -Fq "googleapis/release-please-action" "${rp}"; then
-    fail "release-pr workflow must use pinned release-please CLI, not release-please-action"
+    fail "release-pr workflow must not use release-please-action for stable PR generation"
+  fi
+  if grep -Fq "scripts/release-please-cli" "${rp}"; then
+    fail "release-pr workflow must not depend on release-please CLI for stable PR generation"
+  fi
+  if grep -Fq -- "--release-as" "${rp}"; then
+    fail "release-pr workflow must not rely on release-please release-as for stable PR generation"
   fi
   if grep -Fq ".release-please-manifest.premain.json" "${rp}"; then
     fail "release-pr workflow must not reference retired .release-please-manifest.premain.json"
   fi
-  require_fixed 'RELEASE_PLEASE_CLI_VERSION: "17.3.0"' "${rp}" \
-    "release-pr workflow must pin release-please CLI to v17.3.0"
-  require_fixed "npm ci --prefix scripts/release-please-cli --ignore-scripts" "${rp}" \
-    "release-pr workflow must install release-please from a lockfile without lifecycle scripts"
-  require_fixed "scripts/release-please-cli/node_modules/.bin/release-please" "${rp}" \
-    "release-pr workflow must invoke the locked release-please CLI"
-  require_fixed "persist-credentials: false" "${rp}" \
-    "release-pr checkout must not persist GitHub credentials"
-  require_fixed "release-pr" "${rp}" \
-    "release-pr workflow must run the release-pr CLI command"
-  require_regex '--target-branch[[:space:]]+main' "${rp}" \
-    "release-pr workflow must target main through the CLI"
-  require_regex '--config-file[[:space:]]+release-please-config\.json' "${rp}" \
-    "release-pr workflow must reference release-please-config.json"
-  require_regex '--manifest-file[[:space:]]+\.release-please-manifest\.json' "${rp}" \
-    "release-pr workflow must reference .release-please-manifest.json"
-  require_fixed "scripts/verify-release-cycle-state.sh" "${rp}" \
-    "release-pr workflow must verify release-cycle state before release-please"
-  require_fixed "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" "${rp}" \
-    "release-pr workflow must explicitly allow pending stable promotion verification"
-  require_fixed "pending stable promotion accepted for stable Release PR generation" "${rp}" \
-    "release-pr workflow must document pending promotion PR generation"
-  require_fixed "PENDING_STABLE_PROMOTION" "${rp}" \
-    "release-pr workflow must gate release-please on pending promotion"
-  require_fixed "strict stable state; no single-manifest RC to normalize" "${rp}" \
-    "release-pr workflow must no-op when main is already strict/stable"
-  require_fixed "single-manifest pending stable promotion did not compute a stable release-as" "${rp}" \
-    "release-pr workflow must fail if pending promotion has no stable release-as"
-  require_fixed "--release-as" "${rp}" \
-    "release-pr workflow must pass release-as to the pinned CLI"
-  require_fixed "steps.version.outputs.release_as" "${rp}" \
-    "release-pr workflow must pass release-as from computed premain RC baseline"
-  require_fixed "--forbid-rc-only" "${rp}" \
-    "release-pr workflow must forbid RC-shaped main Release PRs"
-  require_fixed "scripts/verify-main-release-pr-postcondition.sh" "${rp}" \
-    "release-pr workflow must verify the stable Release PR postcondition"
-  require_fixed "steps.cycle.outputs.pending_stable_promotion == 'true'" "${rp}" \
-    "release-pr workflow must require stable Release PR postcondition whenever pending promotion is detected"
+  require_fixed "persist-credentials: false" "${rp}"     "release-pr checkout must not persist GitHub credentials"
+  require_fixed "scripts/create-stable-release-pr.py" "${rp}"     "release-pr workflow must create the stable Release PR deterministically"
+  require_fixed "--head release-please--branches--main" "${rp}"     "release-pr workflow must use the canonical stable release branch"
+  require_fixed "scripts/verify-release-cycle-state.sh" "${rp}"     "release-pr workflow must verify release-cycle state before stable PR generation"
+  require_fixed "RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true" "${rp}"     "release-pr workflow must explicitly allow pending stable promotion verification"
+  require_fixed "pending stable promotion accepted for stable Release PR generation" "${rp}"     "release-pr workflow must document pending promotion PR generation"
+  require_fixed "steps.cycle.outputs.pending_stable_promotion == 'true'" "${rp}"     "release-pr workflow must gate stable PR creation on pending promotion"
+  require_fixed "single-manifest pending stable promotion did not compute a stable release-as" "${rp}"     "release-pr workflow must fail if pending promotion has no stable version"
+  require_fixed "steps.version.outputs.release_as" "${rp}"     "release-pr workflow must use the stable version computed from the RC baseline"
+  require_fixed "--forbid-rc-only" "${rp}"     "release-pr workflow must forbid RC-shaped main Release PRs"
+  require_fixed "scripts/verify-main-release-pr-postcondition.sh" "${rp}"     "release-pr workflow must verify the stable Release PR postcondition"
+fi
+
+if [[ -f "scripts/create-stable-release-pr.py" ]]; then
+  stable_pr_generator="scripts/create-stable-release-pr.py"
+  require_fixed "stable_pull_request_body" "${stable_pr_generator}" \
+    "stable Release PR generator must create a Release Please-compatible body"
+  require_fixed "autorelease: pending" "${stable_pr_generator}" \
+    "stable Release PR generator must apply the Release Please pending label"
+  require_fixed "--force-with-lease=refs/heads/" "${stable_pr_generator}" \
+    "stable Release PR generator must update the generated branch through explicit force-with-lease"
+  require_fixed "display_args" "${stable_pr_generator}" \
+    "stable Release PR generator must redact token-bearing git push diagnostics"
 fi
 
 if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
@@ -474,6 +471,10 @@ if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
     require_fixed "${path}" "${postcondition}" \
       "main Release PR postcondition must require ${path}"
   done
+  require_fixed "autorelease: pending" "${postcondition}" \
+    "main Release PR postcondition must require the Release Please pending label"
+  require_fixed "release-note delimiters" "${postcondition}" \
+    "main Release PR postcondition must require a Release Please-compatible body"
 fi
 
 if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
@@ -499,7 +500,7 @@ if [[ -f "scripts/verify-release-lane-provenance.sh" ]]; then
   require_fixed "release-lane PRs must be same-repository" "${provenance}" \
     "release-lane provenance guard must reject fork/name-spoofed PRs"
   require_fixed "does not match same-repository refs/heads" "${provenance}" \
-    "release-lane provenance guard must retain exact branch SHA verification for manual fallback"
+    "release-lane provenance guard must retain exact branch SHA verification for manual-freeze mode"
   require_fixed "live ref freshness covered by merge queue" "${provenance}" \
     "release-lane provenance guard must document queue-covered live ref freshness"
   require_fixed "-rc(\\.[0-9]+)?" "${provenance}" \
@@ -516,28 +517,6 @@ if [[ -f "scripts/verify-prerelease-pr-postcondition.sh" ]]; then
     "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"
   require_fixed ".release-please-manifest.json" "${prerelease_postcondition}" \
     "prerelease PR postcondition must require the single manifest"
-fi
-
-if [[ -f "scripts/release-please-cli/package-lock.json" ]]; then
-  if ! python3 - <<'PY'
-import json
-from pathlib import Path
-
-package = json.loads(Path("scripts/release-please-cli/package.json").read_text(encoding="utf-8"))
-lock = json.loads(Path("scripts/release-please-cli/package-lock.json").read_text(encoding="utf-8"))
-release_please = lock.get("packages", {}).get("node_modules/release-please", {})
-if package.get("private") is not True:
-    raise SystemExit(1)
-if package.get("dependencies", {}).get("release-please") != "17.3.0":
-    raise SystemExit(1)
-if release_please.get("version") != "17.3.0":
-    raise SystemExit(1)
-if not str(release_please.get("integrity", "")).startswith("sha512-"):
-    raise SystemExit(1)
-PY
-  then
-    fail "release-please CLI lockfile must pin release-please 17.3.0 with sha512 integrity"
-  fi
 fi
 
 if grep -RInF "SYNC_RELEASE_BASELINE" .github/workflows; then

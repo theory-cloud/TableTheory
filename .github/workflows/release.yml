@@ -45,7 +45,7 @@ jobs:
             {
               echo "### Stable release skipped"
               echo
-              echo "Pending stable promotion detected. release-pr.yml must open the stable release-please PR; stable release creation resumes only after that PR merges and strict equality is restored."
+              echo "Pending stable promotion detected. release-pr.yml must open the deterministic stable Release PR; stable release creation resumes only after that PR merges and strict equality is restored."
             } >> "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
@@ -57,7 +57,7 @@ jobs:
       - name: Skip stable release during pending promotion
         if: github.ref == 'refs/heads/main' && steps.cycle.outputs.pending_stable_promotion == 'true'
         run: |
-          echo "release-cycle-state: pending stable promotion detected; stable release creation is skipped until the stable release-please PR merges"
+          echo "release-cycle-state: pending stable promotion detected; stable release creation is skipped until the deterministic stable Release PR merges"
 
       - name: Release Please (Stable)
         id: release
