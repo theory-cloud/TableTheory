@@ -2,27 +2,42 @@
 set -euo pipefail
 
 workflow=".github/workflows/release-pr.yml"
-tool_dir="scripts/release-please-cli"
+generator="scripts/create-stable-release-pr.py"
+retired_tool_dir="scripts/release-please-cli"
+
+if [[ -e "${retired_tool_dir}" ]]; then
+  echo "release-pr-tool-policy-test: retired release-please CLI wrapper must not exist"
+  exit 1
+fi
 
 if grep -Fq "npx --yes" "${workflow}"; then
   echo "release-pr-tool-policy-test: release-pr workflow must not run npx --yes in the privileged release token path"
   exit 1
 fi
 
-grep -Fq "npm ci --prefix ${tool_dir} --ignore-scripts" "${workflow}" || {
-  echo "release-pr-tool-policy-test: release-pr workflow must install the locked CLI with npm ci --ignore-scripts"
+if grep -Fq "${retired_tool_dir}" "${workflow}"; then
+  echo "release-pr-tool-policy-test: release-pr workflow must not use the retired release-please CLI wrapper"
+  exit 1
+fi
+
+grep -Fq "python3 ${generator}" "${workflow}" || {
+  echo "release-pr-tool-policy-test: release-pr workflow must invoke the deterministic stable Release PR generator"
   exit 1
 }
 
-grep -Fq "${tool_dir}/node_modules/.bin/release-please" "${workflow}" || {
-  echo "release-pr-tool-policy-test: release-pr workflow must execute the locked local release-please binary"
+grep -Fq -- "--head release-please--branches--main" "${workflow}" || {
+  echo "release-pr-tool-policy-test: release-pr workflow must use the canonical stable Release PR branch"
   exit 1
 }
 
-python3 - <<'PY'
+python3 - "${workflow}" "${generator}" <<'PY'
+import importlib.util
+import sys
 from pathlib import Path
 
-workflow = Path(".github/workflows/release-pr.yml").read_text(encoding="utf-8")
+workflow_path = Path(sys.argv[1])
+generator_path = Path(sys.argv[2])
+workflow = workflow_path.read_text(encoding="utf-8")
 lines = workflow.splitlines()
 
 try:
@@ -42,36 +57,39 @@ if "if: steps.cycle.outputs.pending_stable_promotion == 'true'" not in step_head
         "release-pr-tool-policy-test: release-as compute step must be gated to pending stable promotion"
     )
 
-if "release-pr: strict stable state; no single-manifest RC to normalize" not in workflow:
+if "steps.cycle.outputs.pending_stable_promotion == 'true'" not in workflow:
     raise SystemExit(
-        "release-pr-tool-policy-test: strict stable main state must no-op successfully"
+        "release-pr-tool-policy-test: stable Release PR generation must be gated to pending stable promotion"
     )
+
+spec = importlib.util.spec_from_file_location("stable_release_pr", generator_path)
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(module)
+
+if module.PENDING_RELEASE_LABEL != "autorelease: pending":
+    raise SystemExit("release-pr-tool-policy-test: generator must apply the Release Please pending label")
+
+body = module.stable_pull_request_body(
+    "theory-cloud/TableTheory",
+    "2.0.1-rc.1",
+    "2.0.1",
+    "2026-07-07",
+)
+if "\n---\n\n\n## [2.0.1]" not in body:
+    raise SystemExit("release-pr-tool-policy-test: generator body must be Release Please-compatible")
+if "## [2.0.1-rc" in body:
+    raise SystemExit("release-pr-tool-policy-test: generator body must not advertise an RC release")
+
+generator_text = generator_path.read_text(encoding="utf-8")
+required = [
+    "--force-with-lease=refs/heads/",
+    "display_args",
+    "ls-remote",
+]
+for needle in required:
+    if needle not in generator_text:
+        raise SystemExit(f"release-pr-tool-policy-test: generator missing {needle!r}")
 PY
-
-node <<'NODE'
-const fs = require('node:fs');
-
-const pkg = JSON.parse(fs.readFileSync('scripts/release-please-cli/package.json', 'utf8'));
-if (pkg.private !== true) {
-  throw new Error('release-please CLI tool package must remain private');
-}
-if (pkg.dependencies?.['release-please'] !== '17.3.0') {
-  throw new Error(`release-please dependency must be exactly 17.3.0, got ${pkg.dependencies?.['release-please'] ?? 'missing'}`);
-}
-
-const lock = JSON.parse(fs.readFileSync('scripts/release-please-cli/package-lock.json', 'utf8'));
-const rootVersion = lock.packages?.['']?.dependencies?.['release-please'];
-if (rootVersion !== '17.3.0') {
-  throw new Error(`lockfile root dependency must be release-please 17.3.0, got ${rootVersion ?? 'missing'}`);
-}
-
-const locked = lock.packages?.['node_modules/release-please'];
-if (locked?.version !== '17.3.0') {
-  throw new Error(`lockfile must pin node_modules/release-please to 17.3.0, got ${locked?.version ?? 'missing'}`);
-}
-if (typeof locked.integrity !== 'string' || !locked.integrity.startsWith('sha512-')) {
-  throw new Error('lockfile release-please entry must include sha512 integrity');
-}
-NODE
 
 echo "release-pr-tool-policy-test: PASS"

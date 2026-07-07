@@ -317,6 +317,8 @@ require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${p}" 
   "prerelease workflow must pin release-please v5 by commit SHA"
 require_fixed "release-hygiene must run the promotion driver from the resolved verifier source" "${h}" \
   "release-hygiene supply-chain verifier must require resolved promotion verifier source"
+require_fixed "scripts/create-stable-release-pr.py" "${rp}" \
+  "release-pr workflow must create the stable Release PR deterministically"
 SH
   cat >"${root}/scripts/verify-promotion-release-driver.sh" <<'SH'
 #!/usr/bin/env bash
@@ -1225,6 +1227,92 @@ expect_failure_contains \
     --tag-name v2.0.0-rc \
     --assets-dir "${mismatch_assets_fixture}"
 
+stable_pr_fixture="$(mktemp -d)"
+tmpdirs+=("${stable_pr_fixture}")
+git -C "${stable_pr_fixture}" init -q
+git -C "${stable_pr_fixture}" config user.email fixture@example.com
+git -C "${stable_pr_fixture}" config user.name "Release Fixture"
+cat >"${stable_pr_fixture}/.release-please-manifest.json" <<'JSON'
+{
+  ".": "2.0.1-rc.1"
+}
+JSON
+cat >"${stable_pr_fixture}/CHANGELOG.md" <<'MD'
+# Changelog
+
+## Unreleased
+
+### Bug Fixes
+
+* future work
+
+## [2.0.1-rc.1](https://github.com/theory-cloud/TableTheory/compare/v2.0.1-rc...v2.0.1-rc.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* release lane repair
+MD
+git -C "${stable_pr_fixture}" add .
+git -C "${stable_pr_fixture}" commit -q -m "fixture pending stable"
+
+expect_success_contains \
+  "stable-release-pr: dry-run generated chore(main): release 2.0.1" \
+  env RELEASE_DATE=2026-07-07 \
+    python3 "${repo_root}/scripts/create-stable-release-pr.py" \
+      --repo theory-cloud/TableTheory \
+      --base main \
+      --head release-please--branches--main \
+      --expected-version 2.0.1 \
+      --repo-root "${stable_pr_fixture}" \
+      --dry-run
+
+grep -Fq '".": "2.0.1"' "${stable_pr_fixture}/.release-please-manifest.json" || {
+  echo "release-hygiene-policy-test: stable Release PR generator must normalize the manifest to stable"
+  exit 1
+}
+
+grep -Fq '## [2.0.1](https://github.com/theory-cloud/TableTheory/compare/v2.0.1-rc.1...v2.0.1) (2026-07-07)' "${stable_pr_fixture}/CHANGELOG.md" || {
+  echo "release-hygiene-policy-test: stable Release PR generator must add the stable changelog section"
+  exit 1
+}
+
+grep -Fq 'Stable promotion of `v2.0.1-rc.1`.' "${stable_pr_fixture}/CHANGELOG.md" || {
+  echo "release-hygiene-policy-test: stable Release PR generator must record stable promotion notes"
+  exit 1
+}
+
+if [[ "$(git -C "${stable_pr_fixture}" log -1 --format=%s)" != "chore(main): release 2.0.1" ]]; then
+  echo "release-hygiene-policy-test: stable Release PR generator must use the stable release commit subject"
+  exit 1
+fi
+
+python3 - "${repo_root}/scripts/create-stable-release-pr.py" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+module_path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("stable_release_pr", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(module)
+
+body = module.stable_pull_request_body(
+    "theory-cloud/TableTheory",
+    "2.0.1-rc.1",
+    "2.0.1",
+    "2026-07-07",
+)
+
+if module.PENDING_RELEASE_LABEL != "autorelease: pending":
+    raise SystemExit("stable Release PR generator must use the Release Please pending label")
+if "\n---\n\n\n## [2.0.1]" not in body:
+    raise SystemExit("stable Release PR body must expose stable release notes between Release Please delimiters")
+if "## [2.0.1-rc" in body:
+    raise SystemExit("stable Release PR body must not advertise an RC release")
+PY
+
 if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${repo_root}/.github/workflows/release-hygiene.yml"; then
   echo "release-hygiene-policy-test: release hygiene must not expose release-please token"
   exit 1
@@ -1298,7 +1386,7 @@ grep -Fq "provenance_args+=(--queue-freshness)" "${repo_root}/.github/workflows/
 }
 
 grep -Fq "trusted base script lacks --queue-freshness" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: release hygiene must document strict-freshness fallback"
+  echo "release-hygiene-policy-test: release hygiene must document strict-freshness manual-freeze mode"
   exit 1
 }
 
@@ -1308,17 +1396,17 @@ grep -Fq "Resolve release verifier source" "${repo_root}/.github/workflows/relea
 }
 
 grep -Fq "premain:staging|main:premain" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier fallback must be limited to protected promotion branch pairs"
+  echo "release-hygiene-policy-test: PR-head verifier selection must be limited to protected promotion branch pairs"
   exit 1
 }
 
-grep -Fq "trusted base lacks v2 single-manifest support, RC-first verifier support, or release-please v5 verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must document old trusted-script, RC-first, and release-please v5 fallback reasons"
+grep -Fq "trusted base lacks v2 single-manifest support, RC-first verifier support, release-please v5 verifier support, or deterministic stable Release PR verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must document old trusted-script, RC-first, release-please v5, and deterministic-stable reasons"
   exit 1
 }
 
 grep -Fq "protected-pr-head-v2" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must label protected PR-head v2 fallback"
+  echo "release-hygiene-policy-test: verifier selector must label protected PR-head v2 source"
   exit 1
 }
 
@@ -1344,6 +1432,12 @@ grep -Fq "accept release-please first RC and numbered later RC version syntax" "
 
 grep -Fq "release-please v5" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: verifier selector must feature-detect the release-please-action v5 policy marker"
+  exit 1
+}
+
+
+grep -Fq "scripts/create-stable-release-pr.py" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect the deterministic stable Release PR marker"
   exit 1
 }
 
@@ -1382,7 +1476,7 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1394,7 +1488,7 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1406,7 +1500,7 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1418,7 +1512,7 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5 verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1478,7 +1572,7 @@ assert_selector_result \
   "${selector_result}" \
   "../trusted-release" \
   "trusted-base" \
-  "trusted base supports v2 single-manifest, RC-first, and release-please v5 verifier markers"
+  "trusted base supports v2 single-manifest, RC-first, release-please v5, and deterministic stable Release PR verifier markers"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1488,7 +1582,7 @@ selector_result="$(
 )"
 assert_selector_failure \
   "${selector_result}" \
-  "protected PR head lacks v2 single-manifest support, RC-first verifier support, or release-please v5 verifier support"
+  "protected PR head lacks v2 single-manifest support, RC-first verifier support, release-please v5 verifier support, or deterministic stable Release PR verifier support"
 
 target_result="$(run_merge_group_target_fixture main premain)"
 assert_target_result "${target_result}" main premain
@@ -1526,12 +1620,12 @@ grep -Fq "pending stable promotion accepted on queued main merge group" "${repo_
 }
 
 grep -Fq 'GITHUB_HEAD_REF="${QUEUE_HEAD_REF}"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: queued main pending fallback must use the derived merge_group head"
+  echo "release-hygiene-policy-test: queued main pending classifier must use the derived merge_group head"
   exit 1
 }
 
 if grep -Fq 'GITHUB_HEAD_REF=premain RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true' "${repo_root}/.github/workflows/release-hygiene.yml"; then
-  echo "release-hygiene-policy-test: queued main pending fallback must not fabricate GITHUB_HEAD_REF=premain"
+  echo "release-hygiene-policy-test: queued main pending classifier must not fabricate GITHUB_HEAD_REF=premain"
   exit 1
 fi
 
