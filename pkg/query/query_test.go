@@ -668,7 +668,7 @@ func TestQuery_BatchGetWithOptions_OnChunkError(t *testing.T) {
 
 func TestQuery_BatchGetWithOptions_ParallelRespectsConcurrency(t *testing.T) {
 	metadata := &mockMetadata{}
-	executor := &stubBatchExecutor{sleep: 5 * time.Millisecond}
+	executor := &stubBatchExecutor{blockUntilInFlight: 2}
 	q := query.New(&TestItem{}, metadata, executor)
 
 	keys := []any{
@@ -694,7 +694,7 @@ func TestQuery_BatchGetWithOptions_ParallelRespectsConcurrency(t *testing.T) {
 
 func TestQuery_BatchGetBuilder(t *testing.T) {
 	metadata := &mockMetadata{}
-	executor := &stubBatchExecutor{sleep: 2 * time.Millisecond}
+	executor := &stubBatchExecutor{blockUntilInFlight: 3}
 	q := query.New(&TestItem{}, metadata, executor)
 
 	keys := []any{
@@ -841,12 +841,14 @@ func (m *mockBatchExecutor) ExecuteBatchWrite(input *query.CompiledBatchWrite) e
 }
 
 type stubBatchExecutor struct {
-	calls       []*query.CompiledBatchGet
-	failOnCall  int
-	sleep       time.Duration
-	mu          sync.Mutex
-	inFlight    int
-	maxInFlight int
+	release            chan struct{}
+	calls              []*query.CompiledBatchGet
+	failOnCall         int
+	blockUntilInFlight int
+	inFlight           int
+	maxInFlight        int
+	mu                 sync.Mutex
+	releaseOnce        sync.Once
 }
 
 func (s *stubBatchExecutor) ExecuteQuery(*core.CompiledQuery, any) error { return nil }
@@ -856,16 +858,28 @@ func (s *stubBatchExecutor) ExecuteBatchGet(input *query.CompiledBatchGet, opts 
 	s.mu.Lock()
 	s.calls = append(s.calls, input)
 	callIndex := len(s.calls)
-	if s.sleep > 0 {
+	if s.blockUntilInFlight > 0 {
+		if s.release == nil {
+			s.release = make(chan struct{})
+		}
 		s.inFlight++
 		if s.inFlight > s.maxInFlight {
 			s.maxInFlight = s.inFlight
 		}
+		if s.inFlight >= s.blockUntilInFlight {
+			s.releaseOnce.Do(func() { close(s.release) })
+		}
 	}
+	release := s.release
+	blockUntilInFlight := s.blockUntilInFlight
 	s.mu.Unlock()
 
-	if s.sleep > 0 {
-		time.Sleep(s.sleep)
+	if blockUntilInFlight > 0 {
+		select {
+		case <-release:
+		case <-time.After(2 * time.Second):
+			s.releaseOnce.Do(func() { close(release) })
+		}
 		s.mu.Lock()
 		s.inFlight--
 		s.mu.Unlock()
