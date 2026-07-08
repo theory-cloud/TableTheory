@@ -842,13 +842,13 @@ func (m *mockBatchExecutor) ExecuteBatchWrite(input *query.CompiledBatchWrite) e
 
 type stubBatchExecutor struct {
 	calls              []*query.CompiledBatchGet
+	release            chan struct{}
 	failOnCall         int
 	blockUntilInFlight int
-	mu                 sync.Mutex
 	inFlight           int
 	maxInFlight        int
+	mu                 sync.Mutex
 	releaseOnce        sync.Once
-	release            chan struct{}
 }
 
 func (s *stubBatchExecutor) ExecuteQuery(*core.CompiledQuery, any) error { return nil }
