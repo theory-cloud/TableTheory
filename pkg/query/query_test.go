@@ -841,8 +841,8 @@ func (m *mockBatchExecutor) ExecuteBatchWrite(input *query.CompiledBatchWrite) e
 }
 
 type stubBatchExecutor struct {
-	calls              []*query.CompiledBatchGet
 	release            chan struct{}
+	calls              []*query.CompiledBatchGet
 	failOnCall         int
 	blockUntilInFlight int
 	inFlight           int
