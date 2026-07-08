@@ -24,6 +24,7 @@
 
 ### Bug Fixes
 
+* **go:** pin the repository and example Go toolchains to go1.26.5 for reproducible CI and local security checks
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 * harden npm audit allowlist handling so audit service errors fail closed
