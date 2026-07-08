@@ -91,7 +91,7 @@ service.GetUserContacts("user123")                // Uses main table
 
 ### Prerequisites
 ```bash
-# Ensure you have the root-pinned Go toolchain (`go1.26.4`)
+# Ensure you have the root-pinned Go toolchain (`go1.26.5`)
 go version
 
 # Ensure you have Docker for DynamoDB Local

@@ -15,7 +15,7 @@ For the multi-language monorepo:
 
 **Required for the local quickstart:**
 
-- Go toolchain `go1.26.4` (the pinned toolchain in the root `go.mod`)
+- Go toolchain `go1.26.5` (the pinned toolchain in the root `go.mod`)
 - Docker, for DynamoDB Local
 
 **Required for real AWS deployments:**

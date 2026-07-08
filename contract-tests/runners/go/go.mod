@@ -2,7 +2,7 @@ module github.com/theory-cloud/tabletheory-contract-tests/runners/go
 
 go 1.26
 
-toolchain go1.26.3
+toolchain go1.26.5
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.42.1
