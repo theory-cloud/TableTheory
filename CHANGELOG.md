@@ -24,6 +24,7 @@
 
 ### Bug Fixes
 
+* **go:** pin the repository and example Go toolchains to go1.26.5 for reproducible CI and local security checks
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility
 * harden npm audit allowlist handling so audit service errors fail closed
@@ -31,6 +32,14 @@
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
+
+## [2.0.3-rc](https://github.com/theory-cloud/TableTheory/compare/v2.0.2...v2.0.3-rc) (2026-07-08)
+
+
+### Bug Fixes
+
+* **go:** record Go 1.26.5 release driver ([3a9bf51](https://github.com/theory-cloud/TableTheory/commit/3a9bf5193a7a00a46254669fae9be801b14eb8bf))
+* **go:** record Go 1.26.5 release driver ([6ca2e11](https://github.com/theory-cloud/TableTheory/commit/6ca2e119be1c22e726b12fb4112b6c79f3ad5ad4))
 
 ## [2.0.2](https://github.com/theory-cloud/TableTheory/compare/v2.0.2-rc...v2.0.2) (2026-07-07)
 
