@@ -41,7 +41,7 @@ write_version_files() {
   local _retired_premain="$3"
   local ts="$4"
   local py="$5"
-  local toolchain="${6:-go1.26.4}"
+  local toolchain="${6:-go1.26.5}"
   local py_path_mode="${7:-canonical}"
   local go_major module_path
 

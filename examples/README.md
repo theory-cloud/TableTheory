@@ -105,7 +105,7 @@ example-name/
 
 ### Prerequisites
 ```bash
-# Install the Go toolchain pinned by the root go.mod (`go1.26.4`)
+# Install the Go toolchain pinned by the root go.mod (`go1.26.5`)
 go version
 
 # Install Docker for DynamoDB Local
