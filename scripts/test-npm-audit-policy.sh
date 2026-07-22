@@ -162,13 +162,18 @@ if (!versionAtLeast(bundledBrace?.version, '5.0.6')) {
 }
 
 const policy = JSON.parse(fs.readFileSync('gov-infra/planning/theorydb-visible-npm-audit-findings.json', 'utf8'));
-const hasVisibleBracePolicy = policy.findings?.some(
+const visibleBracePolicy = policy.findings?.find(
   (finding) =>
+    finding.project === 'examples/cdk-multilang' &&
     finding.package === 'brace-expansion' &&
+    finding.advisory === 'GHSA-3jxr-9vmj-r5cp' &&
     finding.node === 'node_modules/aws-cdk-lib/node_modules/brace-expansion'
 );
-if (hasVisibleBracePolicy) {
-  throw new Error('expected no visible brace-expansion policy after dependency update');
+if (!visibleBracePolicy) {
+  throw new Error('expected the current aws-cdk-lib bundled brace-expansion advisory to remain visibly documented');
+}
+if (versionAtLeast(bundledBrace?.version, '5.0.7')) {
+  throw new Error('aws-cdk-lib now bundles fixed brace-expansion; remove the visible exception before merging');
 }
 NODE
 
