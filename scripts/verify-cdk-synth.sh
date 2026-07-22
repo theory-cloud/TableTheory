@@ -2,9 +2,30 @@
 set -euo pipefail
 
 app_dir="examples/cdk-multilang"
+python_app_dir="${app_dir}/lambdas/python"
 
 if [[ ! -f "${app_dir}/package.json" ]]; then
   echo "cdk-synth: FAIL (missing ${app_dir}/package.json)"
+  exit 1
+fi
+
+if [[ ! -f "${python_app_dir}/pyproject.toml" || ! -f "${python_app_dir}/uv.lock" ]]; then
+  echo "cdk-synth: FAIL (Python Lambda must provide pyproject.toml and uv.lock for dependency graph submission)"
+  exit 1
+fi
+
+if [[ -f "${python_app_dir}/requirements.txt" ]]; then
+  echo "cdk-synth: FAIL (requirements.txt would split the Python Lambda dependency source from its uv project)"
+  exit 1
+fi
+
+command -v uv >/dev/null 2>&1 || {
+  echo "cdk-synth: FAIL (uv not found)"
+  exit 1
+}
+
+if ! uv lock --directory "${python_app_dir}" --check >"/dev/null" 2>&1; then
+  echo "cdk-synth: FAIL (Python Lambda uv.lock is stale)"
   exit 1
 fi
 

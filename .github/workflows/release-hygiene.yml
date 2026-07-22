@@ -3,8 +3,6 @@ name: Release Hygiene
 on:
   pull_request:
     branches: ["premain", "main"]
-  merge_group:
-    branches: ["premain", "main"]
   workflow_dispatch: {}
 
 permissions:
@@ -17,7 +15,7 @@ jobs:
     steps:
       - name: Checkout trusted release scripts
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted-release
@@ -88,136 +86,29 @@ jobs:
             --title "${PR_TITLE}"
           )
 
-          if bash trusted-release/scripts/verify-release-lane-provenance.sh --help | grep -Fq -- "--queue-freshness"; then
-            provenance_args+=(--queue-freshness)
-          else
-            echo "release-lane-provenance: trusted base script lacks --queue-freshness; using strict live-ref freshness"
-          fi
-
           bash trusted-release/scripts/verify-release-lane-provenance.sh "${provenance_args[@]}"
 
       - name: Checkout pull request head after provenance verification
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr
           persist-credentials: false
 
-      - name: Checkout merge queue or workflow dispatch ref
-        if: github.event_name != 'pull_request'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Checkout workflow dispatch ref
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Resolve release hygiene target branch
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         id: target
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
           target="${GITHUB_REF_NAME}"
-          queued_head=""
-          if [[ "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
-            resolved="$(
-              python3 - <<'PY'
-          import json
-          import os
-          import re
-          import subprocess
-          from pathlib import Path
-
-
-          def strip_heads_prefix(value: str) -> str:
-              return value.removeprefix("refs/heads/")
-
-
-          def get_path(obj, *parts):
-              value = obj
-              for part in parts:
-                  if isinstance(value, dict):
-                      value = value.get(part)
-                  elif isinstance(value, list) and isinstance(part, int) and 0 <= part < len(value):
-                      value = value[part]
-                  else:
-                      return ""
-              return value if isinstance(value, str) else ""
-
-
-          def is_queue_ref(value: str) -> bool:
-              stripped = strip_heads_prefix(value)
-              return stripped.startswith("gh-readonly-queue/")
-
-
-          def first_payload_head_ref(merge_group: dict) -> tuple[str, str]:
-              candidates = [
-                  ("merge_group.pull_request.head.ref", get_path(merge_group, "pull_request", "head", "ref")),
-                  ("merge_group.pull_request.headRefName", get_path(merge_group, "pull_request", "headRefName")),
-                  ("merge_group.pull_requests[0].head.ref", get_path(merge_group, "pull_requests", 0, "head", "ref")),
-                  ("merge_group.pull_requests[0].headRefName", get_path(merge_group, "pull_requests", 0, "headRefName")),
-                  ("merge_group.pull_requests[0].head_branch", get_path(merge_group, "pull_requests", 0, "head_branch")),
-                  ("merge_group.source_ref", get_path(merge_group, "source_ref")),
-              ]
-              for source, value in candidates:
-                  value = strip_heads_prefix(str(value or ""))
-                  if value and not is_queue_ref(value):
-                      return value, source
-
-              head_ref = strip_heads_prefix(str(merge_group.get("head_ref") or ""))
-              if head_ref and not is_queue_ref(head_ref):
-                  return head_ref, "merge_group.head_ref"
-
-              return "", ""
-
-
-          def pr_number_from_queue_ref(merge_group: dict) -> str:
-              for value in (str(merge_group.get("head_ref") or ""), os.environ.get("GITHUB_REF", "")):
-                  match = re.search(r"(?:^|/)pr-(\d+)(?:[-/]|$)", value)
-                  if match:
-                      return match.group(1)
-              return ""
-
-
-          def head_ref_from_pr(number: str) -> tuple[str, str]:
-              repo = os.environ.get("GITHUB_REPOSITORY", "")
-              if not number or not repo or not os.environ.get("GH_TOKEN"):
-                  return "", ""
-              try:
-                  completed = subprocess.run(
-                      ["gh", "pr", "view", number, "--repo", repo, "--json", "headRefName"],
-                      check=True,
-                      text=True,
-                      stdout=subprocess.PIPE,
-                      stderr=subprocess.DEVNULL,
-                  )
-                  data = json.loads(completed.stdout)
-              except Exception:
-                  return "", ""
-              head_ref = strip_heads_prefix(str(data.get("headRefName") or ""))
-              return (head_ref, f"gh pr view {number}") if head_ref else ("", "")
-
-
-          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-          merge_group = event.get("merge_group", {})
-          base_ref = strip_heads_prefix(str(merge_group.get("base_ref") or ""))
-          head_ref, head_source = first_payload_head_ref(merge_group)
-          if not head_ref:
-              head_ref, head_source = head_ref_from_pr(pr_number_from_queue_ref(merge_group))
-          print(json.dumps({"branch": base_ref, "head": head_ref, "head_source": head_source}, separators=(",", ":")))
-          PY
-            )"
-            target="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("branch", ""))' <<<"${resolved}")"
-            queued_head="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("head", ""))' <<<"${resolved}")"
-            queued_head_source="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("head_source", ""))' <<<"${resolved}")"
-            if [[ -n "${queued_head}" ]]; then
-              echo "release-hygiene: merge_group source head ${queued_head} (${queued_head_source})"
-            else
-              echo "release-hygiene: merge_group source head unavailable from payload/API"
-            fi
-          fi
-
           case "${target}" in
             premain|main)
               ;;
@@ -227,10 +118,7 @@ jobs:
               ;;
           esac
 
-          {
-            echo "branch=${target}"
-            echo "head=${queued_head}"
-          } >> "${GITHUB_OUTPUT}"
+          echo "branch=${target}" >> "${GITHUB_OUTPUT}"
 
       - name: Resolve release verifier source
         if: github.event_name == 'pull_request'
@@ -282,8 +170,9 @@ jobs:
 
             # These markers distinguish the current single-manifest release lane from
             # older trusted verifier shapes that either required the retired premain
-            # manifest/helper/Python path, still assumed numbered-only RC syntax, or
-            # had not moved the release-please-action policy from v4 to v5.
+            # manifest/helper/Python path, still assumed numbered-only RC syntax,
+            # had not moved the release-please-action policy from v4 to v5, or still
+            # enforced the retired merge-queue lane.
             add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
               "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
@@ -310,6 +199,9 @@ jobs:
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
               "scripts/create-stable-release-pr.py" \
               "deterministic stable Release PR marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "must not use the prohibited merge-queue event" \
+              "direct protected-PR verifier marker" "${reasons_name}"
           }
 
           trusted_reasons=()
@@ -375,42 +267,13 @@ jobs:
           bash "${VERIFIER_ROOT}/scripts/verify-release-cycle-state.sh"
 
       - name: Verify release cycle state
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         env:
           TARGET_BRANCH: ${{ steps.target.outputs.branch }}
-          QUEUE_HEAD_REF: ${{ steps.target.outputs.head }}
         run: |
           set -euo pipefail
-
-          strict_log="$(mktemp)"
-          pending_log="$(mktemp)"
-          cleanup() {
-            rm -f "${strict_log}" "${pending_log}"
-          }
-          trap cleanup EXIT
-
-          if GITHUB_BASE_REF="${TARGET_BRANCH}" RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=false \
-            bash scripts/verify-release-cycle-state.sh >"${strict_log}" 2>&1; then
-            cat "${strict_log}"
-            exit 0
-          fi
-
-          if [[ "${TARGET_BRANCH}" == "main" ]] && \
-            [[ -n "${QUEUE_HEAD_REF}" ]] && \
-            GITHUB_BASE_REF=main GITHUB_HEAD_REF="${QUEUE_HEAD_REF}" RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true \
-              bash scripts/verify-release-cycle-state.sh >"${pending_log}" 2>&1; then
-            cat "${pending_log}"
-            echo "release-hygiene: pending stable promotion accepted on queued main merge group from ${QUEUE_HEAD_REF}"
-            exit 0
-          fi
-
-          if [[ "${TARGET_BRANCH}" == "main" && -z "${QUEUE_HEAD_REF}" ]]; then
-            echo "release-hygiene: FAIL (queued main pending stable promotion could not derive merge_group PR head)" >>"${pending_log}"
-          fi
-
-          cat "${strict_log}"
-          cat "${pending_log}"
-          exit 1
+          GITHUB_BASE_REF="${TARGET_BRANCH}" RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=false \
+            bash scripts/verify-release-cycle-state.sh
 
       - name: Verify release supply-chain scaffolding
         if: github.event_name == 'pull_request'
@@ -424,7 +287,7 @@ jobs:
           bash "${VERIFIER_ROOT}/scripts/verify-branch-release-supply-chain.sh"
 
       - name: Verify release supply-chain scaffolding
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         run: bash scripts/verify-branch-release-supply-chain.sh
 
       - name: Forbid RC-shaped main Release PRs
@@ -441,7 +304,7 @@ jobs:
             --forbid-rc-only
 
       - name: Forbid RC-shaped main Release PRs
-        if: github.event_name != 'pull_request' && steps.target.outputs.branch == 'main'
+        if: github.event_name == 'workflow_dispatch' && steps.target.outputs.branch == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

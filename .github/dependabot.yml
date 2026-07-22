@@ -91,6 +91,11 @@ updates:
     groups:
       ts-runtime:
         patterns: ["*"]
+    ignore:
+      # TypeScript 7 is outside the peer range supported by the current
+      # typescript-eslint toolchain. Keep receiving 6.x and security updates.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: "/examples/cdk-multilang"
