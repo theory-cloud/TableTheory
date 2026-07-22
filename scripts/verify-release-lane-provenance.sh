@@ -3,10 +3,8 @@ set -euo pipefail
 
 # Read-only provenance guard for release-lane pull requests. It rejects branch
 # name spoofing by requiring the PR head/base repositories to be this repository.
-# By default it also verifies the PR head/base SHAs against live same-repository
-# branch refs for the manual-freeze mode. In the normal v2 path,
-# --queue-freshness delegates that live-ref freshness guard to the protected
-# branch merge queue while retaining same-repository and release-branch checks.
+# It also verifies the PR head/base SHAs against live same-repository branch
+# refs so direct protected-branch merges use the exact revisions that passed.
 
 usage() {
   cat <<'USAGE'
@@ -25,7 +23,6 @@ Options:
   --pr-merged BOOL        Whether the PR is known merged from the event payload or test fixture.
   --title TITLE           PR title for generated release-please PR validation.
   --ref REF=SHA           Test-only ref override, e.g. refs/heads/staging=<sha>.
-  --queue-freshness       Treat live ref freshness as covered by a required GitHub merge queue.
   -h, --help              Show this help.
 
 This command uses read-only GitHub ref lookups unless --ref supplies all needed
@@ -45,7 +42,6 @@ pr_number="${PR_NUMBER:-}"
 pr_state="${PR_STATE:-}"
 pr_merged="${PR_MERGED:-}"
 title="${PR_TITLE:-}"
-queue_freshness=0
 ref_overrides=()
 
 while [[ $# -gt 0 ]]; do
@@ -109,10 +105,6 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "release-lane-provenance: FAIL (--ref requires a value)" >&2; exit 2; }
       ref_overrides+=("$2")
       shift 2
-      ;;
-    --queue-freshness)
-      queue_freshness=1
-      shift
       ;;
     -h|--help)
       usage
@@ -297,11 +289,6 @@ fi
 refresh_pr_lifecycle
 if is_premain_release_please_rc_pr && pr_is_merged; then
   stale_merged_rc_pr_allowed=1
-fi
-
-if [[ "${queue_freshness}" -eq 1 ]]; then
-  echo "release-lane-provenance: PASS (${head}@${head_sha} -> ${base}@${base_sha}; live ref freshness covered by merge queue)"
-  exit 0
 fi
 
 expected_base_sha="$(lookup_ref_sha "${base}")" || {

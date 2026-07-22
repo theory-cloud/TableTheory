@@ -3,8 +3,9 @@ set -euo pipefail
 
 # Verifies the TableTheory release-lane scaffolding:
 # - one lane: staging -> premain -> main -> staging
-# - full gov-infra rubric only on staging PRs, staging merge queue, and workflow_dispatch
-# - lightweight release hygiene on premain/main PRs and merge queues
+# - full gov-infra rubric only on staging PRs and workflow_dispatch
+# - lightweight release hygiene on premain/main PRs and workflow_dispatch
+# - direct protected-branch PRs with strict live-ref provenance; no merge queue
 # - premain cuts RCs; main cuts stable releases only
 # - no post-stable CI direct-push sync to protected branches
 #
@@ -30,6 +31,16 @@ require_fixed() {
   local message="$3"
 
   grep -Fq -- "${needle}" "${path}" || fail "${message}"
+}
+
+forbid_fixed() {
+  local needle="$1"
+  local path="$2"
+  local message="$3"
+
+  if grep -Fq -- "${needle}" "${path}"; then
+    fail "${message}"
+  fi
 }
 
 require_regex() {
@@ -115,8 +126,8 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
   q=".github/workflows/quality-gates.yml"
   require_fixed "pull_request:" "${q}" \
     "quality-gates must run on pull_request"
-  require_fixed "merge_group:" "${q}" \
-    "quality-gates must run on merge_group for the staging merge queue"
+  forbid_fixed "merge_group:" "${q}" \
+    "quality-gates must not use the prohibited merge-queue event"
   require_fixed 'branches: ["staging"]' "${q}" \
     "quality-gates pull_request must target staging only"
   require_fixed "workflow_dispatch:" "${q}" \
@@ -181,12 +192,12 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   h=".github/workflows/release-hygiene.yml"
   require_fixed 'branches: ["premain", "main"]' "${h}" \
     "release-hygiene must target premain and main PRs"
-  require_fixed "merge_group:" "${h}" \
-    "release-hygiene must run on merge_group for premain/main queues"
+  forbid_fixed "merge_group:" "${h}" \
+    "release-hygiene must not use the prohibited merge-queue event"
   require_fixed "trusted-release/scripts/verify-release-lane-provenance.sh" "${h}" \
     "release-hygiene must verify release-lane same-repository provenance from trusted scripts"
-  require_fixed "--queue-freshness" "${h}" \
-    "release-hygiene PR provenance must delegate live ref freshness to merge queue semantics"
+  forbid_fixed "--queue-freshness" "${h}" \
+    "release-hygiene must not bypass strict live-ref freshness"
   require_fixed "github.event.pull_request.base.sha" "${h}" \
     "release-hygiene must check out trusted release scripts from the PR base SHA"
   require_fixed "github.event.pull_request.head.sha" "${h}" \
@@ -231,8 +242,8 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must run the promotion driver from the resolved verifier source"
   require_fixed "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${h}" \
     "release-hygiene must log the promotion-driver verifier source"
-  require_fixed "pending stable promotion accepted on queued main merge group" "${h}" \
-    "release-hygiene must allow queued main pending stable promotion validation"
+  require_fixed "github.event_name == 'workflow_dispatch'" "${h}" \
+    "release-hygiene must retain read-only manual dispatch validation"
   if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${h}"; then
     fail "release-hygiene must not expose release-please token"
   fi
@@ -526,9 +537,9 @@ if [[ -f "scripts/verify-release-lane-provenance.sh" ]]; then
   require_fixed "release-lane PRs must be same-repository" "${provenance}" \
     "release-lane provenance guard must reject fork/name-spoofed PRs"
   require_fixed "does not match same-repository refs/heads" "${provenance}" \
-    "release-lane provenance guard must retain exact branch SHA verification for manual-freeze mode"
-  require_fixed "live ref freshness covered by merge queue" "${provenance}" \
-    "release-lane provenance guard must document queue-covered live ref freshness"
+    "release-lane provenance guard must require exact live branch SHAs"
+  forbid_fixed "--queue-freshness" "${provenance}" \
+    "release-lane provenance guard must not expose a merge-queue freshness bypass"
   require_fixed "-rc(\\.[0-9]+)?" "${provenance}" \
     "release-lane provenance guard must accept release-please first RC and numbered later RC PR titles"
 fi
