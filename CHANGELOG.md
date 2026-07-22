@@ -39,6 +39,23 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [2.0.4](https://github.com/theory-cloud/TableTheory/compare/v2.0.4-rc...v2.0.4) (2026-07-22)
+
+Stable promotion of `v2.0.4-rc`.
+
+
+## [2.0.4-rc](https://github.com/theory-cloud/TableTheory/compare/v2.0.3...v2.0.4-rc) (2026-07-22)
+
+
+### Bug Fixes
+
+* **ci:** bootstrap direct PR verifiers ([838e5d7](https://github.com/theory-cloud/TableTheory/commit/838e5d7f92fb591472c1ce699fd4c6251f40d4f1))
+* **ci:** bootstrap direct PR verifiers ([a3f4fff](https://github.com/theory-cloud/TableTheory/commit/a3f4fffb9c5a57912c145e4f80eca68f8e80e8e6))
+* **ci:** restore direct protected PR lane ([e993f70](https://github.com/theory-cloud/TableTheory/commit/e993f70079932c4cd537c94640dc8d3e6597a0ae))
+* **deps:** consolidate dependency updates ([f1907d6](https://github.com/theory-cloud/TableTheory/commit/f1907d6e220757ed32beb16f5acfb51968427c5b))
+* **deps:** repair dependency security and graph ([33aa8b9](https://github.com/theory-cloud/TableTheory/commit/33aa8b986e8beacd6db7992581cada02a16cc0c3))
+* **deps:** repair dependency security and graph ([7f24a9e](https://github.com/theory-cloud/TableTheory/commit/7f24a9e4d206a6682221586adeac9f851a66ce8e))
+
 ## [2.0.3](https://github.com/theory-cloud/TableTheory/compare/v2.0.3-rc...v2.0.3) (2026-07-08)
 
 Stable promotion of `v2.0.3-rc`.
