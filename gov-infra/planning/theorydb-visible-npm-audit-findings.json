@@ -1,5 +1,18 @@
 {
   "$schema": "https://theory.cloud/tabletheory/schemas/visible-npm-audit-findings.schema.json",
   "purpose": "Findings listed here are intentionally visible in SEC-2 evidence and are not supply-chain allowlist suppressions.",
-  "findings": []
+  "findings": [
+    {
+      "project": "examples/cdk-multilang",
+      "package": "brace-expansion",
+      "advisory": "GHSA-3jxr-9vmj-r5cp",
+      "node": "node_modules/aws-cdk-lib/node_modules/brace-expansion",
+      "visibility": "visible",
+      "status": "upstream-bundled-pending-fix",
+      "reviewed_on": "2026-07-22",
+      "expires_on": "2026-08-05",
+      "remove_when": "Remove this entry and close the exception as soon as aws-cdk-lib bundles brace-expansion 5.0.7 or newer; the npm-audit policy test intentionally fails if the lockfile is fixed while this entry remains.",
+      "justification": "aws-cdk-lib 2.261.0 is the latest AWS CDK release and bundles brace-expansion 5.0.6. npm overrides cannot replace bundled dependencies. The affected minimatch path is used only while synthesizing this fixed-input infrastructure example and is not shipped in its Lambda assets. Keep the advisory visible in SEC-2 evidence and re-review or remove this exception by the expiry date."
+    }
+  ]
 }

@@ -24,6 +24,10 @@
 
 ### Bug Fixes
 
+* **security:** document the expiring AWS CDK bundled `brace-expansion` exception and fail its policy check once AWS
+  publishes a fixed bundle
+* **deps:** make the CDK Python Lambda a locked `pyproject.toml` project so GitHub dependency graph submissions use one
+  consistent uv dependency source
 * **go:** pin the repository and example Go toolchains to go1.26.5 for reproducible CI and local security checks
 * add first-class legacy DynamORM naming support for uppercase `PK`/`SK` plus camelCase non-key attributes
 * align Go, TypeScript, Python, and DMS `json` field semantics around native structured storage plus legacy string compatibility

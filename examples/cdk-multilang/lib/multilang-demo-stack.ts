@@ -161,7 +161,7 @@ export class MultilangDemoStack extends Stack {
               'set -euo pipefail',
               'cp -R /asset-input/* /asset-output/',
               'cp -R /tabletheory_py /asset-output/tabletheory_py',
-              'python -m pip install -r /asset-input/requirements.txt -t /asset-output',
+              'python -m pip install /asset-input -t /asset-output',
             ].join('\n'),
           ],
           local: {
@@ -177,8 +177,7 @@ export class MultilangDemoStack extends Stack {
                     '-m',
                     'pip',
                     'install',
-                    '-r',
-                    path.join(pyHandlerDir, 'requirements.txt'),
+                    pyHandlerDir,
                     '-t',
                     outputDir,
                   ],
