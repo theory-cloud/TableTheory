@@ -95,15 +95,16 @@ Protect both `premain` and `main`:
 - Require CODEOWNERS/review approvals.
 - Require release-hygiene status checks for PRs targeting `premain` and `main`; do not require the full gov-infra rubric
   on those promotion branches.
-- Require the GitHub merge queue. The queue must require the `Release Hygiene` workflow's `merge_group` validation before
-  a promotion PR or generated release-please PR can merge.
+- Prohibit merge queues and auto-merge. Promotion and generated release PRs merge directly only after the required
+  `Release Hygiene` check passes for the exact PR head and a final live-ref freshness check confirms the target branch is
+  still the checked base.
 - Restrict force-pushes and deletions.
 
 Protect `staging` with the full gov-infra rubric on PRs targeting `staging`. The full rubric may also run by
-`workflow_dispatch`, but it must not run on push or on PRs targeting `premain` or `main`. Require the GitHub merge queue
-for `staging` too, with the `Quality Gates (10/10 Rubric)` `merge_group` validation as the queue check.
+`workflow_dispatch`, but it must not run on push or on PRs targeting `premain` or `main`. Merge a current `staging` PR
+directly only after `Quality Gates (10/10 Rubric)` succeeds for its exact head; never use a merge queue or admin bypass.
 
-### Merge queue provenance disposition
+### Direct-PR provenance and manual freeze
 
 Release-lane v2 keeps the provenance checks that identify *what* is allowed to enter a protected release branch:
 
@@ -116,10 +117,11 @@ Release-lane v2 keeps the provenance checks that identify *what* is allowed to e
 - Human promotion PRs still run the release-driver guard, so release-please "No user facing commits" remains a failed
   release-intent gate.
 
-The old required PR-time "event base/head SHA must equal the current live branch ref" guard is retired from the normal
-release-hygiene PR path because the merge queue now validates the exact queued merge ref against the latest protected
-branch tip before merge. The strict live-ref check remains in `scripts/verify-release-lane-provenance.sh` for documented
-manual-freeze use if merge queue is unavailable.
+The release-hygiene PR path requires the event base/head SHAs to equal the current same-repository branch refs. During a
+release step, keep one release-lane PR open at a time and freeze other release-branch merges. Immediately before a direct
+merge, rerun the read-only provenance verification and confirm the required check belongs to that exact head SHA and the
+target still equals the checked base SHA. If either ref moved, stop and rerun the PR check; do not use auto-merge, admin
+bypass, or an operator-only fallback.
 
 ## Automated releases (required)
 
@@ -199,10 +201,10 @@ These files are required to exist and be kept current:
 
 Release-lane quality workflow expectations:
 
-- `.github/workflows/quality-gates.yml` runs the full gov-infra rubric only for PRs targeting `staging`, queued
-  `staging` merge groups, and manual dispatch.
+- `.github/workflows/quality-gates.yml` runs the full gov-infra rubric only for PRs targeting `staging` and manual
+  dispatch.
 - `.github/workflows/release-hygiene.yml` runs lightweight source-branch/provenance, release-cycle, supply-chain, and
-  main-RC-PR checks for PRs targeting `premain`/`main`, plus queued `premain`/`main` merge groups.
+  main-RC-PR checks for PRs targeting `premain`/`main`, plus read-only manual dispatch.
 - Other security workflows, such as `.github/workflows/codeql.yml`, may run independently, but they do not replace the
   release-lane gate split above.
 
