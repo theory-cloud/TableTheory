@@ -230,6 +230,8 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene verifier selector must detect resolved promotion-driver supply-chain support"
   require_fixed "deterministic stable Release PR marker" "${h}" \
     "release-hygiene verifier selector must detect deterministic stable Release PR support"
+  require_fixed "direct protected-PR verifier marker" "${h}" \
+    "release-hygiene verifier selector must detect direct protected-PR support"
   require_fixed "Go semantic import verifier marker" "${h}" \
     "release-hygiene verifier selector must detect Go semantic import verifier support"
   require_fixed "Go semantic import supply-chain marker" "${h}" \

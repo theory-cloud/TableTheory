@@ -170,8 +170,9 @@ jobs:
 
             # These markers distinguish the current single-manifest release lane from
             # older trusted verifier shapes that either required the retired premain
-            # manifest/helper/Python path, still assumed numbered-only RC syntax, or
-            # had not moved the release-please-action policy from v4 to v5.
+            # manifest/helper/Python path, still assumed numbered-only RC syntax,
+            # had not moved the release-please-action policy from v4 to v5, or still
+            # enforced the retired merge-queue lane.
             add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
               "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
@@ -198,6 +199,9 @@ jobs:
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
               "scripts/create-stable-release-pr.py" \
               "deterministic stable Release PR marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "must not use the prohibited merge-queue event" \
+              "direct protected-PR verifier marker" "${reasons_name}"
           }
 
           trusted_reasons=()
