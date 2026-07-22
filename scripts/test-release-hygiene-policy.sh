@@ -321,11 +321,33 @@ require_fixed "release-hygiene must run the promotion driver from the resolved v
   "release-hygiene supply-chain verifier must require resolved promotion verifier source"
 require_fixed "scripts/create-stable-release-pr.py" "${rp}" \
   "release-pr workflow must create the stable Release PR deterministically"
+forbid_fixed "merge_group:" "${h}" \
+  "release-hygiene must not use the prohibited merge-queue event"
 SH
   cat >"${root}/scripts/verify-promotion-release-driver.sh" <<'SH'
 #!/usr/bin/env bash
 echo "manifest-derived stable Release-As"
 SH
+}
+
+write_v2_merge_queue_verifier_fixture() {
+  local root="$1"
+
+  write_v2_verifier_fixture "${root}"
+  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+text = text.replace(
+    'forbid_fixed "merge_group:" "${h}" \\\n'
+    '  "release-hygiene must not use the prohibited merge-queue event"\n',
+    'require_fixed "merge_group:" "${h}" \\\n'
+    '  "release-hygiene must run on merge_group for premain/main queues"\n',
+)
+path.write_text(text, encoding="utf-8")
+PY
 }
 
 write_v2_legacy_promotion_source_verifier_fixture() {
@@ -411,6 +433,7 @@ run_verifier_source_selector_fixture() {
     v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/trusted-release" ;;
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/trusted-release" ;;
     v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/trusted-release" ;;
+    v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/trusted-release" ;;
     v2) write_v2_verifier_fixture "${fixture}/trusted-release" ;;
     *) echo "release-hygiene-policy-test: unknown trusted fixture ${trusted_shape}" >&2; exit 1 ;;
   esac
@@ -419,6 +442,7 @@ run_verifier_source_selector_fixture() {
     v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/pr" ;;
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/pr" ;;
     v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/pr" ;;
+    v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/pr" ;;
     v2) write_v2_verifier_fixture "${fixture}/pr" ;;
     *) echo "release-hygiene-policy-test: unknown head fixture ${head_shape}" >&2; exit 1 ;;
   esac
@@ -1309,6 +1333,11 @@ grep -Fq "resolved promotion-driver supply-chain marker" "${repo_root}/.github/w
   exit 1
 }
 
+grep -Fq "direct protected-PR verifier marker" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must detect direct protected-PR support"
+  exit 1
+}
+
 selector_result="$(
   run_verifier_source_selector_fixture \
     v1 v2 \
@@ -1320,6 +1349,30 @@ assert_selector_result \
   "." \
   "protected-pr-head-v2" \
   "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-merge-queue v2 \
+    premain staging \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "." \
+  "protected-pr-head-v2" \
+  "scripts/verify-branch-release-supply-chain.sh lacks direct protected-PR verifier marker"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-merge-queue v2 \
+    main premain \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "." \
+  "protected-pr-head-v2" \
+  "scripts/verify-branch-release-supply-chain.sh lacks direct protected-PR verifier marker"
 
 selector_result="$(
   run_verifier_source_selector_fixture \

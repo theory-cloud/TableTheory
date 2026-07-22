@@ -24,6 +24,7 @@
 
 ### Bug Fixes
 
+* **ci:** select direct-PR verifier scripts while a promotion base still contains the retired queue-era policy
 * **ci:** retire merge queues and restore direct protected-PR merges with strict live-ref provenance
 * **security:** document the expiring AWS CDK bundled `brace-expansion` exception and fail its policy check once AWS
   publishes a fixed bundle
