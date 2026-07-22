@@ -6,6 +6,11 @@ merge-queue workflow triggers and provenance-guard disposition below. TTIP-113 r
 lane no longer uses; live RC-to-stable proof remains a release-readiness receipt, not a prerequisite for removing those
 orphaned helpers from source.
 
+**Superseded operational decision (2026-07-22):** the merge-queue portions of this design record are no longer active.
+TableTheory prohibits merge queues and uses direct protected-PR merges with strict live-ref provenance and a one-PR
+release-lane freeze. The authoritative current procedure is
+`docs/development/planning/theorydb-branch-release-policy.md`; queue material below remains only as decision history.
+
 ## Purpose
 
 At the time of THE-2448, the release lane was safe but too stateful: release-please tracked stable and RC state through

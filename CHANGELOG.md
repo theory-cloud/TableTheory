@@ -24,6 +24,7 @@
 
 ### Bug Fixes
 
+* **ci:** retire merge queues and restore direct protected-PR merges with strict live-ref provenance
 * **security:** document the expiring AWS CDK bundled `brace-expansion` exception and fail its policy check once AWS
   publishes a fixed bundle
 * **deps:** make the CDK Python Lambda a locked `pyproject.toml` project so GitHub dependency graph submissions use one
