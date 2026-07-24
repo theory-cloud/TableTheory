@@ -24,6 +24,7 @@
 
 ### Bug Fixes
 
+* **transaction:** preserve non-nil empty collections in nested Go structs unless `omitempty` is explicit
 * **ci:** select direct-PR verifier scripts while a promotion base still contains the retired queue-era policy
 * **ci:** retire merge queues and restore direct protected-PR merges with strict live-ref provenance
 * **security:** document the expiring AWS CDK bundled `brace-expansion` exception and fail its policy check once AWS

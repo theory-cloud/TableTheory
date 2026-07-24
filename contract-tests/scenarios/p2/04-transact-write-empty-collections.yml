@@ -1,0 +1,44 @@
+name: "p2.transact_write_empty_collections"
+dms_version: "0.1"
+requires_capabilities: ["transact.write", "release_state.write_policy"]
+model: "ReleaseStateEvent"
+table:
+  name: "release_state_contract"
+steps:
+  - op: transact_write
+    transact_write:
+      actions:
+        - kind: "create"
+          item:
+            PK: "RELEASE#TX-EMPTY"
+            SK: "EVENT#TX-EMPTY"
+            releaseId: "rel_tx_empty"
+            eventType: "contract"
+            provenance:
+              source: "contract"
+              emptyList: []
+              emptyMap: {}
+    expect: { ok: true }
+
+  - op: get
+    key:
+      PK: "RELEASE#TX-EMPTY"
+      SK: "EVENT#TX-EMPTY"
+    expect:
+      ok: true
+      item_contains:
+        PK: "RELEASE#TX-EMPTY"
+        SK: "EVENT#TX-EMPTY"
+        releaseId: "rel_tx_empty"
+        eventType: "contract"
+        provenance:
+          source: "contract"
+          emptyList: []
+          emptyMap: {}
+      raw_attribute_types:
+        provenance: "M"
+      raw_item_contains:
+        provenance:
+          source: "contract"
+          emptyList: []
+          emptyMap: {}
