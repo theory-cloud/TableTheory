@@ -103,6 +103,8 @@ table.delete("USER#1", "NOTE#welcome")
 Without `omit_empty`, **zero values are written**: `""`, `0`, `False`/`false`, empty slices, empty maps. With `omit_empty`, the attribute is *omitted entirely* from the DynamoDB item.
 
 This matters because DynamoDB distinguishes "attribute present with empty string" from "attribute absent" in queries and conditional expressions. The contract pins which behavior each combination produces, and every runtime must agree.
+In Go transaction puts, explicitly non-nil empty collections inside nested structs are preserved unless those fields
+use `omitempty`.
 
 The dedicated [omit-empty scenario](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/02-omitempty.yml) exercises every type variant in the matrix.
 
