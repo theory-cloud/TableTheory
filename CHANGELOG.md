@@ -24,6 +24,7 @@
 
 ### Bug Fixes
 
+* **transaction:** preserve non-nil empty collections in nested Go structs unless `omitempty` is explicit
 * **ci:** select direct-PR verifier scripts while a promotion base still contains the retired queue-era policy
 * **ci:** retire merge queues and restore direct protected-PR merges with strict live-ref provenance
 * **security:** document the expiring AWS CDK bundled `brace-expansion` exception and fail its policy check once AWS
@@ -38,6 +39,11 @@
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
+
+## [2.0.4](https://github.com/theory-cloud/TableTheory/compare/v2.0.4-rc...v2.0.4) (2026-07-22)
+
+Stable promotion of `v2.0.4-rc`.
+
 
 ## [2.0.4-rc](https://github.com/theory-cloud/TableTheory/compare/v2.0.3...v2.0.4-rc) (2026-07-22)
 
