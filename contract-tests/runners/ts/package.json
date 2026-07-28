@@ -18,7 +18,7 @@
     "test:contract:p2": "tsx test/contract.p2.test.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1086.0"
+    "@aws-sdk/client-dynamodb": "^3.1096.0"
   },
   "overrides": {
     "fast-xml-parser": "5.7.3"
