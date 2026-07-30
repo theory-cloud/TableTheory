@@ -5,14 +5,14 @@
     {
       "project": "examples/cdk-multilang",
       "package": "brace-expansion",
-      "advisory": "GHSA-3jxr-9vmj-r5cp",
+      "advisory": "GHSA-mh99-v99m-4gvg",
       "node": "node_modules/aws-cdk-lib/node_modules/brace-expansion",
       "visibility": "visible",
       "status": "upstream-bundled-pending-fix",
-      "reviewed_on": "2026-07-22",
-      "expires_on": "2026-08-05",
-      "remove_when": "Remove this entry and close the exception as soon as aws-cdk-lib bundles brace-expansion 5.0.7 or newer; the npm-audit policy test intentionally fails if the lockfile is fixed while this entry remains.",
-      "justification": "aws-cdk-lib 2.261.0 is the latest AWS CDK release and bundles brace-expansion 5.0.6. npm overrides cannot replace bundled dependencies. The affected minimatch path is used only while synthesizing this fixed-input infrastructure example and is not shipped in its Lambda assets. Keep the advisory visible in SEC-2 evidence and re-review or remove this exception by the expiry date."
+      "reviewed_on": "2026-07-30",
+      "expires_on": "2026-08-13",
+      "remove_when": "Remove this entry as soon as aws-cdk-lib bundles brace-expansion 5.0.8 or newer; the npm-audit policy test intentionally fails if the lockfile is fixed while this entry remains.",
+      "justification": "aws-cdk-lib 2.262.2 is the latest AWS CDK release and bundles brace-expansion 5.0.7, which remains affected by GHSA-mh99-v99m-4gvg. npm cannot replace this bundled dependency. The affected minimatch path is used only while synthesizing this fixed-input infrastructure example and is not shipped in its Lambda assets. Keep the advisory visible in SEC-2 evidence and re-review or remove this exception by the expiry date."
     }
   ]
 }
