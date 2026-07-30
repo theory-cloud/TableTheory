@@ -166,13 +166,16 @@ const visibleBracePolicy = policy.findings?.find(
   (finding) =>
     finding.project === 'examples/cdk-multilang' &&
     finding.package === 'brace-expansion' &&
-    finding.advisory === 'GHSA-3jxr-9vmj-r5cp' &&
+    finding.advisory === 'GHSA-mh99-v99m-4gvg' &&
     finding.node === 'node_modules/aws-cdk-lib/node_modules/brace-expansion'
 );
+if (!versionAtLeast(bundledBrace?.version, '5.0.7')) {
+  throw new Error(`expected aws-cdk-lib to bundle brace-expansion 5.0.7 or newer, got ${bundledBrace?.version ?? 'missing'}`);
+}
 if (!visibleBracePolicy) {
   throw new Error('expected the current aws-cdk-lib bundled brace-expansion advisory to remain visibly documented');
 }
-if (versionAtLeast(bundledBrace?.version, '5.0.7')) {
+if (versionAtLeast(bundledBrace?.version, '5.0.8')) {
   throw new Error('aws-cdk-lib now bundles fixed brace-expansion; remove the visible exception before merging');
 }
 NODE

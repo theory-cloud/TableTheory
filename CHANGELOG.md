@@ -40,6 +40,15 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [2.0.6-rc](https://github.com/theory-cloud/TableTheory/compare/v2.0.5...v2.0.6-rc) (2026-07-30)
+
+
+### Bug Fixes
+
+* **ci:** fail fast for unreleasable staging PRs ([db33147](https://github.com/theory-cloud/TableTheory/commit/db33147abf2c76653cc626f41a937b9d52fa5d54))
+* **ci:** honor prerelease promotion release driver ([b700911](https://github.com/theory-cloud/TableTheory/commit/b7009115cf0171f3b9e9fccf014e6981a8b7eef7))
+* **ci:** honor prerelease promotion release driver ([8be086f](https://github.com/theory-cloud/TableTheory/commit/8be086f56974048113959c60b2913e877b72d6af))
+
 ## [2.0.5](https://github.com/theory-cloud/TableTheory/compare/v2.0.5-rc...v2.0.5) (2026-07-24)
 
 Stable promotion of `v2.0.5-rc`.

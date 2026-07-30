@@ -52,6 +52,16 @@ jobs:
           cat "${repair_log}"
           exit 1
 
+      - name: Resolve prerelease promotion release driver
+        id: driver
+        if: steps.cycle.outputs.pending_stable_repair != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          release_as="$(bash scripts/resolve-prerelease-release-as.sh --repo "${GITHUB_REPOSITORY}" --sha "${GITHUB_SHA}" --base premain)"
+          echo "release_as=${release_as}" >> "${GITHUB_OUTPUT}"
+
       - name: Release Please (PR only)
         id: release
         if: steps.cycle.outputs.pending_stable_repair != 'true'
@@ -62,11 +72,13 @@ jobs:
           config-file: release-please-config.premain.json
           manifest-file: .release-please-manifest.json
           skip-github-release: true
+          release-as: ${{ steps.driver.outputs.release_as }}
 
       - name: Verify prerelease Release PR postcondition
         if: steps.cycle.outputs.pending_stable_repair != 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          PRERELEASE_PR_EXPECTED_VERSION: ${{ steps.driver.outputs.release_as }}
         run: |
           set -euo pipefail
 
