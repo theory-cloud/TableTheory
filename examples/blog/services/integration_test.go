@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/examples/blog/models"
+	"github.com/theory-cloud/tabletheory/v3/examples/blog/models"
 )
 
 func TestNotificationIntegration(t *testing.T) {

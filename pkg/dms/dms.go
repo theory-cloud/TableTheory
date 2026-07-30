@@ -10,8 +10,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
 )
 
 const (
@@ -268,7 +268,7 @@ func validateDocument(doc *Document) error {
 	if doc == nil {
 		return fmt.Errorf("DMS document is nil")
 	}
-	if doc.DMSVersion != "0.1" {
+	if doc.DMSVersion != "0.2" {
 		return fmt.Errorf("unsupported dms_version: %q", doc.DMSVersion)
 	}
 	if len(doc.Models) == 0 {

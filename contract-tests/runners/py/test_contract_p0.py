@@ -86,8 +86,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 def _load_models() -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
-    for path in sorted((_repo_root() / "contract-tests" / "dms" / "v0.1" / "models").glob("*.yml")):
+    for path in sorted((_repo_root() / "contract-tests" / "dms" / "v0.2" / "models").glob("*.yml")):
         doc = _load_yaml(path)
+        assert doc.get("dms_version") == "0.2", f"{path.name} must declare DMS v0.2"
         for model in doc.get("models", []):
             out[model["name"]] = model
     assert out
@@ -105,6 +106,7 @@ def _load_scenarios_from(name: str) -> list[dict[str, Any]]:
     scenarios = []
     for path in sorted(scenario_dir.glob("*.yml")):
         scenario = _load_yaml(path)
+        assert scenario.get("dms_version") == "0.2", f"{path.name} must declare DMS v0.2"
         _validate_scenario_expectations(scenario, path)
         scenarios.append(scenario)
     assert scenarios
@@ -206,16 +208,14 @@ _MODEL_CLASSES: dict[str, type[Any]] = {
 
 def _to_python_kwargs(model: str, item: dict[str, Any]) -> dict[str, Any]:
     by_attribute = {
-        attr.attribute_name: attr.python_name
-        for attr in _MODEL_DEFINITIONS[model].attributes.values()
+        attr.attribute_name: attr.python_name for attr in _MODEL_DEFINITIONS[model].attributes.values()
     }
     return {by_attribute.get(key, key): value for key, value in item.items()}
 
 
 def _to_attribute_item(model: str, item: dict[str, Any]) -> dict[str, Any]:
     by_python = {
-        attr.python_name: attr.attribute_name
-        for attr in _MODEL_DEFINITIONS[model].attributes.values()
+        attr.python_name: attr.attribute_name for attr in _MODEL_DEFINITIONS[model].attributes.values()
     }
     return {by_python.get(key, key): value for key, value in item.items()}
 
@@ -224,8 +224,7 @@ def _to_python_field_list(model: str, fields: list[str] | None) -> list[str] | N
     if fields is None:
         return None
     by_attribute = {
-        attr.attribute_name: attr.python_name
-        for attr in _MODEL_DEFINITIONS[model].attributes.values()
+        attr.attribute_name: attr.python_name for attr in _MODEL_DEFINITIONS[model].attributes.values()
     }
     return [by_attribute.get(field, field) for field in fields]
 
@@ -867,7 +866,9 @@ def _run_step(
         return
 
     if step["op"] == "transact_get":
-        result, error = _capture_result(lambda: driver.transact_get(model_name, step["transact_get"]["items"]))
+        result, error = _capture_result(
+            lambda: driver.transact_get(model_name, step["transact_get"]["items"])
+        )
         _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
         return
 
@@ -878,7 +879,9 @@ def _run_step(
 
     if step["op"] == "batch_write":
         request = step["batch_write"]
-        error = _capture_error(lambda: driver.batch_write(model_name, request.get("puts", []), request.get("deletes", [])))
+        error = _capture_error(
+            lambda: driver.batch_write(model_name, request.get("puts", []), request.get("deletes", []))
+        )
         _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
         return
 

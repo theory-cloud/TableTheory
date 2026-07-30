@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 )
 
 func mustQuery(v any) Query {

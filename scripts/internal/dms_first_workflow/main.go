@@ -8,10 +8,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/dms"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/dms"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 
-	demogo "github.com/theory-cloud/tabletheory/v2/examples/cdk-multilang/lambdas/go/demo"
+	demogo "github.com/theory-cloud/tabletheory/v3/examples/cdk-multilang/lambdas/go/demo"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func verifyContractFixtures() error {
 }
 
 func collectContractModelNames() (map[string]struct{}, error) {
-	modelsDir := filepath.Join("contract-tests", "dms", "v0.1", "models")
+	modelsDir := filepath.Join("contract-tests", "dms", "v0.2", "models")
 	entries, err := os.ReadDir(modelsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read contract models dir: %w", err)

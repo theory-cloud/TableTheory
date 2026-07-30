@@ -16,13 +16,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/encryption"
-	"github.com/theory-cloud/tabletheory/v2/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	customerrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/query"
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
+	"github.com/theory-cloud/tabletheory/v3/internal/encryption"
+	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/query"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
 )
 
 type queryExecutor struct {

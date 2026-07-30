@@ -1,4 +1,4 @@
-module github.com/theory-cloud/tabletheory/v2/examples/multi-tenant
+module github.com/theory-cloud/tabletheory/v3/examples/multi-tenant
 
 go 1.26
 
@@ -9,7 +9,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
-	github.com/theory-cloud/tabletheory/v2 v2.0.2
+	github.com/theory-cloud/tabletheory/v3 v3.0.0
 	golang.org/x/crypto v0.54.0
 )
 
@@ -39,4 +39,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/theory-cloud/tabletheory/v2 => ../..
+replace github.com/theory-cloud/tabletheory/v3 => ../..

@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"github.com/theory-cloud/tabletheory/v2/examples/multi-tenant/models"
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	derrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	derrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
 )
 
 // ResourceHandler handles resource tracking and usage reporting

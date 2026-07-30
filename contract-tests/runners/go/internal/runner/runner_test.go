@@ -9,7 +9,7 @@ import (
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/driver"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/scenario"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/spec"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
 )
 
 type requireCaptureT struct {

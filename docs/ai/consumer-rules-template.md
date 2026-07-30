@@ -12,7 +12,7 @@ that repository uses TableTheory.
 
 - Treat TableTheory as a DynamoDB-first data contract, not a SQL ORM and not a database-agnostic abstraction.
 - Use immutable GitHub Release assets only:
-  - Go: `go get github.com/theory-cloud/tabletheory/v2@vX.Y.Z`
+  - Go: `go get github.com/theory-cloud/tabletheory/v3@vX.Y.Z`
   - TypeScript: install the `theory-cloud-tabletheory-ts-X.Y.Z.tgz` GitHub Release asset.
   - Python: install the `tabletheory_py-X.Y.Z-py3-none-any.whl` GitHub Release asset.
 - Do not suggest npm or PyPI publication for TableTheory.

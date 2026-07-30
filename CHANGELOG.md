@@ -4,6 +4,12 @@
 
 ### Breaking Changes
 
+* **contract:** advance the shared model contract to DMS v0.2. High-level updates now distinguish field selection:
+  unselected zero-valued `omitempty` fields remain unchanged, while explicitly selected empty `omitempty` fields remove
+  the persisted DynamoDB attribute. TypeScript already had this behavior; Go and Python previously stored empty values.
+  Existing items remain readable, but consumers relying on empty attributes remaining present must remove `omitempty` or
+  use an explicit low-level `SET`. The Go module moves to `github.com/theory-cloud/tabletheory/v3`; Go consumers must
+  update module requirements and imports. See `docs/migration/v3.md`.
 * **go:** align `ConsistentRead()` on GSI queries with the cross-runtime contract by returning
   `ErrInvalidOperator` instead of silently dropping the flag, including when the Go query optimizer auto-selects a GSI
   from key conditions. Semver decision: this parity repair is release-major material and must not ship as a patch/minor.

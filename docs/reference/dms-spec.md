@@ -1,22 +1,22 @@
 ---
-title: DMS Specification v0.1
+title: DMS Specification v0.2
 description: The language-neutral Data Model Specification all three TableTheory runtimes validate against.
 ---
 
-# DMS Specification v0.1
+# DMS Specification v0.2
 
 DMS — the **Data Model Specification** — is TableTheory's language-neutral source of truth. It is **not** generated from the Go runtime. It is authored independently and every runtime (Go, TypeScript, Python) is validated against it on every build.
 
 When DMS evolves, every runtime evolves with it. The discipline for managing that synchronization is the [`evolve-dms`](https://github.com/theory-cloud/tabletheory/tree/main/docs/development/planning) skill.
 
-The full canonical specification lives in the repository at [`docs/development/planning/theorydb-spec-dms-v0.1.md`](https://github.com/theory-cloud/tabletheory/blob/main/docs/development/planning/theorydb-spec-dms-v0.1.md). This page describes the public-facing shape; consult the canonical document for the precise semantics every runtime must implement.
+The full canonical specification lives in the repository at [`docs/development/planning/theorydb-spec-dms-v0.2.md`](https://github.com/theory-cloud/tabletheory/blob/main/docs/development/planning/theorydb-spec-dms-v0.2.md). This page describes the public-facing shape; consult the canonical document for the precise semantics every runtime must implement.
 
 ## Shape
 
 DMS is a YAML document describing one or more models:
 
 ```yaml
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "Note"
     table:
@@ -42,15 +42,26 @@ models:
 - **Validation rules** — required attributes, omitempty semantics, naming strategies.
 - **Portability boundaries** — what is shared across runtimes and what is runtime-specific (very little).
 
+## Explicit empty updates
+
+DMS v0.2 makes update selection part of the portable contract. A high-level
+update that explicitly selects an `omit_empty` attribute and supplies an empty
+value emits DynamoDB `REMOVE`. An empty `omit_empty` field that was not selected
+emits no action and leaves the stored attribute unchanged.
+
+This is the breaking change from DMS v0.1. Existing items remain readable, but
+future explicitly selected empty updates may change `attribute_exists`
+conditions, sparse-index membership, and raw item shape.
+
 ## Naming conventions
 
-DMS v0.1 recognizes exactly these `naming.convention` values:
+DMS v0.2 recognizes exactly these `naming.convention` values:
 
 - `camelCase`
 - `snake_case`
 - `dynamorm`
 
-`pascalCase` remains a Go struct-tag naming mode for legacy runtime models, but it is not a DMS v0.1 convention and
+`pascalCase` remains a Go struct-tag naming mode for legacy runtime models, but it is not a DMS v0.2 convention and
 DMS emitters/validators fail closed rather than writing that unspec'd convention into a portable DMS document.
 
 ## What DMS does not specify

@@ -1,5 +1,5 @@
 name: "p0.type_matrix.round_trip"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["type.matrix", "number.precision.exact"]
 model: "TypeMatrix"
 table:

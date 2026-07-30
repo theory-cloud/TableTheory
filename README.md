@@ -56,7 +56,7 @@ TableTheory is distributed exclusively through immutable **[GitHub Releases](htt
 
 | Runtime | Install |
 |---|---|
-| **Go** | `go get github.com/theory-cloud/tabletheory/v2@vX.Y.Z` |
+| **Go** | `go get github.com/theory-cloud/tabletheory/v3@vX.Y.Z` |
 | **TypeScript** | install the `npm pack` release asset — see [TypeScript getting started](https://tabletheory.theorycloud.ai/runtimes/typescript/) |
 | **Python** | install the wheel/sdist release asset — see [Python getting started](https://tabletheory.theorycloud.ai/runtimes/python/) |
 
@@ -145,7 +145,7 @@ For infrastructure patterns, see the [CDK integration guide](https://tabletheory
 TableTheory's drift-prevention story centers on a shared, language-neutral schema document: **TableTheory Spec (DMS)**.
 
 ```yaml
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "Note"
     table: { name: "notes_contract" }
@@ -158,7 +158,7 @@ models:
       - { attribute: "value", type: "N" }
 ```
 
-DMS is **authored independently** of any runtime — Go, TypeScript, and Python all validate against the same spec. See the [DMS Specification v0.1](https://tabletheory.theorycloud.ai/reference/dms-spec/) for the public summary.
+DMS is **authored independently** of any runtime — Go, TypeScript, and Python all validate against the same spec. See the [DMS Specification v0.2](https://tabletheory.theorycloud.ai/reference/dms-spec/) for the public summary.
 
 ## Development & verification
 

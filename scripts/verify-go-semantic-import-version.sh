@@ -13,6 +13,14 @@ Usage: bash scripts/verify-go-semantic-import-version.sh [--repo-root PATH]
 Checks .release-please-manifest.json against the root go.mod module path.
 For manifest major 0/1, the module path must be github.com/theory-cloud/tabletheory.
 For manifest major N>=2, it must be github.com/theory-cloud/tabletheory/vN.
+
+Before a breaking release is generated, staging and premain may carry the next
+semantic import major while the release-please manifest still records the
+latest stable major. That pending transition is accepted only when:
+- the module path advances by exactly one major,
+- the target is not main,
+- CHANGELOG.md has an Unreleased Breaking Changes section, and
+- docs/migration/vN.md exists for the pending major.
 USAGE
 }
 
@@ -67,7 +75,7 @@ PY
 module_path="$(awk '$1 == "module" { print $2; exit }' go.mod)"
 [[ -n "${module_path}" ]] || fail "go.mod is missing a module directive"
 
-expected="$(
+version_info="$(
   MANIFEST_VERSION="${manifest}" python3 - <<'PY'
 import os
 import re
@@ -81,18 +89,72 @@ if not match:
 
 major = int(match.group(1))
 base = "github.com/theory-cloud/tabletheory"
-print(f"{base}/v{major}" if major >= 2 else base)
+expected = f"{base}/v{major}" if major >= 2 else base
+print(f"{major}|{expected}")
 PY
 )"
-case "${expected}" in
+case "${version_info}" in
   go-semantic-import:*)
-    echo "${expected}"
+    echo "${version_info}"
     exit 1
     ;;
 esac
 
-if [[ "${module_path}" != "${expected}" ]]; then
+manifest_major="${version_info%%|*}"
+expected="${version_info#*|}"
+
+if [[ "${module_path}" == "${expected}" ]]; then
+  echo "go-semantic-import: PASS (manifest=${manifest}, module=${module_path})"
+  exit 0
+fi
+
+next_major="$((manifest_major + 1))"
+next_module="github.com/theory-cloud/tabletheory"
+if [[ "${next_major}" -ge 2 ]]; then
+  next_module="${next_module}/v${next_major}"
+fi
+if [[ "${module_path}" != "${next_module}" ]]; then
   fail "manifest ${manifest} requires module ${expected}, got ${module_path}"
 fi
 
-echo "go-semantic-import: PASS (manifest=${manifest}, module=${module_path})"
+target_branch="${GITHUB_BASE_REF:-${GITHUB_REF_NAME:-}}"
+if [[ -z "${target_branch}" ]] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  target_branch="$(git branch --show-current)"
+fi
+if [[ -z "${target_branch}" ]]; then
+  fail "manifest ${manifest} requires module ${expected}, got ${module_path}"
+fi
+if [[ "${target_branch}" == "main" ]]; then
+  fail "pending v${next_major} semantic import transition is not allowed on main"
+fi
+if [[ -n "${GITHUB_BASE_REF:-}" && "${GITHUB_BASE_REF}" != "staging" && "${GITHUB_BASE_REF}" != "premain" ]]; then
+  fail "pending v${next_major} semantic import transition is allowed only on PRs targeting staging or premain"
+fi
+
+[[ -f "CHANGELOG.md" ]] || fail "pending v${next_major} transition requires CHANGELOG.md"
+python3 - "${next_major}" <<'PY' || exit 1
+import re
+import sys
+from pathlib import Path
+
+major = sys.argv[1]
+text = Path("CHANGELOG.md").read_text(encoding="utf-8")
+match = re.search(
+    r"(?ms)^## \[?Unreleased\]?\s*$\s*(.*?)(?=^## |\Z)",
+    text,
+)
+if not match or not re.search(
+    r"(?ms)^### Breaking Changes\s*\n\s*\S",
+    match.group(1),
+):
+    print(
+        f"go-semantic-import: FAIL (pending v{major} transition requires a non-empty "
+        "Unreleased Breaking Changes section)"
+    )
+    raise SystemExit(1)
+PY
+
+migration="docs/migration/v${next_major}.md"
+[[ -f "${migration}" ]] || fail "pending v${next_major} transition requires ${migration}"
+
+echo "go-semantic-import: PASS (pending-major-transition=${manifest_major}->${next_major}, manifest=${manifest}, module=${module_path}, target=${target_branch:-local})"

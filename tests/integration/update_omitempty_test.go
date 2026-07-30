@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/tests"
+	"github.com/theory-cloud/tabletheory/v3/tests"
 )
 
 type UpdateOmitEmptyItem struct {
@@ -64,4 +64,20 @@ func TestUpdate_OmitEmptyDoesNotOverwriteEmptyCollections(t *testing.T) {
 	assert.Equal(t, "ts_v2", got.UpdateTimestamp)
 	assert.Equal(t, []string{"tok_123"}, got.ProcessorTokens)
 	assert.Equal(t, map[string]string{"stripe": "tok_123"}, got.Attributes)
+
+	err = testCtx.DB.Model(update).
+		Where("ID", "=", original.ID).
+		Where("SK", "=", original.SK).
+		Update("ProcessorTokens", "Attributes")
+	require.NoError(t, err)
+
+	var explicitlyCleared UpdateOmitEmptyItem
+	err = testCtx.DB.Model(&UpdateOmitEmptyItem{}).
+		Where("ID", "=", original.ID).
+		Where("SK", "=", original.SK).
+		First(&explicitlyCleared)
+	require.NoError(t, err)
+
+	assert.Empty(t, explicitlyCleared.ProcessorTokens)
+	assert.Empty(t, explicitlyCleared.Attributes)
 }

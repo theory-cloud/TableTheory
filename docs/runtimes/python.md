@@ -119,6 +119,10 @@ table.delete(pk, sk)
 table.update_builder(pk, sk).set("body", "updated").execute()
 ```
 
+Under DMS v0.2, every key in the `updates` mapping is explicitly selected. An
+empty value for a `theorydb_field(omitempty=True)` attribute emits DynamoDB
+`REMOVE`; attributes absent from the mapping remain unchanged.
+
 ## Aggregation helper warning
 
 Python aggregation helpers (`sum_field`, `average_field`, `min_field`, `max_field`, `aggregate_field`, `count_distinct`,

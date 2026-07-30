@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/dms"
+	"github.com/theory-cloud/tabletheory/v3/pkg/dms"
 )
 
 func TestInitScaffoldGo(t *testing.T) {
@@ -91,6 +91,16 @@ func TestInitScaffoldPinsRuntimeVersion(t *testing.T) {
 	err := run([]string{"init", "--lang", "go", "--dir", dir, "--runtime-version", "2.3.4"}, ioDiscard{}, ioDiscard{})
 	require.NoError(t, err)
 	require.Contains(t, readFile(t, filepath.Join(dir, "go.mod")), "github.com/theory-cloud/tabletheory/v2 v2.3.4")
+}
+
+func TestInitScaffoldPinsV3GoRuntimePath(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "app")
+	err := run([]string{"init", "--lang", "go", "--dir", dir, "--runtime-version", "3.0.0"}, ioDiscard{}, ioDiscard{})
+	require.NoError(t, err)
+	require.Contains(t, readFile(t, filepath.Join(dir, "go.mod")), "github.com/theory-cloud/tabletheory/v3 v3.0.0")
+	require.Contains(t, readFile(t, filepath.Join(dir, "main.go")), `"github.com/theory-cloud/tabletheory/v3/pkg/session"`)
 }
 
 func TestInitScaffoldPinsV1GoRuntimePath(t *testing.T) {

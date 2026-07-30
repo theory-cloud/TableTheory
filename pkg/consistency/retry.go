@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
 )
 
 // RetryConfig configures retry behavior for eventually consistent reads

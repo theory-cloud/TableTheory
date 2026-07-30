@@ -24,7 +24,7 @@ const (
 )
 
 // Contract is the language-neutral TableTheory model-contract sidecar.
-// It is intentionally separate from DMS v0.1 core so derived keys can be
+// It is intentionally separate from DMS v0.2 core so derived keys can be
 // adopted additively without changing DMS model semantics.
 type Contract struct {
 	Version     string          `yaml:"tabletheory_model_contract_version" json:"tabletheory_model_contract_version"`

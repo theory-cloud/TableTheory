@@ -18,7 +18,7 @@ Use this file as the small context entrypoint for AI coding assistants. For full
 - Go API: https://tabletheory.theorycloud.ai/api-reference/
 - TypeScript API: https://tabletheory.theorycloud.ai/runtimes/typescript/api-reference/
 - Python API: https://tabletheory.theorycloud.ai/runtimes/python/api-reference/
-- DMS v0.1: https://tabletheory.theorycloud.ai/reference/dms-spec/
+- DMS v0.2: https://tabletheory.theorycloud.ai/reference/dms-spec/
 - Contract scenarios: https://tabletheory.theorycloud.ai/reference/contract-scenarios/
 
 ## Non-negotiable rules

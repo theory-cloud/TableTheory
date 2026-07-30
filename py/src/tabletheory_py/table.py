@@ -1093,7 +1093,7 @@ class Table[T]:
                 set_parts.append(f"{name_ref} = if_not_exists({name_ref}, {value_ref})")
                 continue
 
-            if value is None:
+            if value is None or (attr_def.omitempty and _is_empty(value)):
                 remove_parts.append(name_ref)
                 continue
 

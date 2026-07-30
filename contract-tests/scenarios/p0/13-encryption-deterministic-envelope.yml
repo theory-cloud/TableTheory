@@ -1,5 +1,5 @@
 name: "p0.encryption.deterministic_envelope"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["encryption.deterministic_interop"]
 model: "EncryptedRecord"
 table:

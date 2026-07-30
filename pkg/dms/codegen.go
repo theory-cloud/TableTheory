@@ -134,7 +134,7 @@ func generateGoModel(out *bytes.Buffer, m Model, imports map[string]struct{}) er
 
 	policy := normalizeWritePolicy(m.WritePolicy)
 	if policy.Mode != modeMutable || len(policy.ProtectedAttributes) > 0 {
-		imports["github.com/theory-cloud/tabletheory/v2/pkg/model"] = struct{}{}
+		imports["github.com/theory-cloud/tabletheory/v3/pkg/model"] = struct{}{}
 		fmt.Fprintf(out, "func (%s) WritePolicy() model.WritePolicy {\n", modelName)
 		fmt.Fprintf(out, "\treturn model.WritePolicy{\n")
 		fmt.Fprintf(out, "\t\tMode: model.WritePolicyMode(%q),\n", policy.Mode)

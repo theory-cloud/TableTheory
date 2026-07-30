@@ -29,9 +29,19 @@ async function writeScenarioFixture(content: string): Promise<string> {
   return filePath;
 }
 
+async function writeModelFixture(content: string): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tabletheory-model-"));
+  await fs.writeFile(
+    path.join(dir, "model.yml"),
+    `${content.trim()}\n`,
+    "utf8",
+  );
+  return dir;
+}
+
 test("loads DMS models + P0 scenarios", async () => {
   const root = contractRoot();
-  const models = await loadModelsDir(path.join(root, "dms", "v0.1", "models"));
+  const models = await loadModelsDir(path.join(root, "dms", "v0.2", "models"));
   assert.ok(models.has("User"));
   assert.ok(models.has("Order"));
   assert.equal(models.get("ReleaseStateActual")?.write_policy?.mode, "mutable");
@@ -47,6 +57,37 @@ test("loads DMS models + P0 scenarios", async () => {
   const scenarios = await loadScenariosDir(path.join(root, "scenarios", "p0"));
   assert.ok(scenarios.length >= 1);
   assert.ok(scenarios.some((s) => s.name === "p0.release_state.write_policy"));
+});
+
+test("model loading rejects DMS v0.1", async () => {
+  const dir = await writeModelFixture(`
+dms_version: "0.1"
+models:
+  - name: "User"
+`);
+
+  await assert.rejects(
+    () => loadModelsDir(dir),
+    /unsupported dms_version "0\.1"/,
+  );
+});
+
+test("scenario loading rejects DMS v0.1", async () => {
+  const filePath = await writeScenarioFixture(`
+name: "unit.old_dms_version"
+dms_version: "0.1"
+model: "User"
+steps:
+  - op: get
+    key: { PK: "USER#old", SK: "PROFILE" }
+    expect:
+      error: "ErrItemNotFound"
+`);
+
+  await assert.rejects(
+    () => loadScenarioFile(filePath),
+    /unsupported dms_version "0\.1"/,
+  );
 });
 
 test("golden cursor corpus decodes to expected JSON", async () => {
@@ -170,7 +211,7 @@ test("error expectations reject raw item assertions", async () => {
 test("scenario loading rejects empty assertion maps", async () => {
   const filePath = await writeScenarioFixture(`
 name: "unit.empty_assertion"
-dms_version: "0.1"
+dms_version: "0.2"
 model: "User"
 steps:
   - op: get
@@ -188,7 +229,7 @@ steps:
 test("scenario loading rejects assertions combined with errors", async () => {
   const filePath = await writeScenarioFixture(`
 name: "unit.error_with_assertion"
-dms_version: "0.1"
+dms_version: "0.2"
 model: "User"
 steps:
   - op: get
@@ -345,7 +386,7 @@ const numberPrecisionModel: DmsModel = {
 function scenarioWithReadStep(step: Step): Scenario {
   return {
     name: "unit.interop.fail_closed_assertions",
-    dms_version: "0.1",
+    dms_version: "0.2",
     requires_capabilities: [],
     model: userModel.name,
     table: { name: userModel.table.name },
@@ -365,7 +406,7 @@ function scenarioWithReadStep(step: Step): Scenario {
 function scenarioWithNumberReadStep(step: Step): Scenario {
   return {
     name: "unit.number_precision.canonical_decimal_assertions",
-    dms_version: "0.1",
+    dms_version: "0.2",
     requires_capabilities: ["number.precision.exact"],
     model: numberPrecisionModel.name,
     table: { name: numberPrecisionModel.table.name },

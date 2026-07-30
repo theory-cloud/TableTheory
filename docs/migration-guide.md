@@ -74,8 +74,8 @@ import (
     "context"
     "log"
 
-    "github.com/theory-cloud/tabletheory/v2"
-    "github.com/theory-cloud/tabletheory/v2/pkg/session"
+    "github.com/theory-cloud/tabletheory/v3"
+    "github.com/theory-cloud/tabletheory/v3/pkg/session"
 )
 
 type User struct {

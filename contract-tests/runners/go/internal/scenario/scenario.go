@@ -153,6 +153,9 @@ func LoadFile(path string) (*Scenario, error) {
 		return nil, fmt.Errorf("parse scenario: %w", err)
 	}
 
+	if s.DMSVersion != "0.2" {
+		return nil, fmt.Errorf("unsupported dms_version: %q", s.DMSVersion)
+	}
 	if s.Name == "" {
 		return nil, fmt.Errorf("scenario name is required")
 	}

@@ -331,9 +331,56 @@ run_go_semantic_import_fixture() {
   expect_contains "${output}" "${expected_output}" "go-semantic-import fixture"
 }
 
+run_go_pending_semantic_import_fixture() {
+  local branch="$1"
+  local with_evidence="$2"
+  local expected_status="$3"
+  local expected_output="$4"
+
+  local work output status
+  work="$(mktemp -d)"
+  tmpdirs+=("${work}")
+  printf '{".":"2.0.6"}\n' >"${work}/.release-please-manifest.json"
+  printf 'module github.com/theory-cloud/tabletheory/v3\n\ngo 1.26\n' >"${work}/go.mod"
+  if [[ "${with_evidence}" == "true" ]]; then
+    mkdir -p "${work}/docs/migration"
+    cat >"${work}/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## [Unreleased]
+
+### Breaking Changes
+
+* **contract:** advance to DMS v0.2.
+EOF
+    printf '# TableTheory v3 migration\n' >"${work}/docs/migration/v3.md"
+  fi
+
+  set +e
+  output="$(
+    GITHUB_BASE_REF="${branch}" \
+      bash "${repo_root}/scripts/verify-go-semantic-import-version.sh" --repo-root "${work}" 2>&1
+  )"
+  status=$?
+  set -e
+
+  if [[ "${status}" -ne "${expected_status}" ]]; then
+    printf '%s\n' "${output}"
+    echo "release-verifier-policy-test: pending semantic import fixture ${branch}/${with_evidence}: expected ${expected_status}, got ${status}"
+    exit 1
+  fi
+  expect_contains "${output}" "${expected_output}" "pending semantic import fixture"
+}
+
 run_go_semantic_import_fixture \
   "2.0.1" \
   "github.com/theory-cloud/tabletheory/v2" \
+  0 \
+  "go-semantic-import: PASS"
+
+run_go_semantic_import_fixture \
+  "3.0.0-rc.1" \
+  "github.com/theory-cloud/tabletheory/v3" \
   0 \
   "go-semantic-import: PASS"
 
@@ -348,6 +395,42 @@ run_go_semantic_import_fixture \
   "github.com/theory-cloud/tabletheory/v2" \
   1 \
   "manifest 1.10.1 requires module github.com/theory-cloud/tabletheory"
+
+run_go_semantic_import_fixture \
+  "2.0.6" \
+  "github.com/theory-cloud/tabletheory/v4" \
+  1 \
+  "manifest 2.0.6 requires module github.com/theory-cloud/tabletheory/v2"
+
+run_go_pending_semantic_import_fixture \
+  "staging" \
+  "true" \
+  0 \
+  "pending-major-transition=2->3"
+
+run_go_pending_semantic_import_fixture \
+  "premain" \
+  "true" \
+  0 \
+  "pending-major-transition=2->3"
+
+run_go_pending_semantic_import_fixture \
+  "main" \
+  "true" \
+  1 \
+  "pending v3 semantic import transition is not allowed on main"
+
+run_go_pending_semantic_import_fixture \
+  "develop" \
+  "true" \
+  1 \
+  "allowed only on PRs targeting staging or premain"
+
+run_go_pending_semantic_import_fixture \
+  "staging" \
+  "false" \
+  1 \
+  "pending v3 transition requires CHANGELOG.md"
 
 for fixture in "${fixtures_dir}"/cycle-*; do
   run_cycle_fixture "${fixture}"

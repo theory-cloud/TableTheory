@@ -1,5 +1,5 @@
 name: "p1.transact_get"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["transact_get"]
 model: "User"
 table:

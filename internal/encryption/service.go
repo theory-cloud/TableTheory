@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmsTypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 
-	customerrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
+	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
 )
 
 const (

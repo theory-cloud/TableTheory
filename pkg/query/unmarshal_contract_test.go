@@ -9,8 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	customerrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/naming"
+	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
 )
 
 func TestUnmarshalItem_TableTheoryTagSemantics_CON3(t *testing.T) {

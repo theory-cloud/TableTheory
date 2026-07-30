@@ -14,12 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/smithy-go"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/encryption"
-	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	"github.com/theory-cloud/tabletheory/v3/internal/encryption"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
 // Transaction represents a DynamoDB transaction

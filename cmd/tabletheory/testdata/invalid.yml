@@ -1,4 +1,4 @@
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "Broken"
     table: { name: "broken" }

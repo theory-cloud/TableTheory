@@ -8,7 +8,7 @@ import {
 export const tabletheoryModelContract = {
   "tabletheory_model_contract_version": "0.2",
   "namespace": "tabletheory.contract",
-  "dms_version": "0.1",
+  "dms_version": "0.2",
   "models": [
     {
       "name": "KeyTransformFixture",

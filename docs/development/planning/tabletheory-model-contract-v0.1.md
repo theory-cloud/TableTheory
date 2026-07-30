@@ -1,8 +1,8 @@
 # TableTheory Model Contract v0.1 derived-key sidecar
 
-`tabletheory_model_contract` v0.1 is an additive sidecar for DMS v0.1. It lets a consumer declare derived DynamoDB key strings once as ordered, language-neutral templates, then evaluate the same bytes in Go, TypeScript, and Python. Version v0.2 extends only the sidecar transform vocabulary; it does not change DMS v0.1 model semantics.
+`tabletheory_model_contract` v0.1 is an additive sidecar for DMS v0.2. It lets a consumer declare derived DynamoDB key strings once as ordered, language-neutral templates, then evaluate the same bytes in Go, TypeScript, and Python. Version v0.2 extends only the sidecar transform vocabulary; it does not change DMS v0.2 model semantics.
 
-This sidecar does **not** change DMS v0.1 core semantics. DMS still owns model shape, tags, attributes, keys, indexes, write policy, and validation. The sidecar owns only model metadata discovery plus derived-key templates and golden fixtures.
+This sidecar does **not** change DMS v0.2 core semantics. DMS still owns model shape, tags, attributes, keys, indexes, write policy, and validation. The sidecar owns only model metadata discovery plus derived-key templates and golden fixtures.
 
 ## Boundary
 
@@ -27,7 +27,7 @@ A TableTheory evaluator must never silently normalize beyond the declared segmen
 ```yaml
 tabletheory_model_contract_version: "0.1"
 namespace: "example.product"
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "ExampleModel"
     dms_model: "ExampleModel"

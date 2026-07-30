@@ -10,7 +10,7 @@ import (
 func TestLoadFileRejectsEmptyAssertionMaps(t *testing.T) {
 	path := writeScenarioFixture(t, `
 name: "unit.empty_assertion"
-dms_version: "0.1"
+dms_version: "0.2"
 model: "User"
 steps:
   - op: get
@@ -28,7 +28,7 @@ steps:
 func TestLoadFileRejectsItemAssertionsWithErrorExpectations(t *testing.T) {
 	path := writeScenarioFixture(t, `
 name: "unit.error_with_assertion"
-dms_version: "0.1"
+dms_version: "0.2"
 model: "User"
 steps:
   - op: get
@@ -42,6 +42,24 @@ steps:
 	_, err := LoadFile(path)
 	if err == nil || !strings.Contains(err.Error(), "item/read assertions cannot be combined with error expectations") {
 		t.Fatalf("expected error/assertion combination error, got %v", err)
+	}
+}
+
+func TestLoadFileRejectsDMSV01(t *testing.T) {
+	path := writeScenarioFixture(t, `
+name: "unit.old_dms_version"
+dms_version: "0.1"
+model: "User"
+steps:
+  - op: get
+    key: { PK: "USER#old", SK: "PROFILE" }
+    expect:
+      error: "ErrItemNotFound"
+`)
+
+	_, err := LoadFile(path)
+	if err == nil || !strings.Contains(err.Error(), `unsupported dms_version: "0.1"`) {
+		t.Fatalf("expected unsupported DMS version error, got %v", err)
 	}
 }
 

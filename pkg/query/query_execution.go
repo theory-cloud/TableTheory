@@ -10,13 +10,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/expr"
-	"github.com/theory-cloud/tabletheory/v2/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/marshal"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/internal/expr"
+	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/marshal"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 )
 
 func (q *Query) First(dest any) error {
@@ -380,6 +380,12 @@ func (q *Query) buildUpdateExpressionFromMetadata(builder *expr.Builder, modelVa
 		}
 
 		fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
+			if err := builder.AddUpdateRemove(fieldMeta.DBName); err != nil {
+				return fmt.Errorf("failed to build removal for %s: %w", fieldName, err)
+			}
+			continue
+		}
 		valueToSet := fieldValue.Interface()
 		if fieldcodec.HasJSONTag(fieldMeta.Tags) {
 			normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldMeta.Type, fieldValue)
@@ -496,15 +502,22 @@ func (q *Query) buildUpdateExpressionFromNamedFields(builder *expr.Builder, mode
 		if !ok {
 			return fmt.Errorf("field %s not found in model", field)
 		}
+		tag := fieldStruct.Tag.Get("theorydb")
+		attrName := q.resolveMatchedFieldAttributeName(fieldStruct)
+		if strings.Contains(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
+			if err := builder.AddUpdateRemove(attrName); err != nil {
+				return fmt.Errorf("failed to build removal for %s: %w", field, err)
+			}
+			continue
+		}
 		valueToSet := fieldValue.Interface()
-		if fieldcodec.HasJSONModifier(fieldStruct.Tag.Get("theorydb")) {
+		if fieldcodec.HasJSONModifier(tag) {
 			normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldStruct.Type, fieldValue)
 			if err != nil {
 				return fmt.Errorf("failed to normalize json field %s: %w", field, err)
 			}
 			valueToSet = normalized
 		}
-		attrName := q.resolveMatchedFieldAttributeName(fieldStruct)
 		if err := builder.AddUpdateSet(attrName, valueToSet); err != nil {
 			return fmt.Errorf("failed to build update for %s: %w", field, err)
 		}

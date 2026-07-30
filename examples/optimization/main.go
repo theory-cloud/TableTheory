@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	"github.com/theory-cloud/tabletheory/v2/pkg/query"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v3/pkg/query"
 )
 
 // UserActivity represents user activity tracking

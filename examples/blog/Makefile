@@ -13,7 +13,7 @@ help:
 # Install dependencies
 setup:
 	@echo "Installing dependencies..."
-	go mod init github.com/theory-cloud/tabletheory/v2/examples/blog || true
+	go mod init github.com/theory-cloud/tabletheory/v3/examples/blog || true
 	go mod tidy
 	@echo "Setting up local DynamoDB..."
 	cd deployment && docker-compose up -d

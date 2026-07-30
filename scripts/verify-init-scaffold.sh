@@ -50,12 +50,16 @@ if [[ -z "$ready" ]]; then
 fi
 
 echo "==> scaffolding Go quickstart"
-"${WORKDIR}/tabletheory" init --lang go --dir "$SCAFFOLD" --module example.com/tabletheory-init-smoke
+"${WORKDIR}/tabletheory" init \
+  --lang go \
+  --dir "$SCAFFOLD" \
+  --module example.com/tabletheory-init-smoke \
+  --runtime-version 3.0.0
 
 echo "==> resolving against the working tree"
 (
   cd "$SCAFFOLD"
-  go mod edit -replace "github.com/theory-cloud/tabletheory/v2=${REPO_ROOT}"
+  go mod edit -replace "github.com/theory-cloud/tabletheory/v3=${REPO_ROOT}"
   go mod tidy
 )
 
