@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -105,21 +106,23 @@ func (tx *Transaction) Update(model any) error {
 		modelValue = modelValue.Elem()
 	}
 
-	updateExpression, expressionAttributeNames, expressionAttributeValues, err := tx.buildUpdateExpression(modelValue, metadata)
+	setAssignments, expressionAttributeNames, expressionAttributeValues, err := tx.buildUpdateExpression(modelValue, metadata)
 	if err != nil {
 		return err
 	}
 
 	// Handle version field for optimistic locking
-	conditionExpression, err := tx.applyVersionUpdate(modelValue, metadata, &updateExpression, expressionAttributeNames, expressionAttributeValues)
+	conditionExpression, err := tx.applyVersionUpdate(modelValue, metadata, &setAssignments, expressionAttributeNames, expressionAttributeValues)
 	if err != nil {
 		return err
 	}
 
 	// Handle updated_at field
-	if err := tx.applyUpdatedAtUpdate(modelValue, metadata, &updateExpression, expressionAttributeNames, expressionAttributeValues); err != nil {
+	if err := tx.applyUpdatedAtUpdate(metadata, &setAssignments, expressionAttributeNames, expressionAttributeValues); err != nil {
 		return err
 	}
+
+	updateExpression := buildSetUpdateExpression(setAssignments)
 
 	if encryption.MetadataHasEncryptedFields(metadata) && len(expressionAttributeValues) > 0 {
 		cfg := tx.session.Config()
@@ -160,22 +163,18 @@ func (tx *Transaction) Update(model any) error {
 	return nil
 }
 
-func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata *model.Metadata) (string, map[string]string, map[string]types.AttributeValue, error) {
+func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata *model.Metadata) ([]string, map[string]string, map[string]types.AttributeValue, error) {
 	if err := rejectWriteOnceMutation(metadata, "transaction update"); err != nil {
-		return "", nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := rejectProtectedFieldMutation(metadata, fieldsMutatedByTransactionUpdate(modelValue, metadata)); err != nil {
-		return "", nil, nil, err
-	}
-	if err := rejectCallerSetLifecycleTimestamp(modelValue, metadata.CreatedAtField); err != nil {
-		return "", nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	updateExpression := "SET "
+	setAssignments := make([]string, 0)
 	expressionAttributeNames := make(map[string]string)
 	expressionAttributeValues := make(map[string]types.AttributeValue)
 
-	updateCount := 0
 	for fieldName, fieldMeta := range metadata.Fields {
 		if isLibraryManagedUpdateField(fieldMeta) {
 			continue
@@ -186,51 +185,37 @@ func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata 
 			continue
 		}
 
-		if updateCount > 0 {
-			updateExpression += ", "
-		}
-
-		attrName := fmt.Sprintf("#f%d", updateCount)
-		attrValue := fmt.Sprintf(":v%d", updateCount)
+		attrName := fmt.Sprintf("#f%d", len(setAssignments))
+		attrValue := fmt.Sprintf(":v%d", len(setAssignments))
 
 		expressionAttributeNames[attrName] = fieldMeta.DBName
 		av, err := tx.converter.ToAttributeValue(fieldValue.Interface())
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("failed to convert field %s: %w", fieldName, err)
+			return nil, nil, nil, fmt.Errorf("failed to convert field %s: %w", fieldName, err)
 		}
 		expressionAttributeValues[attrValue] = av
 
-		updateExpression += attrName + " = " + attrValue
-		updateCount++
+		setAssignments = append(setAssignments, attrName+" = "+attrValue)
 	}
 
-	return updateExpression, expressionAttributeNames, expressionAttributeValues, nil
+	return setAssignments, expressionAttributeNames, expressionAttributeValues, nil
 }
 
 func isLibraryManagedUpdateField(fieldMeta *model.FieldMetadata) bool {
 	return fieldMeta == nil || fieldMeta.IsPK || fieldMeta.IsSK || fieldMeta.IsCreatedAt || fieldMeta.IsUpdatedAt || fieldMeta.IsVersion
 }
 
-func rejectCallerSetLifecycleTimestamp(modelValue reflect.Value, fieldMeta *model.FieldMetadata) error {
-	if fieldMeta == nil {
-		return nil
+func buildSetUpdateExpression(setAssignments []string) string {
+	if len(setAssignments) == 0 {
+		return ""
 	}
-
-	fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-	if fieldValue.IsValid() && !reflectutil.IsEmpty(fieldValue) {
-		return fmt.Errorf(
-			"%w: cannot update lifecycle timestamp field %s",
-			errors.ErrInvalidModel,
-			fieldMeta.Name,
-		)
-	}
-	return nil
+	return "SET " + strings.Join(setAssignments, ", ")
 }
 
 func (tx *Transaction) applyVersionUpdate(
 	modelValue reflect.Value,
 	metadata *model.Metadata,
-	updateExpression *string,
+	setAssignments *[]string,
 	expressionAttributeNames map[string]string,
 	expressionAttributeValues map[string]types.AttributeValue,
 ) (string, error) {
@@ -253,7 +238,7 @@ func (tx *Transaction) applyVersionUpdate(
 	}
 	expressionAttributeValues[":currentVer"] = av
 
-	*updateExpression += ", #ver = :newVer"
+	*setAssignments = append(*setAssignments, "#ver = :newVer")
 	newAv, err := tx.converter.ToAttributeValue(currentVersion + 1)
 	if err != nil {
 		return "", fmt.Errorf("failed to convert new version: %w", err)
@@ -264,9 +249,8 @@ func (tx *Transaction) applyVersionUpdate(
 }
 
 func (tx *Transaction) applyUpdatedAtUpdate(
-	modelValue reflect.Value,
 	metadata *model.Metadata,
-	updateExpression *string,
+	setAssignments *[]string,
 	expressionAttributeNames map[string]string,
 	expressionAttributeValues map[string]types.AttributeValue,
 ) error {
@@ -274,15 +258,7 @@ func (tx *Transaction) applyUpdatedAtUpdate(
 		return nil
 	}
 
-	if err := rejectCallerSetLifecycleTimestamp(modelValue, metadata.UpdatedAtField); err != nil {
-		return err
-	}
-
-	if *updateExpression == "SET " {
-		*updateExpression += "#upd = :updTime"
-	} else {
-		*updateExpression += ", #upd = :updTime"
-	}
+	*setAssignments = append(*setAssignments, "#upd = :updTime")
 	expressionAttributeNames["#upd"] = metadata.UpdatedAtField.DBName
 
 	av, err := tx.converter.ToAttributeValue(time.Now())

@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 	"github.com/theory-cloud/tabletheory/v3/pkg/session"
 	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
@@ -51,7 +50,7 @@ func TestTransaction_Commit_FailsWhenClientMissing_COV6(t *testing.T) {
 	require.Error(t, tx.Commit())
 }
 
-func TestTransaction_Update_RejectsUpdatedAtWhenAlreadySet_COV6(t *testing.T) {
+func TestTransaction_Update_OverridesUpdatedAtWhenAlreadySet_COV6(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&unitUser{}))
 
@@ -63,8 +62,14 @@ func TestTransaction_Update_RejectsUpdatedAtWhenAlreadySet_COV6(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	err := tx.Update(user)
-	require.ErrorIs(t, err, customerrors.ErrInvalidModel)
-	require.ErrorContains(t, err, "cannot update lifecycle timestamp field UpdatedAt")
-	require.Empty(t, tx.writes)
+	// Legacy whole-model updates are an implicit RMW surface: loaded lifecycle values
+	// are skipped, while the library-owned updated_at assignment is appended.
+	require.NoError(t, tx.Update(user))
+	require.Len(t, tx.writes, 1)
+	require.NotNil(t, tx.writes[0].Update)
+	require.Equal(t, 1, updatePathOccurrences(
+		*tx.writes[0].Update.UpdateExpression,
+		tx.writes[0].Update.ExpressionAttributeNames,
+		"updatedAt",
+	))
 }

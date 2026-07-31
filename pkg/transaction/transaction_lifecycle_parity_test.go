@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	dynamodbTypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
 	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
@@ -96,6 +97,28 @@ func (legacyTransactionalLifecycleRecord) TableName() string {
 	return "legacy_transactional_lifecycle_records"
 }
 
+type legacyManagedOnlyVersionedRecord struct {
+	CreatedAt time.Time `theorydb:"created_at,attr:createdAt" json:"createdAt"`
+	UpdatedAt time.Time `theorydb:"updated_at,attr:updatedAt" json:"updatedAt"`
+	PK        string    `theorydb:"pk,attr:PK" json:"PK"`
+	SK        string    `theorydb:"sk,attr:SK" json:"SK"`
+	Version   int       `theorydb:"version,attr:version" json:"version"`
+}
+
+func (legacyManagedOnlyVersionedRecord) TableName() string {
+	return "legacy_managed_only_versioned_records"
+}
+
+type legacyCreatedAtOnlyRecord struct {
+	CreatedAt time.Time `theorydb:"created_at,attr:createdAt" json:"createdAt"`
+	PK        string    `theorydb:"pk,attr:PK" json:"PK"`
+	SK        string    `theorydb:"sk,attr:SK" json:"SK"`
+}
+
+func (legacyCreatedAtOnlyRecord) TableName() string {
+	return "legacy_created_at_only_records"
+}
+
 func TestTransactionUpdateLegacyOverlapExpressionProbe(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&legacyTransactionalLifecycleRecord{}))
@@ -124,30 +147,75 @@ func TestTransactionUpdateLegacyOverlapExpressionProbe(t *testing.T) {
 	require.Equal(t, "#ver = :currentVer", aws.ToString(update.ConditionExpression))
 }
 
-func TestTransactionUpdateLegacyRejectsCallerSetUpdatedAtLikeExplicitPath(t *testing.T) {
+func TestTransactionUpdateLegacyBuildsSetFromManagedOnlyAssignments(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&legacyManagedOnlyVersionedRecord{}))
+
+	tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+	require.NoError(t, tx.Update(&legacyManagedOnlyVersionedRecord{
+		PK:      "USER#legacy-managed-only",
+		SK:      "PROFILE",
+		Version: 7,
+	}))
+	require.Len(t, tx.writes, 1)
+
+	update := tx.writes[0].Update
+	require.NotNil(t, update)
+	expression := aws.ToString(update.UpdateExpression)
+	require.Equal(t, "SET #ver = :newVer, #upd = :updTime", expression)
+	require.NotContains(t, expression, "SET ,")
+	require.ElementsMatch(t, []string{"version", "updatedAt"}, updateDocumentPaths(expression, update.ExpressionAttributeNames))
+	require.Equal(t, "#ver = :currentVer", aws.ToString(update.ConditionExpression))
+}
+
+func TestTransactionUpdateLegacyOmitsEmptySetClause(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&legacyCreatedAtOnlyRecord{}))
+
+	tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+	require.NoError(t, tx.Update(&legacyCreatedAtOnlyRecord{
+		PK: "USER#legacy-created-at-only",
+		SK: "PROFILE",
+	}))
+	require.Len(t, tx.writes, 1)
+
+	update := tx.writes[0].Update
+	require.NotNil(t, update)
+	require.Empty(t, aws.ToString(update.UpdateExpression),
+		"an implicit update with no assignments must omit SET rather than emit a bare clause")
+	require.Empty(t, update.ExpressionAttributeNames)
+	require.Empty(t, update.ExpressionAttributeValues)
+}
+
+func TestTransactionUpdateLegacyOverridesCallerSetUpdatedAtForImplicitRMW(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&legacyTransactionalLifecycleRecord{}))
+	callerUpdatedAt := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
 	record := &legacyTransactionalLifecycleRecord{
 		PK:        "USER#legacy-caller-timestamp",
 		SK:        "PROFILE",
 		Value:     "changed",
-		UpdatedAt: time.Now(),
+		UpdatedAt: callerUpdatedAt,
 	}
 
-	explicit := NewBuilder(&session.Session{}, registry, pkgTypes.NewConverter())
-	explicit.Update(record, []string{"UpdatedAt"})
-	items, explicitErr := explicit.materializeOperations()
-	require.ErrorIs(t, explicitErr, customerrors.ErrInvalidModel)
-	require.Nil(t, items)
-
+	// The legacy whole-model surface must remain read-modify-write compatible. Lifecycle
+	// rejection is reserved for explicit named-field surfaces across every runtime; the
+	// normative implicit surface skips caller values and lets the library refresh updated_at.
 	legacy := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
-	legacyErr := legacy.Update(record)
-	require.ErrorIs(t, legacyErr, customerrors.ErrInvalidModel)
-	require.EqualError(t, legacyErr, explicitErr.Error())
-	require.Empty(t, legacy.writes, "invalid lifecycle selection must not produce a DynamoDB write")
+	require.NoError(t, legacy.Update(record))
+	require.Len(t, legacy.writes, 1)
+
+	update := legacy.writes[0].Update
+	require.NotNil(t, update)
+	expression := aws.ToString(update.UpdateExpression)
+	require.ElementsMatch(t, []string{"value", "updatedAt"}, updateDocumentPaths(expression, update.ExpressionAttributeNames))
+	updatedAt, ok := update.ExpressionAttributeValues[":updTime"].(*dynamodbTypes.AttributeValueMemberS)
+	require.True(t, ok)
+	require.NotEqual(t, callerUpdatedAt.Format(time.RFC3339Nano), updatedAt.Value,
+		"the caller-supplied updated_at must not win over the library timestamp")
 }
 
-func TestTransactionUpdateLegacyRejectsCallerSetCreatedAtLikeExplicitPath(t *testing.T) {
+func TestTransactionUpdateLegacyIgnoresCallerSetCreatedAtForImplicitRMW(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&legacyTransactionalLifecycleRecord{}))
 	record := &legacyTransactionalLifecycleRecord{
@@ -157,17 +225,18 @@ func TestTransactionUpdateLegacyRejectsCallerSetCreatedAtLikeExplicitPath(t *tes
 		CreatedAt: time.Now(),
 	}
 
-	explicit := NewBuilder(&session.Session{}, registry, pkgTypes.NewConverter())
-	explicit.Update(record, []string{"CreatedAt"})
-	items, explicitErr := explicit.materializeOperations()
-	require.ErrorIs(t, explicitErr, customerrors.ErrInvalidModel)
-	require.Nil(t, items)
-
+	// Loaded models naturally carry created_at. The legacy implicit surface therefore
+	// excludes it without error; only explicit named-field mutation is rejected.
 	legacy := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
-	legacyErr := legacy.Update(record)
-	require.ErrorIs(t, legacyErr, customerrors.ErrInvalidModel)
-	require.EqualError(t, legacyErr, explicitErr.Error())
-	require.Empty(t, legacy.writes, "invalid lifecycle selection must not produce a DynamoDB write")
+	require.NoError(t, legacy.Update(record))
+	require.Len(t, legacy.writes, 1)
+
+	update := legacy.writes[0].Update
+	require.NotNil(t, update)
+	expression := aws.ToString(update.UpdateExpression)
+	require.ElementsMatch(t, []string{"value", "updatedAt"}, updateDocumentPaths(expression, update.ExpressionAttributeNames))
+	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "createdAt"),
+		"caller-supplied created_at must be excluded so the stored lifecycle value is preserved")
 }
 
 func TestTransactionUpdateLegacyPreservesSparseSetSemanticsAndRefreshesUpdatedAt(t *testing.T) {
