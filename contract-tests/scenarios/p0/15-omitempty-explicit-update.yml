@@ -10,16 +10,20 @@ steps:
       SK: "PROFILE"
       nickname: "present"
       tags: ["present"]
+      profile:
+        source: "present"
     expect:
       ok: true
 
   - op: update
-    fields: ["nickname", "tags"]
+    fields: ["nickname", "tags", "profile"]
     item:
       PK: "USER#15"
       SK: "PROFILE"
       nickname: ""
       tags: []
+      profile:
+        source: ""
       version: 0
     expect:
       ok: true
@@ -33,4 +37,11 @@ steps:
       item_contains:
         PK: "USER#15"
         SK: "PROFILE"
+        profile:
+          source: ""
         version: 1
+      raw_attribute_types:
+        profile: "M"
+      raw_item_contains:
+        profile:
+          source: ""

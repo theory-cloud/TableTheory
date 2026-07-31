@@ -37,6 +37,13 @@ models:
         optional: true
         omit_empty: true
 
+      # Used to distinguish M/map emptiness from record emptiness.
+      - attribute: "profile"
+        type: "M"
+        json: true
+        optional: true
+        omit_empty: true
+
       # Lifecycle fields.
       - attribute: "createdAt"
         type: "S"

@@ -372,6 +372,48 @@ EOF
   expect_contains "${output}" "${expected_output}" "pending semantic import fixture"
 }
 
+run_go_pending_semantic_import_push_fixture() {
+  local branch="$1"
+  local pending_context="$2"
+  local workflow_ref="$3"
+  local expected_status="$4"
+  local expected_output="$5"
+
+  local work output status
+  work="$(mktemp -d)"
+  tmpdirs+=("${work}")
+  printf '{".":"2.0.6"}\n' >"${work}/.release-please-manifest.json"
+  printf 'module github.com/theory-cloud/tabletheory/v3\n\ngo 1.26\n' >"${work}/go.mod"
+  mkdir -p "${work}/docs/migration"
+  cat >"${work}/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## [Unreleased]
+
+### Breaking Changes
+
+* **contract:** advance to DMS v0.2.
+EOF
+  printf '# TableTheory v3 migration\n' >"${work}/docs/migration/v3.md"
+
+  set +e
+  output="$(
+    GITHUB_REF_NAME="${branch}" \
+    GITHUB_WORKFLOW_REF="${workflow_ref}" \
+    TABLETHEORY_PENDING_MAJOR_PREMAIN_CONTEXT="${pending_context}" \
+      bash "${repo_root}/scripts/verify-go-semantic-import-version.sh" --repo-root "${work}" 2>&1
+  )"
+  status=$?
+  set -e
+
+  if [[ "${status}" -ne "${expected_status}" ]]; then
+    printf '%s\n' "${output}"
+    echo "release-verifier-policy-test: pending semantic import push fixture ${branch}/${pending_context}: expected ${expected_status}, got ${status}"
+    exit 1
+  fi
+  expect_contains "${output}" "${expected_output}" "pending semantic import push fixture"
+}
+
 run_go_semantic_import_fixture \
   "2.0.1" \
   "github.com/theory-cloud/tabletheory/v2" \
@@ -431,6 +473,60 @@ run_go_pending_semantic_import_fixture \
   "false" \
   1 \
   "pending v3 transition requires CHANGELOG.md"
+
+run_go_pending_semantic_import_push_fixture \
+  "staging" \
+  "" \
+  "theory-cloud/TableTheory/.github/workflows/quality-gates.yml@refs/heads/staging" \
+  0 \
+  "pending-major-transition=2->3"
+
+run_go_pending_semantic_import_push_fixture \
+  "premain" \
+  "" \
+  "theory-cloud/TableTheory/.github/workflows/prerelease.yml@refs/heads/premain" \
+  1 \
+  "premain push cannot publish until the manifest is v3-numbered"
+
+run_go_pending_semantic_import_push_fixture \
+  "premain" \
+  "publication-skip" \
+  "theory-cloud/TableTheory/.github/workflows/prerelease-pr.yml@refs/heads/premain" \
+  1 \
+  "requires workflow /.github/workflows/prerelease.yml@"
+
+run_go_pending_semantic_import_push_fixture \
+  "premain" \
+  "publication-skip" \
+  "theory-cloud/TableTheory/.github/workflows/prerelease.yml@refs/heads/premain" \
+  0 \
+  "context=publication-skip"
+
+run_go_pending_semantic_import_push_fixture \
+  "premain" \
+  "rc-pr-generation" \
+  "theory-cloud/TableTheory/.github/workflows/prerelease-pr.yml@refs/heads/premain" \
+  0 \
+  "context=rc-pr-generation"
+
+grep -Fq "TABLETHEORY_PENDING_MAJOR_PREMAIN_CONTEXT=publication-skip" \
+  "${repo_root}/.github/workflows/prerelease.yml" || {
+  echo "release-verifier-policy-test: prerelease publication workflow must classify pending-major state as skip-only"
+  exit 1
+}
+pending_major_fence_count="$(
+  grep -Fc "steps.cycle.outputs.pending_major_transition != 'true'" \
+    "${repo_root}/.github/workflows/prerelease.yml" || true
+)"
+if [[ "${pending_major_fence_count}" -lt 2 ]]; then
+  echo "release-verifier-policy-test: prerelease publication action must be fenced from pending-major state"
+  exit 1
+fi
+grep -Fq "TABLETHEORY_PENDING_MAJOR_PREMAIN_CONTEXT=rc-pr-generation" \
+  "${repo_root}/.github/workflows/prerelease-pr.yml" || {
+  echo "release-verifier-policy-test: prerelease PR workflow must use the RC-PR-only pending-major context"
+  exit 1
+}
 
 for fixture in "${fixtures_dir}"/cycle-*; do
   run_cycle_fixture "${fixture}"

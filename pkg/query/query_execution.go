@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -242,42 +241,6 @@ func (q *Query) allWithRetry(dest any) error {
 	return lastErr
 }
 
-// isZeroValue checks if a reflect.Value is the zero value for its type
-func isZeroValue(v reflect.Value) bool {
-	switch v.Kind() {
-	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
-		return v.Len() == 0
-	case reflect.Bool:
-		return !v.Bool()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return v.Int() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return v.Uint() == 0
-	case reflect.Float32, reflect.Float64:
-		return v.Float() == 0
-	case reflect.Interface, reflect.Ptr:
-		return v.IsNil()
-	case reflect.Struct:
-		// Check if it's time.Time
-		if v.Type().String() == "time.Time" {
-			if isZeroer, ok := v.Interface().(interface{ IsZero() bool }); ok {
-				return isZeroer.IsZero()
-			}
-			return v.IsZero()
-		}
-		// For other structs, check if all fields are zero
-		for i := 0; i < v.NumField(); i++ {
-			if !isZeroValue(v.Field(i)) {
-				return false
-			}
-		}
-		return true
-	default:
-		// For other types (chan, func), compare with zero value
-		return v.IsZero()
-	}
-}
-
 // Update updates specified fields on an item
 func (q *Query) Update(fields ...string) error {
 	if err := q.checkBuilderError(); err != nil {
@@ -476,7 +439,7 @@ func (q *Query) buildUpdateExpressionFromTags(builder *expr.Builder, modelValue 
 		}
 
 		fieldValue := modelValue.Field(i)
-		if strings.Contains(tag, "omitempty") && isZeroValue(fieldValue) {
+		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
 			continue
 		}
 
@@ -504,7 +467,7 @@ func (q *Query) buildUpdateExpressionFromNamedFields(builder *expr.Builder, mode
 		}
 		tag := fieldStruct.Tag.Get("theorydb")
 		attrName := q.resolveMatchedFieldAttributeName(fieldStruct)
-		if strings.Contains(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
+		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
 			if err := builder.AddUpdateRemove(attrName); err != nil {
 				return fmt.Errorf("failed to build removal for %s: %w", field, err)
 			}
@@ -560,10 +523,10 @@ func shouldSkipUpdateField(field reflect.StructField, tag string, primaryKey cor
 	if field.Name == primaryKey.PartitionKey || field.Name == primaryKey.SortKey {
 		return true
 	}
-	if strings.Contains(tag, "pk") || strings.Contains(tag, "sk") {
+	if fieldcodec.HasModifier(tag, "pk") || fieldcodec.HasModifier(tag, "sk") {
 		return true
 	}
-	return strings.Contains(tag, "created_at")
+	return fieldcodec.HasModifier(tag, "created_at")
 }
 
 // Delete deletes an item

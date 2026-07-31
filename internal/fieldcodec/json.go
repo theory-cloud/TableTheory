@@ -23,8 +23,18 @@ func HasJSONTag(tags map[string]string) bool {
 
 // HasJSONModifier reports whether a raw theorydb tag includes the json modifier.
 func HasJSONModifier(tag string) bool {
+	return HasModifier(tag, "json")
+}
+
+// HasModifier reports whether a raw theorydb tag contains an exact standalone
+// modifier token. Substring matches are deliberately rejected because
+// modifiers such as omitempty can control destructive update actions.
+func HasModifier(tag, modifier string) bool {
+	if modifier == "" {
+		return false
+	}
 	for _, part := range strings.Split(tag, ",") {
-		if strings.TrimSpace(part) == "json" {
+		if strings.TrimSpace(part) == modifier {
 			return true
 		}
 	}

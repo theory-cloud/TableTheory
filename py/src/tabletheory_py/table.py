@@ -70,14 +70,28 @@ if TYPE_CHECKING:
 def _is_empty(value: Any) -> bool:
     if value is None:
         return True
+    if isinstance(value, datetime):
+        return (
+            value.year == datetime.min.year
+            and value.month == datetime.min.month
+            and value.day == datetime.min.day
+            and value.hour == 0
+            and value.minute == 0
+            and value.second == 0
+            and value.microsecond == 0
+        )
     if value is False:
         return True
     if value == 0:
         return True
     if isinstance(value, (str, bytes, bytearray)) and len(value) == 0:
         return True
-    if isinstance(value, (list, dict, set, tuple)) and len(value) == 0:
-        return True
+    if is_dataclass(value) and not isinstance(value, type):
+        return all(_is_empty(getattr(value, field.name)) for field in fields(value))
+    if isinstance(value, Mapping):
+        return len(value) == 0
+    if isinstance(value, (list, set, tuple)):
+        return len(value) == 0
     return False
 
 

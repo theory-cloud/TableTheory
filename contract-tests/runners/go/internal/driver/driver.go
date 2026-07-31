@@ -1217,6 +1217,13 @@ func userFromMap(item map[string]any) (*User, error) {
 		}
 		u.Tags = tags
 	}
+	if v, ok := item["profile"]; ok {
+		profile, err := asStringMap(v)
+		if err != nil {
+			return nil, err
+		}
+		u.Profile = profile
+	}
 	if v, ok := item["version"]; ok {
 		n, err := asInt64(v)
 		if err != nil {
@@ -1480,6 +1487,7 @@ func normalizeUser(u User) map[string]any {
 		"emailHash": u.EmailHash,
 		"nickname":  u.Nickname,
 		"tags":      append([]string(nil), u.Tags...),
+		"profile":   normalizeDocumentValue(u.Profile),
 		"createdAt": u.CreatedAt.Format(time.RFC3339Nano),
 		"updatedAt": u.UpdatedAt.Format(time.RFC3339Nano),
 		"version":   u.Version,

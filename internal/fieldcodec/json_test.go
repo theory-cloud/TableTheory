@@ -265,6 +265,10 @@ func TestJSONTypeHelpers(t *testing.T) {
 
 	require.True(t, HasJSONModifier("pk,json,omitempty"))
 	require.False(t, HasJSONModifier("pk,omitempty"))
+	require.True(t, HasModifier("attr:value, omitempty", "omitempty"))
+	require.False(t, HasModifier("attr:value,notomitempty", "omitempty"))
+	require.False(t, HasModifier("attr:value,omitemptysuffix", "omitempty"))
+	require.False(t, HasModifier("attr:value", ""))
 
 	require.True(t, isJSONStringCarrierType(reflect.TypeOf("")))
 	require.True(t, isJSONStringCarrierType(reflect.TypeOf([]byte{})))

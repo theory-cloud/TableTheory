@@ -100,6 +100,8 @@ func TestNamingHelpers_COV6(t *testing.T) {
 
 	require.True(t, hasStandaloneTagPart("pk,attr:ignored", "pk"))
 	require.False(t, hasStandaloneTagPart("attr:pkValue", "pk"))
+	require.True(t, hasOmitEmpty("attr:value,omitempty"))
+	require.False(t, hasOmitEmpty("attr:value,notomitempty"))
 	require.Equal(t, "created_at", fieldNameFromTheorydbTag("createdAt", "created_at,omitempty", naming.CamelCase))
 	require.Equal(t, "PK", fieldNameFromTheorydbTag("userID", "pk", naming.DynamORM))
 	require.Equal(t, "SK", fieldNameFromTheorydbTag("entity", "sk", naming.DynamORM))

@@ -25,7 +25,7 @@ func TestInitScaffoldGo(t *testing.T) {
 
 	gomod := readFile(t, filepath.Join(dir, "go.mod"))
 	require.Contains(t, gomod, "module example.com/demo")
-	require.Contains(t, gomod, "github.com/theory-cloud/tabletheory/v2 v2.0.2")
+	require.Contains(t, gomod, "github.com/theory-cloud/tabletheory/v3 v3.0.0")
 
 	main := readFile(t, filepath.Join(dir, "main.go"))
 	require.Contains(t, main, "func (Note) TableName() string")
@@ -59,7 +59,7 @@ func TestInitScaffoldTypeScript(t *testing.T) {
 
 	pkg := readFile(t, filepath.Join(dir, "package.json"))
 	require.Contains(t, pkg, `"name": "demo-ts"`)
-	require.Contains(t, pkg, "theory-cloud-tabletheory-ts-2.0.2.tgz")
+	require.Contains(t, pkg, "theory-cloud-tabletheory-ts-3.0.0.tgz")
 
 	main := readFile(t, filepath.Join(dir, "src", "main.ts"))
 	require.Contains(t, main, "ensureTable(ddb, Note)")
@@ -77,7 +77,7 @@ func TestInitScaffoldPython(t *testing.T) {
 	require.FileExists(t, filepath.Join(dir, "requirements.txt"))
 
 	req := readFile(t, filepath.Join(dir, "requirements.txt"))
-	require.Contains(t, req, "tabletheory_py-2.0.2-py3-none-any.whl")
+	require.Contains(t, req, "tabletheory_py-3.0.0-py3-none-any.whl")
 
 	main := readFile(t, filepath.Join(dir, "main.py"))
 	require.Contains(t, main, "ensure_table(model, client=client)")

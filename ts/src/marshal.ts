@@ -34,6 +34,26 @@ export function isEmpty(value: unknown): boolean {
   return false;
 }
 
+// isEmptyAttribute applies DMS wire-type semantics before falling back to the
+// runtime-native record/timestamp rules in isEmpty. In particular, DMS M values
+// are maps: any own entry makes the map non-empty even when every entry value
+// is itself empty.
+export function isEmptyAttribute(
+  schema: AttributeSchema,
+  value: unknown,
+): boolean {
+  if (value === null || value === undefined) return true;
+  if (
+    schema.type === 'M' &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !(value instanceof Date)
+  ) {
+    return Object.keys(value).length === 0;
+  }
+  return isEmpty(value);
+}
+
 export function marshalKey(
   model: Model,
   key: Record<string, unknown>,
@@ -122,7 +142,7 @@ export function marshalPutItem(
     const value = item[name];
     if (value === undefined) continue;
 
-    if (attr.omit_empty && isEmpty(value)) continue;
+    if (attr.omit_empty && isEmptyAttribute(attr, value)) continue;
 
     out[name] = marshalScalar(attr, value);
   }

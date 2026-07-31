@@ -452,6 +452,29 @@ func TestQuery_buildUpdateExpressionFromTaggedVisibleFields_SkipsKeysAndOmitEmpt
 	}
 }
 
+func TestQuery_OmitEmptyUsesOnePredicateForSparseAndNamedUpdates(t *testing.T) {
+	type item struct {
+		ID     string `theorydb:"pk"`
+		Values [2]int `theorydb:"attr:values,omitempty"`
+	}
+
+	q := New(&item{ID: "id-1"}, &cov4Metadata{
+		table: "tbl",
+		pk:    core.KeySchema{PartitionKey: "ID"},
+	}, &cov4Executor{})
+
+	modelValue, err := q.updateModelValue()
+	require.NoError(t, err)
+
+	sparse := expr.NewBuilderWithConverter(q.converter)
+	require.NoError(t, q.buildUpdateExpressionFromTags(sparse, modelValue, nil))
+	require.Empty(t, sparse.Build().UpdateExpression)
+
+	named := expr.NewBuilderWithConverter(q.converter)
+	require.NoError(t, q.buildUpdateExpressionFromTags(named, modelValue, []string{"Values"}))
+	require.Contains(t, named.Build().UpdateExpression, "REMOVE")
+}
+
 func TestQuery_FlatTaggedHelpers_NormalizeJSONValues(t *testing.T) {
 	type BaseFields struct {
 		ID string `theorydb:"pk"`

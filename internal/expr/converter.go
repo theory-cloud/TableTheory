@@ -800,7 +800,7 @@ func lookupMapValue(values map[string]types.AttributeValue, names ...string) (ty
 }
 
 func hasOmitEmpty(tag string) bool {
-	return strings.Contains(tag, "omitempty")
+	return hasStandaloneTagPart(tag, "omitempty")
 }
 
 func isZeroValue(v reflect.Value) bool {

@@ -14,11 +14,13 @@ Checks .release-please-manifest.json against the root go.mod module path.
 For manifest major 0/1, the module path must be github.com/theory-cloud/tabletheory.
 For manifest major N>=2, it must be github.com/theory-cloud/tabletheory/vN.
 
-Before a breaking release is generated, staging and premain may carry the next
-semantic import major while the release-please manifest still records the
-latest stable major. That pending transition is accepted only when:
+Before a breaking release is generated, integration and promotion PRs may carry
+the next semantic import major while the release-please manifest still records
+the latest stable major. A premain push may accept that state only in the
+workflow-fenced RC-PR generation or publication-skip contexts. The pending
+transition is accepted only when:
 - the module path advances by exactly one major,
-- the target is not main,
+- the event/branch context is explicitly allowed,
 - CHANGELOG.md has an Unreleased Breaking Changes section, and
 - docs/migration/vN.md exists for the pending major.
 USAGE
@@ -124,11 +126,54 @@ fi
 if [[ -z "${target_branch}" ]]; then
   fail "manifest ${manifest} requires module ${expected}, got ${module_path}"
 fi
-if [[ "${target_branch}" == "main" ]]; then
-  fail "pending v${next_major} semantic import transition is not allowed on main"
-fi
-if [[ -n "${GITHUB_BASE_REF:-}" && "${GITHUB_BASE_REF}" != "staging" && "${GITHUB_BASE_REF}" != "premain" ]]; then
-  fail "pending v${next_major} semantic import transition is allowed only on PRs targeting staging or premain"
+
+pending_context="${TABLETHEORY_PENDING_MAJOR_PREMAIN_CONTEXT:-}"
+event_context="local"
+if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+  event_context="pr"
+  case "${GITHUB_BASE_REF}" in
+    staging|premain) ;;
+    main)
+      fail "pending v${next_major} semantic import transition is not allowed on main"
+      ;;
+    *)
+      fail "pending v${next_major} semantic import transition is allowed only on PRs targeting staging or premain"
+      ;;
+  esac
+elif [[ -n "${GITHUB_REF_NAME:-}" ]]; then
+  event_context="push"
+  case "${GITHUB_REF_NAME}" in
+    staging) ;;
+    main)
+      fail "pending v${next_major} semantic import transition is not allowed on main"
+      ;;
+    premain)
+      expected_workflow=""
+      case "${pending_context}" in
+        rc-pr-generation)
+          expected_workflow="/.github/workflows/prerelease-pr.yml@"
+          ;;
+        publication-skip)
+          expected_workflow="/.github/workflows/prerelease.yml@"
+          ;;
+        *)
+          fail "pending v${next_major} premain push cannot publish until the manifest is v${next_major}-numbered"
+          ;;
+      esac
+      if [[ "${GITHUB_WORKFLOW_REF:-}" != *"${expected_workflow}"* ]]; then
+        fail "pending v${next_major} premain context ${pending_context} requires workflow ${expected_workflow}"
+      fi
+      ;;
+    *)
+      fail "pending v${next_major} semantic import transition is not allowed on push ref ${GITHUB_REF_NAME}"
+      ;;
+  esac
+else
+  case "${target_branch}" in
+    main|premain)
+      fail "pending v${next_major} semantic import transition is not allowed on local ${target_branch}"
+      ;;
+  esac
 fi
 
 [[ -f "CHANGELOG.md" ]] || fail "pending v${next_major} transition requires CHANGELOG.md"
@@ -157,4 +202,4 @@ PY
 migration="docs/migration/v${next_major}.md"
 [[ -f "${migration}" ]] || fail "pending v${next_major} transition requires ${migration}"
 
-echo "go-semantic-import: PASS (pending-major-transition=${manifest_major}->${next_major}, manifest=${manifest}, module=${module_path}, target=${target_branch:-local})"
+echo "go-semantic-import: PASS (pending-major-transition=${manifest_major}->${next_major}, manifest=${manifest}, module=${module_path}, target=${target_branch:-local}, event=${event_context}, context=${pending_context:-none})"

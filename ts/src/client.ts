@@ -30,7 +30,7 @@ import { hasTheorydbErrorCode, TheorydbError } from './errors.js';
 import type { Model, ModelItem } from './model.js';
 import type { SendOptions } from './send-options.js';
 import {
-  isEmpty,
+  isEmptyAttribute,
   marshalKey,
   marshalPutItem,
   marshalScalar,
@@ -430,7 +430,7 @@ export class TheorydbClient {
       const placeholder = `#f${fieldIndex}`;
       names[placeholder] = field;
 
-      if (schema.omit_empty && isEmpty(value)) {
+      if (schema.omit_empty && isEmptyAttribute(schema, value)) {
         removeParts.push(placeholder);
         continue;
       }

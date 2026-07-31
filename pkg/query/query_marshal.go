@@ -3,13 +3,13 @@ package query
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/v3/internal/expr"
 	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 )
 
@@ -174,7 +174,7 @@ func (q *Query) marshalItemTagged(item any) (map[string]types.AttributeValue, er
 			continue
 		}
 
-		if strings.Contains(tag, "omitempty") && isZeroValue(fieldValue) {
+		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
 			continue
 		}
 

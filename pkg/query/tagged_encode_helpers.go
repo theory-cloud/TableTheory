@@ -3,12 +3,12 @@ package query
 import (
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/v3/internal/expr"
 	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/v3/pkg/core"
 )
 
@@ -30,7 +30,7 @@ func (q *Query) marshalItemTaggedFlat(modelValue reflect.Value) (map[string]type
 		if !fieldValue.IsValid() {
 			continue
 		}
-		if strings.Contains(tag, "omitempty") && isZeroValue(fieldValue) {
+		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
 			continue
 		}
 
@@ -62,7 +62,7 @@ func (q *Query) buildUpdateExpressionFromTaggedVisibleFields(
 		}
 
 		fieldValue := modelValue.FieldByIndex(fieldPlan.IndexPath)
-		if strings.Contains(tag, "omitempty") && isZeroValue(fieldValue) {
+		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
 			continue
 		}
 

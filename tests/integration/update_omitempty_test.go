@@ -1,8 +1,12 @@
 package integration
 
 import (
+	"context"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -80,4 +84,17 @@ func TestUpdate_OmitEmptyDoesNotOverwriteEmptyCollections(t *testing.T) {
 
 	assert.Empty(t, explicitlyCleared.ProcessorTokens)
 	assert.Empty(t, explicitlyCleared.Attributes)
+
+	raw, err := testCtx.DynamoDBClient.GetItem(context.Background(), &dynamodb.GetItemInput{
+		TableName: aws.String(original.TableName()),
+		Key: map[string]types.AttributeValue{
+			"id": &types.AttributeValueMemberS{Value: original.ID},
+			"SK": &types.AttributeValueMemberS{Value: original.SK},
+		},
+		ConsistentRead: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, raw.Item)
+	require.NotContains(t, raw.Item, "processorTokens")
+	require.NotContains(t, raw.Item, "attributes")
 }
