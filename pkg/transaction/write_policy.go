@@ -82,7 +82,7 @@ func fieldsMutatedByTransactionUpdate(modelValue reflect.Value, metadata *model.
 		}
 
 		fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-		if !fieldValue.IsValid() || (fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue)) {
+		if !fieldValue.IsValid() || (fieldMeta.OmitEmpty && reflectutil.IsSparseUpdateEmpty(fieldValue)) {
 			continue
 		}
 		fields = append(fields, fieldMeta.DBName)

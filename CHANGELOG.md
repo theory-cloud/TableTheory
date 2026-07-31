@@ -13,9 +13,12 @@
   structs, and Python dataclasses remain present even when every contained value is empty. Arrays/lists use length
   semantics, including fixed-length Go arrays, which serialize as `L` on both Create and Update. Go's no-argument
   `Update()` retains sparse zero-value selection so unselected structs and arrays cannot overwrite persisted data.
-  Tagged record fields without `omitempty` remain present in non-JSON `M` carriers. Go transaction writes now use the
-  same top-level `omitempty` predicate, and legacy `gsi:Name:pk` / `gsi:Name:sk` tags remain excluded from updates under
-  exact token parsing. See `docs/migration/v3.md`.
+  Fixed arrays round-trip through stream decoding, batch and transaction reads, and update-builder return values.
+  Tagged record fields without `omitempty` remain present in non-JSON `M` carriers, while untagged zero-valued fields
+  inside nested struct maps are now omitted; add explicit matching tags when a nested zero must remain present. Go
+  transaction writes now use the same top-level `omitempty` predicate, and transactional explicit-empty updates emit
+  `REMOVE`. Legacy `gsi:Name:pk` / `gsi:Name:sk` tags remain excluded from updates under exact token parsing. See
+  `docs/migration/v3.md`.
 * **go:** align `ConsistentRead()` on GSI queries with the cross-runtime contract by returning
   `ErrInvalidOperator` instead of silently dropping the flag, including when the Go query optimizer auto-selects a GSI
   from key conditions. Semver decision: this parity repair is release-major material and must not ship as a patch/minor.

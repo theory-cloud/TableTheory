@@ -16,6 +16,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/v3/internal/encryption"
 	"github.com/theory-cloud/tabletheory/v3/internal/expr"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/v3/pkg/core"
 	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v3/pkg/model"
@@ -371,6 +372,12 @@ func (b *Builder) buildFieldUpdate(op transactOperation) (*types.Update, error) 
 		fieldValue := value.Field(fieldMeta.Index)
 		if !fieldValue.IsValid() {
 			return nil, fmt.Errorf("field %s is invalid", field)
+		}
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
+			if err := builder.AddUpdateRemove(fieldMeta.DBName); err != nil {
+				return nil, fmt.Errorf("failed to build removal for %s: %w", field, err)
+			}
+			continue
 		}
 		if err := builder.AddUpdateSet(fieldMeta.DBName, fieldValue.Interface()); err != nil {
 			return nil, fmt.Errorf("failed to build update for %s: %w", field, err)

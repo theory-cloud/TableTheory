@@ -79,12 +79,25 @@ class _StructuredProfile:
     source: str = ""
 
 
+class _StructuredProfileConverter:
+    @staticmethod
+    def to_dynamodb(value: _StructuredProfile) -> dict[str, str]:
+        return {"source": value.source}
+
+    @staticmethod
+    def from_dynamodb(value: dict[str, Any]) -> _StructuredProfile:
+        return _StructuredProfile(source=str(value.get("source", "")))
+
+
 @dataclass(frozen=True)
 class _StructuredProfileUser:
     pk: str = theorydb_field(name="PK", roles=["pk"])
     sk: str = theorydb_field(name="SK", roles=["sk"])
     profile: _StructuredProfile = theorydb_field(
-        name="profile", omitempty=True, json=True, default_factory=_StructuredProfile
+        name="profile",
+        omitempty=True,
+        converter=_StructuredProfileConverter(),
+        default_factory=_StructuredProfile,
     )
     version: int = theorydb_field(name="version", roles=["version"], default=0)
 

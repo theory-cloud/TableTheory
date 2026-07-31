@@ -2,7 +2,10 @@ import type { AttributeValue, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { TheorydbClient } from "../../../../ts/src/client.js";
 import type { EncryptionProvider } from "../../../../ts/src/encryption.js";
 import { TheorydbError } from "../../../../ts/src/errors.js";
-import { marshalScalar } from "../../../../ts/src/marshal.js";
+import {
+  isEmptyAttribute,
+  marshalScalar,
+} from "../../../../ts/src/marshal.js";
 import type { Model } from "../../../../ts/src/model.js";
 import type { TransactAction } from "../../../../ts/src/transaction.js";
 import {
@@ -421,6 +424,7 @@ export class TheorydbDriver implements Driver {
     const values: Record<string, AttributeValue> =
       this.expressionValues(modelName, action.expressionAttributeValues) ?? {};
     const assignments: string[] = [];
+    const removals: string[] = [];
     for (const [index, [field, value]] of Object.entries(
       action.set,
     ).entries()) {
@@ -432,19 +436,31 @@ export class TheorydbDriver implements Driver {
         );
       }
       const name = `#u${index}`;
-      const valueName = `:u${index}`;
       names[name] = attr.attribute;
+      if (attr.omit_empty && isEmptyAttribute(attr, value)) {
+        removals.push(name);
+        continue;
+      }
+      const valueName = `:u${index}`;
       values[valueName] = marshalScalar(attr, value);
       assignments.push(`${name} = ${valueName}`);
+    }
+    const updateParts: string[] = [];
+    if (assignments.length > 0) {
+      updateParts.push(`SET ${assignments.join(", ")}`);
+    }
+    if (removals.length > 0) {
+      updateParts.push(`REMOVE ${removals.join(", ")}`);
     }
     return {
       kind: "update",
       model: modelName,
       key: action.key,
-      updateExpression: `SET ${assignments.join(", ")}`,
+      updateExpression: updateParts.join(" "),
       conditionExpression: action.conditionExpression,
       expressionAttributeNames: names,
-      expressionAttributeValues: values,
+      expressionAttributeValues:
+        Object.keys(values).length > 0 ? values : undefined,
     };
   }
 

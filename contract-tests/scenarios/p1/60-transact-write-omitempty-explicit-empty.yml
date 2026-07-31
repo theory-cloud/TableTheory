@@ -1,0 +1,36 @@
+name: "p1.transact_write_omitempty_explicit_empty"
+dms_version: "0.2"
+requires_capabilities: ["transact.write"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#TX-EMPTY"
+      SK: "PROFILE"
+      nickname: "present"
+    expect:
+      ok: true
+
+  - op: transact_write
+    transact_write:
+      actions:
+        - kind: "update"
+          key:
+            PK: "USER#TX-EMPTY"
+            SK: "PROFILE"
+          set:
+            nickname: ""
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#TX-EMPTY"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        PK: "USER#TX-EMPTY"
+        SK: "PROFILE"
+      item_missing_fields: ["nickname"]

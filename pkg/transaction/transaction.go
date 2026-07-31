@@ -179,7 +179,7 @@ func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata 
 		}
 
 		fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-		if !fieldValue.IsValid() || (fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue)) {
+		if !fieldValue.IsValid() || (fieldMeta.OmitEmpty && reflectutil.IsSparseUpdateEmpty(fieldValue)) {
 			continue
 		}
 
