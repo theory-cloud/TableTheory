@@ -63,6 +63,11 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.0.0](https://github.com/theory-cloud/TableTheory/compare/v3.0.0-rc...v3.0.0) (2026-07-31)
+
+Stable promotion of `v3.0.0-rc`.
+
+
 ## [3.0.0-rc](https://github.com/theory-cloud/TableTheory/compare/v2.0.6...v3.0.0-rc) (2026-07-31)
 
 
