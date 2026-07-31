@@ -173,18 +173,12 @@ func TestTransactionUpdateLegacyOmitsEmptySetClause(t *testing.T) {
 	require.NoError(t, registry.Register(&legacyCreatedAtOnlyRecord{}))
 
 	tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
-	require.NoError(t, tx.Update(&legacyCreatedAtOnlyRecord{
+	err := tx.Update(&legacyCreatedAtOnlyRecord{
 		PK: "USER#legacy-created-at-only",
 		SK: "PROFILE",
-	}))
-	require.Len(t, tx.writes, 1)
-
-	update := tx.writes[0].Update
-	require.NotNil(t, update)
-	require.Empty(t, aws.ToString(update.UpdateExpression),
-		"an implicit update with no assignments must omit SET rather than emit a bare clause")
-	require.Empty(t, update.ExpressionAttributeNames)
-	require.Empty(t, update.ExpressionAttributeValues)
+	})
+	require.EqualError(t, err, "no non-key fields to update")
+	require.Empty(t, tx.writes, "an empty implicit update must not queue an invalid DynamoDB write")
 }
 
 func TestTransactionUpdateLegacyOverridesCallerSetUpdatedAtForImplicitRMW(t *testing.T) {

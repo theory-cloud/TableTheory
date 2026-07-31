@@ -123,24 +123,12 @@ func (tx *Transaction) Update(model any) error {
 	}
 
 	updateExpression := buildSetUpdateExpression(setAssignments)
+	if updateExpression == "" {
+		return fmt.Errorf("no non-key fields to update")
+	}
 
-	if encryption.MetadataHasEncryptedFields(metadata) && len(expressionAttributeValues) > 0 {
-		cfg := tx.session.Config()
-		keyARN := ""
-		var rng io.Reader
-		if cfg != nil {
-			keyARN = cfg.KMSKeyARN
-			rng = cfg.EncryptionRand
-		}
-		var svc *encryption.Service
-		if cfg != nil && cfg.KMSClient != nil {
-			svc = encryption.NewServiceWithRand(keyARN, cfg.KMSClient, rng)
-		} else {
-			svc = encryption.NewServiceFromAWSConfigWithRand(keyARN, tx.session.AWSConfig(), rng)
-		}
-		if err := encryption.EncryptUpdateExpressionValues(tx.ctx, svc, metadata, updateExpression, expressionAttributeNames, expressionAttributeValues); err != nil {
-			return err
-		}
+	if err := tx.encryptUpdateExpressionValues(metadata, updateExpression, expressionAttributeNames, expressionAttributeValues); err != nil {
+		return err
 	}
 
 	updateItem := &types.Update{
@@ -161,6 +149,40 @@ func (tx *Transaction) Update(model any) error {
 	})
 
 	return nil
+}
+
+func (tx *Transaction) encryptUpdateExpressionValues(
+	metadata *model.Metadata,
+	updateExpression string,
+	expressionAttributeNames map[string]string,
+	expressionAttributeValues map[string]types.AttributeValue,
+) error {
+	if !encryption.MetadataHasEncryptedFields(metadata) || len(expressionAttributeValues) == 0 {
+		return nil
+	}
+
+	cfg := tx.session.Config()
+	keyARN := ""
+	var rng io.Reader
+	if cfg != nil {
+		keyARN = cfg.KMSKeyARN
+		rng = cfg.EncryptionRand
+	}
+	var svc *encryption.Service
+	if cfg != nil && cfg.KMSClient != nil {
+		svc = encryption.NewServiceWithRand(keyARN, cfg.KMSClient, rng)
+	} else {
+		svc = encryption.NewServiceFromAWSConfigWithRand(keyARN, tx.session.AWSConfig(), rng)
+	}
+
+	return encryption.EncryptUpdateExpressionValues(
+		tx.ctx,
+		svc,
+		metadata,
+		updateExpression,
+		expressionAttributeNames,
+		expressionAttributeValues,
+	)
 }
 
 func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata *model.Metadata) ([]string, map[string]string, map[string]types.AttributeValue, error) {

@@ -31,6 +31,16 @@ func (legacyTransactionLifecycleRecord) TableName() string {
 	return "legacy_transaction_lifecycle_integration"
 }
 
+type legacyTransactionCreatedAtOnlyRecord struct {
+	CreatedAt time.Time `theorydb:"created_at,attr:createdAt" json:"createdAt"`
+	PK        string    `theorydb:"pk,attr:PK" json:"PK"`
+	SK        string    `theorydb:"sk,attr:SK" json:"SK"`
+}
+
+func (legacyTransactionCreatedAtOnlyRecord) TableName() string {
+	return (legacyTransactionLifecycleRecord{}).TableName()
+}
+
 func TestLegacyTransactionUpdateExecutesWithoutLifecycleOverlap(t *testing.T) {
 	testCtx := InitTestDB(t)
 	testCtx.CreateTableIfNotExists(t, &legacyTransactionLifecycleRecord{})
@@ -42,6 +52,7 @@ func TestLegacyTransactionUpdateExecutesWithoutLifecycleOverlap(t *testing.T) {
 	require.NoError(t, err)
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&legacyTransactionLifecycleRecord{}))
+	require.NoError(t, registry.Register(&legacyTransactionCreatedAtOnlyRecord{}))
 
 	seedCreatedAt := time.Date(2020, time.March, 4, 5, 6, 7, 0, time.UTC).Format(time.RFC3339Nano)
 	seedUpdatedAt := time.Date(2020, time.March, 5, 6, 7, 8, 0, time.UTC).Format(time.RFC3339Nano)
@@ -105,6 +116,25 @@ func TestLegacyTransactionUpdateExecutesWithoutLifecycleOverlap(t *testing.T) {
 		updatedAt, ok := item["updatedAt"].(*types.AttributeValueMemberS)
 		require.True(t, ok)
 		require.NotEqual(t, seedUpdatedAt, updatedAt.Value)
+	})
+
+	t.Run("created_at-only update errors before DynamoDB", func(t *testing.T) {
+		const pk = "USER#legacy-created-at-only"
+		seed(t, pk, 0)
+
+		tx := transaction.NewTransaction(sess, registry, pkgTypes.NewConverter())
+		err := tx.Update(&legacyTransactionCreatedAtOnlyRecord{
+			PK: pk,
+			SK: "PROFILE",
+		})
+		require.EqualError(t, err, "no non-key fields to update",
+			"the legacy surface must reject the empty update before queuing a DynamoDB request")
+
+		item := load(t, pk)
+		value, ok := item["value"].(*types.AttributeValueMemberS)
+		require.True(t, ok)
+		require.Equal(t, "original", value.Value,
+			"the rejected update must leave the DynamoDB Local item unchanged")
 	})
 
 	t.Run("versioned update has no overlapping paths", func(t *testing.T) {
