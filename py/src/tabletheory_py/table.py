@@ -869,6 +869,7 @@ class Table[T]:
                             expression_attribute_names=action.expression_attribute_names,
                             expression_attribute_values=action.expression_attribute_values,
                             protected_attributes=action.protected_attributes,
+                            reject_version_field=True,
                         )
                     }
                 )
@@ -1033,6 +1034,7 @@ class Table[T]:
         expression_attribute_values: Mapping[str, Any] | None = None,
         protected_attributes: Sequence[str] = (),
         expected_version: int | None = None,
+        reject_version_field: bool = False,
         return_values: str | None = None,
     ) -> dict[str, Any]:
         key = self._to_key(pk, sk)
@@ -1070,9 +1072,9 @@ class Table[T]:
             ):
                 raise ValidationError(f"cannot update key field: {field_name}")
             if (
-                expected_version is not None
-                and version_attr is not None
+                version_attr is not None
                 and field_name == version_attr.python_name
+                and (expected_version is not None or reject_version_field)
             ):
                 raise ValidationError(f"do not include version in update fields: {field_name}")
 

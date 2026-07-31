@@ -68,7 +68,8 @@ of the library-owned `created_at`, `updated_at`, and version fields with
 `ErrInvalidModel`. The transaction runtime remains the single writer of
 `updated_at`, so the generated expression cannot contain overlapping lifecycle
 document paths. `UpdateWithBuilder` remains a caller-controlled low-level
-surface.
+surface. The model-based path does not increment version or add a version
+condition; use `UpdateWithBuilder` for optimistic locking in a transaction.
 
 ## TypeScript
 
@@ -116,6 +117,10 @@ See [`ts/src/transaction.ts`](https://github.com/theory-cloud/tabletheory/blob/m
 
 `Table.transact_write(actions)` accepts a list of dataclass actions —
 `TransactPut`, `TransactUpdate`, `TransactDelete`, `TransactConditionCheck` — all importable from `tabletheory_py`.
+Model-shaped `TransactUpdate.updates` rejects the Python fields carrying
+`created_at`, `updated_at`, and version roles with `ValidationError`. It does not
+increment version or add a version condition; use a deliberate raw transaction
+surface when transactional optimistic locking is required.
 
 ```python
 from tabletheory_py import TransactPut, TransactUpdate

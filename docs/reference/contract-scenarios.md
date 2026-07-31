@@ -81,6 +81,10 @@ The P1
 [`61-transact-write-updated-at.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p1/61-transact-write-updated-at.yml)
 scenario asserts that an explicit-field transactional update advances
 `updatedAt` while preserving `createdAt` in Go, TypeScript, and Python.
+The P1
+[`62-transact-write-rejects-lifecycle-fields.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p1/62-transact-write-rejects-lifecycle-fields.yml)
+scenario asserts that all three runtimes reject caller-selected `createdAt`,
+`updatedAt`, and version fields before a model-shaped transaction can write.
 
 ## How a scenario is run
 
