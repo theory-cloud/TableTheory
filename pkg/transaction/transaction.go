@@ -174,7 +174,7 @@ func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata 
 
 	updateCount := 0
 	for fieldName, fieldMeta := range metadata.Fields {
-		if fieldMeta.IsPK || fieldMeta.IsSK {
+		if fieldMeta.IsPK || fieldMeta.IsSK || fieldMeta.IsUpdatedAt {
 			continue
 		}
 
@@ -251,18 +251,20 @@ func (tx *Transaction) applyUpdatedAtUpdate(
 		return nil
 	}
 
-	for _, fieldMeta := range metadata.Fields {
-		if fieldMeta.DBName != metadata.UpdatedAtField.DBName {
-			continue
-		}
-
-		fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-		if fieldValue.IsValid() && !reflectutil.IsEmpty(fieldValue) {
-			return nil
-		}
+	fieldValue := modelValue.FieldByIndex(metadata.UpdatedAtField.IndexPath)
+	if fieldValue.IsValid() && !reflectutil.IsEmpty(fieldValue) {
+		return fmt.Errorf(
+			"%w: cannot update lifecycle timestamp field %s",
+			errors.ErrInvalidModel,
+			metadata.UpdatedAtField.Name,
+		)
 	}
 
-	*updateExpression += ", #upd = :updTime"
+	if *updateExpression == "SET " {
+		*updateExpression += "#upd = :updTime"
+	} else {
+		*updateExpression += ", #upd = :updTime"
+	}
 	expressionAttributeNames["#upd"] = metadata.UpdatedAtField.DBName
 
 	av, err := tx.converter.ToAttributeValue(time.Now())
