@@ -63,6 +63,13 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 > `db.TransactionFunc(...)` compatibility helpers no longer exist; migrate to
 > the atomic `Transact()` surface.
 
+Go model-based `Update(model, fields)` transactions reject explicit selection
+of the library-owned `created_at`, `updated_at`, and version fields with
+`ErrInvalidModel`. The transaction runtime remains the single writer of
+`updated_at`, so the generated expression cannot contain overlapping lifecycle
+document paths. `UpdateWithBuilder` remains a caller-controlled low-level
+surface.
+
 ## TypeScript
 
 `TheorydbClient.transactWrite(actions: TransactAction[])` accepts a list of
@@ -72,7 +79,9 @@ Update actions provide either `item` plus an explicit `fields` selection, or
 `UpdateBuilder` DSL. The model-based `item` + `fields` action removes a selected
 empty `omit_empty` attribute, sets every other selected attribute, and advances
 the model's library-owned `updatedAt` role. It rejects `createdAt` and version
-in `fields`. The builder and raw expression variants remain caller-controlled.
+in `fields`. It also rejects caller-selected `updatedAt`, leaving the injected
+lifecycle refresh as the single writer. The builder and raw expression variants
+remain caller-controlled.
 
 ```typescript
 await db.transactWrite([

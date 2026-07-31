@@ -704,7 +704,12 @@ void test('TransactModelUpdate rejects lifecycle-owned fields', async (t) => {
     {
       field: 'createdAt',
       value: 'caller-value',
-      message: 'Cannot update createdAt field: createdAt',
+      message: 'Cannot update lifecycle timestamp field: createdAt',
+    },
+    {
+      field: 'updatedAt',
+      value: 'caller-value',
+      message: 'Cannot update lifecycle timestamp field: updatedAt',
     },
     {
       field: 'version',

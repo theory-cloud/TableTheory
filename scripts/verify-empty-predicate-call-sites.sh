@@ -8,8 +8,14 @@ tmp="$(mktemp -d)"
 cleanup() { rm -rf "${tmp}"; }
 trap cleanup EXIT
 
-# Explicit selection and marshaling use DMS IsEmpty. Duplicate entries are
-# distinct known call sites with identical source text.
+# Explicit selection, marshaling, and the legacy updated_at caller-value guard
+# use DMS IsEmpty. Duplicate entries are distinct known call sites with
+# identical source text.
+#
+# Coverage is Go-only and limited to internal/ and pkg/; TypeScript's
+# isEmptyAttribute and Python's _is_empty have no equivalent gate yet. The
+# allowlist is a per-file multiset: it verifies which source lines exist, not
+# which function contains each line.
 cat >"${tmp}/expected" <<'EOF'
 internal/expr/converter.go|IsEmpty|return reflectutil.IsEmpty(v)
 pkg/marshal/marshaler.go|IsEmpty|if fieldMeta.OmitEmpty && reflectutil.IsEmpty(v) {

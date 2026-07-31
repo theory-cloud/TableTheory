@@ -886,10 +886,10 @@ async function buildTransactModelUpdate(
   }
 
   for (const field of action.fields) {
-    if (field === model.roles.createdAt) {
+    if (field === model.roles.createdAt || field === model.roles.updatedAt) {
       throw new TheorydbError(
         'ErrInvalidModel',
-        `Cannot update createdAt field: ${field}`,
+        `Cannot update lifecycle timestamp field: ${field}`,
       );
     }
     if (field === model.roles.version) {
