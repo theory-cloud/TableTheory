@@ -23,6 +23,13 @@ type nestedCollectionRecord struct {
 	Payload nestedCollectionPayload `theorydb:"attr:payload" json:"payload"`
 }
 
+type topLevelEmptyCollectionRecord struct {
+	PK        string            `theorydb:"pk,attr:PK" json:"PK"`
+	SK        string            `theorydb:"sk,attr:SK" json:"SK"`
+	EmptyMap  map[string]string `theorydb:"attr:emptyMap,omitempty" json:"emptyMap,omitempty"`
+	EmptyList []string          `theorydb:"attr:emptyList,omitempty" json:"emptyList,omitempty"`
+}
+
 func TestTransactionCreatePreservesNestedEmptyCollectionsWithoutOmitEmpty(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&nestedCollectionRecord{}))
@@ -62,4 +69,26 @@ func TestTransactionCreatePreservesNestedEmptyCollectionsWithoutOmitEmpty(t *tes
 
 	require.NotContains(t, payload.Value, "omittedList")
 	require.NotContains(t, payload.Value, "omittedMap")
+}
+
+func TestTransactionCreateOmitsTopLevelEmptyCollections(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&topLevelEmptyCollectionRecord{}))
+
+	builder := NewBuilder(nil, registry, pkgTypes.NewConverter())
+	mockClient := newMockTransactClient(t, nil)
+	builder.client = mockClient
+
+	record := &topLevelEmptyCollectionRecord{
+		PK:        "RECORD#top-level-empty-collections",
+		SK:        "PAYLOAD",
+		EmptyList: []string{},
+		EmptyMap:  map[string]string{},
+	}
+
+	require.NoError(t, builder.Create(record).Execute())
+	put := mockClient.inputs[0].TransactItems[0].Put
+	require.NotNil(t, put)
+	require.NotContains(t, put.Item, "emptyList")
+	require.NotContains(t, put.Item, "emptyMap")
 }

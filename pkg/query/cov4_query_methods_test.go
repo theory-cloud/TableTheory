@@ -468,11 +468,11 @@ func TestQuery_OmitEmptyUsesOnePredicateForSparseAndNamedUpdates(t *testing.T) {
 
 	sparse := expr.NewBuilderWithConverter(q.converter)
 	require.NoError(t, q.buildUpdateExpressionFromTags(sparse, modelValue, nil))
-	require.Empty(t, sparse.Build().UpdateExpression)
+	require.Contains(t, sparse.Build().UpdateExpression, "SET")
 
 	named := expr.NewBuilderWithConverter(q.converter)
 	require.NoError(t, q.buildUpdateExpressionFromTags(named, modelValue, []string{"Values"}))
-	require.Contains(t, named.Build().UpdateExpression, "REMOVE")
+	require.Contains(t, named.Build().UpdateExpression, "SET")
 }
 
 func TestQuery_FlatTaggedHelpers_NormalizeJSONValues(t *testing.T) {

@@ -27,7 +27,7 @@ assert.equal(isEmpty(0), true);
 assert.equal(isEmpty(false), true);
 assert.equal(isEmpty([]), true);
 assert.equal(isEmpty({}), true);
-assert.equal(isEmpty({ a: '' }), true);
+assert.equal(isEmpty({ a: '' }), false);
 assert.equal(isEmpty({ a: 'x' }), false);
 assert.equal(isEmpty(new Date(Number.NaN)), true);
 assert.equal(

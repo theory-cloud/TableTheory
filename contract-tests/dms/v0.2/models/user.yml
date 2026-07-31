@@ -71,3 +71,32 @@ models:
         type: "GSI"
         partition: { attribute: "emailHash", type: "S" }
         projection: { type: "KEYS_ONLY" }
+
+  # Uses the same wire shape as User.profile, but contract runners deliberately
+  # bind profile to a fixed-shape record carrier where the runtime supports one.
+  - name: "StructuredProfileUser"
+    table:
+      name: "users_contract"
+    naming:
+      convention: "camelCase"
+    keys:
+      partition: { attribute: "PK", type: "S" }
+      sort: { attribute: "SK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "SK"
+        type: "S"
+        required: true
+        roles: ["sk"]
+      - attribute: "profile"
+        type: "M"
+        json: true
+        optional: true
+        omit_empty: true
+      - attribute: "version"
+        type: "N"
+        format: "int"
+        roles: ["version"]

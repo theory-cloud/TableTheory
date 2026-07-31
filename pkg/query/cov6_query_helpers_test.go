@@ -122,6 +122,10 @@ func TestShouldSkipUpdateField_TagRules_COV6(t *testing.T) {
 		Ignored   string    `theorydb:"-"`
 		PK        string    `theorydb:"pk"`
 		SK        string    `theorydb:"sk"`
+		GSI1PK    string    `theorydb:"gsi:TypeIndex:pk"`
+		GSI1SK    string    `theorydb:"gsi:TimeIndex:sk"`
+		LSIPK     string    `theorydb:"lsi:LegacyIndex:pk"`
+		AttrSKU   string    `theorydb:"attr:sku"`
 		Value     string    `theorydb:"attr:value"`
 	}
 
@@ -133,7 +137,7 @@ func TestShouldSkipUpdateField_TagRules_COV6(t *testing.T) {
 		tag := field.Tag.Get("theorydb")
 		skip := shouldSkipUpdateField(field, tag, primaryKey)
 		switch field.Name {
-		case "Value":
+		case "Value", "AttrSKU":
 			require.False(t, skip)
 		default:
 			require.True(t, skip)

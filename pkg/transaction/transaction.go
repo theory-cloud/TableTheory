@@ -513,8 +513,8 @@ func (tx *Transaction) marshalPlainItem(model any, metadata *model.Metadata) (ma
 	for fieldName, fieldMeta := range metadata.Fields {
 		fieldValue := modelValue.Field(fieldMeta.Index)
 
-		// Skip zero values if omitempty
-		if fieldMeta.OmitEmpty && fieldValue.IsZero() {
+		// Apply the same DMS emptiness predicate used by query updates.
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
 			continue
 		}
 

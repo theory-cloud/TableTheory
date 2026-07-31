@@ -9,8 +9,11 @@
   the persisted DynamoDB attribute. TypeScript already had this behavior; Go and Python previously stored empty values.
   Existing items remain readable, but consumers relying on empty attributes remaining present must remove `omitempty` or
   use an explicit low-level `SET`. The Go module moves to `github.com/theory-cloud/tabletheory/v3`; Go consumers must
-  update module requirements and imports. DMS `M` values use size-based map emptiness, so non-empty maps remain present
-  even when every contained value is empty. See `docs/migration/v3.md`.
+  update module requirements and imports. DMS `M` values use carrier-size emptiness, so non-empty maps, objects, Go
+  structs, and Python dataclasses remain present even when every contained value is empty. Arrays/lists use length
+  semantics, including fixed-length Go arrays. Go transaction writes now use the same top-level `omitempty` predicate,
+  and legacy `gsi:Name:pk` / `gsi:Name:sk` tags remain excluded from updates under exact token parsing. See
+  `docs/migration/v3.md`.
 * **go:** align `ConsistentRead()` on GSI queries with the cross-runtime contract by returning
   `ErrInvalidOperator` instead of silently dropping the flag, including when the Go query optimizer auto-selects a GSI
   from key conditions. Semver decision: this parity repair is release-major material and must not ship as a patch/minor.

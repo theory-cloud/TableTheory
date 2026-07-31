@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import os
 import time
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
@@ -56,6 +56,7 @@ from tabletheory_py import (
     FilterCondition,
     FilterGroup,
     ImmutableModelMutationError,
+    ModelDefinition,
     NotFoundError,
     ProtectedFieldMutationError,
     RejectedDeployAuthorityEvidenceError,
@@ -68,8 +69,29 @@ from tabletheory_py import (
     TransactWriteAction,
     ValidationError,
     VersionConflictError,
+    theorydb_field,
     transition_release_state,
     validate_deploy_authority_metadata,
+)
+
+@dataclass(frozen=True)
+class _StructuredProfile:
+    source: str = ""
+
+
+@dataclass(frozen=True)
+class _StructuredProfileUser:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    profile: _StructuredProfile = theorydb_field(
+        name="profile", omitempty=True, json=True, default_factory=_StructuredProfile
+    )
+    version: int = theorydb_field(name="version", roles=["version"], default=0)
+
+
+StructuredProfileUserDefinition = ModelDefinition.from_dataclass(
+    _StructuredProfileUser,
+    table_name="users_contract",
 )
 
 
@@ -185,6 +207,7 @@ def _validate_expectation(expect: dict[str, Any], prefix: str) -> None:
 
 _MODEL_DEFINITIONS: dict[str, Any] = {
     "User": UserDefinition,
+    "StructuredProfileUser": StructuredProfileUserDefinition,
     "Order": OrderDefinition,
     "NumberPrecision": NumberPrecisionDefinition,
     "TypeMatrix": TypeMatrixDefinition,
@@ -196,6 +219,7 @@ _MODEL_DEFINITIONS: dict[str, Any] = {
 
 _MODEL_CLASSES: dict[str, type[Any]] = {
     "User": _User,
+    "StructuredProfileUser": _StructuredProfileUser,
     "Order": _Order,
     "NumberPrecision": _NumberPrecision,
     "TypeMatrix": _TypeMatrix,
@@ -328,6 +352,8 @@ class _TheorydbPyDriver:
     ) -> None:
         table = self._table(model)
         updates = _to_python_kwargs(model, {field: item[field] for field in fields if field in item})
+        if model == "StructuredProfileUser" and "profile" in updates:
+            updates["profile"] = _StructuredProfile(**cast(dict[str, Any], updates["profile"]))
         expected_version = _expected_version(table, item)
         table.update(
             _pk_value(item),
@@ -498,6 +524,9 @@ class _TheorydbPyDriver:
         if model == "User":
             if "tags" in kwargs and kwargs["tags"] is not None:
                 kwargs["tags"] = set(cast(list[str], kwargs["tags"]))
+        elif model == "StructuredProfileUser":
+            if "profile" in kwargs and kwargs["profile"] is not None:
+                kwargs["profile"] = _StructuredProfile(**cast(dict[str, Any], kwargs["profile"]))
         elif model == "NumberPrecision":
             if "largeInteger" in kwargs and kwargs["largeInteger"] is not None:
                 kwargs["largeInteger"] = Decimal(str(kwargs["largeInteger"]))

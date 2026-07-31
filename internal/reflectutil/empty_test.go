@@ -30,8 +30,9 @@ func TestIsEmpty(t *testing.T) {
 	}{
 		{name: "invalid value", v: reflect.Value{}, want: true},
 
-		{name: "empty array", v: reflect.ValueOf([2]int{0, 0}), want: true},
+		{name: "fixed array with zero elements", v: reflect.ValueOf([2]int{0, 0}), want: false},
 		{name: "non-empty array", v: reflect.ValueOf([2]int{0, 1}), want: false},
+		{name: "zero-length array", v: reflect.ValueOf([0]int{}), want: true},
 
 		{name: "empty map", v: reflect.ValueOf(map[string]int{}), want: true},
 		{name: "non-empty map", v: reflect.ValueOf(map[string]int{"a": 1}), want: false},
@@ -57,10 +58,11 @@ func TestIsEmpty(t *testing.T) {
 		{name: "nil pointer", v: reflect.ValueOf(nilIntPtr), want: true},
 		{name: "non-nil pointer", v: reflect.ValueOf(new(int)), want: false},
 
-		{name: "empty struct", v: reflect.ValueOf(inner{}), want: true},
+		{name: "zero-valued struct has declared M entries", v: reflect.ValueOf(inner{}), want: false},
 		{name: "non-empty struct", v: reflect.ValueOf(inner{B: "x"}), want: false},
-		{name: "empty nested struct", v: reflect.ValueOf(outer{}), want: true},
+		{name: "zero-valued nested struct has declared M entries", v: reflect.ValueOf(outer{}), want: false},
 		{name: "non-empty nested struct", v: reflect.ValueOf(outer{Inner: inner{A: 1}}), want: false},
+		{name: "zero-field struct", v: reflect.ValueOf(struct{}{}), want: true},
 
 		{name: "zero time", v: reflect.ValueOf(time.Time{}), want: true},
 		{name: "non-zero time", v: reflect.ValueOf(now), want: false},

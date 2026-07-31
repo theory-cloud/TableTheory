@@ -310,7 +310,7 @@ func (m *Marshaler) buildJSONMarshalFunc(typ reflect.Type, fieldMeta *model.Fiel
 	return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
 		v := reflect.NewAt(typ, ptr).Elem()
 
-		if fieldMeta.OmitEmpty && v.IsZero() {
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(v) {
 			return &types.AttributeValueMemberNULL{Value: true}, nil
 		}
 
@@ -456,7 +456,7 @@ func (m *Marshaler) buildReflectMarshalFunc(typ reflect.Type, fieldMeta *model.F
 		// Convert unsafe pointer back to reflect.Value
 		v := reflect.NewAt(typ, ptr).Elem()
 
-		if fieldMeta.OmitEmpty && v.IsZero() {
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(v) {
 			return &types.AttributeValueMemberNULL{Value: true}, nil
 		}
 
@@ -552,8 +552,8 @@ func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, e
 		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
 
 		jsonTag := field.Tag.Get("json")
-		hasOmitEmpty := jsonTag != "" && strings.Contains(jsonTag, "omitempty")
-		if hasOmitEmpty && fieldValue.IsZero() {
+		hasOmitEmpty := fieldcodec.HasModifier(jsonTag, "omitempty")
+		if hasOmitEmpty && reflectutil.IsEmpty(fieldValue) {
 			continue
 		}
 

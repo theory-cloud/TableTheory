@@ -111,6 +111,8 @@ func convertConcreteValueToAttributeValue(v reflect.Value, inheritedConvention n
 		return &types.AttributeValueMemberBOOL{Value: v.Bool()}, nil
 	case reflect.Slice:
 		return convertSliceToAttributeValueWithConvention(v, inheritedConvention, inheritNaming, opts)
+	case reflect.Array:
+		return convertArrayToAttributeValueWithConvention(v, inheritedConvention, inheritNaming, opts)
 	case reflect.Map:
 		return convertMapToAttributeValueWithConvention(v, inheritedConvention, inheritNaming, opts)
 	case reflect.Struct:
@@ -121,6 +123,18 @@ func convertConcreteValueToAttributeValue(v reflect.Value, inheritedConvention n
 	default:
 		return nil, fmt.Errorf("unsupported type: %v", v.Type())
 	}
+}
+
+func convertArrayToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
+	list := make([]types.AttributeValue, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		item, err := convertToAttributeValueWithConvention(v.Index(i), inheritedConvention, inheritNaming, opts)
+		if err != nil {
+			return nil, err
+		}
+		list[i] = item
+	}
+	return &types.AttributeValueMemberL{Value: list}, nil
 }
 
 func convertSliceToAttributeValueWithConvention(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
@@ -265,7 +279,7 @@ func fieldNameFromJSONTag(defaultName string, jsonTag string) string {
 }
 
 func shouldOmitEmptyField(fieldValue reflect.Value, theorydbTag string, jsonTag string) bool {
-	if !hasOmitEmpty(theorydbTag) && !strings.Contains(jsonTag, "omitempty") {
+	if !hasOmitEmpty(theorydbTag) && !hasStandaloneTagPart(jsonTag, "omitempty") {
 		return false
 	}
 	return isZeroValue(fieldValue)
@@ -804,21 +818,7 @@ func hasOmitEmpty(tag string) bool {
 }
 
 func isZeroValue(v reflect.Value) bool {
-	switch v.Kind() {
-	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
-		return v.Len() == 0
-	case reflect.Bool:
-		return !v.Bool()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return v.Int() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return v.Uint() == 0
-	case reflect.Float32, reflect.Float64:
-		return v.Float() == 0
-	case reflect.Interface, reflect.Ptr:
-		return v.IsNil()
-	}
-	return false
+	return reflectutil.IsEmpty(v)
 }
 
 func isPureModifierTag(tag string) bool {

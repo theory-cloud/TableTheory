@@ -27,8 +27,7 @@ export function isEmpty(value: unknown): boolean {
 
   if (typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) return true;
-    return entries.every(([, v]) => isEmpty(v));
+    return entries.length === 0;
   }
 
   return false;

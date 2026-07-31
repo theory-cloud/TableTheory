@@ -67,7 +67,7 @@ func (q *Query) marshalItemReflect(item any) (map[string]types.AttributeValue, e
 
 func (q *Query) marshalFieldValueReflect(modelValue reflect.Value, fieldMeta *model.FieldMetadata, now time.Time) (types.AttributeValue, bool, error) {
 	fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-	if fieldMeta.OmitEmpty && fieldValue.IsZero() {
+	if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
 		return nil, true, nil
 	}
 

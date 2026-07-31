@@ -523,7 +523,7 @@ func shouldSkipUpdateField(field reflect.StructField, tag string, primaryKey cor
 	if field.Name == primaryKey.PartitionKey || field.Name == primaryKey.SortKey {
 		return true
 	}
-	if fieldcodec.HasModifier(tag, "pk") || fieldcodec.HasModifier(tag, "sk") {
+	if fieldcodec.HasKeyRoleModifier(tag, "pk") || fieldcodec.HasKeyRoleModifier(tag, "sk") {
 		return true
 	}
 	return fieldcodec.HasModifier(tag, "created_at")

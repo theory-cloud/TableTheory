@@ -269,6 +269,13 @@ func TestJSONTypeHelpers(t *testing.T) {
 	require.False(t, HasModifier("attr:value,notomitempty", "omitempty"))
 	require.False(t, HasModifier("attr:value,omitemptysuffix", "omitempty"))
 	require.False(t, HasModifier("attr:value", ""))
+	require.True(t, HasKeyRoleModifier("pk,attr:PK", "pk"))
+	require.True(t, HasKeyRoleModifier("gsi:TypeIndex:pk", "pk"))
+	require.True(t, HasKeyRoleModifier("lsi:TimeIndex:sk", "sk"))
+	require.False(t, HasKeyRoleModifier("attr:sku", "sk"))
+	require.False(t, HasKeyRoleModifier("attr:backup", "pk"))
+	require.False(t, HasKeyRoleModifier("gsi:TypeIndex:pkSuffix", "pk"))
+	require.False(t, HasKeyRoleModifier("gsi:TypeIndex:pk", "version"))
 
 	require.True(t, isJSONStringCarrierType(reflect.TypeOf("")))
 	require.True(t, isJSONStringCarrierType(reflect.TypeOf([]byte{})))

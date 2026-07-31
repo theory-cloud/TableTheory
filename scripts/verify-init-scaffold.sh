@@ -2,10 +2,11 @@
 # Smoke test for `tabletheory init`: generate the Go quickstart scaffold and
 # prove it reaches a successful CRUD write against a throwaway DynamoDB Local.
 #
-# The scaffold pins the published module; here we point it at the working tree
-# with a local `replace` so the smoke validates the current source. DynamoDB
-# Local runs on an isolated port so it never collides with other local
-# instances, and no AWS account is required.
+# First prove the source-build default resolves as a published release without
+# a local replacement. Then generate an explicit current-major scaffold and
+# point that one at the working tree so its CRUD smoke validates current source.
+# Release-built CLIs override the default with their own tag through ldflags.
+# DynamoDB Local runs on an isolated port so no AWS account is required.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,7 +18,8 @@ GOTOOLCHAIN_PIN="$(awk '/^toolchain /{print $2; exit}' go.mod)"
 export GOTOOLCHAIN="${GOTOOLCHAIN_PIN:-local}"
 
 WORKDIR="$(mktemp -d)"
-SCAFFOLD="${WORKDIR}/app"
+DEFAULT_SCAFFOLD="${WORKDIR}/default-app"
+CURRENT_SCAFFOLD="${WORKDIR}/current-app"
 CID=""
 
 cleanup() {
@@ -30,6 +32,16 @@ trap cleanup EXIT
 
 echo "==> building tabletheory CLI"
 go build -o "${WORKDIR}/tabletheory" ./cmd/tabletheory
+
+echo "==> scaffolding and resolving the published default"
+"${WORKDIR}/tabletheory" init \
+  --lang go \
+  --dir "$DEFAULT_SCAFFOLD" \
+  --module example.com/tabletheory-init-default
+(
+  cd "$DEFAULT_SCAFFOLD"
+  go mod download
+)
 
 echo "==> starting throwaway DynamoDB Local on port ${PORT}"
 CID="$(docker run -d --rm -p "${PORT}:8000" amazon/dynamodb-local:3.1.0 \
@@ -52,19 +64,19 @@ fi
 echo "==> scaffolding Go quickstart"
 "${WORKDIR}/tabletheory" init \
   --lang go \
-  --dir "$SCAFFOLD" \
+  --dir "$CURRENT_SCAFFOLD" \
   --module example.com/tabletheory-init-smoke \
   --runtime-version 3.0.0
 
 echo "==> resolving against the working tree"
 (
-  cd "$SCAFFOLD"
+  cd "$CURRENT_SCAFFOLD"
   go mod edit -replace "github.com/theory-cloud/tabletheory/v3=${REPO_ROOT}"
   go mod tidy
 )
 
 echo "==> running scaffold CRUD program"
-OUTPUT="$(cd "$SCAFFOLD" && \
+OUTPUT="$(cd "$CURRENT_SCAFFOLD" && \
   AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 \
   DYNAMODB_ENDPOINT="$ENDPOINT" go run .)"
 echo "$OUTPUT"

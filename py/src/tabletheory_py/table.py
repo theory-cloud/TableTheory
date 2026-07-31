@@ -87,7 +87,7 @@ def _is_empty(value: Any) -> bool:
     if isinstance(value, (str, bytes, bytearray)) and len(value) == 0:
         return True
     if is_dataclass(value) and not isinstance(value, type):
-        return all(_is_empty(getattr(value, field.name)) for field in fields(value))
+        return len(fields(value)) == 0
     if isinstance(value, Mapping):
         return len(value) == 0
     if isinstance(value, (list, set, tuple)):

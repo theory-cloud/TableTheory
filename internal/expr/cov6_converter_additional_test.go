@@ -30,7 +30,7 @@ func TestIsZeroValue_CoversPointersInterfacesAndStructs_COV6(t *testing.T) {
 	iface = "x"
 	require.False(t, isZeroValue(reflect.ValueOf(&iface).Elem()))
 
-	require.False(t, isZeroValue(reflect.ValueOf(time.Time{})))
+	require.True(t, isZeroValue(reflect.ValueOf(time.Time{})))
 }
 
 func TestAttributeValueToInterface_UnknownTypesAndErrorPropagation_COV6(t *testing.T) {

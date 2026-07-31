@@ -109,14 +109,19 @@ def test_table_value_helpers_and_error_mapping_variants() -> None:
         name: str = ""
         count: int = 0
 
+    @dataclass
+    class ZeroFieldRecord:
+        pass
+
     assert _is_empty(None) is True
     assert _is_empty(False) is True
     assert _is_empty(0) is True
     assert _is_empty("") is True
     assert _is_empty([]) is True
     assert _is_empty({"source": ""}) is False
-    assert _is_empty(EmptyRecord()) is True
+    assert _is_empty(EmptyRecord()) is False
     assert _is_empty(EmptyRecord(name="present")) is False
+    assert _is_empty(ZeroFieldRecord()) is True
     assert _is_empty(datetime.min) is True
     assert _is_empty(datetime.now(UTC)) is False
     assert _is_empty("x") is False

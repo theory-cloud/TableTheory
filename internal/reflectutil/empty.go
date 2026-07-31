@@ -9,9 +9,9 @@ var timeType = reflect.TypeOf(time.Time{})
 
 // IsEmpty reports whether v should be treated as "empty" for omitempty semantics.
 //
-// This is similar to encoding/json's emptiness rules but also treats structs
-// (including nested structs) as empty when all fields are empty, and treats
-// time.Time as empty when IsZero() is true.
+// Container emptiness follows the DMS wire shape: arrays/lists are empty only
+// at length zero, and map/object/struct carriers for M are empty only when they
+// have zero entries/declared fields. time.Time retains its native zero rule.
 func IsEmpty(v reflect.Value) bool {
 	if !v.IsValid() {
 		return true
@@ -19,7 +19,7 @@ func IsEmpty(v reflect.Value) bool {
 
 	switch v.Kind() {
 	case reflect.Array:
-		return isEmptyArray(v)
+		return v.Len() == 0
 
 	case reflect.Map, reflect.Slice, reflect.String:
 		return v.Len() == 0
@@ -47,15 +47,6 @@ func IsEmpty(v reflect.Value) bool {
 	}
 }
 
-func isEmptyArray(v reflect.Value) bool {
-	for i := 0; i < v.Len(); i++ {
-		if !IsEmpty(v.Index(i)) {
-			return false
-		}
-	}
-	return true
-}
-
 func isEmptyStruct(v reflect.Value) bool {
 	if v.Type() == timeType {
 		if v.CanInterface() {
@@ -66,10 +57,5 @@ func isEmptyStruct(v reflect.Value) bool {
 		return v.IsZero()
 	}
 
-	for i := 0; i < v.NumField(); i++ {
-		if !IsEmpty(v.Field(i)) {
-			return false
-		}
-	}
-	return true
+	return v.NumField() == 0
 }

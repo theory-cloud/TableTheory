@@ -275,13 +275,14 @@ its value is empty by these rules:
 - strings: `""` is empty.
 - numbers: `0` is empty.
 - booleans: `false` is empty.
-- arrays/lists: length `0` is empty.
-- DMS `M` maps/objects: size `0` is empty. A non-empty map is not empty
-  merely because all of its values are empty.
-- runtime-native structs/records: empty when **all** fields are empty. This
-  category applies only where a runtime model can distinguish a record from a
-  DMS `M` map (for example, a Go struct or Python dataclass); plain DMS `M`
-  values always use the map rule above.
+- arrays/lists: length `0` is empty. Fixed-length runtime arrays are non-empty
+  whenever their declared length is greater than zero, regardless of element
+  values.
+- DMS `M` maps/objects/structs/records: size `0` is empty. A non-empty
+  carrier is not empty merely because all of its contained values are empty.
+  For fixed-shape record carriers such as Go structs and Python dataclasses,
+  declared fields are entries; a record with declared fields is therefore
+  non-empty even when every field has its zero value.
 - runtime-native timestamps: empty when zero/invalid (Go
   `time.Time{}.IsZero()`, Python `datetime.min`, or TS invalid `Date`). DMS
   timestamp strings continue to use the string rule after wire coercion.

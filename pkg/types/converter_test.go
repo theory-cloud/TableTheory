@@ -855,6 +855,23 @@ func stringListAttributeValue(values []string) *types.AttributeValueMemberL {
 	return &types.AttributeValueMemberL{Value: items}
 }
 
+func TestConverterFixedArrayUsesListSemantics(t *testing.T) {
+	converter := NewConverter()
+
+	av, err := converter.ToAttributeValue([2]int{0, 0})
+	require.NoError(t, err)
+	list, ok := av.(*types.AttributeValueMemberL)
+	require.True(t, ok)
+	require.Len(t, list.Value, 2)
+
+	var roundTrip [2]int
+	require.NoError(t, converter.FromAttributeValue(av, &roundTrip))
+	require.Equal(t, [2]int{0, 0}, roundTrip)
+
+	var wrongLength [1]int
+	require.ErrorContains(t, converter.FromAttributeValue(av, &wrongLength), "does not match array length")
+}
+
 func attributeValueString(t *testing.T, av types.AttributeValue) string {
 	t.Helper()
 
