@@ -33,10 +33,8 @@ export function isEmpty(value: unknown): boolean {
   return false;
 }
 
-// isEmptyAttribute applies DMS wire-type semantics before falling back to the
-// runtime-native record/timestamp rules in isEmpty. In particular, DMS M values
-// are maps: any own entry makes the map non-empty even when every entry value
-// is itself empty.
+// isEmptyAttribute applies schema-aware DMS wire-type semantics. In particular,
+// any own entry makes an M value non-empty even when every entry value is empty.
 export function isEmptyAttribute(
   schema: AttributeSchema,
   value: unknown,

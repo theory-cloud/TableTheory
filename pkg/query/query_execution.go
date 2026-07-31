@@ -372,7 +372,7 @@ func (q *Query) metadataFieldsToUpdate(modelValue reflect.Value) []string {
 			continue
 		}
 		fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
+		if fieldMeta.OmitEmpty && reflectutil.IsSparseUpdateEmpty(fieldValue) {
 			continue
 		}
 		fieldsToUpdate = append(fieldsToUpdate, fieldName)
@@ -439,7 +439,7 @@ func (q *Query) buildUpdateExpressionFromTags(builder *expr.Builder, modelValue 
 		}
 
 		fieldValue := modelValue.Field(i)
-		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
+		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsSparseUpdateEmpty(fieldValue) {
 			continue
 		}
 

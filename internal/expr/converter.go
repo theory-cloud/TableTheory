@@ -196,7 +196,7 @@ func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConve
 
 		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
 		if shouldOmitEmptyField(fieldValue, theorydbTag, jsonTag) ||
-			(opts.OmitZeroFieldsByDefault && fieldValue.IsZero()) {
+			(opts.OmitZeroFieldsByDefault && theorydbTag == "" && jsonTag == "" && fieldValue.IsZero()) {
 			continue
 		}
 

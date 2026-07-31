@@ -62,7 +62,7 @@ func (q *Query) buildUpdateExpressionFromTaggedVisibleFields(
 		}
 
 		fieldValue := modelValue.FieldByIndex(fieldPlan.IndexPath)
-		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
+		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsSparseUpdateEmpty(fieldValue) {
 			continue
 		}
 

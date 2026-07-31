@@ -14,6 +14,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
 specs=(
+  # structured-profile-user is intentionally excluded: P0 scenarios 16/17
+  # require hand-authored record carriers to exercise representation parity.
   "user"
   "order"
   "number-precision"

@@ -32,16 +32,3 @@ UserDefinition = ModelDefinition.from_dataclass(
         ),
     ],
 )
-
-@dataclass(frozen=True)
-class StructuredProfileUser:
-    pk: str = theorydb_field(name="PK", roles=["pk"])
-    sk: str = theorydb_field(name="SK", roles=["sk"])
-    profile: dict[str, Any] = theorydb_field(name="profile", omitempty=True, json=True, default_factory=dict)
-    version: int = theorydb_field(name="version", roles=["version"], default=0)
-
-
-StructuredProfileUserDefinition = ModelDefinition.from_dataclass(
-    StructuredProfileUser,
-    table_name="users_contract",
-)

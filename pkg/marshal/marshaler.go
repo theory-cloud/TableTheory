@@ -285,6 +285,8 @@ func (m *Marshaler) buildMarshalFunc(typ reflect.Type, fieldMeta *model.FieldMet
 		return m.buildStructMarshalFunc(typ, fieldMeta)
 	case reflect.Slice:
 		return m.buildSliceMarshalFunc(typ, fieldMeta)
+	case reflect.Array:
+		return m.buildReflectMarshalFunc(typ, fieldMeta)
 	case reflect.Map:
 		return m.buildMapMarshalFunc(typ, fieldMeta)
 	default:
@@ -475,6 +477,9 @@ func (m *Marshaler) marshalComplexValue(v reflect.Value) (types.AttributeValue, 
 	case reflect.Slice:
 		return m.marshalSliceComplex(v)
 
+	case reflect.Array:
+		return m.marshalArrayComplex(v)
+
 	case reflect.Map:
 		return m.marshalMapComplex(v)
 
@@ -485,6 +490,18 @@ func (m *Marshaler) marshalComplexValue(v reflect.Value) (types.AttributeValue, 
 		// For other types, use basic marshaling
 		return m.marshalValue(v)
 	}
+}
+
+func (m *Marshaler) marshalArrayComplex(v reflect.Value) (types.AttributeValue, error) {
+	list := make([]types.AttributeValue, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		elem, err := m.marshalValue(v.Index(i))
+		if err != nil {
+			return nil, fmt.Errorf("array index %d: %w", i, err)
+		}
+		list[i] = elem
+	}
+	return &types.AttributeValueMemberL{Value: list}, nil
 }
 
 func (m *Marshaler) marshalSliceComplex(v reflect.Value) (types.AttributeValue, error) {
@@ -551,9 +568,14 @@ func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, e
 		field := fieldPlan.Field
 		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
 
+		theorydbTag := field.Tag.Get("theorydb")
 		jsonTag := field.Tag.Get("json")
-		hasOmitEmpty := fieldcodec.HasModifier(jsonTag, "omitempty")
+		hasOmitEmpty := fieldcodec.HasModifier(theorydbTag, "omitempty") ||
+			fieldcodec.HasModifier(jsonTag, "omitempty")
 		if hasOmitEmpty && reflectutil.IsEmpty(fieldValue) {
+			continue
+		}
+		if theorydbTag == "" && jsonTag == "" && fieldValue.IsZero() {
 			continue
 		}
 
@@ -626,7 +648,7 @@ func (m *Marshaler) marshalValue(v reflect.Value) (types.AttributeValue, error) 
 		return marshalFloatNumber(v), nil
 	case reflect.Bool:
 		return &types.AttributeValueMemberBOOL{Value: v.Bool()}, nil
-	case reflect.Struct, reflect.Slice, reflect.Map:
+	case reflect.Struct, reflect.Slice, reflect.Array, reflect.Map:
 		return m.marshalComplexValue(v)
 	case reflect.Interface:
 		return m.marshalInterfaceValue(v)

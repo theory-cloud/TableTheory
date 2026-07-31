@@ -282,7 +282,8 @@ its value is empty by these rules:
   carrier is not empty merely because all of its contained values are empty.
   For fixed-shape record carriers such as Go structs and Python dataclasses,
   declared fields are entries; a record with declared fields is therefore
-  non-empty even when every field has its zero value.
+  non-empty even when every field has its zero value. Declared record fields
+  without their own `omit_empty` option remain present in the resulting `M`.
 - runtime-native timestamps: empty when zero/invalid (Go
   `time.Time{}.IsZero()`, Python `datetime.min`, or TS invalid `Date`). DMS
   timestamp strings continue to use the string rule after wire coercion.
@@ -305,11 +306,15 @@ for mutation:
   that operation is outside the high-level DMS update semantics and must be
   requested deliberately.
 
-Go's no-argument model update remains a sparse-selection convenience: empty
-`omitempty` fields are unselected and therefore do not mutate existing
-attributes. Passing a field name explicitly selects it and applies the `REMOVE`
-rule above. TypeScript field arrays and Python update mappings are explicit
-selection surfaces.
+Go's no-argument model update remains a sparse-selection convenience. Selection
+precedes DMS emptiness: language-zero `omitempty` fields, including zero-valued
+structs and fixed arrays, are unselected and therefore do not mutate existing
+attributes. Passing a field name explicitly selects it and only then applies
+the DMS emptiness/`REMOVE` rule above. TypeScript field arrays and Python update
+mappings are explicit selection surfaces.
+
+Go fixed arrays serialize as DMS `L`, including fixed byte arrays. Go byte
+slices retain their established DynamoDB `B` encoding.
 
 ### Set encoding
 

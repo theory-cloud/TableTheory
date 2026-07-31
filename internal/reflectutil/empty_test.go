@@ -96,3 +96,16 @@ func TestIsEmpty(t *testing.T) {
 		require.False(t, reflectutil.IsEmpty(v))
 	})
 }
+
+func TestIsSparseUpdateEmptyPreservesHistoricalSelection(t *testing.T) {
+	type record struct {
+		Source string
+	}
+
+	require.True(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf(record{})))
+	require.False(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf(record{Source: "present"})))
+	require.True(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf([2]int{0, 0})))
+	require.False(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf([2]int{0, 1})))
+	require.True(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf(map[string]string{})))
+	require.True(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf([]string{})))
+}

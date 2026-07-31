@@ -452,7 +452,7 @@ func TestQuery_buildUpdateExpressionFromTaggedVisibleFields_SkipsKeysAndOmitEmpt
 	}
 }
 
-func TestQuery_OmitEmptyUsesOnePredicateForSparseAndNamedUpdates(t *testing.T) {
+func TestQuery_OmitEmptySeparatesSparseSelectionFromNamedEmptiness(t *testing.T) {
 	type item struct {
 		ID     string `theorydb:"pk"`
 		Values [2]int `theorydb:"attr:values,omitempty"`
@@ -468,7 +468,7 @@ func TestQuery_OmitEmptyUsesOnePredicateForSparseAndNamedUpdates(t *testing.T) {
 
 	sparse := expr.NewBuilderWithConverter(q.converter)
 	require.NoError(t, q.buildUpdateExpressionFromTags(sparse, modelValue, nil))
-	require.Contains(t, sparse.Build().UpdateExpression, "SET")
+	require.Empty(t, sparse.Build().UpdateExpression)
 
 	named := expr.NewBuilderWithConverter(q.converter)
 	require.NoError(t, q.buildUpdateExpressionFromTags(named, modelValue, []string{"Values"}))

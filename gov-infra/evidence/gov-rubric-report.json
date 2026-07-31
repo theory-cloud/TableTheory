@@ -1,7 +1,7 @@
 {
   "$schema": "theorymcp://namespaces/theorycloud/governance-profiles/theorycloud_governance_profile.v0.1/schemas/gov_rubric_report.v1",
   "schemaVersion": "gov_rubric_report.v1",
-  "timestamp": "2026-07-31T01:36:38Z",
+  "timestamp": "2026-07-31T02:17:56Z",
   "pack": {
     "version": "816465a1618d",
     "digest": "896aed16549928f21626fb4effe9bb6236fc60292a8f50bae8ce77e873ac775b"

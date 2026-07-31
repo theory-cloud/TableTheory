@@ -33,7 +33,7 @@ type structuredProfileRecord struct {
 type structuredProfileUserRecordCarrier struct {
 	PK      string                  `theorydb:"pk,attr:PK" json:"PK"`
 	SK      string                  `theorydb:"sk,attr:SK" json:"SK"`
-	Profile structuredProfileRecord `theorydb:"attr:profile,omitempty,json" json:"profile,omitempty"`
+	Profile structuredProfileRecord `theorydb:"attr:profile,omitempty" json:"profile,omitempty"`
 	Version int64                   `theorydb:"version,attr:version" json:"version"`
 }
 

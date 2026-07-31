@@ -872,6 +872,31 @@ func TestConverterFixedArrayUsesListSemantics(t *testing.T) {
 	require.ErrorContains(t, converter.FromAttributeValue(av, &wrongLength), "does not match array length")
 }
 
+func TestConverterTaggedStructPreservesZeroFieldsWithoutOmitEmpty(t *testing.T) {
+	type taggedProfile struct {
+		Source string `theorydb:"attr:source" json:"source"`
+	}
+	type legacyProfile struct {
+		Source string
+	}
+
+	converter := NewConverter()
+
+	av, err := converter.ToAttributeValue(taggedProfile{})
+	require.NoError(t, err)
+	profile, ok := av.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	source, ok := profile.Value["source"].(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "", source.Value)
+
+	legacyAV, err := converter.ToAttributeValue(legacyProfile{})
+	require.NoError(t, err)
+	legacy, ok := legacyAV.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	require.Empty(t, legacy.Value, "untagged legacy structs retain default zero omission")
+}
+
 func attributeValueString(t *testing.T, av types.AttributeValue) string {
 	t.Helper()
 

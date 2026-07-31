@@ -951,6 +951,47 @@ func TestMarshalers_TimeAndNestedStructPaths(t *testing.T) {
 	})
 }
 
+func TestMarshalers_FixedArraysAndTaggedZeroStructFields(t *testing.T) {
+	type profile struct {
+		Source string `theorydb:"attr:source" json:"source"`
+	}
+	type item struct {
+		Profile profile `theorydb:"attr:profile,omitempty" json:"profile,omitempty"`
+		ID      string  `theorydb:"pk,attr:ID" json:"ID"`
+		Values  [2]int  `theorydb:"attr:values,omitempty" json:"values,omitempty"`
+		Digest  [2]byte `theorydb:"attr:digest,omitempty" json:"digest,omitempty"`
+	}
+
+	input := item{ID: "id-1"}
+	metadata := createMetadata(
+		createFieldMetadata(reflect.TypeOf(item{}), "ID", "ID", reflect.TypeOf("")),
+		createFieldMetadata(reflect.TypeOf(item{}), "Values", "values", reflect.TypeOf([2]int{}), withOmitEmpty()),
+		createFieldMetadata(reflect.TypeOf(item{}), "Digest", "digest", reflect.TypeOf([2]byte{}), withOmitEmpty()),
+		createFieldMetadata(reflect.TypeOf(item{}), "Profile", "profile", reflect.TypeOf(profile{}), withOmitEmpty()),
+	)
+
+	for name, marshaler := range map[string]MarshalerInterface{
+		"unsafe": New(nil),
+		"safe":   NewSafeMarshaler(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := marshaler.MarshalItem(input, metadata)
+			require.NoError(t, err)
+
+			values := requireAVL(t, out["values"])
+			require.Len(t, values.Value, 2)
+			require.Equal(t, "0", requireAVN(t, values.Value[0]).Value)
+			require.Equal(t, "0", requireAVN(t, values.Value[1]).Value)
+
+			digest := requireAVL(t, out["digest"])
+			require.Len(t, digest.Value, 2, "fixed byte arrays deliberately use DMS L, unlike []byte B")
+
+			profileAV := requireAVM(t, out["profile"])
+			require.Equal(t, "", requireAVS(t, profileAV.Value["source"]).Value)
+		})
+	}
+}
+
 func assertTimeAndNestedAttributes(t testing.TB, out map[string]types.AttributeValue, seenAt time.Time) {
 	t.Helper()
 	require.Equal(t, "1710000000", requireAVN(t, out["expires"]).Value)

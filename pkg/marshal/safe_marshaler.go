@@ -14,6 +14,7 @@ import (
 	"github.com/theory-cloud/tabletheory/v3/internal/anonymous"
 	"github.com/theory-cloud/tabletheory/v3/internal/expr"
 	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
 	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
@@ -190,7 +191,7 @@ func (m *SafeMarshaler) buildSafeStructMarshaler(typ reflect.Type, metadata *mod
 // marshalValue safely marshals a reflect.Value to AttributeValue
 func (m *SafeMarshaler) marshalValue(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
 	original := v
-	if fieldMeta != nil && fieldMeta.omitEmpty && (!v.IsValid() || v.IsZero()) {
+	if fieldMeta != nil && fieldMeta.omitEmpty && reflectutil.IsEmpty(v) {
 		return &types.AttributeValueMemberNULL{Value: true}, nil
 	}
 
@@ -276,6 +277,8 @@ func (m *SafeMarshaler) marshalValueByKind(v reflect.Value, fieldMeta *safeField
 		return m.marshalStructValue(v, fieldMeta)
 	case reflect.Slice:
 		return m.marshalSliceValue(v, fieldMeta)
+	case reflect.Array:
+		return m.marshalArray(v, fieldMeta)
 	case reflect.Map:
 		return m.marshalMapValue(v, fieldMeta)
 	case reflect.Interface:
@@ -283,6 +286,19 @@ func (m *SafeMarshaler) marshalValueByKind(v reflect.Value, fieldMeta *safeField
 	default:
 		return nil, fmt.Errorf("unsupported type: %v", v.Kind())
 	}
+}
+
+func (m *SafeMarshaler) marshalArray(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
+	list := make([]types.AttributeValue, v.Len())
+	childMeta := nestedFieldContext(fieldMeta)
+	for i := 0; i < v.Len(); i++ {
+		elem, err := m.marshalValue(v.Index(i), &childMeta)
+		if err != nil {
+			return nil, fmt.Errorf("array index %d: %w", i, err)
+		}
+		list[i] = elem
+	}
+	return &types.AttributeValueMemberL{Value: list}, nil
 }
 
 func (m *SafeMarshaler) marshalStructValue(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
@@ -430,8 +446,14 @@ func (m *SafeMarshaler) marshalStruct(v reflect.Value, fieldMeta *safeFieldMarsh
 
 	for _, fieldPlan := range fieldPlans {
 		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
-		// Skip zero values for omitempty behavior
-		if fieldValue.IsZero() {
+		theorydbTag := fieldPlan.Field.Tag.Get("theorydb")
+		jsonTag := fieldPlan.Field.Tag.Get("json")
+		hasOmitEmpty := fieldcodec.HasModifier(theorydbTag, "omitempty") ||
+			fieldcodec.HasModifier(jsonTag, "omitempty")
+		if hasOmitEmpty && reflectutil.IsEmpty(fieldValue) {
+			continue
+		}
+		if theorydbTag == "" && jsonTag == "" && fieldValue.IsZero() {
 			continue
 		}
 
