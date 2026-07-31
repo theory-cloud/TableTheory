@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 )
 
 type fuzzMarshalModel struct {

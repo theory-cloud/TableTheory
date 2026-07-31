@@ -16,7 +16,7 @@ import {
 
 {
   const raw = `
-dms_version: "0.1"
+dms_version: "0.2"
 namespace: "theorydb.test"
 models:
   - name: "Demo"
@@ -55,7 +55,7 @@ models:
 
 {
   const raw = `
-dms_version: "0.2"
+dms_version: "0.1"
 models: []
 `;
 
@@ -109,7 +109,7 @@ models: []
 
 {
   const raw = `
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "BadNaming"
     table: { name: "tbl" }
@@ -136,7 +136,7 @@ models:
 
 {
   const raw = `
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "Demo"
     table: { name: "tbl" }
@@ -162,7 +162,7 @@ payload: !!binary "Zm9v"
 
 {
   const raw = `
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "BadPolicy"
     table: { name: "tbl" }
@@ -191,7 +191,7 @@ models:
 
 {
   const raw = `
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "Demo"
     table: { name: "tbl" }

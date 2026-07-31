@@ -1,16 +1,7 @@
-export type DmsVersion = "0.1";
+export type DmsVersion = "0.2";
 
 export type ScalarType =
-  | "S"
-  | "N"
-  | "B"
-  | "BOOL"
-  | "NULL"
-  | "M"
-  | "L"
-  | "SS"
-  | "NS"
-  | "BS";
+  "S" | "N" | "B" | "BOOL" | "NULL" | "M" | "L" | "SS" | "NS" | "BS";
 
 export interface DmsDocument {
   dms_version: DmsVersion;

@@ -23,8 +23,39 @@ func HasJSONTag(tags map[string]string) bool {
 
 // HasJSONModifier reports whether a raw theorydb tag includes the json modifier.
 func HasJSONModifier(tag string) bool {
+	return HasModifier(tag, "json")
+}
+
+// HasModifier reports whether a raw comma-separated tag contains an exact
+// standalone modifier token. Substring matches are deliberately rejected
+// because modifiers such as omitempty can control destructive update actions.
+func HasModifier(tag, modifier string) bool {
+	if modifier == "" {
+		return false
+	}
 	for _, part := range strings.Split(tag, ",") {
-		if strings.TrimSpace(part) == "json" {
+		if strings.TrimSpace(part) == modifier {
+			return true
+		}
+	}
+	return false
+}
+
+// HasKeyRoleModifier reports whether a theorydb tag declares the requested
+// key role either as a standalone token or in the legacy gsi:Name:pk /
+// lsi:Name:sk form. Attribute names containing the same substring do not
+// match.
+func HasKeyRoleModifier(tag, role string) bool {
+	if role != "pk" && role != "sk" {
+		return false
+	}
+	if HasModifier(tag, role) {
+		return true
+	}
+	for _, part := range strings.Split(tag, ",") {
+		token := strings.TrimSpace(part)
+		if (strings.HasPrefix(token, "gsi:") || strings.HasPrefix(token, "lsi:")) &&
+			strings.HasSuffix(token, ":"+role) {
 			return true
 		}
 	}

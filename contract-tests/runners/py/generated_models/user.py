@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from tabletheory_py import ModelDefinition, Projection, gsi, theorydb_field
 
@@ -13,6 +14,7 @@ class User:
     email_hash: str = theorydb_field(name="emailHash", omitempty=True, default="")
     nickname: str = theorydb_field(name="nickname", omitempty=True, default="")
     tags: set[str] = theorydb_field(name="tags", omitempty=True, set_=True, default_factory=set)
+    profile: dict[str, Any] = theorydb_field(name="profile", omitempty=True, json=True, default_factory=dict)
     created_at: str = theorydb_field(name="createdAt", roles=["created_at"], default="")
     updated_at: str = theorydb_field(name="updatedAt", roles=["updated_at"], default="")
     version: int = theorydb_field(name="version", roles=["version"], default=0)

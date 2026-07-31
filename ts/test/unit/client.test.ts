@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
   BatchGetItemCommand,
@@ -31,6 +32,8 @@ const User = defineModel({
     { attribute: 'PK', type: 'S', roles: ['pk'] },
     { attribute: 'SK', type: 'S', roles: ['sk'] },
     { attribute: 'nickname', type: 'S', optional: true, omit_empty: true },
+    { attribute: 'alias', type: 'S', optional: true, omit_empty: true },
+    { attribute: 'displayName', type: 'S', optional: true },
     { attribute: 'createdAt', type: 'S', roles: ['created_at'] },
     { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
     { attribute: 'version', type: 'N', roles: ['version'] },
@@ -607,6 +610,202 @@ class StubDdb {
   assert.ok(update?.ConditionExpression?.includes('attribute_not_exists'));
   assert.ok(update?.ConditionExpression?.includes('<'));
 }
+
+void test('TransactModelUpdate selects only explicit fields', async (t) => {
+  const now = '2026-07-31T12:34:56.123456789Z';
+  const cases = [
+    {
+      name: 'selected empty omit_empty field is removed',
+      item: { PK: 'A', SK: '1', nickname: '' },
+      fields: ['nickname'],
+      expectedExpression: 'SET #u1 = :u1 REMOVE #u2',
+      expectedNames: { '#u1': 'updatedAt', '#u2': 'nickname' },
+      expectedValues: { ':u1': { S: now } },
+    },
+    {
+      name: 'selected non-empty field is set',
+      item: { PK: 'A', SK: '1', nickname: 'present', alias: '' },
+      fields: ['nickname', 'alias'],
+      expectedExpression: 'SET #u1 = :u1, #u2 = :u2 REMOVE #u3',
+      expectedNames: {
+        '#u1': 'updatedAt',
+        '#u2': 'nickname',
+        '#u3': 'alias',
+      },
+      expectedValues: { ':u1': { S: now }, ':u2': { S: 'present' } },
+    },
+    {
+      name: 'selected empty non-omit_empty field is set',
+      item: { PK: 'A', SK: '1', nickname: '', displayName: '' },
+      fields: ['nickname', 'displayName'],
+      expectedExpression: 'SET #u1 = :u1, #u3 = :u2 REMOVE #u2',
+      expectedNames: {
+        '#u1': 'updatedAt',
+        '#u2': 'nickname',
+        '#u3': 'displayName',
+      },
+      expectedValues: { ':u1': { S: now }, ':u2': { S: '' } },
+    },
+    {
+      name: 'unselected fields are untouched',
+      item: {
+        PK: 'A',
+        SK: '1',
+        nickname: '',
+        alias: 'not-selected',
+        displayName: 'not-selected',
+      },
+      fields: ['nickname'],
+      expectedExpression: 'SET #u1 = :u1 REMOVE #u2',
+      expectedNames: { '#u1': 'updatedAt', '#u2': 'nickname' },
+      expectedValues: { ':u1': { S: now } },
+    },
+  ] as const;
+
+  for (const tc of cases) {
+    await t.test(tc.name, async () => {
+      const ddb = new StubDdb((cmd) => {
+        if (cmd instanceof TransactWriteItemsCommand) return {};
+        throw new Error('unexpected');
+      });
+      const client = new TheorydbClient(ddb as unknown as DynamoDBClient, {
+        now: () => now,
+      }).register(User);
+
+      await client.transactWrite([
+        {
+          kind: 'update',
+          model: 'User',
+          item: tc.item,
+          fields: tc.fields,
+        },
+      ]);
+
+      const cmd = ddb.sent[0];
+      assert.ok(cmd instanceof TransactWriteItemsCommand, tc.name);
+      const update = cmd.input.TransactItems?.[0]?.Update;
+      assert.equal(update?.UpdateExpression, tc.expectedExpression, tc.name);
+      assert.deepEqual(
+        update?.ExpressionAttributeNames,
+        tc.expectedNames,
+        tc.name,
+      );
+      assert.deepEqual(
+        update?.ExpressionAttributeValues,
+        tc.expectedValues,
+        tc.name,
+      );
+    });
+  }
+});
+
+void test('TransactModelUpdate rejects lifecycle-owned fields', async (t) => {
+  const cases = [
+    {
+      field: 'createdAt',
+      value: 'caller-value',
+      message: 'Cannot update lifecycle timestamp field: createdAt',
+    },
+    {
+      field: 'updatedAt',
+      value: 'caller-value',
+      message: 'Cannot update lifecycle timestamp field: updatedAt',
+    },
+    {
+      field: 'version',
+      value: 7,
+      message: 'Do not include version in update fields: version',
+    },
+  ] as const;
+
+  for (const tc of cases) {
+    await t.test(tc.field, async () => {
+      const ddb = new StubDdb(() => {
+        throw new Error('lifecycle field update should not send');
+      });
+      const client = new TheorydbClient(
+        ddb as unknown as DynamoDBClient,
+      ).register(User);
+
+      await assert.rejects(
+        () =>
+          client.transactWrite([
+            {
+              kind: 'update',
+              model: 'User',
+              item: { PK: 'A', SK: '1', [tc.field]: tc.value },
+              fields: [tc.field],
+            },
+          ]),
+        (error) =>
+          error instanceof TheorydbError &&
+          error.code === 'ErrInvalidModel' &&
+          error.message === tc.message,
+      );
+      assert.equal(ddb.sent.length, 0);
+    });
+  }
+});
+
+void test('transaction updateFn marshals the key before callback', async () => {
+  const ddb = new StubDdb(() => {
+    throw new Error('malformed-key transaction should not send');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+  let callbackRan = false;
+
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'update',
+          model: 'User',
+          key: { PK: 'A' },
+          updateFn: (builder) => {
+            callbackRan = true;
+            builder.set('nickname', 'should-not-run');
+          },
+        },
+      ]),
+    (error) =>
+      error instanceof TheorydbError &&
+      error.code === 'ErrMissingPrimaryKey' &&
+      error.message === 'Missing sort key: SK',
+  );
+  assert.equal(callbackRan, false);
+  assert.equal(ddb.sent.length, 0);
+});
+
+void test('encrypted raw transaction error names both safe alternatives', async () => {
+  const ddb = new StubDdb(() => {
+    throw new Error('encrypted raw transaction should not send');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient, {
+    encryption: createDeterministicEncryptionProvider('seed'),
+  }).register(EncryptedUser);
+
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'update',
+          model: 'EncryptedUser',
+          key: { PK: 'A', SK: '1' },
+          updateExpression: 'SET #s = :s',
+          expressionAttributeNames: { '#s': 'secret' },
+          expressionAttributeValues: { ':s': { S: 'plaintext' } },
+        },
+      ]),
+    (error) =>
+      error instanceof TheorydbError &&
+      error.code === 'ErrInvalidModel' &&
+      error.message ===
+        'Encrypted transaction updates for model EncryptedUser must use updateFn or the model-based item + fields action',
+  );
+  assert.equal(ddb.sent.length, 0);
+});
 
 {
   const ddb = new StubDdb((cmd) => {

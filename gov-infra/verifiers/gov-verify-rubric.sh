@@ -657,7 +657,7 @@ CMD_FUZZ="bash scripts/fuzz-smoke.sh"
 
 CMD_FMT="bash scripts/verify-formatting.sh"
 CMD_LINT="bash scripts/verify-lint.sh"
-CMD_CONTRACT="bash scripts/verify-public-api-contracts.sh && bash scripts/verify-dms-first-workflow.sh && bash scripts/verify-generated-models.sh --check"
+CMD_CONTRACT="bash scripts/verify-public-api-contracts.sh && bash scripts/verify-dms-first-workflow.sh && bash scripts/verify-generated-models.sh --check && bash scripts/verify-empty-predicate-call-sites.sh"
 
 CMD_BUILDS="bash scripts/verify-typescript-deps.sh && bash scripts/verify-python-deps.sh && bash scripts/verify-builds.sh"
 CMD_TOOLCHAIN="bash scripts/verify-ci-toolchain.sh"

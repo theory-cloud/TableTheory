@@ -27,7 +27,7 @@ test("cross-runtime interop scenarios (ts read phase)", async (t) => {
   }
 
   const root = contractRoot();
-  const models = await loadModelsDir(path.join(root, "dms", "v0.1", "models"));
+  const models = await loadModelsDir(path.join(root, "dms", "v0.2", "models"));
   const scenarios = await loadScenariosDir(
     path.join(root, "scenarios", "interop"),
   );

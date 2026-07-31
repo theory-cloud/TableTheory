@@ -14,6 +14,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
 specs=(
+  # structured-profile-user is intentionally excluded: P0 scenarios 16/17
+  # require hand-authored record carriers to exercise representation parity.
   "user"
   "order"
   "number-precision"
@@ -31,7 +33,7 @@ generate_into() {
   mkdir -p "${root}/${go_dir}" "${root}/${py_dir}"
 
   for name in "${specs[@]}"; do
-    local dms_path="contract-tests/dms/v0.1/models/${name}.yml"
+    local dms_path="contract-tests/dms/v0.2/models/${name}.yml"
     go run ./cmd/tabletheory gen --lang go --package driver \
       --out "${root}/${go_dir}/models_${name//-/_}_generated.go" \
       "${dms_path}"

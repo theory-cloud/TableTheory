@@ -46,7 +46,7 @@ class _JsonDoc:
 
 def test_parse_dms_document_and_get_model() -> None:
     raw = """
-dms_version: "0.1"
+dms_version: "0.2"
 namespace: "theorydb.test"
 models:
   - name: "Demo"
@@ -89,12 +89,12 @@ models:
 
 def test_parse_dms_document_rejects_unsupported_version() -> None:
     with pytest.raises(ValidationError):
-        parse_dms_document('dms_version: "9.9"\nmodels: []\n')
+        parse_dms_document('dms_version: "0.1"\nmodels: []\n')
 
 
 def test_parse_dms_document_rejects_unsupported_naming_convention() -> None:
     raw = """
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "BadNaming"
     table: { name: "tbl" }
@@ -131,7 +131,7 @@ def test_parse_dms_document_rejects_non_object_root() -> None:
 )
 def test_parse_dms_document_rejects_non_json_values(extra: str) -> None:
     raw = (
-        'dms_version: "0.1"\n'
+        'dms_version: "0.2"\n'
         "models:\n"
         '  - name: "Demo"\n'
         '    table: { name: "tbl" }\n'
@@ -158,7 +158,7 @@ def test_get_dms_model_errors() -> None:
 
 def test_parse_dms_document_accepts_native_json_types() -> None:
     raw = """
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "_JsonDoc"
     table: { name: "tbl" }
@@ -189,7 +189,7 @@ models:
 
 def test_parse_dms_document_rejects_json_set_storage_types() -> None:
     raw = """
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "_BadJson"
     table: { name: "tbl" }
@@ -211,7 +211,7 @@ models:
 
 def test_parse_dms_document_rejects_unknown_protected_attribute() -> None:
     raw = """
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "_BadPolicy"
     table: { name: "tbl" }
@@ -232,7 +232,7 @@ models:
 
 def test_model_definition_equivalence_to_dms_ignoring_table_name() -> None:
     raw = """
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "_Demo"
     table: { name: "ignored" }
@@ -266,7 +266,7 @@ models:
 
 def test_model_definition_equivalence_detects_drift() -> None:
     raw = """
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "_Demo"
     table: { name: "ignored" }
@@ -323,7 +323,7 @@ class _Complex:
 
 def test_model_definition_equivalence_with_indexes_and_types() -> None:
     raw = """
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "_Complex"
     table: { name: "tbl" }
@@ -417,7 +417,7 @@ def test_generated_python_fixture_equivalent_to_dms_source() -> None:
 def test_cli_generated_python_imports_when_required_field_follows_optional(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parents[3]
     dms_source = """
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "RequiredAfterOptional"
     table: { name: "required_after_optional" }
@@ -532,7 +532,7 @@ def _go_toolchain(root: Path) -> str:
 
 def test_ignore_table_name_allows_dms_without_table() -> None:
     raw = """
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "_Demo"
     keys:

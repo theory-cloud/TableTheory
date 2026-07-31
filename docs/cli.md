@@ -40,7 +40,7 @@ go run ./cmd/tabletheory validate ./models.dms.yml
 A valid document prints a concise pass result:
 
 ```text
-OK: ./models.dms.yml is valid DMS v0.1 (1 model(s))
+OK: ./models.dms.yml is valid DMS v0.2 (1 model(s))
 ```
 
 Invalid input fails closed with the file path and, when the YAML parser can report it, line context:

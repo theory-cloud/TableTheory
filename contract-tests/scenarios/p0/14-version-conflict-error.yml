@@ -1,11 +1,30 @@
 name: "p0.error_taxonomy.version_conflict"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities:
   - "error.version_conflict"
 model: "User"
 table:
   name: "users_contract"
 steps:
+  - op: update
+    fields: ["nickname"]
+    item:
+      PK: "USER#46-ABSENT"
+      SK: "PROFILE"
+      nickname: "must-not-create"
+      version: 0
+    expect:
+      errors:
+        - "ErrConditionFailed"
+        - "ErrVersionConflict"
+
+  - op: get
+    key:
+      PK: "USER#46-ABSENT"
+      SK: "PROFILE"
+    expect:
+      error: "ErrItemNotFound"
+
   - op: create
     item:
       PK: "USER#46"

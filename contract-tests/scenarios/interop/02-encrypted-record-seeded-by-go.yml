@@ -1,5 +1,5 @@
 name: "interop.encryption.seeded_by_go"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["encryption.deterministic_interop"]
 model: "EncryptedRecord"
 table:

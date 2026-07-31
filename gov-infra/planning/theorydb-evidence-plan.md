@@ -34,7 +34,7 @@ Every rubric ID maps to exactly one verifier and one primary evidence location.
 | QUA-5 | Fuzz smoke output | `gov-infra/evidence/QUA-5-output.log` | `bash scripts/fuzz-smoke.sh` |
 | CON-1 | Formatter diff list | `gov-infra/evidence/CON-1-output.log` | `bash scripts/verify-formatting.sh` |
 | CON-2 | Lint output | `gov-infra/evidence/CON-2-output.log` | `bash scripts/verify-lint.sh` |
-| CON-3 | Contract verification output | `gov-infra/evidence/CON-3-output.log` | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh`, `bash scripts/verify-generated-models.sh --check` |
+| CON-3 | Contract verification output | `gov-infra/evidence/CON-3-output.log` | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh`, `bash scripts/verify-generated-models.sh --check`, `bash scripts/verify-empty-predicate-call-sites.sh` |
 | COM-1 | Builds + version alignment output | `gov-infra/evidence/COM-1-output.log` | `bash scripts/verify-typescript-deps.sh`, `bash scripts/verify-python-deps.sh`, `bash scripts/verify-builds.sh` |
 | COM-2 | Toolchain pin verification | `gov-infra/evidence/COM-2-output.log` | `bash scripts/verify-ci-toolchain.sh` |
 | COM-3 | Planning docs presence | `gov-infra/evidence/COM-3-output.log` | `bash scripts/verify-planning-docs.sh` |

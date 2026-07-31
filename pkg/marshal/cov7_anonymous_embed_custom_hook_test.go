@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
 type Cov7AnonymousEmbedSecret struct {

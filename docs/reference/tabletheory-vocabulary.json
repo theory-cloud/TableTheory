@@ -1,7 +1,7 @@
 {
   "schema": "https://tabletheory.theorycloud.ai/reference/tabletheory-vocabulary.schema.json",
   "name": "TableTheory canonical vocabulary",
-  "dms_version": "0.1",
+  "dms_version": "0.2",
   "distribution": "immutable GitHub Releases only",
   "runtimes": ["go", "typescript", "python"],
   "dynamodb_first": true,

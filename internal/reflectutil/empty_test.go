@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
 )
 
 func TestIsEmpty(t *testing.T) {
@@ -30,8 +30,9 @@ func TestIsEmpty(t *testing.T) {
 	}{
 		{name: "invalid value", v: reflect.Value{}, want: true},
 
-		{name: "empty array", v: reflect.ValueOf([2]int{0, 0}), want: true},
+		{name: "fixed array with zero elements", v: reflect.ValueOf([2]int{0, 0}), want: false},
 		{name: "non-empty array", v: reflect.ValueOf([2]int{0, 1}), want: false},
+		{name: "zero-length array", v: reflect.ValueOf([0]int{}), want: true},
 
 		{name: "empty map", v: reflect.ValueOf(map[string]int{}), want: true},
 		{name: "non-empty map", v: reflect.ValueOf(map[string]int{"a": 1}), want: false},
@@ -57,10 +58,11 @@ func TestIsEmpty(t *testing.T) {
 		{name: "nil pointer", v: reflect.ValueOf(nilIntPtr), want: true},
 		{name: "non-nil pointer", v: reflect.ValueOf(new(int)), want: false},
 
-		{name: "empty struct", v: reflect.ValueOf(inner{}), want: true},
+		{name: "zero-valued struct has declared M entries", v: reflect.ValueOf(inner{}), want: false},
 		{name: "non-empty struct", v: reflect.ValueOf(inner{B: "x"}), want: false},
-		{name: "empty nested struct", v: reflect.ValueOf(outer{}), want: true},
+		{name: "zero-valued nested struct has declared M entries", v: reflect.ValueOf(outer{}), want: false},
 		{name: "non-empty nested struct", v: reflect.ValueOf(outer{Inner: inner{A: 1}}), want: false},
+		{name: "zero-field struct", v: reflect.ValueOf(struct{}{}), want: true},
 
 		{name: "zero time", v: reflect.ValueOf(time.Time{}), want: true},
 		{name: "non-zero time", v: reflect.ValueOf(now), want: false},
@@ -93,4 +95,17 @@ func TestIsEmpty(t *testing.T) {
 		require.Equal(t, reflect.Interface, v.Kind())
 		require.False(t, reflectutil.IsEmpty(v))
 	})
+}
+
+func TestIsSparseUpdateEmptyPreservesHistoricalSelection(t *testing.T) {
+	type record struct {
+		Source string
+	}
+
+	require.True(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf(record{})))
+	require.False(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf(record{Source: "present"})))
+	require.True(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf([2]int{0, 0})))
+	require.False(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf([2]int{0, 1})))
+	require.True(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf(map[string]string{})))
+	require.True(t, reflectutil.IsSparseUpdateEmpty(reflect.ValueOf([]string{})))
 }

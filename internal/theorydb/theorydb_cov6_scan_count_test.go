@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
 )
 
 func TestQuery_Count_UsesScanPaginatorAndAccumulatesCounts_COV6(t *testing.T) {

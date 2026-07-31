@@ -1,5 +1,5 @@
 name: "p0.lifecycle.created_updated"
-dms_version: "0.1"
+dms_version: "0.2"
 model: "User"
 table:
   name: "users_contract"

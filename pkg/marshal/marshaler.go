@@ -12,13 +12,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/anonymous"
-	"github.com/theory-cloud/tabletheory/v2/internal/expr"
-	"github.com/theory-cloud/tabletheory/v2/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/naming"
-	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	"github.com/theory-cloud/tabletheory/v3/internal/anonymous"
+	"github.com/theory-cloud/tabletheory/v3/internal/expr"
+	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
+	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
 // Marshaler provides high-performance marshaling to DynamoDB AttributeValues
@@ -285,6 +285,8 @@ func (m *Marshaler) buildMarshalFunc(typ reflect.Type, fieldMeta *model.FieldMet
 		return m.buildStructMarshalFunc(typ, fieldMeta)
 	case reflect.Slice:
 		return m.buildSliceMarshalFunc(typ, fieldMeta)
+	case reflect.Array:
+		return m.buildReflectMarshalFunc(typ, fieldMeta)
 	case reflect.Map:
 		return m.buildMapMarshalFunc(typ, fieldMeta)
 	default:
@@ -310,7 +312,7 @@ func (m *Marshaler) buildJSONMarshalFunc(typ reflect.Type, fieldMeta *model.Fiel
 	return func(ptr unsafe.Pointer) (types.AttributeValue, error) {
 		v := reflect.NewAt(typ, ptr).Elem()
 
-		if fieldMeta.OmitEmpty && v.IsZero() {
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(v) {
 			return &types.AttributeValueMemberNULL{Value: true}, nil
 		}
 
@@ -456,7 +458,7 @@ func (m *Marshaler) buildReflectMarshalFunc(typ reflect.Type, fieldMeta *model.F
 		// Convert unsafe pointer back to reflect.Value
 		v := reflect.NewAt(typ, ptr).Elem()
 
-		if fieldMeta.OmitEmpty && v.IsZero() {
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(v) {
 			return &types.AttributeValueMemberNULL{Value: true}, nil
 		}
 
@@ -475,6 +477,9 @@ func (m *Marshaler) marshalComplexValue(v reflect.Value) (types.AttributeValue, 
 	case reflect.Slice:
 		return m.marshalSliceComplex(v)
 
+	case reflect.Array:
+		return m.marshalArrayComplex(v)
+
 	case reflect.Map:
 		return m.marshalMapComplex(v)
 
@@ -485,6 +490,18 @@ func (m *Marshaler) marshalComplexValue(v reflect.Value) (types.AttributeValue, 
 		// For other types, use basic marshaling
 		return m.marshalValue(v)
 	}
+}
+
+func (m *Marshaler) marshalArrayComplex(v reflect.Value) (types.AttributeValue, error) {
+	list := make([]types.AttributeValue, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		elem, err := m.marshalValue(v.Index(i))
+		if err != nil {
+			return nil, fmt.Errorf("array index %d: %w", i, err)
+		}
+		list[i] = elem
+	}
+	return &types.AttributeValueMemberL{Value: list}, nil
 }
 
 func (m *Marshaler) marshalSliceComplex(v reflect.Value) (types.AttributeValue, error) {
@@ -551,9 +568,14 @@ func (m *Marshaler) marshalStructAsMap(v reflect.Value) (types.AttributeValue, e
 		field := fieldPlan.Field
 		fieldValue := v.FieldByIndex(fieldPlan.IndexPath)
 
+		theorydbTag := field.Tag.Get("theorydb")
 		jsonTag := field.Tag.Get("json")
-		hasOmitEmpty := jsonTag != "" && strings.Contains(jsonTag, "omitempty")
-		if hasOmitEmpty && fieldValue.IsZero() {
+		hasOmitEmpty := fieldcodec.HasModifier(theorydbTag, "omitempty") ||
+			fieldcodec.HasModifier(jsonTag, "omitempty")
+		if hasOmitEmpty && reflectutil.IsEmpty(fieldValue) {
+			continue
+		}
+		if theorydbTag == "" && jsonTag == "" && fieldValue.IsZero() {
 			continue
 		}
 
@@ -626,7 +648,7 @@ func (m *Marshaler) marshalValue(v reflect.Value) (types.AttributeValue, error) 
 		return marshalFloatNumber(v), nil
 	case reflect.Bool:
 		return &types.AttributeValueMemberBOOL{Value: v.Bool()}, nil
-	case reflect.Struct, reflect.Slice, reflect.Map:
+	case reflect.Struct, reflect.Slice, reflect.Array, reflect.Map:
 		return m.marshalComplexValue(v)
 	case reflect.Interface:
 		return m.marshalInterfaceValue(v)

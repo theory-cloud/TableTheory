@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
 )
 
 func TestFieldNameFromJSONTag_DefaultsWhenEmpty_COV6(t *testing.T) {
@@ -30,7 +30,7 @@ func TestIsZeroValue_CoversPointersInterfacesAndStructs_COV6(t *testing.T) {
 	iface = "x"
 	require.False(t, isZeroValue(reflect.ValueOf(&iface).Elem()))
 
-	require.False(t, isZeroValue(reflect.ValueOf(time.Time{})))
+	require.True(t, isZeroValue(reflect.ValueOf(time.Time{})))
 }
 
 func TestAttributeValueToInterface_UnknownTypesAndErrorPropagation_COV6(t *testing.T) {
@@ -100,6 +100,8 @@ func TestNamingHelpers_COV6(t *testing.T) {
 
 	require.True(t, hasStandaloneTagPart("pk,attr:ignored", "pk"))
 	require.False(t, hasStandaloneTagPart("attr:pkValue", "pk"))
+	require.True(t, hasOmitEmpty("attr:value,omitempty"))
+	require.False(t, hasOmitEmpty("attr:value,notomitempty"))
 	require.Equal(t, "created_at", fieldNameFromTheorydbTag("createdAt", "created_at,omitempty", naming.CamelCase))
 	require.Equal(t, "PK", fieldNameFromTheorydbTag("userID", "pk", naming.DynamORM))
 	require.Equal(t, "SK", fieldNameFromTheorydbTag("entity", "sk", naming.DynamORM))

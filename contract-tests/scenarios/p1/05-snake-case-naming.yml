@@ -1,5 +1,5 @@
 name: "p1.naming.snake_case"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["crud"]
 model: "SnakeCaseRecord"
 table:

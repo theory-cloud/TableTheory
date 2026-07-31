@@ -19,13 +19,13 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/require"
 
-	theorydberrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	theorydberrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
-//go:linkname sessionConfigLoadFunc github.com/theory-cloud/tabletheory/v2/pkg/session.configLoadFunc
+//go:linkname sessionConfigLoadFunc github.com/theory-cloud/tabletheory/v3/pkg/session.configLoadFunc
 var sessionConfigLoadFunc func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error)
 
 func stubSessionConfigLoad(t *testing.T, fn func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error)) {

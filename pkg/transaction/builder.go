@@ -14,14 +14,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/encryption"
-	"github.com/theory-cloud/tabletheory/v2/internal/expr"
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	customerrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/query"
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	"github.com/theory-cloud/tabletheory/v3/internal/encryption"
+	"github.com/theory-cloud/tabletheory/v3/internal/expr"
+	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/query"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
 const (
@@ -368,12 +370,38 @@ func (b *Builder) buildFieldUpdate(op transactOperation) (*types.Update, error) 
 		if fieldMeta == nil {
 			return nil, fmt.Errorf("unknown field %s for update", field)
 		}
+		switch {
+		case fieldMeta.IsCreatedAt, fieldMeta.IsUpdatedAt:
+			return nil, fmt.Errorf("%w: cannot update lifecycle timestamp field %s", customerrors.ErrInvalidModel, field)
+		case fieldMeta.IsVersion:
+			return nil, fmt.Errorf("%w: do not include version in update fields: %s", customerrors.ErrInvalidModel, field)
+		}
 		fieldValue := value.Field(fieldMeta.Index)
 		if !fieldValue.IsValid() {
 			return nil, fmt.Errorf("field %s is invalid", field)
 		}
-		if err := builder.AddUpdateSet(fieldMeta.DBName, fieldValue.Interface()); err != nil {
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
+			if err := builder.AddUpdateRemove(fieldMeta.DBName); err != nil {
+				return nil, fmt.Errorf("failed to build removal for %s: %w", field, err)
+			}
+			continue
+		}
+		valueToSet := fieldValue.Interface()
+		if fieldcodec.HasJSONTag(fieldMeta.Tags) {
+			normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldMeta.Type, fieldValue)
+			if err != nil {
+				return nil, fmt.Errorf("failed to normalize json field %s: %w", field, err)
+			}
+			valueToSet = normalized
+		}
+		if err := builder.AddUpdateSet(fieldMeta.DBName, valueToSet); err != nil {
 			return nil, fmt.Errorf("failed to build update for %s: %w", field, err)
+		}
+	}
+
+	if op.metadata.UpdatedAtField != nil {
+		if err := builder.AddUpdateSet(op.metadata.UpdatedAtField.DBName, time.Now()); err != nil {
+			return nil, fmt.Errorf("failed to build updated_at update: %w", err)
 		}
 	}
 

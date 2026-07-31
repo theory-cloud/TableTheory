@@ -1,5 +1,5 @@
 name: "p0.encryption.fail_closed"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["encryption.fail_closed"]
 model: "EncryptedRecord"
 table:

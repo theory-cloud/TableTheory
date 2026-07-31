@@ -1,5 +1,5 @@
 name: "p0.release_state.write_policy"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["release_state.write_policy"]
 model: "ReleaseStateEvent"
 table:

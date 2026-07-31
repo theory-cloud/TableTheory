@@ -414,37 +414,20 @@ export class TheorydbDriver implements Driver {
         "update action requires key and set",
       );
     }
-    const model = this.requireScenarioModel(modelName);
-    const names: Record<string, string> = {
-      ...(action.expressionAttributeNames ?? {}),
-    };
-    const values: Record<string, AttributeValue> =
-      this.expressionValues(modelName, action.expressionAttributeValues) ?? {};
-    const assignments: string[] = [];
-    for (const [index, [field, value]] of Object.entries(
-      action.set,
-    ).entries()) {
-      const attr = model.attributes.get(field);
-      if (!attr) {
-        throw new TheorydbError(
-          "ErrInvalidModel",
-          `unknown update field ${field}`,
-        );
-      }
-      const name = `#u${index}`;
-      const valueName = `:u${index}`;
-      names[name] = attr.attribute;
-      values[valueName] = marshalScalar(attr, value);
-      assignments.push(`${name} = ${valueName}`);
-    }
     return {
       kind: "update",
       model: modelName,
-      key: action.key,
-      updateExpression: `SET ${assignments.join(", ")}`,
+      item: contractItemForModel(modelName, {
+        ...action.key,
+        ...action.set,
+      }),
+      fields: Object.keys(action.set),
       conditionExpression: action.conditionExpression,
-      expressionAttributeNames: names,
-      expressionAttributeValues: values,
+      expressionAttributeNames: action.expressionAttributeNames,
+      expressionAttributeValues: this.expressionValues(
+        modelName,
+        action.expressionAttributeValues,
+      ),
     };
   }
 

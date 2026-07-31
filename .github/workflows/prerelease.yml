@@ -23,9 +23,10 @@ jobs:
           set -euo pipefail
 
           strict_log="$(mktemp)"
+          pending_major_log="$(mktemp)"
           repair_log="$(mktemp)"
           cleanup() {
-            rm -f "${strict_log}" "${repair_log}"
+            rm -f "${strict_log}" "${pending_major_log}" "${repair_log}"
           }
           trap cleanup EXIT
 
@@ -35,6 +36,19 @@ jobs:
           } >"${strict_log}" 2>&1; then
             cat "${strict_log}"
             echo "pending_stable_repair=false" >> "${GITHUB_OUTPUT}"
+            echo "pending_major_transition=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          if {
+            bash scripts/verify-branch-version-sync.sh
+            TABLETHEORY_PENDING_MAJOR_PREMAIN_CONTEXT=publication-skip \
+              bash scripts/verify-release-cycle-state.sh
+          } >"${pending_major_log}" 2>&1; then
+            cat "${pending_major_log}"
+            echo "prerelease: pending semantic import major accepted only to skip v2-numbered publication"
+            echo "pending_stable_repair=false" >> "${GITHUB_OUTPUT}"
+            echo "pending_major_transition=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -42,16 +56,18 @@ jobs:
             cat "${repair_log}"
             echo "prerelease: pending stable repair accepted; skipping prerelease publication"
             echo "pending_stable_repair=true" >> "${GITHUB_OUTPUT}"
+            echo "pending_major_transition=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
           cat "${strict_log}"
+          cat "${pending_major_log}"
           cat "${repair_log}"
           exit 1
 
       - name: Release Please (Prerelease)
         id: release
-        if: github.event_name == 'push' && steps.cycle.outputs.pending_stable_repair != 'true'
+        if: github.event_name == 'push' && steps.cycle.outputs.pending_stable_repair != 'true' && steps.cycle.outputs.pending_major_transition != 'true'
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
@@ -63,7 +79,7 @@ jobs:
           skip-github-pull-request: true
 
       - name: Verify prerelease publish postcondition
-        if: github.ref == 'refs/heads/premain' && steps.cycle.outputs.pending_stable_repair != 'true'
+        if: github.ref == 'refs/heads/premain' && steps.cycle.outputs.pending_stable_repair != 'true' && steps.cycle.outputs.pending_major_transition != 'true'
         env:
           HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           RELEASE_CREATED: ${{ steps.release.outputs.release_created || 'false' }}

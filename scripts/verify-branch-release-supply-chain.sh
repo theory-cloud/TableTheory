@@ -236,6 +236,8 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene verifier selector must detect Go semantic import verifier support"
   require_fixed "Go semantic import supply-chain marker" "${h}" \
     "release-hygiene verifier selector must detect Go semantic import supply-chain support"
+  require_fixed "pending-major-transition support marker" "${h}" \
+    "release-hygiene verifier selector must detect pending major transition support"
   require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
     "release-hygiene must run the release driver guard on staging -> premain PRs"
   require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \

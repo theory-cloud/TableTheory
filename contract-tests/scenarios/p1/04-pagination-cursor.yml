@@ -1,5 +1,5 @@
 name: "p1.pagination.cursor_walk"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["query.basic"]
 model: "User"
 table:

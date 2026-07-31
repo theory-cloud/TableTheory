@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, cast
 
@@ -35,6 +36,16 @@ class Item:
     sk: str = theorydb_field(name="SK", roles=["sk"])
     value: int = theorydb_field(name="value")
     note: str = theorydb_field(name="note", default="")
+
+
+@dataclass(frozen=True)
+class LifecycleItem:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    value: int = theorydb_field(name="value")
+    created_at: str = theorydb_field(name="createdAt", roles=["created_at"], default="")
+    updated_at: str = theorydb_field(name="updatedAt", roles=["updated_at"], default="")
+    version: int = theorydb_field(name="version", roles=["version"], default=0)
 
 
 class _StubClient:
@@ -103,11 +114,26 @@ class _StubClient:
 
 
 def test_table_value_helpers_and_error_mapping_variants() -> None:
+    @dataclass
+    class EmptyRecord:
+        name: str = ""
+        count: int = 0
+
+    @dataclass
+    class ZeroFieldRecord:
+        pass
+
     assert _is_empty(None) is True
     assert _is_empty(False) is True
     assert _is_empty(0) is True
     assert _is_empty("") is True
     assert _is_empty([]) is True
+    assert _is_empty({"source": ""}) is False
+    assert _is_empty(EmptyRecord()) is False
+    assert _is_empty(EmptyRecord(name="present")) is False
+    assert _is_empty(ZeroFieldRecord()) is True
+    assert _is_empty(datetime.min) is True
+    assert _is_empty(datetime.now(UTC)) is False
     assert _is_empty("x") is False
 
     assert _coerce_value(None, int) is None
@@ -333,6 +359,60 @@ def test_transact_update_supports_add_and_if_not_exists() -> None:
     assert "ADD" in update["UpdateExpression"]
     assert "if_not_exists" in update["UpdateExpression"]
     assert update["ExpressionAttributeValues"][":d_value"]["N"] == "1"
+
+
+def test_transact_update_refreshes_updated_at_without_accepting_lifecycle_input() -> None:
+    model = ModelDefinition.from_dataclass(LifecycleItem, table_name="tbl")
+    stub = _StubClient()
+    now = "2026-07-31T12:34:56.123456789Z"
+    table: Table[LifecycleItem] = Table(model, client=stub, now=lambda: now)
+
+    table.transact_write(
+        [
+            TransactUpdate(
+                pk="A",
+                sk="1",
+                updates={"value": 2},
+            )
+        ]
+    )
+
+    update = stub.transact_write_reqs[0]["TransactItems"][0]["Update"]
+    assert update["UpdateExpression"] == ("SET #d_updated_at = :d_updated_at, #d_value = :d_value")
+    assert update["ExpressionAttributeNames"]["#d_updated_at"] == "updatedAt"
+    assert update["ExpressionAttributeValues"][":d_updated_at"] == {"S": now}
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    [
+        ("created_at", "caller-created", "cannot update lifecycle timestamp field: created_at"),
+        ("updated_at", "caller-updated", "cannot update lifecycle timestamp field: updated_at"),
+        ("version", 99, "do not include version in update fields: version"),
+    ],
+)
+def test_transact_update_rejects_lifecycle_owned_fields_without_send(
+    field_name: str,
+    value: Any,
+    message: str,
+) -> None:
+    model = ModelDefinition.from_dataclass(LifecycleItem, table_name="tbl")
+    stub = _StubClient()
+    table: Table[LifecycleItem] = Table(model, client=stub)
+
+    with pytest.raises(ValidationError) as exc_info:
+        table.transact_write(
+            [
+                TransactUpdate(
+                    pk="A",
+                    sk="1",
+                    updates={field_name: value},
+                )
+            ]
+        )
+
+    assert str(exc_info.value) == message
+    assert stub.transact_write_reqs == []
 
 
 def test_put_delete_update_expression_attribute_maps_and_build_request_merges() -> None:
