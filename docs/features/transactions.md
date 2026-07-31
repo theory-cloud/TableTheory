@@ -119,8 +119,10 @@ See [`ts/src/transaction.ts`](https://github.com/theory-cloud/tabletheory/blob/m
 `TransactPut`, `TransactUpdate`, `TransactDelete`, `TransactConditionCheck` — all importable from `tabletheory_py`.
 Model-shaped `TransactUpdate.updates` rejects the Python fields carrying
 `created_at`, `updated_at`, and version roles with `ValidationError`. It does not
-increment version or add a version condition; use a deliberate raw transaction
-surface when transactional optimistic locking is required.
+increment version or add a version condition. Python has no partial-update
+version path on the transactional surface; transactional optimistic locking
+requires a `TransactPut` of the item with an explicitly incremented version plus
+a `condition_expression` on the current version.
 
 ```python
 from tabletheory_py import TransactPut, TransactUpdate
