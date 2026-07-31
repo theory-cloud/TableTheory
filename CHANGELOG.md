@@ -41,6 +41,12 @@
 
 ### Bug Fixes
 
+* **transaction:** refresh library-owned `updated_at` values on Go and TypeScript model-shaped transactional updates,
+  matching Python and each runtime's non-transactional update behavior
+* **ts:** reject `createdAt` and version fields from model-shaped transactional update selections, and validate
+  `updateFn` keys before invoking caller callbacks
+* **go:** normalize `theorydb:"json"` values identically in query and explicit transaction updates
+* **ci:** mechanically classify every Go `IsEmpty` / `IsSparseUpdateEmpty` call site so predicate drift fails the rubric
 * **transaction:** preserve non-nil empty collections in nested Go structs unless `omitempty` is explicit
 * **ci:** select direct-PR verifier scripts while a promotion base still contains the retired queue-era policy
 * **ci:** retire merge queues and restore direct protected-PR merges with strict live-ref provenance

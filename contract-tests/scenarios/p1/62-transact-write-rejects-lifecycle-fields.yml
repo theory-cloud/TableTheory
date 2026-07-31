@@ -1,0 +1,102 @@
+name: "p1.transact_write_rejects_lifecycle_fields"
+dms_version: "0.2"
+requires_capabilities: ["transact.write"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#TX-LIFECYCLE-REJECT"
+      SK: "PROFILE"
+      nickname: "before"
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#TX-LIFECYCLE-REJECT"
+      SK: "PROFILE"
+    save:
+      createdAt0: "createdAt"
+      updatedAt0: "updatedAt"
+      version0: "version"
+    expect:
+      item_contains:
+        nickname: "before"
+      item_has_fields: ["createdAt", "updatedAt", "version"]
+
+  - op: transact_write
+    transact_write:
+      actions:
+        - kind: "update"
+          key:
+            PK: "USER#TX-LIFECYCLE-REJECT"
+            SK: "PROFILE"
+          set:
+            createdAt: "2026-07-31T00:00:00Z"
+            nickname: "created-at-should-not-write"
+    expect:
+      error: "ErrInvalidModel"
+
+  - op: get
+    key:
+      PK: "USER#TX-LIFECYCLE-REJECT"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        nickname: "before"
+      item_field_equals_var:
+        createdAt: "createdAt0"
+        updatedAt: "updatedAt0"
+        version: "version0"
+
+  - op: transact_write
+    transact_write:
+      actions:
+        - kind: "update"
+          key:
+            PK: "USER#TX-LIFECYCLE-REJECT"
+            SK: "PROFILE"
+          set:
+            updatedAt: "2026-07-31T00:00:00Z"
+            nickname: "updated-at-should-not-write"
+    expect:
+      error: "ErrInvalidModel"
+
+  - op: get
+    key:
+      PK: "USER#TX-LIFECYCLE-REJECT"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        nickname: "before"
+      item_field_equals_var:
+        createdAt: "createdAt0"
+        updatedAt: "updatedAt0"
+        version: "version0"
+
+  - op: transact_write
+    transact_write:
+      actions:
+        - kind: "update"
+          key:
+            PK: "USER#TX-LIFECYCLE-REJECT"
+            SK: "PROFILE"
+          set:
+            version: 99
+            nickname: "version-should-not-write"
+    expect:
+      error: "ErrInvalidModel"
+
+  - op: get
+    key:
+      PK: "USER#TX-LIFECYCLE-REJECT"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        nickname: "before"
+      item_field_equals_var:
+        createdAt: "createdAt0"
+        updatedAt: "updatedAt0"
+        version: "version0"

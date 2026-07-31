@@ -63,6 +63,14 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 > `db.TransactionFunc(...)` compatibility helpers no longer exist; migrate to
 > the atomic `Transact()` surface.
 
+Go model-based `Update(model, fields)` transactions reject explicit selection
+of the library-owned `created_at`, `updated_at`, and version fields with
+`ErrInvalidModel`. The transaction runtime remains the single writer of
+`updated_at`, so the generated expression cannot contain overlapping lifecycle
+document paths. `UpdateWithBuilder` remains a caller-controlled low-level
+surface. The model-based path does not increment version or add a version
+condition; use `UpdateWithBuilder` for optimistic locking in a transaction.
+
 ## TypeScript
 
 `TheorydbClient.transactWrite(actions: TransactAction[])` accepts a list of
@@ -70,8 +78,11 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 Update actions provide either `item` plus an explicit `fields` selection, or
 `key` plus a raw `updateExpression` or an `updateFn` that uses the
 `UpdateBuilder` DSL. The model-based `item` + `fields` action removes a selected
-empty `omit_empty` attribute and sets every other selected attribute. The
-builder and raw expression variants remain caller-controlled.
+empty `omit_empty` attribute, sets every other selected attribute, and advances
+the model's library-owned `updatedAt` role. It rejects `createdAt` and version
+in `fields`. It also rejects caller-selected `updatedAt`, leaving the injected
+lifecycle refresh as the single writer. The builder and raw expression variants
+remain caller-controlled.
 
 ```typescript
 await db.transactWrite([
@@ -106,6 +117,12 @@ See [`ts/src/transaction.ts`](https://github.com/theory-cloud/tabletheory/blob/m
 
 `Table.transact_write(actions)` accepts a list of dataclass actions —
 `TransactPut`, `TransactUpdate`, `TransactDelete`, `TransactConditionCheck` — all importable from `tabletheory_py`.
+Model-shaped `TransactUpdate.updates` rejects the Python fields carrying
+`created_at`, `updated_at`, and version roles with `ValidationError`. It does not
+increment version or add a version condition. Python has no partial-update
+version path on the transactional surface; transactional optimistic locking
+requires a `TransactPut` of the item with an explicitly incremented version plus
+a `condition_expression` on the current version.
 
 ```python
 from tabletheory_py import TransactPut, TransactUpdate

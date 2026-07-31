@@ -41,7 +41,7 @@ Threat IDs must be stable over time. When a new class of risk is discovered:
 | THR-4 | DoS / cost blowups via unbounded operations | Unbounded scans/queries/batches cause throttling or large spend | QUA-2, SEC-7 | `bash scripts/verify-integration-tests.sh`, `bash scripts/verify-network-hygiene.sh` (plus targeted regression tests as needed) |
 | THR-5 | Sensitive data exposure | Values that may include CHD/PII leak via logs/errors/examples; encryption tags become “paper security” | SEC-5, SEC-8, SEC-9 | `bash scripts/verify-safe-defaults.sh`, `bash scripts/verify-encrypted-tag-implemented.sh`, `bash gov-infra/verifiers/gov-verify-rubric.sh` |
 | THR-6 | Supply-chain and verifier drift | CI/tool versions drift or gates are weakened (excludes/threshold lowering) causing missed issues | COM-1..8, SEC-2, SEC-3, DOC-4, DOC-5 | `bash gov-infra/verifiers/gov-verify-rubric.sh` |
-| THR-7 | Public API contract drift | Exported helpers or generated contract-runner models diverge from canonical tag/DMS semantics; consumers make unsafe assumptions | CON-3 | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh`, `bash scripts/verify-generated-models.sh --check` |
+| THR-7 | Public API contract drift | Exported helpers, generated contract-runner models, or empty-predicate call sites diverge from canonical tag/DMS semantics; consumers make unsafe assumptions | CON-3 | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh`, `bash scripts/verify-generated-models.sh --check`, `bash scripts/verify-empty-predicate-call-sites.sh` |
 
 ## Parity Rule (no “named threat without control”)
 - Every `THR-*` listed above must appear at least once in the controls matrix “Threat IDs” column.

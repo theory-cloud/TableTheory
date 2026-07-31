@@ -1,0 +1,51 @@
+name: "p1.transact_write_updated_at"
+dms_version: "0.2"
+requires_capabilities: ["transact.write"]
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#TX-UPDATED-AT"
+      SK: "PROFILE"
+      nickname: "before"
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#TX-UPDATED-AT"
+      SK: "PROFILE"
+    save:
+      createdAt0: "createdAt"
+      updatedAt0: "updatedAt"
+    expect:
+      item_has_fields: ["createdAt", "updatedAt"]
+
+  - op: sleep
+    ms: 25
+
+  - op: transact_write
+    transact_write:
+      actions:
+        - kind: "update"
+          key:
+            PK: "USER#TX-UPDATED-AT"
+            SK: "PROFILE"
+          set:
+            nickname: "after"
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#TX-UPDATED-AT"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        nickname: "after"
+      item_field_equals_var:
+        createdAt: "createdAt0"
+      item_field_not_equals_var:
+        updatedAt: "updatedAt0"

@@ -733,8 +733,10 @@ export class TheorydbClient {
               a,
               provider,
               this.sendOptions,
+              this.now(),
             );
           } else if (typeof a.updateFn === 'function') {
+            const key = marshalKey(model, a.key);
             const builder = new UpdateBuilder(
               this.ddb,
               model,
@@ -746,7 +748,7 @@ export class TheorydbClient {
             const built = await builder.build();
             update = {
               TableName: model.tableName,
-              Key: marshalKey(model, a.key),
+              Key: key,
               UpdateExpression: built.updateExpression,
               ConditionExpression: built.conditionExpression,
               ExpressionAttributeNames: built.expressionAttributeNames,
@@ -768,7 +770,7 @@ export class TheorydbClient {
             if (provider) {
               throw new TheorydbError(
                 'ErrInvalidModel',
-                `Encrypted transaction updates for model ${model.name} must use updateFn`,
+                `Encrypted transaction updates for model ${model.name} must use updateFn or the model-based item + fields action`,
               );
             }
             update = {
@@ -869,6 +871,7 @@ async function buildTransactModelUpdate(
   action: TransactModelUpdate,
   provider: EncryptionProvider | undefined,
   sendOptions: SendOptions | undefined,
+  now: string,
 ): Promise<Update> {
   const builder = new UpdateBuilder(
     ddb,
@@ -878,7 +881,23 @@ async function buildTransactModelUpdate(
     sendOptions,
   );
 
+  if (model.roles.updatedAt) {
+    builder.set(model.roles.updatedAt, now);
+  }
+
   for (const field of action.fields) {
+    if (field === model.roles.createdAt || field === model.roles.updatedAt) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        `Cannot update lifecycle timestamp field: ${field}`,
+      );
+    }
+    if (field === model.roles.version) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        `Do not include version in update fields: ${field}`,
+      );
+    }
     const schema = model.attributes.get(field);
     if (!schema) {
       throw new TheorydbError(
