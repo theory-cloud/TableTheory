@@ -14,6 +14,11 @@ TypeScript, and Python populate these fields in their shared P0 write paths:
 - update writes preserve `created_at` and advance `updated_at`;
 - a failed conditional update does not advance `updated_at`.
 
+The update rule includes model-shaped explicit-field transaction updates: Go
+`TransactionBuilder.Update`, TypeScript `item` + `fields` transaction actions,
+and Python `TransactUpdate`. Raw expressions and update-builder callbacks are
+low-level escape hatches and mutate lifecycle fields only when the caller asks.
+
 The [lifecycle P0 fixture](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/03-lifecycle-created-updated.yml)
 tracks the shared contract shape and expected timestamp ordering across all
 three runtimes.

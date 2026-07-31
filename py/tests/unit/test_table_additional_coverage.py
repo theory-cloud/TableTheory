@@ -38,6 +38,15 @@ class Item:
     note: str = theorydb_field(name="note", default="")
 
 
+@dataclass(frozen=True)
+class LifecycleItem:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    value: int = theorydb_field(name="value")
+    created_at: str = theorydb_field(name="createdAt", roles=["created_at"], default="")
+    updated_at: str = theorydb_field(name="updatedAt", roles=["updated_at"], default="")
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.query_reqs: list[dict[str, Any]] = []
@@ -349,6 +358,28 @@ def test_transact_update_supports_add_and_if_not_exists() -> None:
     assert "ADD" in update["UpdateExpression"]
     assert "if_not_exists" in update["UpdateExpression"]
     assert update["ExpressionAttributeValues"][":d_value"]["N"] == "1"
+
+
+def test_transact_update_refreshes_updated_at_without_accepting_lifecycle_input() -> None:
+    model = ModelDefinition.from_dataclass(LifecycleItem, table_name="tbl")
+    stub = _StubClient()
+    now = "2026-07-31T12:34:56.123456789Z"
+    table: Table[LifecycleItem] = Table(model, client=stub, now=lambda: now)
+
+    table.transact_write(
+        [
+            TransactUpdate(
+                pk="A",
+                sk="1",
+                updates={"value": 2},
+            )
+        ]
+    )
+
+    update = stub.transact_write_reqs[0]["TransactItems"][0]["Update"]
+    assert update["UpdateExpression"] == ("SET #d_updated_at = :d_updated_at, #d_value = :d_value")
+    assert update["ExpressionAttributeNames"]["#d_updated_at"] == "updatedAt"
+    assert update["ExpressionAttributeValues"][":d_updated_at"] == {"S": now}
 
 
 def test_put_delete_update_expression_attribute_maps_and_build_request_merges() -> None:

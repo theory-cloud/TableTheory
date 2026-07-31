@@ -77,6 +77,11 @@ runs the supported runtimes against the new scenario *before* adding it to the P
 set. New shapes incubate in P1/P2 status — important but not yet frozen — until
 they pass cross-runtime in three consecutive releases.
 
+The P1
+[`61-transact-write-updated-at.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p1/61-transact-write-updated-at.yml)
+scenario asserts that an explicit-field transactional update advances
+`updatedAt` while preserving `createdAt` in Go, TypeScript, and Python.
+
 ## How a scenario is run
 
 ```bash

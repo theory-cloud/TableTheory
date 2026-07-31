@@ -70,8 +70,9 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 Update actions provide either `item` plus an explicit `fields` selection, or
 `key` plus a raw `updateExpression` or an `updateFn` that uses the
 `UpdateBuilder` DSL. The model-based `item` + `fields` action removes a selected
-empty `omit_empty` attribute and sets every other selected attribute. The
-builder and raw expression variants remain caller-controlled.
+empty `omit_empty` attribute, sets every other selected attribute, and advances
+the model's library-owned `updatedAt` role. It rejects `createdAt` and version
+in `fields`. The builder and raw expression variants remain caller-controlled.
 
 ```typescript
 await db.transactWrite([

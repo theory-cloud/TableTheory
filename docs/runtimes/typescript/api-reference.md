@@ -492,7 +492,9 @@ type TransactUpdateWithBuilder = {
  *
  * Selected empty `omit_empty` attributes are removed according to DMS v0.2;
  * every other selected attribute is set from `item`. Fields not listed in
- * `fields` are not mutated.
+ * `fields` are not mutated, except that the runtime advances `updatedAt` when
+ * the model declares that lifecycle role. `createdAt` and version cannot be
+ * selected because those attributes are library-owned.
  */
 export type TransactModelUpdate = {
     kind: 'update';

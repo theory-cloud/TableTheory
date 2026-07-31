@@ -16,6 +16,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/v3/internal/encryption"
 	"github.com/theory-cloud/tabletheory/v3/internal/expr"
+	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/v3/pkg/core"
 	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
@@ -379,8 +380,22 @@ func (b *Builder) buildFieldUpdate(op transactOperation) (*types.Update, error) 
 			}
 			continue
 		}
-		if err := builder.AddUpdateSet(fieldMeta.DBName, fieldValue.Interface()); err != nil {
+		valueToSet := fieldValue.Interface()
+		if fieldcodec.HasJSONTag(fieldMeta.Tags) {
+			normalized, err := fieldcodec.NormalizeJSONReflectValue(fieldMeta.Type, fieldValue)
+			if err != nil {
+				return nil, fmt.Errorf("failed to normalize json field %s: %w", field, err)
+			}
+			valueToSet = normalized
+		}
+		if err := builder.AddUpdateSet(fieldMeta.DBName, valueToSet); err != nil {
 			return nil, fmt.Errorf("failed to build update for %s: %w", field, err)
+		}
+	}
+
+	if op.metadata.UpdatedAtField != nil {
+		if err := builder.AddUpdateSet(op.metadata.UpdatedAtField.DBName, time.Now()); err != nil {
+			return nil, fmt.Errorf("failed to build updated_at update: %w", err)
 		}
 	}
 
