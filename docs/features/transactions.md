@@ -67,8 +67,11 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 
 `TheorydbClient.transactWrite(actions: TransactAction[])` accepts a list of
 `{ kind: 'put' | 'update' | 'delete' | 'condition', model, ... }` actions.
-Update actions provide `key` plus either a raw `updateExpression` or an `updateFn`
-that uses the `UpdateBuilder` DSL.
+Update actions provide either `item` plus an explicit `fields` selection, or
+`key` plus a raw `updateExpression` or an `updateFn` that uses the
+`UpdateBuilder` DSL. The model-based `item` + `fields` action removes a selected
+empty `omit_empty` attribute and sets every other selected attribute. The
+builder and raw expression variants remain caller-controlled.
 
 ```typescript
 await db.transactWrite([

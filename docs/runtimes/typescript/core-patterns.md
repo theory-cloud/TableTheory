@@ -163,9 +163,9 @@ await db.transactWrite([
 ]);
 ```
 
-For models with encrypted attributes, transaction updates **must** use `updateFn`.
-Raw `updateExpression` transaction updates are only supported for models without
-encrypted attributes.
+For models with encrypted attributes, transaction updates **must** use
+`updateFn` or the model-based `item` + `fields` action. Raw `updateExpression`
+transaction updates are only supported for models without encrypted attributes.
 
 ## Pattern: Streams unmarshalling
 

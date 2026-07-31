@@ -31,6 +31,8 @@ const User = defineModel({
     { attribute: 'PK', type: 'S', roles: ['pk'] },
     { attribute: 'SK', type: 'S', roles: ['sk'] },
     { attribute: 'nickname', type: 'S', optional: true, omit_empty: true },
+    { attribute: 'alias', type: 'S', optional: true, omit_empty: true },
+    { attribute: 'displayName', type: 'S', optional: true },
     { attribute: 'createdAt', type: 'S', roles: ['created_at'] },
     { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
     { attribute: 'version', type: 'N', roles: ['version'] },
@@ -606,6 +608,89 @@ class StubDdb {
   assert.ok(update?.UpdateExpression?.includes('if_not_exists'));
   assert.ok(update?.ConditionExpression?.includes('attribute_not_exists'));
   assert.ok(update?.ConditionExpression?.includes('<'));
+}
+
+{
+  const cases = [
+    {
+      name: 'selected empty omit_empty field is removed',
+      item: { PK: 'A', SK: '1', nickname: '' },
+      fields: ['nickname'],
+      expectedExpression: 'REMOVE #u1',
+      expectedNames: { '#u1': 'nickname' },
+      expectedValues: undefined,
+    },
+    {
+      name: 'selected non-empty field is set',
+      item: { PK: 'A', SK: '1', nickname: 'present', alias: '' },
+      fields: ['nickname', 'alias'],
+      expectedExpression: 'SET #u1 = :u1 REMOVE #u2',
+      expectedNames: { '#u1': 'nickname', '#u2': 'alias' },
+      expectedValues: { ':u1': { S: 'present' } },
+    },
+    {
+      name: 'selected empty non-omit_empty field is set',
+      item: { PK: 'A', SK: '1', nickname: '', displayName: '' },
+      fields: ['nickname', 'displayName'],
+      expectedExpression: 'SET #u2 = :u1 REMOVE #u1',
+      expectedNames: { '#u1': 'nickname', '#u2': 'displayName' },
+      expectedValues: { ':u1': { S: '' } },
+    },
+    {
+      name: 'unselected fields are untouched',
+      item: {
+        PK: 'A',
+        SK: '1',
+        nickname: '',
+        alias: 'not-selected',
+        displayName: 'not-selected',
+      },
+      fields: ['nickname'],
+      expectedExpression: 'REMOVE #u1',
+      expectedNames: { '#u1': 'nickname' },
+      expectedValues: undefined,
+    },
+  ] as const;
+
+  const failures: string[] = [];
+  for (const tc of cases) {
+    try {
+      const ddb = new StubDdb((cmd) => {
+        if (cmd instanceof TransactWriteItemsCommand) return {};
+        throw new Error('unexpected');
+      });
+      const client = new TheorydbClient(
+        ddb as unknown as DynamoDBClient,
+      ).register(User);
+
+      await client.transactWrite([
+        {
+          kind: 'update',
+          model: 'User',
+          item: tc.item,
+          fields: tc.fields,
+        },
+      ]);
+
+      const cmd = ddb.sent[0];
+      assert.ok(cmd instanceof TransactWriteItemsCommand, tc.name);
+      const update = cmd.input.TransactItems?.[0]?.Update;
+      assert.equal(update?.UpdateExpression, tc.expectedExpression, tc.name);
+      assert.deepEqual(
+        update?.ExpressionAttributeNames,
+        tc.expectedNames,
+        tc.name,
+      );
+      assert.deepEqual(
+        update?.ExpressionAttributeValues,
+        tc.expectedValues,
+        tc.name,
+      );
+    } catch (error) {
+      failures.push(`${tc.name}: ${String(error)}`);
+    }
+  }
+  assert.deepEqual(failures, []);
 }
 
 {
