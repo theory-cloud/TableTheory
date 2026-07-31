@@ -167,6 +167,9 @@ func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata 
 	if err := rejectProtectedFieldMutation(metadata, fieldsMutatedByTransactionUpdate(modelValue, metadata)); err != nil {
 		return "", nil, nil, err
 	}
+	if err := rejectCallerSetLifecycleTimestamp(modelValue, metadata.CreatedAtField); err != nil {
+		return "", nil, nil, err
+	}
 
 	updateExpression := "SET "
 	expressionAttributeNames := make(map[string]string)
@@ -174,7 +177,7 @@ func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata 
 
 	updateCount := 0
 	for fieldName, fieldMeta := range metadata.Fields {
-		if fieldMeta.IsPK || fieldMeta.IsSK || fieldMeta.IsUpdatedAt {
+		if isLibraryManagedUpdateField(fieldMeta) {
 			continue
 		}
 
@@ -202,6 +205,26 @@ func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata 
 	}
 
 	return updateExpression, expressionAttributeNames, expressionAttributeValues, nil
+}
+
+func isLibraryManagedUpdateField(fieldMeta *model.FieldMetadata) bool {
+	return fieldMeta == nil || fieldMeta.IsPK || fieldMeta.IsSK || fieldMeta.IsCreatedAt || fieldMeta.IsUpdatedAt || fieldMeta.IsVersion
+}
+
+func rejectCallerSetLifecycleTimestamp(modelValue reflect.Value, fieldMeta *model.FieldMetadata) error {
+	if fieldMeta == nil {
+		return nil
+	}
+
+	fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
+	if fieldValue.IsValid() && !reflectutil.IsEmpty(fieldValue) {
+		return fmt.Errorf(
+			"%w: cannot update lifecycle timestamp field %s",
+			errors.ErrInvalidModel,
+			fieldMeta.Name,
+		)
+	}
+	return nil
 }
 
 func (tx *Transaction) applyVersionUpdate(
@@ -251,13 +274,8 @@ func (tx *Transaction) applyUpdatedAtUpdate(
 		return nil
 	}
 
-	fieldValue := modelValue.FieldByIndex(metadata.UpdatedAtField.IndexPath)
-	if fieldValue.IsValid() && !reflectutil.IsEmpty(fieldValue) {
-		return fmt.Errorf(
-			"%w: cannot update lifecycle timestamp field %s",
-			errors.ErrInvalidModel,
-			metadata.UpdatedAtField.Name,
-		)
+	if err := rejectCallerSetLifecycleTimestamp(modelValue, metadata.UpdatedAtField); err != nil {
+		return err
 	}
 
 	if *updateExpression == "SET " {

@@ -6,13 +6,11 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
 	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 	"github.com/theory-cloud/tabletheory/v3/pkg/session"
-	"github.com/theory-cloud/tabletheory/v3/pkg/testing/fakedb"
 	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
@@ -85,11 +83,13 @@ func TestBuilderUpdateRefreshesUpdatedAt(t *testing.T) {
 }
 
 type legacyTransactionalLifecycleRecord struct {
+	CreatedAt time.Time `theorydb:"created_at,attr:createdAt" json:"createdAt"`
 	UpdatedAt time.Time `theorydb:"updated_at,attr:updatedAt" json:"updatedAt"`
 	PK        string    `theorydb:"pk,attr:PK" json:"PK"`
 	SK        string    `theorydb:"sk,attr:SK" json:"SK"`
 	Value     string    `theorydb:"attr:value" json:"value"`
 	Optional  string    `theorydb:"attr:optional,omitempty" json:"optional,omitempty"`
+	Version   int       `theorydb:"version,attr:version" json:"version"`
 }
 
 func (legacyTransactionalLifecycleRecord) TableName() string {
@@ -97,18 +97,15 @@ func (legacyTransactionalLifecycleRecord) TableName() string {
 }
 
 func TestTransactionUpdateLegacyOverlapExpressionProbe(t *testing.T) {
-	fake := fakedb.New()
-	sess, err := session.NewSessionWithClient(&session.Config{Region: "us-east-1"}, fake)
-	require.NoError(t, err)
-
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&legacyTransactionalLifecycleRecord{}))
 
-	tx := NewTransaction(sess, registry, pkgTypes.NewConverter())
+	tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
 	require.NoError(t, tx.Update(&legacyTransactionalLifecycleRecord{
-		PK:    "USER#legacy-overlap",
-		SK:    "PROFILE",
-		Value: "changed",
+		PK:      "USER#legacy-overlap",
+		SK:      "PROFILE",
+		Value:   "changed",
+		Version: 7,
 	}))
 	require.Len(t, tx.writes, 1)
 	require.NotNil(t, tx.writes[0].Update)
@@ -116,14 +113,15 @@ func TestTransactionUpdateLegacyOverlapExpressionProbe(t *testing.T) {
 	update := tx.writes[0].Update
 	expression := aws.ToString(update.UpdateExpression)
 	t.Logf("legacy overlap update expression: %s", expression)
+	require.ElementsMatch(t, []string{"value", "version", "updatedAt"},
+		updateDocumentPaths(expression, update.ExpressionAttributeNames))
+	require.Equal(t, 1, updatePathOccurrences(expression, update.ExpressionAttributeNames, "version"),
+		"the library-managed version path must appear exactly once")
 	require.Equal(t, 1, updatePathOccurrences(expression, update.ExpressionAttributeNames, "updatedAt"),
 		"the library-managed updated_at path must appear exactly once")
-	require.NoError(t, tx.Commit(), "the built legacy transaction must validate and execute against the DynamoDBAPI fake")
-
-	items := fake.Items((legacyTransactionalLifecycleRecord{}).TableName())
-	require.Len(t, items, 1)
-	_, ok := items[0]["updatedAt"].(*types.AttributeValueMemberS)
-	require.True(t, ok, "the committed transaction must write the library-managed timestamp")
+	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "createdAt"),
+		"created_at must not be selected by the implicit update")
+	require.Equal(t, "#ver = :currentVer", aws.ToString(update.ConditionExpression))
 }
 
 func TestTransactionUpdateLegacyRejectsCallerSetUpdatedAtLikeExplicitPath(t *testing.T) {
@@ -138,6 +136,29 @@ func TestTransactionUpdateLegacyRejectsCallerSetUpdatedAtLikeExplicitPath(t *tes
 
 	explicit := NewBuilder(&session.Session{}, registry, pkgTypes.NewConverter())
 	explicit.Update(record, []string{"UpdatedAt"})
+	items, explicitErr := explicit.materializeOperations()
+	require.ErrorIs(t, explicitErr, customerrors.ErrInvalidModel)
+	require.Nil(t, items)
+
+	legacy := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+	legacyErr := legacy.Update(record)
+	require.ErrorIs(t, legacyErr, customerrors.ErrInvalidModel)
+	require.EqualError(t, legacyErr, explicitErr.Error())
+	require.Empty(t, legacy.writes, "invalid lifecycle selection must not produce a DynamoDB write")
+}
+
+func TestTransactionUpdateLegacyRejectsCallerSetCreatedAtLikeExplicitPath(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&legacyTransactionalLifecycleRecord{}))
+	record := &legacyTransactionalLifecycleRecord{
+		PK:        "USER#legacy-caller-created-at",
+		SK:        "PROFILE",
+		Value:     "changed",
+		CreatedAt: time.Now(),
+	}
+
+	explicit := NewBuilder(&session.Session{}, registry, pkgTypes.NewConverter())
+	explicit.Update(record, []string{"CreatedAt"})
 	items, explicitErr := explicit.materializeOperations()
 	require.ErrorIs(t, explicitErr, customerrors.ErrInvalidModel)
 	require.Nil(t, items)
@@ -169,15 +190,41 @@ func TestTransactionUpdateLegacyPreservesSparseSetSemanticsAndRefreshesUpdatedAt
 		"legacy implicit updates keep zero-valued omitempty fields unselected rather than removing them")
 	require.ElementsMatch(t, []string{"value", "updatedAt"}, attributeNames(update.ExpressionAttributeNames))
 	require.Len(t, update.ExpressionAttributeValues, 2)
+	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "createdAt"),
+		"a zero created_at must not overwrite the stored lifecycle timestamp")
+	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "version"),
+		"a zero version must not be selected by the implicit update")
 	require.Equal(t, 1, updatePathOccurrences(expression, update.ExpressionAttributeNames, "updatedAt"))
 }
 
 func updatePathOccurrences(expression string, names map[string]string, path string) int {
 	count := 0
-	for placeholder, attribute := range names {
+	for _, attribute := range updateDocumentPaths(expression, names) {
 		if attribute == path {
-			count += strings.Count(expression, placeholder)
+			count++
 		}
 	}
 	return count
+}
+
+func updateDocumentPaths(expression string, names map[string]string) []string {
+	setExpression := strings.TrimSpace(strings.TrimPrefix(expression, "SET"))
+	if setExpression == "" {
+		return nil
+	}
+
+	assignments := strings.Split(setExpression, ",")
+	paths := make([]string, 0, len(assignments))
+	for _, assignment := range assignments {
+		parts := strings.SplitN(assignment, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		path := strings.TrimSpace(parts[0])
+		if attribute, ok := names[path]; ok {
+			path = attribute
+		}
+		paths = append(paths, path)
+	}
+	return paths
 }
