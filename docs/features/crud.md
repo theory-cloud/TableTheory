@@ -108,6 +108,20 @@ use `omitempty`.
 
 The dedicated [omit-empty scenario](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/02-omitempty.yml) exercises every type variant in the matrix.
 
+### Explicit empty updates
+
+DMS v0.2 distinguishes an unselected field from a selected empty field:
+
+- an unselected empty `omit_empty` field leaves the persisted attribute
+  unchanged;
+- an explicitly selected empty `omit_empty` field removes the persisted
+  DynamoDB attribute;
+- a selected field without `omit_empty` stores its empty value.
+
+This rule is identical in Go, TypeScript, and Python. Consumers that need a
+present empty attribute must not mark that field `omit_empty`, or must use the
+runtime's deliberate low-level `SET` expression builder.
+
 ## Related
 
 - [Struct Definition Guide](../struct-definition-guide.md) — every tag and field shape

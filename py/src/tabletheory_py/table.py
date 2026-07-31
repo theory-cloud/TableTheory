@@ -70,14 +70,28 @@ if TYPE_CHECKING:
 def _is_empty(value: Any) -> bool:
     if value is None:
         return True
+    if isinstance(value, datetime):
+        return (
+            value.year == datetime.min.year
+            and value.month == datetime.min.month
+            and value.day == datetime.min.day
+            and value.hour == 0
+            and value.minute == 0
+            and value.second == 0
+            and value.microsecond == 0
+        )
     if value is False:
         return True
     if value == 0:
         return True
     if isinstance(value, (str, bytes, bytearray)) and len(value) == 0:
         return True
-    if isinstance(value, (list, dict, set, tuple)) and len(value) == 0:
-        return True
+    if is_dataclass(value) and not isinstance(value, type):
+        return len(fields(value)) == 0
+    if isinstance(value, Mapping):
+        return len(value) == 0
+    if isinstance(value, (list, set, tuple)):
+        return len(value) == 0
     return False
 
 
@@ -855,6 +869,7 @@ class Table[T]:
                             expression_attribute_names=action.expression_attribute_names,
                             expression_attribute_values=action.expression_attribute_values,
                             protected_attributes=action.protected_attributes,
+                            reject_version_field=True,
                         )
                     }
                 )
@@ -1019,6 +1034,7 @@ class Table[T]:
         expression_attribute_values: Mapping[str, Any] | None = None,
         protected_attributes: Sequence[str] = (),
         expected_version: int | None = None,
+        reject_version_field: bool = False,
         return_values: str | None = None,
     ) -> dict[str, Any]:
         key = self._to_key(pk, sk)
@@ -1056,9 +1072,9 @@ class Table[T]:
             ):
                 raise ValidationError(f"cannot update key field: {field_name}")
             if (
-                expected_version is not None
-                and version_attr is not None
+                version_attr is not None
                 and field_name == version_attr.python_name
+                and (expected_version is not None or reject_version_field)
             ):
                 raise ValidationError(f"do not include version in update fields: {field_name}")
 
@@ -1093,7 +1109,7 @@ class Table[T]:
                 set_parts.append(f"{name_ref} = if_not_exists({name_ref}, {value_ref})")
                 continue
 
-            if value is None:
+            if value is None or (attr_def.omitempty and _is_empty(value)):
                 remove_parts.append(name_ref)
                 continue
 

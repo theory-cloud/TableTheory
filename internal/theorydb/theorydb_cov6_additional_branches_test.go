@@ -10,11 +10,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/marshal"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	queryPkg "github.com/theory-cloud/tabletheory/v2/pkg/query"
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	"github.com/theory-cloud/tabletheory/v3/pkg/marshal"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	queryPkg "github.com/theory-cloud/tabletheory/v3/pkg/query"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
 type cov6SelectModel struct {

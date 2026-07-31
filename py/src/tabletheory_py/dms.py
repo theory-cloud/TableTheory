@@ -25,7 +25,7 @@ def parse_dms_document(raw: str) -> dict[str, Any]:
     _assert_json_compatible(parsed, path="dms")
 
     version = parsed.get("dms_version")
-    if version != "0.1":
+    if version != "0.2":
         raise ValidationError(f"unsupported dms_version: {version!r}")
 
     models = parsed.get("models")

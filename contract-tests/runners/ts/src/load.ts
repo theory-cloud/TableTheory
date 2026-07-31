@@ -16,6 +16,11 @@ export async function loadModelsDir(
     const filePath = path.join(modelsDir, entry.name);
     const raw = await fs.readFile(filePath, "utf8");
     const doc = YAML.parse(raw) as DmsDocument;
+    if (doc?.dms_version !== "0.2") {
+      throw new Error(
+        `Model file uses unsupported dms_version ${JSON.stringify(doc?.dms_version)}: ${filePath}`,
+      );
+    }
 
     for (const model of doc.models ?? []) {
       if (model?.name) models.set(model.name, model);
@@ -56,6 +61,11 @@ export async function loadScenariosDir(dir: string): Promise<Scenario[]> {
 }
 
 function validateScenario(scenario: Scenario, filePath: string): void {
+  if (scenario.dms_version !== "0.2") {
+    throw new Error(
+      `Scenario uses unsupported dms_version ${JSON.stringify(scenario.dms_version)}: ${filePath}`,
+    );
+  }
   if (scenario.seed_runtime) {
     if (
       !Array.isArray(scenario.seed_steps) ||

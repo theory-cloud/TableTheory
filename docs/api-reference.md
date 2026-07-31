@@ -18,7 +18,7 @@ make verify-api-reference
 
 ## Go packages
 
-### `github.com/theory-cloud/tabletheory/v2`
+### `github.com/theory-cloud/tabletheory/v3`
 
 ```go
 var WithBackupTable = schema.WithBackupTable ...
@@ -63,7 +63,7 @@ type MultiAccountDB = internaltheorydb.MultiAccountDB
 type TypedExtendedDB = core.TypedExtendedDB
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/core`
+### `github.com/theory-cloud/tabletheory/v3/pkg/core`
 
 ```go
 type AttributeMetadata struct{ ... }
@@ -108,7 +108,7 @@ type UpdateResult struct{ ... }
 type WritePolicyProvider interface{ ... }
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/model`
+### `github.com/theory-cloud/tabletheory/v3/pkg/model`
 
 ```go
 type FieldMetadata struct{ ... }
@@ -126,7 +126,7 @@ type WritePolicyMode string
     const WritePolicyModeMutable WritePolicyMode = "mutable" ...
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/query`
+### `github.com/theory-cloud/tabletheory/v3/pkg/query`
 
 ```go
 func Between(lo, hi any) []any
@@ -184,7 +184,7 @@ type UpdateItemExecutor interface{ ... }
 type UpdateItemWithResultExecutor interface{ ... }
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/session`
+### `github.com/theory-cloud/tabletheory/v3/pkg/session`
 
 ```go
 type Config struct{ ... }
@@ -196,7 +196,7 @@ type Session struct{ ... }
     func NewSessionWithClient(cfg *Config, client DynamoDBAPI) (*Session, error)
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/types`
+### `github.com/theory-cloud/tabletheory/v3/pkg/types`
 
 ```go
 type Converter struct{ ... }
@@ -204,7 +204,7 @@ type Converter struct{ ... }
 type CustomConverter interface{ ... }
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/marshal`
+### `github.com/theory-cloud/tabletheory/v3/pkg/marshal`
 
 ```go
 func SetGlobalConfig(config Config)
@@ -228,7 +228,7 @@ type SecurityStats struct{ ... }
     func GetSecurityStats() SecurityStats
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/transaction`
+### `github.com/theory-cloud/tabletheory/v3/pkg/transaction`
 
 ```go
 func TransactGet(ctx context.Context, sess *session.Session, registry *model.Registry, ...) ([]core.TransactGetResult, error)
@@ -238,7 +238,7 @@ type Transaction struct{ ... }
     func NewTransaction(session *session.Session, registry *model.Registry, ...) *Transaction
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/errors`
+### `github.com/theory-cloud/tabletheory/v3/pkg/errors`
 
 ```go
 var ErrItemNotFound = errors.New("item not found") ...
@@ -252,7 +252,7 @@ type TheorydbError struct{ ... }
 type TransactionError struct{ ... }
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/mocks`
+### `github.com/theory-cloud/tabletheory/v3/pkg/mocks`
 
 ```go
 func NewMockCreateTableOutput(tableName string) *dynamodb.CreateTableOutput
@@ -285,7 +285,7 @@ type UserService struct{ ... }
     func NewUserService(db core.DB) *UserService
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/typed`
+### `github.com/theory-cloud/tabletheory/v3/pkg/typed`
 
 ```go
 type Key[T any] struct{ ... }
@@ -295,7 +295,7 @@ type Model[T any] struct{ ... }
 type Query[T any] struct{ ... }
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/testing`
+### `github.com/theory-cloud/tabletheory/v3/pkg/testing`
 
 ```go
 type CommonScenarios struct{ ... }
@@ -318,14 +318,14 @@ type TestDB struct{ ... }
 type TestDBFactory struct{ ... }
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/testing/fakedb`
+### `github.com/theory-cloud/tabletheory/v3/pkg/testing/fakedb`
 
 ```go
 type Fake struct{ ... }
     func New() *Fake
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/schema`
+### `github.com/theory-cloud/tabletheory/v3/pkg/schema`
 
 ```go
 func TransformWithValidation(item map[string]types.AttributeValue, transform TransformFunc, ...) (map[string]types.AttributeValue, error)
@@ -359,7 +359,7 @@ type TransformValidator struct{ ... }
     func NewTransformValidator(sourceMetadata, targetMetadata *model.Metadata) *TransformValidator
 ```
 
-### `github.com/theory-cloud/tabletheory/v2/pkg/dms`
+### `github.com/theory-cloud/tabletheory/v3/pkg/dms`
 
 ```go
 func AssertModelsEquivalent(got, want Model, opts CompareOptions) error

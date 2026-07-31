@@ -60,7 +60,7 @@ func runContractScenarios(t *testing.T, scenarioRelDir string) {
 	root, err := runner.RepoRootFromModuleDir()
 	require.NoError(t, err)
 
-	models, err := spec.LoadModelsDir(filepath.Join(root, "contract-tests", "dms", "v0.1", "models"))
+	models, err := spec.LoadModelsDir(filepath.Join(root, "contract-tests", "dms", "v0.2", "models"))
 	require.NoError(t, err)
 
 	scenarioDir := filepath.Join(root, scenarioRelDir)
@@ -102,7 +102,7 @@ func runFakeContractScenarios(t *testing.T, scenarioRelDir string) {
 	root, err := runner.RepoRootFromModuleDir()
 	require.NoError(t, err)
 
-	models, err := spec.LoadModelsDir(filepath.Join(root, "contract-tests", "dms", "v0.1", "models"))
+	models, err := spec.LoadModelsDir(filepath.Join(root, "contract-tests", "dms", "v0.2", "models"))
 	require.NoError(t, err)
 
 	scenarioDir := filepath.Join(root, scenarioRelDir)

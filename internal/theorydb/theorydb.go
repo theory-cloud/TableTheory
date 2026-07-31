@@ -11,14 +11,14 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	"github.com/theory-cloud/tabletheory/v2/pkg/marshal"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	queryPkg "github.com/theory-cloud/tabletheory/v2/pkg/query"
-	"github.com/theory-cloud/tabletheory/v2/pkg/schema"
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
-	"github.com/theory-cloud/tabletheory/v2/pkg/transaction"
-	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v3/pkg/marshal"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	queryPkg "github.com/theory-cloud/tabletheory/v3/pkg/query"
+	"github.com/theory-cloud/tabletheory/v3/pkg/schema"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	"github.com/theory-cloud/tabletheory/v3/pkg/transaction"
+	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
 // DB is the main TableTheory database instance

@@ -4,6 +4,21 @@
 
 ### Breaking Changes
 
+* **contract:** advance the shared model contract to DMS v0.2. High-level updates now distinguish field selection:
+  unselected zero-valued `omitempty` fields remain unchanged, while explicitly selected empty `omitempty` fields remove
+  the persisted DynamoDB attribute. TypeScript already had this behavior; Go and Python previously stored empty values.
+  Existing items remain readable, but consumers relying on empty attributes remaining present must remove `omitempty` or
+  use an explicit low-level `SET`. The Go module moves to `github.com/theory-cloud/tabletheory/v3`; Go consumers must
+  update module requirements and imports. DMS `M` values use carrier-size emptiness, so non-empty maps, objects, Go
+  structs, and Python dataclasses remain present even when every contained value is empty. Arrays/lists use length
+  semantics, including fixed-length Go arrays, which serialize as `L` on both Create and Update. Go's no-argument
+  `Update()` retains sparse zero-value selection so unselected structs and arrays cannot overwrite persisted data.
+  Fixed arrays round-trip through stream decoding, batch and transaction reads, and update-builder return values.
+  Tagged record fields without `omitempty` remain present in non-JSON `M` carriers, while untagged zero-valued fields
+  inside nested struct maps are now omitted; add explicit matching tags when a nested zero must remain present. Go
+  transaction writes now use the same top-level `omitempty` predicate, and transactional explicit-empty updates emit
+  `REMOVE`. Legacy `gsi:Name:pk` / `gsi:Name:sk` tags remain excluded from updates under exact token parsing. See
+  `docs/migration/v3.md`.
 * **go:** align `ConsistentRead()` on GSI queries with the cross-runtime contract by returning
   `ErrInvalidOperator` instead of silently dropping the flag, including when the Go query optimizer auto-selects a GSI
   from key conditions. Semver decision: this parity repair is release-major material and must not ship as a patch/minor.
@@ -18,12 +33,20 @@
 * **go:** add `NewWithClient` and a state-backed `pkg/testing/fakedb` consumer test fake
 * **contract:** validate the Go state-backed fake against the P0 contract corpus
 * **ts:** add a stateful DynamoDB `send()` fake to the public testkit
+* **ts:** add model-based transactional updates with explicit field selection; selected empty `omit_empty` attributes
+  emit `REMOVE`, while other selected attributes emit `SET`
 * **py:** add a stateful DynamoDB testkit fake and top-level re-exports
 * add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
 * add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage
 
 ### Bug Fixes
 
+* **transaction:** refresh library-owned `updated_at` values on Go and TypeScript model-shaped transactional updates,
+  matching Python and each runtime's non-transactional update behavior
+* **ts:** reject `createdAt` and version fields from model-shaped transactional update selections, and validate
+  `updateFn` keys before invoking caller callbacks
+* **go:** normalize `theorydb:"json"` values identically in query and explicit transaction updates
+* **ci:** mechanically classify every Go `IsEmpty` / `IsSparseUpdateEmpty` call site so predicate drift fails the rubric
 * **transaction:** preserve non-nil empty collections in nested Go structs unless `omitempty` is explicit
 * **ci:** select direct-PR verifier scripts while a promotion base still contains the retired queue-era policy
 * **ci:** retire merge queues and restore direct protected-PR merges with strict live-ref provenance
@@ -39,6 +62,32 @@
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
+
+## [3.0.0-rc](https://github.com/theory-cloud/TableTheory/compare/v2.0.6...v3.0.0-rc) (2026-07-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* Explicitly selected empty omitempty fields now remove their DynamoDB attributes. DMS advances to v0.2, and the Go module path moves to github.com/theory-cloud/tabletheory/v3.
+
+### Features
+
+* adopt DMS v0.2 explicit-empty updates ([1b09947](https://github.com/theory-cloud/TableTheory/commit/1b099475f68dda5816e2b1ce71116cd3da74a7e5))
+* **ts:** add transactional model update with DMS empty rule ([8d02e99](https://github.com/theory-cloud/TableTheory/commit/8d02e998b18cb29a867cdf04e459fdbd165c998a))
+
+
+### Bug Fixes
+
+* **ci:** detect pending major transition verifier support ([e91421d](https://github.com/theory-cloud/TableTheory/commit/e91421da5fb46f18d9542cc75b37a623e91832dd))
+* **ci:** detect pending major transition verifier support ([6799e46](https://github.com/theory-cloud/TableTheory/commit/6799e46f6c9a8d3c62a8787c1d366ebbef6f80b1))
+* **contract:** close DMS v0.2 parity gaps ([d452b57](https://github.com/theory-cloud/TableTheory/commit/d452b571d6f51b5603200e33c538a44bc5c03f64))
+* **contract:** close remaining DMS v0.2 parity gaps ([a8816cc](https://github.com/theory-cloud/TableTheory/commit/a8816cc4745222e8faedb0d0a45196699df85bfe))
+* **contract:** eliminate representation-dependent emptiness ([025a464](https://github.com/theory-cloud/TableTheory/commit/025a46495c74b5495fe33a0ab7cc5a6ddd17ff13))
+* **contract:** preserve sparse structured updates ([8025999](https://github.com/theory-cloud/TableTheory/commit/8025999b612aac35e36422ed55fb87535a10482b))
+* **transaction:** align explicit update parity ([67d462d](https://github.com/theory-cloud/TableTheory/commit/67d462dabb9ac69b1b777e7de29517e3c17ae99e))
+* **transaction:** align explicit update parity ([5f74dae](https://github.com/theory-cloud/TableTheory/commit/5f74dae41cc8582de2e09075c407275268e5e3e1))
+* **transaction:** align Python version rejection ([3e90b8a](https://github.com/theory-cloud/TableTheory/commit/3e90b8a8bb6117db9fc753e5bd8905b46c9bbdff))
+* **transaction:** reject lifecycle field selection ([edea977](https://github.com/theory-cloud/TableTheory/commit/edea9775600ded74e9c2549253d2226e9a105083))
 
 ## [2.0.6](https://github.com/theory-cloud/TableTheory/compare/v2.0.6-rc...v2.0.6) (2026-07-30)
 

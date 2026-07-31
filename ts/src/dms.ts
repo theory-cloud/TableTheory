@@ -39,7 +39,7 @@ export function parseDmsDocument(raw: string): DmsDocument {
   }
 
   const doc = parsed as Partial<DmsDocument>;
-  if (doc.dms_version !== '0.1') {
+  if (doc.dms_version !== '0.2') {
     throw new TheorydbError(
       'ErrInvalidModel',
       `Unsupported dms_version: ${String(doc.dms_version ?? '')}`,

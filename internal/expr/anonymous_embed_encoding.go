@@ -17,8 +17,9 @@ type ConvertOptions struct {
 	LegacyStructFieldNames bool
 
 	// OmitZeroFieldsByDefault preserves pkg/types.Converter's historical
-	// reflect.Value.IsZero struct encoding behavior. In particular, non-nil empty
-	// collections are preserved unless omitempty is explicit.
+	// reflect.Value.IsZero behavior for untagged legacy struct fields. Explicitly
+	// tagged fields follow their omitempty option; non-nil empty collections are
+	// preserved unless omitempty is explicit.
 	OmitZeroFieldsByDefault bool
 
 	// FixedFloatFormat preserves pkg/types.Converter's historical decimal-string

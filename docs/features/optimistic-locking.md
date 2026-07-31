@@ -104,6 +104,19 @@ The first write of an item that does not yet exist starts at `version = 0`.
 Subsequent versioned writes increment the value, so the first successful update
 moves it to `version = 1`.
 
+## Update is not an upsert
+
+A versioned update always asserts `version == currentVersion`. That condition
+also applies when `currentVersion` is `0`, because zero is the valid persisted
+version immediately after creation. Skipping the condition for zero would
+disable optimistic locking for every first post-create update.
+
+Consequently, an update against an absent item fails with the typed
+condition/version-conflict error; it never creates the item. Use the runtime's
+create operation for a first write, or its explicitly named save/upsert
+operation when overwrite semantics are intended. Do not implement a repository
+`Put` method by routing both first writes and mutations through `Update`.
+
 ## Versioning under transactions
 
 Optimistic locking composes with DynamoDB transactions. A transactional write group that includes a versioned item asserts the version on the item's condition; if any condition fails, the whole transaction fails atomically. See [Transactions](transactions.md).

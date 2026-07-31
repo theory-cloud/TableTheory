@@ -4,6 +4,7 @@ import { TheorydbError } from './errors.js';
 import type { AttributeSchema, Model } from './model.js';
 import {
   isEmpty,
+  isEmptyAttribute,
   marshalKey,
   marshalScalar,
   nowRfc3339Nano,
@@ -83,7 +84,7 @@ export async function marshalPutItemEncrypted(
 
     const value = item[name];
     if (value === undefined) continue;
-    if (attr.omit_empty && isEmpty(value)) continue;
+    if (attr.omit_empty && isEmptyAttribute(attr, value)) continue;
 
     if (attr.encryption !== undefined) {
       out[name] = await encryptAttributeValue(attr, value, provider, {

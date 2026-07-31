@@ -14,12 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/smithy-go"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/encryption"
-	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	"github.com/theory-cloud/tabletheory/v3/internal/encryption"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
 // Transaction represents a DynamoDB transaction
@@ -179,7 +179,7 @@ func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata 
 		}
 
 		fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-		if !fieldValue.IsValid() || (fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue)) {
+		if !fieldValue.IsValid() || (fieldMeta.OmitEmpty && reflectutil.IsSparseUpdateEmpty(fieldValue)) {
 			continue
 		}
 
@@ -513,8 +513,8 @@ func (tx *Transaction) marshalPlainItem(model any, metadata *model.Metadata) (ma
 	for fieldName, fieldMeta := range metadata.Fields {
 		fieldValue := modelValue.Field(fieldMeta.Index)
 
-		// Skip zero values if omitempty
-		if fieldMeta.OmitEmpty && fieldValue.IsZero() {
+		// Apply the same DMS emptiness predicate used by query updates.
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
 			continue
 		}
 

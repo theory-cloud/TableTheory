@@ -304,6 +304,10 @@ def test_table_key_and_update_request_validation_errors() -> None:
     assert "REMOVE" in req["UpdateExpression"]
     assert "SET" in req["UpdateExpression"]
 
+    req = table._build_update_request("A", "1", {"note": "", "value": 1})
+    assert "REMOVE #d_note" in req["UpdateExpression"]
+    assert "#d_note = :d_note" not in req["UpdateExpression"]
+
     with pytest.raises(ValidationError, match="name collision"):
         table._build_update_request(
             "A",

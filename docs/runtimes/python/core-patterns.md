@@ -59,6 +59,22 @@ page2 = table.query("A", cursor=page1.next_cursor) if page1.next_cursor else Non
 table.batch_write(puts=[Note(pk="A", sk="2", value=1)], deletes=[("A", "1")])
 ```
 
+## Pattern: explicitly clear an omit-empty field
+
+DMS v0.2 treats keys in the update mapping as selected. Supplying an empty
+value for a selected `omitempty=True` field removes the DynamoDB attribute:
+
+```python
+table.update(
+    "USER#1",
+    "PROFILE",
+    {"nickname": ""},
+    expected_version=current.version,
+)
+```
+
+Fields absent from the mapping remain unchanged.
+
 ## Pattern: Lazy pagination for large reads
 
 Use `query_iter` and `scan_iter` when a caller may stop before consuming every page. The generator fetches the next

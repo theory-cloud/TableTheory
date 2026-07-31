@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2"
-	"github.com/theory-cloud/tabletheory/v2/pkg/schema"
-	"github.com/theory-cloud/tabletheory/v2/tests"
+	"github.com/theory-cloud/tabletheory/v3"
+	"github.com/theory-cloud/tabletheory/v3/pkg/schema"
+	"github.com/theory-cloud/tabletheory/v3/tests"
 )
 
 // Migration test models

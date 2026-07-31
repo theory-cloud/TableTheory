@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import os
 import time
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
@@ -56,6 +56,7 @@ from tabletheory_py import (
     FilterCondition,
     FilterGroup,
     ImmutableModelMutationError,
+    ModelDefinition,
     NotFoundError,
     ProtectedFieldMutationError,
     RejectedDeployAuthorityEvidenceError,
@@ -68,8 +69,42 @@ from tabletheory_py import (
     TransactWriteAction,
     ValidationError,
     VersionConflictError,
+    theorydb_field,
     transition_release_state,
     validate_deploy_authority_metadata,
+)
+
+@dataclass(frozen=True)
+class _StructuredProfile:
+    source: str = ""
+
+
+class _StructuredProfileConverter:
+    @staticmethod
+    def to_dynamodb(value: _StructuredProfile) -> dict[str, str]:
+        return {"source": value.source}
+
+    @staticmethod
+    def from_dynamodb(value: dict[str, Any]) -> _StructuredProfile:
+        return _StructuredProfile(source=str(value.get("source", "")))
+
+
+@dataclass(frozen=True)
+class _StructuredProfileUser:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    profile: _StructuredProfile = theorydb_field(
+        name="profile",
+        omitempty=True,
+        converter=_StructuredProfileConverter(),
+        default_factory=_StructuredProfile,
+    )
+    version: int = theorydb_field(name="version", roles=["version"], default=0)
+
+
+StructuredProfileUserDefinition = ModelDefinition.from_dataclass(
+    _StructuredProfileUser,
+    table_name="users_contract",
 )
 
 
@@ -86,8 +121,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 def _load_models() -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
-    for path in sorted((_repo_root() / "contract-tests" / "dms" / "v0.1" / "models").glob("*.yml")):
+    for path in sorted((_repo_root() / "contract-tests" / "dms" / "v0.2" / "models").glob("*.yml")):
         doc = _load_yaml(path)
+        assert doc.get("dms_version") == "0.2", f"{path.name} must declare DMS v0.2"
         for model in doc.get("models", []):
             out[model["name"]] = model
     assert out
@@ -105,6 +141,7 @@ def _load_scenarios_from(name: str) -> list[dict[str, Any]]:
     scenarios = []
     for path in sorted(scenario_dir.glob("*.yml")):
         scenario = _load_yaml(path)
+        assert scenario.get("dms_version") == "0.2", f"{path.name} must declare DMS v0.2"
         _validate_scenario_expectations(scenario, path)
         scenarios.append(scenario)
     assert scenarios
@@ -183,6 +220,7 @@ def _validate_expectation(expect: dict[str, Any], prefix: str) -> None:
 
 _MODEL_DEFINITIONS: dict[str, Any] = {
     "User": UserDefinition,
+    "StructuredProfileUser": StructuredProfileUserDefinition,
     "Order": OrderDefinition,
     "NumberPrecision": NumberPrecisionDefinition,
     "TypeMatrix": TypeMatrixDefinition,
@@ -194,6 +232,7 @@ _MODEL_DEFINITIONS: dict[str, Any] = {
 
 _MODEL_CLASSES: dict[str, type[Any]] = {
     "User": _User,
+    "StructuredProfileUser": _StructuredProfileUser,
     "Order": _Order,
     "NumberPrecision": _NumberPrecision,
     "TypeMatrix": _TypeMatrix,
@@ -206,16 +245,14 @@ _MODEL_CLASSES: dict[str, type[Any]] = {
 
 def _to_python_kwargs(model: str, item: dict[str, Any]) -> dict[str, Any]:
     by_attribute = {
-        attr.attribute_name: attr.python_name
-        for attr in _MODEL_DEFINITIONS[model].attributes.values()
+        attr.attribute_name: attr.python_name for attr in _MODEL_DEFINITIONS[model].attributes.values()
     }
     return {by_attribute.get(key, key): value for key, value in item.items()}
 
 
 def _to_attribute_item(model: str, item: dict[str, Any]) -> dict[str, Any]:
     by_python = {
-        attr.python_name: attr.attribute_name
-        for attr in _MODEL_DEFINITIONS[model].attributes.values()
+        attr.python_name: attr.attribute_name for attr in _MODEL_DEFINITIONS[model].attributes.values()
     }
     return {by_python.get(key, key): value for key, value in item.items()}
 
@@ -224,8 +261,7 @@ def _to_python_field_list(model: str, fields: list[str] | None) -> list[str] | N
     if fields is None:
         return None
     by_attribute = {
-        attr.attribute_name: attr.python_name
-        for attr in _MODEL_DEFINITIONS[model].attributes.values()
+        attr.attribute_name: attr.python_name for attr in _MODEL_DEFINITIONS[model].attributes.values()
     }
     return [by_attribute.get(field, field) for field in fields]
 
@@ -329,6 +365,8 @@ class _TheorydbPyDriver:
     ) -> None:
         table = self._table(model)
         updates = _to_python_kwargs(model, {field: item[field] for field in fields if field in item})
+        if model == "StructuredProfileUser" and "profile" in updates:
+            updates["profile"] = _StructuredProfile(**cast(dict[str, Any], updates["profile"]))
         expected_version = _expected_version(table, item)
         table.update(
             _pk_value(item),
@@ -499,6 +537,9 @@ class _TheorydbPyDriver:
         if model == "User":
             if "tags" in kwargs and kwargs["tags"] is not None:
                 kwargs["tags"] = set(cast(list[str], kwargs["tags"]))
+        elif model == "StructuredProfileUser":
+            if "profile" in kwargs and kwargs["profile"] is not None:
+                kwargs["profile"] = _StructuredProfile(**cast(dict[str, Any], kwargs["profile"]))
         elif model == "NumberPrecision":
             if "largeInteger" in kwargs and kwargs["largeInteger"] is not None:
                 kwargs["largeInteger"] = Decimal(str(kwargs["largeInteger"]))
@@ -867,7 +908,9 @@ def _run_step(
         return
 
     if step["op"] == "transact_get":
-        result, error = _capture_result(lambda: driver.transact_get(model_name, step["transact_get"]["items"]))
+        result, error = _capture_result(
+            lambda: driver.transact_get(model_name, step["transact_get"]["items"])
+        )
         _assert_read_expectation(step.get("expect", {}), error=error, result=result, model=model)
         return
 
@@ -878,7 +921,9 @@ def _run_step(
 
     if step["op"] == "batch_write":
         request = step["batch_write"]
-        error = _capture_error(lambda: driver.batch_write(model_name, request.get("puts", []), request.get("deletes", [])))
+        error = _capture_error(
+            lambda: driver.batch_write(model_name, request.get("puts", []), request.get("deletes", []))
+        )
         _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
         return
 

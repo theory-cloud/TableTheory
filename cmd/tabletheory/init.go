@@ -19,7 +19,7 @@ var templatesFS embed.FS
 
 // defaultRuntimeVersion is the TableTheory release the generated scaffold pins.
 // It can be overridden with --runtime-version.
-var defaultRuntimeVersion = "2.0.2"
+var defaultRuntimeVersion = "2.0.6"
 
 const goModuleBase = "github.com/theory-cloud/tabletheory"
 

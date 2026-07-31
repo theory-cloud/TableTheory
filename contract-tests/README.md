@@ -10,7 +10,7 @@ This folder is structured to be extracted into its own repo (suggested name: `th
 
 ```text
 contract-tests/
-  dms/v0.1/models/*.yml
+  dms/v0.2/models/*.yml
   scenarios/p0/*.yml
   golden/cursor/*
   runners/go

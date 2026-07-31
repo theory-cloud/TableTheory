@@ -4,6 +4,7 @@ import { TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
 import {
   isEmpty,
+  isEmptyAttribute,
   marshalKey,
   marshalDocumentValue,
   marshalPutItem,
@@ -26,8 +27,14 @@ assert.equal(isEmpty(0), true);
 assert.equal(isEmpty(false), true);
 assert.equal(isEmpty([]), true);
 assert.equal(isEmpty({}), true);
-assert.equal(isEmpty({ a: '' }), true);
+assert.equal(isEmpty({ a: '' }), false);
 assert.equal(isEmpty({ a: 'x' }), false);
+assert.equal(isEmpty(new Date(Number.NaN)), true);
+assert.equal(
+  isEmptyAttribute({ attribute: 'profile', type: 'M' }, { source: '' }),
+  false,
+);
+assert.equal(isEmptyAttribute({ attribute: 'profile', type: 'M' }, {}), true);
 
 assert.deepEqual(marshalScalar({ attribute: 'S', type: 'S' }, 'x'), { S: 'x' });
 assert.deepEqual(marshalScalar({ attribute: 'N', type: 'N' }, 1), { N: '1' });

@@ -98,6 +98,9 @@ func LoadModelsDir(dir string) (map[string]Model, error) {
 		if err := yaml.Unmarshal(data, &doc); err != nil {
 			return nil, fmt.Errorf("parse model file %s: %w", path, err)
 		}
+		if doc.DMSVersion != "0.2" {
+			return nil, fmt.Errorf("model file %s uses unsupported dms_version %q", path, doc.DMSVersion)
+		}
 
 		for _, model := range doc.Models {
 			if model.Name == "" {

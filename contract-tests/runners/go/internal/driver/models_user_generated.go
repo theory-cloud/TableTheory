@@ -7,15 +7,16 @@ import (
 )
 
 type User struct {
-	PK        string    `theorydb:"pk,attr:PK" json:"PK"`
-	SK        string    `theorydb:"sk,attr:SK" json:"SK"`
-	EmailHash string    `theorydb:"attr:emailHash,omitempty,index:gsi-email,pk" json:"emailHash,omitempty"`
-	Nickname  string    `theorydb:"attr:nickname,omitempty" json:"nickname,omitempty"`
-	Tags      []string  `theorydb:"attr:tags,omitempty,set" json:"tags,omitempty"`
-	CreatedAt time.Time `theorydb:"created_at,attr:createdAt" json:"createdAt"`
-	UpdatedAt time.Time `theorydb:"updated_at,attr:updatedAt" json:"updatedAt"`
-	Version   int64     `theorydb:"version,attr:version" json:"version"`
-	TTL       int64     `theorydb:"ttl,attr:ttl,omitempty" json:"ttl,omitempty"`
+	PK        string         `theorydb:"pk,attr:PK" json:"PK"`
+	SK        string         `theorydb:"sk,attr:SK" json:"SK"`
+	EmailHash string         `theorydb:"attr:emailHash,omitempty,index:gsi-email,pk" json:"emailHash,omitempty"`
+	Nickname  string         `theorydb:"attr:nickname,omitempty" json:"nickname,omitempty"`
+	Tags      []string       `theorydb:"attr:tags,omitempty,set" json:"tags,omitempty"`
+	Profile   map[string]any `theorydb:"attr:profile,omitempty,json" json:"profile,omitempty"`
+	CreatedAt time.Time      `theorydb:"created_at,attr:createdAt" json:"createdAt"`
+	UpdatedAt time.Time      `theorydb:"updated_at,attr:updatedAt" json:"updatedAt"`
+	Version   int64          `theorydb:"version,attr:version" json:"version"`
+	TTL       int64          `theorydb:"ttl,attr:ttl,omitempty" json:"ttl,omitempty"`
 }
 
 func (User) TableName() string { return "users_contract" }

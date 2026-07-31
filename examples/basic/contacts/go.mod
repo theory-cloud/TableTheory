@@ -1,4 +1,4 @@
-module github.com/theory-cloud/tabletheory/v2/examples/basic/contacts
+module github.com/theory-cloud/tabletheory/v3/examples/basic/contacts
 
 go 1.26
 
@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.31
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.30
 	github.com/google/uuid v1.6.0
-	github.com/theory-cloud/tabletheory/v2 v2.0.2
+	github.com/theory-cloud/tabletheory/v3 v3.0.0
 )
 
 require (
@@ -30,4 +30,4 @@ require (
 	github.com/aws/smithy-go v1.27.5 // indirect
 )
 
-replace github.com/theory-cloud/tabletheory/v2 => ../../..
+replace github.com/theory-cloud/tabletheory/v3 => ../../..

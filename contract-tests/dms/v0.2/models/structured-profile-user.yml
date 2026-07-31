@@ -1,0 +1,31 @@
+dms_version: "0.2"
+namespace: "theorydb.contract"
+models:
+  # Contract runners deliberately bind profile to a fixed-shape record carrier
+  # where the runtime supports one. This file is therefore hand-authored in the
+  # Go and Python runners rather than emitted by generated-model verification.
+  - name: "StructuredProfileUser"
+    table:
+      name: "users_contract"
+    naming:
+      convention: "camelCase"
+    keys:
+      partition: { attribute: "PK", type: "S" }
+      sort: { attribute: "SK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "SK"
+        type: "S"
+        required: true
+        roles: ["sk"]
+      - attribute: "profile"
+        type: "M"
+        optional: true
+        omit_empty: true
+      - attribute: "version"
+        type: "N"
+        format: "int"
+        roles: ["version"]

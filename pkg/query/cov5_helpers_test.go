@@ -1,6 +1,6 @@
 package query
 
-import "github.com/theory-cloud/tabletheory/v2/pkg/core"
+import "github.com/theory-cloud/tabletheory/v3/pkg/core"
 
 type cov5Metadata struct {
 	primaryKey   core.KeySchema

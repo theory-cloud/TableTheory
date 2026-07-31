@@ -36,8 +36,8 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 def test_release_state_dms_write_policy_fixture() -> None:
     root = _repo_root()
-    doc = _load_yaml(root / "contract-tests" / "dms" / "v0.1" / "models" / "release-state.yml")
-    assert doc["dms_version"] == "0.1"
+    doc = _load_yaml(root / "contract-tests" / "dms" / "v0.2" / "models" / "release-state.yml")
+    assert doc["dms_version"] == "0.2"
 
     models = {model["name"]: model for model in doc["models"]}
     actual = models["ReleaseStateActual"]
@@ -63,7 +63,7 @@ def test_release_state_p0_scenarios_are_capability_gated() -> None:
 
     for path in scenarios:
         scenario = _load_yaml(path)
-        assert scenario["dms_version"] == "0.1"
+        assert scenario["dms_version"] == "0.2"
         assert scenario["name"].startswith("p0.release_state.")
         required = scenario.get("requires_capabilities")
         assert isinstance(required, list) and required, f"{path.name} must declare required capabilities"

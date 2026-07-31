@@ -1,0 +1,47 @@
+name: "p0.encoding.omitempty_explicit_update"
+dms_version: "0.2"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#15"
+      SK: "PROFILE"
+      nickname: "present"
+      tags: ["present"]
+      profile:
+        source: "present"
+    expect:
+      ok: true
+
+  - op: update
+    fields: ["nickname", "tags", "profile"]
+    item:
+      PK: "USER#15"
+      SK: "PROFILE"
+      nickname: ""
+      tags: []
+      profile:
+        source: ""
+      version: 0
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#15"
+      SK: "PROFILE"
+    expect:
+      item_missing_fields: ["nickname", "tags"]
+      item_contains:
+        PK: "USER#15"
+        SK: "PROFILE"
+        profile:
+          source: ""
+        version: 1
+      raw_attribute_types:
+        profile: "M"
+      raw_item_contains:
+        profile:
+          source: ""

@@ -5,7 +5,7 @@ import type { UpdateBuilder } from './update-builder.js';
 /**
  * Raw transaction updates bypass UpdateBuilder encryption/validation and are
  * therefore only valid for models without encrypted attributes. Encrypted
- * models must use `updateFn`.
+ * models must use `updateFn` or `TransactModelUpdate`.
  */
 type TransactUpdateRaw = {
   kind: 'update';
@@ -16,6 +16,8 @@ type TransactUpdateRaw = {
   expressionAttributeNames?: Record<string, string>;
   expressionAttributeValues?: Record<string, AttributeValue>;
   updateFn?: never;
+  item?: never;
+  fields?: never;
 };
 
 type TransactUpdateWithBuilder = {
@@ -27,6 +29,30 @@ type TransactUpdateWithBuilder = {
   conditionExpression?: never;
   expressionAttributeNames?: never;
   expressionAttributeValues?: never;
+  item?: never;
+  fields?: never;
+};
+
+/**
+ * A model-based transactional update with an explicit field selection.
+ *
+ * Selected empty `omit_empty` attributes are removed according to DMS v0.2;
+ * every other selected attribute is set from `item`. Fields not listed in
+ * `fields` are not mutated, except that the runtime advances `updatedAt` when
+ * the model declares that lifecycle role. `createdAt` and version cannot be
+ * selected because those attributes are library-owned.
+ */
+export type TransactModelUpdate = {
+  kind: 'update';
+  model: string;
+  item: Record<string, unknown>;
+  fields: readonly string[];
+  conditionExpression?: string;
+  expressionAttributeNames?: Record<string, string>;
+  expressionAttributeValues?: Record<string, AttributeValue>;
+  key?: never;
+  updateExpression?: never;
+  updateFn?: never;
 };
 
 export type TransactAction =
@@ -38,6 +64,7 @@ export type TransactAction =
     }
   | TransactUpdateRaw
   | TransactUpdateWithBuilder
+  | TransactModelUpdate
   | {
       kind: 'delete';
       model: string;

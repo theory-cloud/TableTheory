@@ -6,15 +6,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
 )
 
 func TestParseDocumentAndFindModel(t *testing.T) {
 	t.Parallel()
 
 	raw := []byte(`
-dms_version: "0.1"
+dms_version: "0.2"
 namespace: "theorydb.test"
 models:
   - name: "Demo"
@@ -63,15 +63,19 @@ func TestFindModelNilDocument(t *testing.T) {
 func TestParseDocumentRejectsUnsupportedVersion(t *testing.T) {
 	t.Parallel()
 
-	_, err := ParseDocument([]byte(`dms_version: "9.9"\nmodels: []\n`))
+	_, err := ParseDocument([]byte(`
+dms_version: "0.1"
+models: []
+`))
 	require.Error(t, err)
+	require.ErrorContains(t, err, `unsupported dms_version: "0.1"`)
 }
 
 func TestParseDocumentRejectsUnsupportedNamingConvention(t *testing.T) {
 	t.Parallel()
 
 	_, err := ParseDocument([]byte(`
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "Demo"
     table: { name: "tbl" }
@@ -91,7 +95,7 @@ func TestParseDocumentRejectsNonJSONValues(t *testing.T) {
 	t.Parallel()
 
 	_, err := ParseDocument([]byte(`
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "Demo"
     table: { name: "tbl" }
@@ -158,23 +162,23 @@ func TestValidateDocument_Errors(t *testing.T) {
 		},
 		{
 			name: "missing_models",
-			doc:  &Document{DMSVersion: "0.1"},
+			doc:  &Document{DMSVersion: "0.2"},
 			want: "must include models",
 		},
 		{
 			name: "model_missing_name",
-			doc:  &Document{DMSVersion: "0.1", Models: []Model{{}}},
+			doc:  &Document{DMSVersion: "0.2", Models: []Model{{}}},
 			want: "model missing name",
 		},
 		{
 			name: "model_missing_table",
-			doc:  &Document{DMSVersion: "0.1", Models: []Model{{Name: "A"}}},
+			doc:  &Document{DMSVersion: "0.2", Models: []Model{{Name: "A"}}},
 			want: "missing table.name",
 		},
 		{
 			name: "model_missing_partition_key",
 			doc: &Document{
-				DMSVersion: "0.1",
+				DMSVersion: "0.2",
 				Models: []Model{{
 					Name:  "A",
 					Table: Table{Name: "t"},
@@ -189,7 +193,7 @@ func TestValidateDocument_Errors(t *testing.T) {
 		{
 			name: "model_invalid_sort_key",
 			doc: &Document{
-				DMSVersion: "0.1",
+				DMSVersion: "0.2",
 				Models: []Model{{
 					Name:  "A",
 					Table: Table{Name: "t"},
@@ -207,7 +211,7 @@ func TestValidateDocument_Errors(t *testing.T) {
 		{
 			name: "duplicate_attribute",
 			doc: &Document{
-				DMSVersion: "0.1",
+				DMSVersion: "0.2",
 				Models: []Model{{
 					Name:  "A",
 					Table: Table{Name: "t"},
@@ -223,7 +227,7 @@ func TestValidateDocument_Errors(t *testing.T) {
 		{
 			name: "required_and_optional",
 			doc: &Document{
-				DMSVersion: "0.1",
+				DMSVersion: "0.2",
 				Models: []Model{{
 					Name:  "A",
 					Table: Table{Name: "t"},
@@ -238,7 +242,7 @@ func TestValidateDocument_Errors(t *testing.T) {
 		{
 			name: "missing_partition_key_attribute",
 			doc: &Document{
-				DMSVersion: "0.1",
+				DMSVersion: "0.2",
 				Models: []Model{{
 					Name:  "A",
 					Table: Table{Name: "t"},
@@ -253,7 +257,7 @@ func TestValidateDocument_Errors(t *testing.T) {
 		{
 			name: "missing_sort_key_attribute",
 			doc: &Document{
-				DMSVersion: "0.1",
+				DMSVersion: "0.2",
 				Models: []Model{{
 					Name:  "A",
 					Table: Table{Name: "t"},
@@ -271,7 +275,7 @@ func TestValidateDocument_Errors(t *testing.T) {
 		{
 			name: "invalid_write_policy_mode",
 			doc: &Document{
-				DMSVersion: "0.1",
+				DMSVersion: "0.2",
 				Models: []Model{{
 					Name:        "A",
 					Table:       Table{Name: "t"},
@@ -287,7 +291,7 @@ func TestValidateDocument_Errors(t *testing.T) {
 		{
 			name: "unknown_protected_attribute",
 			doc: &Document{
-				DMSVersion: "0.1",
+				DMSVersion: "0.2",
 				Models: []Model{{
 					Name:        "A",
 					Table:       Table{Name: "t"},
@@ -325,7 +329,7 @@ func TestFromMetadataAndEquivalence(t *testing.T) {
 	t.Parallel()
 
 	doc, err := ParseDocument([]byte(`
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "demoModel"
     table: { name: "ignored" }
@@ -496,7 +500,7 @@ func TestParseDocumentRejectsInvalidJsonBinaryModifiers(t *testing.T) {
 	t.Parallel()
 
 	_, err := ParseDocument([]byte(`
-dms_version: "0.1"
+dms_version: "0.2"
 models:
   - name: "Demo"
     table: { name: "tbl" }

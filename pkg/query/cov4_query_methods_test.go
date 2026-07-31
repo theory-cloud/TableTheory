@@ -10,9 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/expr"
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	pkgtypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	"github.com/theory-cloud/tabletheory/v3/internal/expr"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	pkgtypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
 type cov4Metadata struct {
@@ -450,6 +450,29 @@ func TestQuery_buildUpdateExpressionFromTaggedVisibleFields_SkipsKeysAndOmitEmpt
 		require.True(t, ok)
 		require.Equal(t, "ready", statusAV.Value)
 	}
+}
+
+func TestQuery_OmitEmptySeparatesSparseSelectionFromNamedEmptiness(t *testing.T) {
+	type item struct {
+		ID     string `theorydb:"pk"`
+		Values [2]int `theorydb:"attr:values,omitempty"`
+	}
+
+	q := New(&item{ID: "id-1"}, &cov4Metadata{
+		table: "tbl",
+		pk:    core.KeySchema{PartitionKey: "ID"},
+	}, &cov4Executor{})
+
+	modelValue, err := q.updateModelValue()
+	require.NoError(t, err)
+
+	sparse := expr.NewBuilderWithConverter(q.converter)
+	require.NoError(t, q.buildUpdateExpressionFromTags(sparse, modelValue, nil))
+	require.Empty(t, sparse.Build().UpdateExpression)
+
+	named := expr.NewBuilderWithConverter(q.converter)
+	require.NoError(t, q.buildUpdateExpressionFromTags(named, modelValue, []string{"Values"}))
+	require.Contains(t, named.Build().UpdateExpression, "SET")
 }
 
 func TestQuery_FlatTaggedHelpers_NormalizeJSONValues(t *testing.T) {

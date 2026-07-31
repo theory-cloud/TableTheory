@@ -5,7 +5,7 @@ description: TableTheory for Go — installation, Lambda init, and the canonical
 
 # Go runtime
 
-TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory/v2`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
+TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory/v3`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
 
 The Go runtime is a peer implementation of the shared contract — not a
 reference implementation that TypeScript and Python port. Contract parity is
@@ -16,7 +16,7 @@ established by the shared scenarios, not by treating one runtime as canonical.
 TableTheory is distributed exclusively through immutable [GitHub Releases](https://github.com/theory-cloud/tabletheory/releases). Pin to a specific release tag:
 
 ```bash
-go get github.com/theory-cloud/tabletheory/v2@vX.Y.Z
+go get github.com/theory-cloud/tabletheory/v3@vX.Y.Z
 ```
 
 Never depend on a moving `latest`.
@@ -32,7 +32,7 @@ import (
     "log"
 
     "github.com/aws/aws-lambda-go/lambda"
-    "github.com/theory-cloud/tabletheory/v2"
+    "github.com/theory-cloud/tabletheory/v3"
 )
 
 type Note struct {
@@ -105,6 +105,13 @@ db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome"}).Delete()
 // Conditional create — fails if the key already exists
 db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome"}).IfNotExists().Create()
 ```
+
+When `Update()` is called without field names, Go treats the model as a sparse
+update: zero-valued fields tagged `omitempty` are not selected and therefore do
+not overwrite existing attributes. Naming an empty `omitempty` field explicitly
+with `Update("Field")` selects it and removes the DynamoDB attribute under DMS
+v0.2. To store a present empty value, remove `omitempty` from the model or use
+an explicit low-level `UpdateBuilder().Set("Field", zeroValue)`.
 
 For a full working program covering conditional helpers, batches, transactions, and streams, see [`examples/feature_spotlight.go`](https://github.com/theory-cloud/tabletheory/blob/main/examples/feature_spotlight.go).
 

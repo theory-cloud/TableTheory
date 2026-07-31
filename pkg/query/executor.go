@@ -10,10 +10,10 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
-	customerrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
+	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
 )
 
 // UnmarshalItems unmarshals DynamoDB items into the destination.
@@ -449,18 +449,25 @@ func unmarshalBoolAttribute(value bool, dest reflect.Value) error {
 }
 
 func unmarshalListAttributeWithConvention(values []types.AttributeValue, dest reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
-	if dest.Kind() != reflect.Slice {
+	if dest.Kind() != reflect.Slice && dest.Kind() != reflect.Array {
 		return fmt.Errorf("cannot unmarshal list into non-slice type")
 	}
 
-	sliceType := dest.Type()
-	newSlice := reflect.MakeSlice(sliceType, len(values), len(values))
+	destination := dest
+	if dest.Kind() == reflect.Slice {
+		destination = reflect.MakeSlice(dest.Type(), len(values), len(values))
+	} else if dest.Len() != len(values) {
+		return fmt.Errorf("list length %d does not match array length %d", len(values), dest.Len())
+	}
+
 	for i, item := range values {
-		if err := unmarshalAttributeValueWithConvention(item, newSlice.Index(i), inheritedConvention, inheritNaming); err != nil {
+		if err := unmarshalAttributeValueWithConvention(item, destination.Index(i), inheritedConvention, inheritNaming); err != nil {
 			return err
 		}
 	}
-	dest.Set(newSlice)
+	if dest.Kind() == reflect.Slice {
+		dest.Set(destination)
+	}
 	return nil
 }
 

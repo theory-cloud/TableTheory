@@ -1,0 +1,43 @@
+name: "p0.encoding.omitempty_implicit_structured_m_update"
+dms_version: "0.2"
+model: "StructuredProfileUser"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#17"
+      SK: "PROFILE"
+      profile:
+        source: "present"
+    expect:
+      ok: true
+
+  # No fields list means the profile is unselected. Go exercises its
+  # compatibility-preserving sparse inference; TS/Python send no mutations.
+  - op: update
+    item:
+      PK: "USER#17"
+      SK: "PROFILE"
+      profile:
+        source: ""
+      version: 0
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#17"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        PK: "USER#17"
+        SK: "PROFILE"
+        profile:
+          source: "present"
+        version: 1
+      raw_attribute_types:
+        profile: "M"
+      raw_item_contains:
+        profile:
+          source: "present"

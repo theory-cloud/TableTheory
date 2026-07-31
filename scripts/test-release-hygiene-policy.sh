@@ -328,6 +328,20 @@ SH
 #!/usr/bin/env bash
 echo "manifest-derived stable Release-As"
 SH
+  cat >"${root}/scripts/verify-go-semantic-import-version.sh" <<'SH'
+#!/usr/bin/env bash
+echo "go-semantic-import: PASS (pending-major-transition=2->3)"
+SH
+}
+
+write_v2_pre_pending_major_transition_verifier_fixture() {
+  local root="$1"
+
+  write_v2_verifier_fixture "${root}"
+  cat >"${root}/scripts/verify-go-semantic-import-version.sh" <<'SH'
+#!/usr/bin/env bash
+echo "go-semantic-import: PASS"
+SH
 }
 
 write_v2_merge_queue_verifier_fixture() {
@@ -434,6 +448,7 @@ run_verifier_source_selector_fixture() {
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/trusted-release" ;;
     v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/trusted-release" ;;
     v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/trusted-release" ;;
+    v2-pre-pending-major-transition) write_v2_pre_pending_major_transition_verifier_fixture "${fixture}/trusted-release" ;;
     v2) write_v2_verifier_fixture "${fixture}/trusted-release" ;;
     *) echo "release-hygiene-policy-test: unknown trusted fixture ${trusted_shape}" >&2; exit 1 ;;
   esac
@@ -443,6 +458,7 @@ run_verifier_source_selector_fixture() {
     v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/pr" ;;
     v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/pr" ;;
     v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/pr" ;;
+    v2-pre-pending-major-transition) write_v2_pre_pending_major_transition_verifier_fixture "${fixture}/pr" ;;
     v2) write_v2_verifier_fixture "${fixture}/pr" ;;
     *) echo "release-hygiene-policy-test: unknown head fixture ${head_shape}" >&2; exit 1 ;;
   esac
@@ -1338,6 +1354,11 @@ grep -Fq "direct protected-PR verifier marker" "${repo_root}/.github/workflows/r
   exit 1
 }
 
+grep -Fq "pending-major-transition" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect pending major transition support"
+  exit 1
+}
+
 selector_result="$(
   run_verifier_source_selector_fixture \
     v1 v2 \
@@ -1361,6 +1382,18 @@ assert_selector_result \
   "." \
   "protected-pr-head-v2" \
   "scripts/verify-branch-release-supply-chain.sh lacks direct protected-PR verifier marker"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
+    v2-pre-pending-major-transition v2 \
+    premain staging \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "." \
+  "protected-pr-head-v2" \
+  "scripts/verify-go-semantic-import-version.sh lacks pending-major-transition support marker"
 
 selector_result="$(
   run_verifier_source_selector_fixture \

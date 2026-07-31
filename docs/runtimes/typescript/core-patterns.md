@@ -113,6 +113,21 @@ const lossyDb = new TheorydbClient(ddb, {
 }).register(LedgerEntry);
 ```
 
+## Pattern: explicitly clear an omit-empty field
+
+DMS v0.2 treats a field listed in `update(..., fields)` as selected. Supplying
+an empty value for a selected `omit_empty: true` attribute removes it:
+
+```ts
+await db.update(
+  'User',
+  { PK: 'USER#1', SK: 'PROFILE', nickname: '', version: current.version },
+  ['nickname'],
+);
+```
+
+Fields not listed in `fields` remain unchanged.
+
 ## Pattern: Batch + Transactions
 
 ```ts
@@ -148,9 +163,9 @@ await db.transactWrite([
 ]);
 ```
 
-For models with encrypted attributes, transaction updates **must** use `updateFn`.
-Raw `updateExpression` transaction updates are only supported for models without
-encrypted attributes.
+For models with encrypted attributes, transaction updates **must** use
+`updateFn` or the model-based `item` + `fields` action. Raw `updateExpression`
+transaction updates are only supported for models without encrypted attributes.
 
 ## Pattern: Streams unmarshalling
 

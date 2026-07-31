@@ -6,7 +6,7 @@ permalink: /cdk/generated-constructs/
 # Generating CDK Table Constructs from DMS
 
 The `tabletheory` CLI can emit AWS CDK (`aws-cdk-lib`) DynamoDB `Table`
-constructs directly from a [DMS](https://github.com/theory-cloud/TableTheory/blob/main/docs/development/planning/theorydb-spec-dms-v0.1.md)
+constructs directly from a [DMS](https://github.com/theory-cloud/TableTheory/blob/main/docs/development/planning/theorydb-spec-dms-v0.2.md)
 document. Because the generated table, index, and TTL shape is derived from the
 same DMS that the runtimes validate against, your infrastructure definition
 cannot drift from your runtime model contract.
