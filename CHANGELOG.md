@@ -63,6 +63,32 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.0.0-rc](https://github.com/theory-cloud/TableTheory/compare/v2.0.6...v3.0.0-rc) (2026-07-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* Explicitly selected empty omitempty fields now remove their DynamoDB attributes. DMS advances to v0.2, and the Go module path moves to github.com/theory-cloud/tabletheory/v3.
+
+### Features
+
+* adopt DMS v0.2 explicit-empty updates ([1b09947](https://github.com/theory-cloud/TableTheory/commit/1b099475f68dda5816e2b1ce71116cd3da74a7e5))
+* **ts:** add transactional model update with DMS empty rule ([8d02e99](https://github.com/theory-cloud/TableTheory/commit/8d02e998b18cb29a867cdf04e459fdbd165c998a))
+
+
+### Bug Fixes
+
+* **ci:** detect pending major transition verifier support ([e91421d](https://github.com/theory-cloud/TableTheory/commit/e91421da5fb46f18d9542cc75b37a623e91832dd))
+* **ci:** detect pending major transition verifier support ([6799e46](https://github.com/theory-cloud/TableTheory/commit/6799e46f6c9a8d3c62a8787c1d366ebbef6f80b1))
+* **contract:** close DMS v0.2 parity gaps ([d452b57](https://github.com/theory-cloud/TableTheory/commit/d452b571d6f51b5603200e33c538a44bc5c03f64))
+* **contract:** close remaining DMS v0.2 parity gaps ([a8816cc](https://github.com/theory-cloud/TableTheory/commit/a8816cc4745222e8faedb0d0a45196699df85bfe))
+* **contract:** eliminate representation-dependent emptiness ([025a464](https://github.com/theory-cloud/TableTheory/commit/025a46495c74b5495fe33a0ab7cc5a6ddd17ff13))
+* **contract:** preserve sparse structured updates ([8025999](https://github.com/theory-cloud/TableTheory/commit/8025999b612aac35e36422ed55fb87535a10482b))
+* **transaction:** align explicit update parity ([67d462d](https://github.com/theory-cloud/TableTheory/commit/67d462dabb9ac69b1b777e7de29517e3c17ae99e))
+* **transaction:** align explicit update parity ([5f74dae](https://github.com/theory-cloud/TableTheory/commit/5f74dae41cc8582de2e09075c407275268e5e3e1))
+* **transaction:** align Python version rejection ([3e90b8a](https://github.com/theory-cloud/TableTheory/commit/3e90b8a8bb6117db9fc753e5bd8905b46c9bbdff))
+* **transaction:** reject lifecycle field selection ([edea977](https://github.com/theory-cloud/TableTheory/commit/edea9775600ded74e9c2549253d2226e9a105083))
+
 ## [2.0.6](https://github.com/theory-cloud/TableTheory/compare/v2.0.6-rc...v2.0.6) (2026-07-30)
 
 Stable promotion of `v2.0.6-rc`.
