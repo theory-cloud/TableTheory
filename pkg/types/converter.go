@@ -11,10 +11,10 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/expr"
-	"github.com/theory-cloud/tabletheory/v2/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v3/internal/expr"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
 )
 
 // Converter handles conversion between Go types and DynamoDB AttributeValues
@@ -307,19 +307,26 @@ func (c *Converter) numberToValue(n string, target reflect.Value) error {
 }
 
 func (c *Converter) listToSliceWithConvention(list []types.AttributeValue, target reflect.Value, inheritedConvention naming.Convention, inheritNaming bool) error {
-	if target.Kind() != reflect.Slice {
-		return fmt.Errorf("target must be slice, got %s", target.Type())
+	if target.Kind() != reflect.Slice && target.Kind() != reflect.Array {
+		return fmt.Errorf("target must be slice or array, got %s", target.Type())
 	}
 
-	slice := reflect.MakeSlice(target.Type(), len(list), len(list))
+	destination := target
+	if target.Kind() == reflect.Slice {
+		destination = reflect.MakeSlice(target.Type(), len(list), len(list))
+	} else if target.Len() != len(list) {
+		return fmt.Errorf("list length %d does not match array length %d", len(list), target.Len())
+	}
 
 	for i, av := range list {
-		if err := c.fromAttributeValueWithConvention(av, slice.Index(i), inheritedConvention, inheritNaming); err != nil {
+		if err := c.fromAttributeValueWithConvention(av, destination.Index(i), inheritedConvention, inheritNaming); err != nil {
 			return fmt.Errorf("index %d: %w", i, err)
 		}
 	}
 
-	target.Set(slice)
+	if target.Kind() == reflect.Slice {
+		target.Set(destination)
+	}
 	return nil
 }
 

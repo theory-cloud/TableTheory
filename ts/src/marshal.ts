@@ -27,11 +27,28 @@ export function isEmpty(value: unknown): boolean {
 
   if (typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) return true;
-    return entries.every(([, v]) => isEmpty(v));
+    return entries.length === 0;
   }
 
   return false;
+}
+
+// isEmptyAttribute applies schema-aware DMS wire-type semantics. In particular,
+// any own entry makes an M value non-empty even when every entry value is empty.
+export function isEmptyAttribute(
+  schema: AttributeSchema,
+  value: unknown,
+): boolean {
+  if (value === null || value === undefined) return true;
+  if (
+    schema.type === 'M' &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !(value instanceof Date)
+  ) {
+    return Object.keys(value).length === 0;
+  }
+  return isEmpty(value);
 }
 
 export function marshalKey(
@@ -122,7 +139,7 @@ export function marshalPutItem(
     const value = item[name];
     if (value === undefined) continue;
 
-    if (attr.omit_empty && isEmpty(value)) continue;
+    if (attr.omit_empty && isEmptyAttribute(attr, value)) continue;
 
     out[name] = marshalScalar(attr, value);
   }

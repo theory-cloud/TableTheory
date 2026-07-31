@@ -1,0 +1,22 @@
+dms_version: "0.2"
+namespace: "theorydb.contract"
+models:
+  - name: "EncryptedRecord"
+    table:
+      name: "encrypted_records_contract"
+    keys:
+      partition: { attribute: "PK", type: "S" }
+      sort: { attribute: "SK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "SK"
+        type: "S"
+        required: true
+        roles: ["sk"]
+      - attribute: "secret"
+        type: "S"
+        optional: true
+        encryption: { v: 1 }

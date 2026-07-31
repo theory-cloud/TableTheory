@@ -1,6 +1,6 @@
 package theorydb
 
-import "github.com/theory-cloud/tabletheory/v2/pkg/core"
+import "github.com/theory-cloud/tabletheory/v3/pkg/core"
 
 // Condition creates a simple field comparison condition for transactional writes.
 func Condition(field, operator string, value any) core.TransactCondition {

@@ -186,7 +186,7 @@ import (
     "time"
     "context"
     "github.com/google/uuid"
-    "github.com/theory-cloud/tabletheory/v2/pkg/core"
+    "github.com/theory-cloud/tabletheory/v3/pkg/core"
     "payment-system/models"
 )
 
@@ -406,7 +406,7 @@ import (
     "encoding/json"
     "github.com/aws/aws-lambda-go/events"
     "github.com/aws/aws-lambda-go/lambda"
-    "github.com/theory-cloud/tabletheory/v2"
+    "github.com/theory-cloud/tabletheory/v3"
     "payment-system/models"
     "payment-system/services"
 )
@@ -516,7 +516,7 @@ import (
     "testing"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/mock"
-    "github.com/theory-cloud/tabletheory/v2/pkg/mocks"
+    "github.com/theory-cloud/tabletheory/v3/pkg/mocks"
     "payment-system/models"
 )
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/dms"
+	"github.com/theory-cloud/tabletheory/v3/pkg/dms"
 )
 
 func TestInitScaffoldGo(t *testing.T) {
@@ -25,7 +25,7 @@ func TestInitScaffoldGo(t *testing.T) {
 
 	gomod := readFile(t, filepath.Join(dir, "go.mod"))
 	require.Contains(t, gomod, "module example.com/demo")
-	require.Contains(t, gomod, "github.com/theory-cloud/tabletheory/v2 v2.0.2")
+	require.Contains(t, gomod, "github.com/theory-cloud/tabletheory/v2 v2.0.6")
 
 	main := readFile(t, filepath.Join(dir, "main.go"))
 	require.Contains(t, main, "func (Note) TableName() string")
@@ -59,7 +59,7 @@ func TestInitScaffoldTypeScript(t *testing.T) {
 
 	pkg := readFile(t, filepath.Join(dir, "package.json"))
 	require.Contains(t, pkg, `"name": "demo-ts"`)
-	require.Contains(t, pkg, "theory-cloud-tabletheory-ts-2.0.2.tgz")
+	require.Contains(t, pkg, "theory-cloud-tabletheory-ts-2.0.6.tgz")
 
 	main := readFile(t, filepath.Join(dir, "src", "main.ts"))
 	require.Contains(t, main, "ensureTable(ddb, Note)")
@@ -77,7 +77,7 @@ func TestInitScaffoldPython(t *testing.T) {
 	require.FileExists(t, filepath.Join(dir, "requirements.txt"))
 
 	req := readFile(t, filepath.Join(dir, "requirements.txt"))
-	require.Contains(t, req, "tabletheory_py-2.0.2-py3-none-any.whl")
+	require.Contains(t, req, "tabletheory_py-2.0.6-py3-none-any.whl")
 
 	main := readFile(t, filepath.Join(dir, "main.py"))
 	require.Contains(t, main, "ensure_table(model, client=client)")
@@ -91,6 +91,16 @@ func TestInitScaffoldPinsRuntimeVersion(t *testing.T) {
 	err := run([]string{"init", "--lang", "go", "--dir", dir, "--runtime-version", "2.3.4"}, ioDiscard{}, ioDiscard{})
 	require.NoError(t, err)
 	require.Contains(t, readFile(t, filepath.Join(dir, "go.mod")), "github.com/theory-cloud/tabletheory/v2 v2.3.4")
+}
+
+func TestInitScaffoldPinsV3GoRuntimePath(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "app")
+	err := run([]string{"init", "--lang", "go", "--dir", dir, "--runtime-version", "3.0.0"}, ioDiscard{}, ioDiscard{})
+	require.NoError(t, err)
+	require.Contains(t, readFile(t, filepath.Join(dir, "go.mod")), "github.com/theory-cloud/tabletheory/v3 v3.0.0")
+	require.Contains(t, readFile(t, filepath.Join(dir, "main.go")), `"github.com/theory-cloud/tabletheory/v3/pkg/session"`)
 }
 
 func TestInitScaffoldPinsV1GoRuntimePath(t *testing.T) {

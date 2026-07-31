@@ -1,5 +1,5 @@
 name: "p2.transact_write_atomicity"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["transact.write"]
 model: "User"
 table:

@@ -119,6 +119,8 @@ def infer_json_storage_type(annotation: Any) -> str:
         return "M"
     if origin in {list, Sequence, tuple}:
         return "L"
+    if isinstance(annotation, type) and is_dataclass(annotation):
+        return "M"
 
     return "S"
 

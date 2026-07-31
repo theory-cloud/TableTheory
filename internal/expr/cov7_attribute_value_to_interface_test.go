@@ -82,7 +82,7 @@ func TestIsZeroValue_CoversAllKinds_COV7(t *testing.T) {
 		{name: "InterfaceNil", value: reflect.ValueOf(&iface).Elem(), want: true},
 		{name: "PointerNil", value: reflect.ValueOf(nilPtr), want: true},
 		{name: "PointerNonNil", value: reflect.ValueOf(nonNilPtr), want: false},
-		{name: "OtherKindsDefaultFalse", value: reflect.ValueOf(struct{}{}), want: false},
+		{name: "ZeroFieldStruct", value: reflect.ValueOf(struct{}{}), want: true},
 	}
 
 	for _, tt := range tests {

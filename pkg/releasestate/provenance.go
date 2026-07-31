@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"time"
 
-	theorydbErrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
 )
 
 var (

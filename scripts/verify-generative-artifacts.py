@@ -36,8 +36,8 @@ def main() -> int:
             fail(f"llms.txt does not reference {token}")
 
     vocab = json.loads((ROOT / "docs" / "reference" / "tabletheory-vocabulary.json").read_text(encoding="utf-8"))
-    if vocab.get("dms_version") != "0.1":
-        fail("vocabulary JSON must declare dms_version 0.1")
+    if vocab.get("dms_version") != "0.2":
+        fail("vocabulary JSON must declare dms_version 0.2")
     tags = {entry.get("tag") for entry in vocab.get("tags", []) if isinstance(entry, dict)}
     missing_tags = REQUIRED_TAGS - tags
     if missing_tags:

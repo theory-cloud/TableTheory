@@ -17,10 +17,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/theory-cloud/tabletheory/v2"
-	payment "github.com/theory-cloud/tabletheory/v2/examples/payment"
-	"github.com/theory-cloud/tabletheory/v2/examples/payment/utils"
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
+	"github.com/theory-cloud/tabletheory/v3"
+	payment "github.com/theory-cloud/tabletheory/v3/examples/payment"
+	"github.com/theory-cloud/tabletheory/v3/examples/payment/utils"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
 )
 
 // ReconciliationRecord represents a row in the reconciliation CSV

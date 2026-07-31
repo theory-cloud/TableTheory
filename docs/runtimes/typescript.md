@@ -130,6 +130,10 @@ await db.delete('Note', key);
 const page = await db.query('Note').partitionKey('USER#42').limit(20).page();
 ```
 
+Under DMS v0.2, a field named in the `fields` array is explicitly selected. If
+that field has `omit_empty: true` and its supplied value is empty, `update`
+emits DynamoDB `REMOVE`; fields not listed in the array remain unchanged.
+
 ## Aggregation helper warning
 
 TypeScript aggregation helpers (`sum`, `average`, `min`, `max`, `aggregate`, `countDistinct`, and `groupBy`) are

@@ -13,11 +13,11 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v2"
-	"github.com/theory-cloud/tabletheory/v2/examples/blog/models"
-	"github.com/theory-cloud/tabletheory/v2/examples/blog/services"
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	customerrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3"
+	"github.com/theory-cloud/tabletheory/v3/examples/blog/models"
+	"github.com/theory-cloud/tabletheory/v3/examples/blog/services"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
 )
 
 // CommentHandler handles blog comment operations

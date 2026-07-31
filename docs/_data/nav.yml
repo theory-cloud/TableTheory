@@ -102,11 +102,12 @@ groups:
       - { id: troubleshooting,       title: Troubleshooting,         url: /troubleshooting/,                  icon: life-buoy }
       - { id: migration-guide,       title: Migration,               url: /migration-guide/,                  icon: arrow-right }
       - { id: migration-v2,          title: v2 Migration,            url: /migration/v2/,                     icon: git-branch,  tag: major }
+      - { id: migration-v3,          title: v3 Migration,            url: /migration/v3/,                     icon: git-branch,  tag: major }
       - { id: llm-faq,               title: LLM FAQ,                 url: /llm-faq/module-faq/,               icon: help-circle }
 
   - label: Reference
     items:
-      - { id: ref-dms,               title: DMS Specification v0.1,  url: /reference/dms-spec/,               icon: file-text,   tag: ga }
+      - { id: ref-dms,               title: DMS Specification v0.2,  url: /reference/dms-spec/,               icon: file-text,   tag: ga }
       - { id: ref-scenarios,         title: Contract Scenarios,      url: /reference/contract-scenarios/,     icon: list-checks }
 
 # =============================================================
@@ -225,6 +226,7 @@ url_to_id:
   /troubleshooting/:                       troubleshooting
   /migration-guide/:                       migration-guide
   /migration/v2/:                          migration-v2
+  /migration/v3/:                          migration-v3
   /llm-faq/module-faq/:                    llm-faq
   /reference/dms-spec/:                    ref-dms
   /reference/contract-scenarios/:          ref-scenarios

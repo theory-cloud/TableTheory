@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/releasestate"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/releasestate"
 )
 
 // ReleaseStateActual is the mutable current-state row for one deployable

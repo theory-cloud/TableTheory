@@ -2,15 +2,16 @@ package transaction
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v2/pkg/types"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
 )
 
 type writePolicyTransactionActual struct {
@@ -35,6 +36,29 @@ type writePolicyTransactionEvent struct {
 
 func (writePolicyTransactionEvent) WritePolicy() model.WritePolicy {
 	return model.WritePolicy{Mode: model.WritePolicyModeWriteOnce}
+}
+
+type writePolicyStructuredValue struct {
+	Source string `theorydb:"attr:source" json:"source"`
+}
+
+type writePolicySparseTransactionRecord struct {
+	PK      string                     `theorydb:"pk,attr:PK" json:"PK"`
+	SK      string                     `theorydb:"sk,attr:SK" json:"SK"`
+	Status  string                     `theorydb:"attr:status,omitempty" json:"status,omitempty"`
+	Address writePolicyStructuredValue `theorydb:"attr:address,omitempty" json:"address,omitempty"`
+	Values  [2]int                     `theorydb:"attr:values,omitempty" json:"values,omitempty"`
+}
+
+func (writePolicySparseTransactionRecord) TableName() string {
+	return "write_policy_sparse_transaction_records"
+}
+
+func (writePolicySparseTransactionRecord) WritePolicy() model.WritePolicy {
+	return model.WritePolicy{
+		Mode:                model.WritePolicyModeMutable,
+		ProtectedAttributes: []string{"address", "values"},
+	}
 }
 
 func newWritePolicyTransactionBuilder(t *testing.T) (*Builder, *model.Registry) {
@@ -152,4 +176,23 @@ func TestWritePolicyTransaction_EnforcesPolicies(t *testing.T) {
 	err = tx.Update(actual)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, theorydbErrors.ErrProtectedFieldMutation))
+}
+
+func TestFieldsMutatedByTransactionUpdateSkipsZeroStructuredOmitEmptyFields(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&writePolicySparseTransactionRecord{}))
+	metadata, err := registry.GetMetadata(&writePolicySparseTransactionRecord{})
+	require.NoError(t, err)
+
+	record := writePolicySparseTransactionRecord{
+		PK:     "release#svc",
+		SK:     "actual",
+		Status: "active",
+	}
+	fields := fieldsMutatedByTransactionUpdate(reflect.ValueOf(record), metadata)
+	require.ElementsMatch(t, []string{"status"}, fields)
+
+	tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+	require.NoError(t, tx.Update(&record),
+		"zero omitempty struct and array fields must not trigger protected-field rejection")
 }

@@ -1,5 +1,5 @@
 name: "p0.harness.query_scan"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["query.basic", "scan.basic"]
 model: "User"
 table:

@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
 )
 
 func TestRegisterConverter_IgnoresNilInputs_COV6(t *testing.T) {

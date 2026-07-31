@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/dms"
-	"github.com/theory-cloud/tabletheory/v2/pkg/keycontract"
+	"github.com/theory-cloud/tabletheory/v3/pkg/dms"
+	"github.com/theory-cloud/tabletheory/v3/pkg/keycontract"
 )
 
 func main() {

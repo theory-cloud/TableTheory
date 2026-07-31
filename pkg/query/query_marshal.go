@@ -3,14 +3,14 @@ package query
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/expr"
-	"github.com/theory-cloud/tabletheory/v2/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/internal/expr"
+	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 )
 
 func (q *Query) marshalItem(item any) (map[string]types.AttributeValue, error) {
@@ -67,7 +67,7 @@ func (q *Query) marshalItemReflect(item any) (map[string]types.AttributeValue, e
 
 func (q *Query) marshalFieldValueReflect(modelValue reflect.Value, fieldMeta *model.FieldMetadata, now time.Time) (types.AttributeValue, bool, error) {
 	fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-	if fieldMeta.OmitEmpty && fieldValue.IsZero() {
+	if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
 		return nil, true, nil
 	}
 
@@ -174,7 +174,7 @@ func (q *Query) marshalItemTagged(item any) (map[string]types.AttributeValue, er
 			continue
 		}
 
-		if strings.Contains(tag, "omitempty") && isZeroValue(fieldValue) {
+		if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
 			continue
 		}
 

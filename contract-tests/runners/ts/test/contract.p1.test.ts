@@ -22,7 +22,7 @@ function contractRoot(): string {
 
 test("P1 contract scenarios (ts runner)", async (t) => {
   const root = contractRoot();
-  const models = await loadModelsDir(path.join(root, "dms", "v0.1", "models"));
+  const models = await loadModelsDir(path.join(root, "dms", "v0.2", "models"));
   const scenarios = await loadScenariosDir(path.join(root, "scenarios", "p1"));
   assert.ok(models.size > 0);
   assert.ok(scenarios.length > 0);

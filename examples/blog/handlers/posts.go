@@ -14,10 +14,10 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v2"
-	"github.com/theory-cloud/tabletheory/v2/examples/blog/models"
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	"github.com/theory-cloud/tabletheory/v2/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3"
+	"github.com/theory-cloud/tabletheory/v3/examples/blog/models"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v3/pkg/errors"
 )
 
 // PostHandler handles blog post operations

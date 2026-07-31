@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/pkg/dms/internal/codegenfixture"
-	"github.com/theory-cloud/tabletheory/v2/pkg/model"
+	"github.com/theory-cloud/tabletheory/v3/pkg/dms/internal/codegenfixture"
+	"github.com/theory-cloud/tabletheory/v3/pkg/model"
 )
 
 func TestGenerateGoGoldenAndEquivalence(t *testing.T) {
@@ -102,7 +102,7 @@ func TestGenerateCDKRejectsUnsupportedKeyType(t *testing.T) {
 	t.Parallel()
 
 	doc := &Document{
-		DMSVersion: "0.1",
+		DMSVersion: "0.2",
 		Models: []Model{
 			{
 				Name:  "Bad",
@@ -122,7 +122,7 @@ func TestGenerateCDKCoversIndexProjectionBranches_THE2551(t *testing.T) {
 	t.Parallel()
 
 	doc := &Document{
-		DMSVersion: "0.1",
+		DMSVersion: "0.2",
 		Models: []Model{
 			{
 				Name:  "Branchy",
@@ -188,7 +188,7 @@ func TestGenerateCDKRejectsUnsupportedIndexKeyTypes_THE2551(t *testing.T) {
 		Type:      "GSI",
 		Partition: KeyAttribute{Attribute: "bad", Type: "BOOL"},
 	}}
-	_, err := Generate(&Document{DMSVersion: "0.1", Models: []Model{gsi}}, GenerateOptions{Lang: "cdk"})
+	_, err := Generate(&Document{DMSVersion: "0.2", Models: []Model{gsi}}, GenerateOptions{Lang: "cdk"})
 	require.ErrorContains(t, err, "index bad-gsi partition key")
 
 	lsi := base
@@ -198,7 +198,7 @@ func TestGenerateCDKRejectsUnsupportedIndexKeyTypes_THE2551(t *testing.T) {
 		Partition: KeyAttribute{Attribute: "PK", Type: "S"},
 		Sort:      &KeyAttribute{Attribute: "bad", Type: "BOOL"},
 	}}
-	_, err = Generate(&Document{DMSVersion: "0.1", Models: []Model{lsi}}, GenerateOptions{Lang: "cdk"})
+	_, err = Generate(&Document{DMSVersion: "0.2", Models: []Model{lsi}}, GenerateOptions{Lang: "cdk"})
 	require.ErrorContains(t, err, "index bad-lsi sort key")
 }
 
@@ -304,7 +304,7 @@ func TestGeneratePythonEmptyModel(t *testing.T) {
 	t.Parallel()
 
 	doc := &Document{
-		DMSVersion: "0.1",
+		DMSVersion: "0.2",
 		Models: []Model{{
 			Name:  "empty_model",
 			Table: Table{Name: "empty_models"},
@@ -342,9 +342,9 @@ func TestCodegenHelperEdges(t *testing.T) {
 	require.Equal(t, "int", pyType)
 	require.Empty(t, pyDefault)
 
-	std, thirdParty := partitionGoImports([]string{"time", "github.com/theory-cloud/tabletheory/v2/pkg/model"})
+	std, thirdParty := partitionGoImports([]string{"time", "github.com/theory-cloud/tabletheory/v3/pkg/model"})
 	require.Equal(t, []string{"time"}, std)
-	require.Equal(t, []string{"github.com/theory-cloud/tabletheory/v2/pkg/model"}, thirdParty)
+	require.Equal(t, []string{"github.com/theory-cloud/tabletheory/v3/pkg/model"}, thirdParty)
 
 	require.Equal(t, "'quote\\' newline\\n tab\\t slash\\\\'", tsString("quote' newline\n tab\t slash\\"))
 	require.Equal(t, "Field", uniqueGoFieldName("", map[string]int{}))

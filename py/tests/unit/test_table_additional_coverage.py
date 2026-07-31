@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, cast
 
@@ -103,11 +104,26 @@ class _StubClient:
 
 
 def test_table_value_helpers_and_error_mapping_variants() -> None:
+    @dataclass
+    class EmptyRecord:
+        name: str = ""
+        count: int = 0
+
+    @dataclass
+    class ZeroFieldRecord:
+        pass
+
     assert _is_empty(None) is True
     assert _is_empty(False) is True
     assert _is_empty(0) is True
     assert _is_empty("") is True
     assert _is_empty([]) is True
+    assert _is_empty({"source": ""}) is False
+    assert _is_empty(EmptyRecord()) is False
+    assert _is_empty(EmptyRecord(name="present")) is False
+    assert _is_empty(ZeroFieldRecord()) is True
+    assert _is_empty(datetime.min) is True
+    assert _is_empty(datetime.now(UTC)) is False
     assert _is_empty("x") is False
 
     assert _coerce_value(None, int) is None

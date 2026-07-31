@@ -1,0 +1,42 @@
+name: "p0.encoding.omitempty_structured_m_update"
+dms_version: "0.2"
+model: "StructuredProfileUser"
+table:
+  name: "users_contract"
+steps:
+  - op: create
+    item:
+      PK: "USER#16"
+      SK: "PROFILE"
+      profile:
+        source: "present"
+    expect:
+      ok: true
+
+  - op: update
+    fields: ["profile"]
+    item:
+      PK: "USER#16"
+      SK: "PROFILE"
+      profile:
+        source: ""
+      version: 0
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "USER#16"
+      SK: "PROFILE"
+    expect:
+      item_contains:
+        PK: "USER#16"
+        SK: "PROFILE"
+        profile:
+          source: ""
+        version: 1
+      raw_attribute_types:
+        profile: "M"
+      raw_item_contains:
+        profile:
+          source: ""

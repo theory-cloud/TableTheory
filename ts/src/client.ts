@@ -30,7 +30,7 @@ import { hasTheorydbErrorCode, TheorydbError } from './errors.js';
 import type { Model, ModelItem } from './model.js';
 import type { SendOptions } from './send-options.js';
 import {
-  isEmpty,
+  isEmptyAttribute,
   marshalKey,
   marshalPutItem,
   marshalScalar,
@@ -40,7 +40,11 @@ import {
   type UnmarshalOptions,
 } from './marshal.js';
 import { QueryBuilder, ScanBuilder } from './query.js';
-import type { TransactAction, TransactGetAction } from './transaction.js';
+import type {
+  TransactAction,
+  TransactGetAction,
+  TransactModelUpdate,
+} from './transaction.js';
 import { UpdateBuilder } from './update-builder.js';
 import {
   decryptItemAttributes,
@@ -430,7 +434,7 @@ export class TheorydbClient {
       const placeholder = `#f${fieldIndex}`;
       names[placeholder] = field;
 
-      if (schema.omit_empty && isEmpty(value)) {
+      if (schema.omit_empty && isEmptyAttribute(schema, value)) {
         removeParts.push(placeholder);
         continue;
       }
@@ -721,14 +725,16 @@ export class TheorydbClient {
         }
         case 'update': {
           assertMutableWritePolicy(model, 'transaction update');
-          const update: Update = {
-            TableName: model.tableName,
-            Key: marshalKey(model, a.key),
-            UpdateExpression: '',
-          };
-
-          const updateFn = 'updateFn' in a ? a.updateFn : undefined;
-          if (typeof updateFn === 'function') {
+          let update: Update;
+          if (isTransactModelUpdate(a)) {
+            update = await buildTransactModelUpdate(
+              this.ddb,
+              model,
+              a,
+              provider,
+              this.sendOptions,
+            );
+          } else if (typeof a.updateFn === 'function') {
             const builder = new UpdateBuilder(
               this.ddb,
               model,
@@ -736,12 +742,16 @@ export class TheorydbClient {
               provider,
               this.sendOptions,
             );
-            await updateFn(builder);
+            await a.updateFn(builder);
             const built = await builder.build();
-            update.UpdateExpression = built.updateExpression;
-            update.ConditionExpression = built.conditionExpression;
-            update.ExpressionAttributeNames = built.expressionAttributeNames;
-            update.ExpressionAttributeValues = built.expressionAttributeValues;
+            update = {
+              TableName: model.tableName,
+              Key: marshalKey(model, a.key),
+              UpdateExpression: built.updateExpression,
+              ConditionExpression: built.conditionExpression,
+              ExpressionAttributeNames: built.expressionAttributeNames,
+              ExpressionAttributeValues: built.expressionAttributeValues,
+            };
           } else {
             const updateExpression = a.updateExpression;
             if (!updateExpression) {
@@ -761,10 +771,14 @@ export class TheorydbClient {
                 `Encrypted transaction updates for model ${model.name} must use updateFn`,
               );
             }
-            update.UpdateExpression = updateExpression;
-            update.ConditionExpression = a.conditionExpression;
-            update.ExpressionAttributeNames = a.expressionAttributeNames;
-            update.ExpressionAttributeValues = a.expressionAttributeValues;
+            update = {
+              TableName: model.tableName,
+              Key: marshalKey(model, a.key),
+              UpdateExpression: updateExpression,
+              ConditionExpression: a.conditionExpression,
+              ExpressionAttributeNames: a.expressionAttributeNames,
+              ExpressionAttributeValues: a.expressionAttributeValues,
+            };
           }
 
           transactItems.push({ Update: update });
@@ -847,6 +861,93 @@ export class TheorydbClient {
       this.unmarshalOptions,
     );
   }
+}
+
+async function buildTransactModelUpdate(
+  ddb: DynamoDBClient,
+  model: Model,
+  action: TransactModelUpdate,
+  provider: EncryptionProvider | undefined,
+  sendOptions: SendOptions | undefined,
+): Promise<Update> {
+  const builder = new UpdateBuilder(
+    ddb,
+    model,
+    action.item,
+    provider,
+    sendOptions,
+  );
+
+  for (const field of action.fields) {
+    const schema = model.attributes.get(field);
+    if (!schema) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        `Unknown field for model ${model.name}: ${field}`,
+      );
+    }
+
+    const value = action.item[field];
+    if (value === undefined) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        `Missing update value for field: ${field}`,
+      );
+    }
+
+    if (schema.omit_empty && isEmptyAttribute(schema, value)) {
+      builder.remove(field);
+    } else {
+      builder.set(field, value);
+    }
+  }
+
+  const built = await builder.build();
+  const names = mergeExpressionAttributes(
+    'ExpressionAttributeNames',
+    built.expressionAttributeNames,
+    action.expressionAttributeNames,
+  );
+  const values = mergeExpressionAttributes(
+    'ExpressionAttributeValues',
+    built.expressionAttributeValues,
+    action.expressionAttributeValues,
+  );
+
+  return {
+    TableName: model.tableName,
+    Key: marshalKey(model, action.item),
+    UpdateExpression: built.updateExpression,
+    ConditionExpression: action.conditionExpression,
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+  };
+}
+
+function mergeExpressionAttributes<T>(
+  label: string,
+  generated: Record<string, T> | undefined,
+  supplied: Record<string, T> | undefined,
+): Record<string, T> | undefined {
+  if (!generated && !supplied) return undefined;
+
+  const merged = { ...(generated ?? {}) };
+  for (const [key, value] of Object.entries(supplied ?? {})) {
+    if (key in merged) {
+      throw new TheorydbError(
+        'ErrInvalidOperator',
+        `${label} collision: ${key}`,
+      );
+    }
+    merged[key] = value;
+  }
+  return merged;
+}
+
+function isTransactModelUpdate(
+  action: Extract<TransactAction, { kind: 'update' }>,
+): action is TransactModelUpdate {
+  return 'item' in action && Array.isArray(action.fields);
 }
 
 function policyFieldsForUpdate(

@@ -16,15 +16,28 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v2"
-	"github.com/theory-cloud/tabletheory/v2/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v2/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v2/pkg/releasestate"
-	"github.com/theory-cloud/tabletheory/v2/pkg/session"
-	"github.com/theory-cloud/tabletheory/v2/pkg/testing/fakedb"
+	"github.com/theory-cloud/tabletheory/v3"
+	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v3/pkg/releasestate"
+	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	"github.com/theory-cloud/tabletheory/v3/pkg/testing/fakedb"
 )
 
 type ErrorCode string
+
+type structuredProfileRecord struct {
+	Source string `theorydb:"attr:source" json:"source"`
+}
+
+type structuredProfileUserRecordCarrier struct {
+	PK      string                  `theorydb:"pk,attr:PK" json:"PK"`
+	SK      string                  `theorydb:"sk,attr:SK" json:"SK"`
+	Profile structuredProfileRecord `theorydb:"attr:profile,omitempty" json:"profile,omitempty"`
+	Version int64                   `theorydb:"version,attr:version" json:"version"`
+}
+
+func (structuredProfileUserRecordCarrier) TableName() string { return "users_contract" }
 
 const (
 	ErrItemNotFound      ErrorCode = "ErrItemNotFound"
@@ -303,6 +316,14 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 			return nil, err
 		}
 		return normalizeUser(out), nil
+	case "StructuredProfileUser":
+		var out structuredProfileUserRecordCarrier
+		err := d.db.WithContext(ctx).Model(&structuredProfileUserRecordCarrier{}).
+			Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeStructuredProfileUser(out), nil
 	case "Order":
 		var out Order
 		err := d.db.WithContext(ctx).Model(&Order{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
@@ -821,6 +842,8 @@ func modelFromMap(model string, item map[string]any) (any, error) {
 	switch model {
 	case "User":
 		return userFromMap(item)
+	case "StructuredProfileUser":
+		return structuredProfileUserFromMap(item)
 	case "Order":
 		return orderFromMap(item)
 	case "NumberPrecision":
@@ -844,6 +867,8 @@ func emptyModel(model string) (any, error) {
 	switch model {
 	case "User":
 		return &User{}, nil
+	case "StructuredProfileUser":
+		return &structuredProfileUserRecordCarrier{}, nil
 	case "Order":
 		return &Order{}, nil
 	case "NumberPrecision":
@@ -872,6 +897,10 @@ func normalizeModel(model string, value any) (map[string]any, error) {
 	case "User":
 		if v, ok := value.(*User); ok {
 			return normalizeUser(*v), nil
+		}
+	case "StructuredProfileUser":
+		if v, ok := value.(*structuredProfileUserRecordCarrier); ok {
+			return normalizeStructuredProfileUser(*v), nil
 		}
 	case "Order":
 		if v, ok := value.(*Order); ok {
@@ -1217,6 +1246,13 @@ func userFromMap(item map[string]any) (*User, error) {
 		}
 		u.Tags = tags
 	}
+	if v, ok := item["profile"]; ok {
+		profile, err := asStringMap(v)
+		if err != nil {
+			return nil, err
+		}
+		u.Profile = profile
+	}
 	if v, ok := item["version"]; ok {
 		n, err := asInt64(v)
 		if err != nil {
@@ -1230,6 +1266,33 @@ func userFromMap(item map[string]any) (*User, error) {
 			return nil, err
 		}
 		u.TTL = n
+	}
+	return u, nil
+}
+
+func structuredProfileUserFromMap(item map[string]any) (*structuredProfileUserRecordCarrier, error) {
+	u := &structuredProfileUserRecordCarrier{}
+	if v, ok := item["PK"]; ok {
+		u.PK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["SK"]; ok {
+		u.SK = fmt.Sprintf("%v", v)
+	}
+	if v, ok := item["profile"]; ok {
+		profile, err := asStringMap(v)
+		if err != nil {
+			return nil, err
+		}
+		if source, ok := profile["source"]; ok {
+			u.Profile.Source = fmt.Sprintf("%v", source)
+		}
+	}
+	if v, ok := item["version"]; ok {
+		n, err := asInt64(v)
+		if err != nil {
+			return nil, err
+		}
+		u.Version = n
 	}
 	return u, nil
 }
@@ -1480,12 +1543,24 @@ func normalizeUser(u User) map[string]any {
 		"emailHash": u.EmailHash,
 		"nickname":  u.Nickname,
 		"tags":      append([]string(nil), u.Tags...),
+		"profile":   normalizeDocumentValue(u.Profile),
 		"createdAt": u.CreatedAt.Format(time.RFC3339Nano),
 		"updatedAt": u.UpdatedAt.Format(time.RFC3339Nano),
 		"version":   u.Version,
 		"ttl":       u.TTL,
 	}
 	return out
+}
+
+func normalizeStructuredProfileUser(u structuredProfileUserRecordCarrier) map[string]any {
+	return map[string]any{
+		"PK": u.PK,
+		"SK": u.SK,
+		"profile": map[string]any{
+			"source": u.Profile.Source,
+		},
+		"version": u.Version,
+	}
 }
 
 func normalizeUsers(items []User) []map[string]any {

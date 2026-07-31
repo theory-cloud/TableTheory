@@ -4,6 +4,21 @@
 
 ### Breaking Changes
 
+* **contract:** advance the shared model contract to DMS v0.2. High-level updates now distinguish field selection:
+  unselected zero-valued `omitempty` fields remain unchanged, while explicitly selected empty `omitempty` fields remove
+  the persisted DynamoDB attribute. TypeScript already had this behavior; Go and Python previously stored empty values.
+  Existing items remain readable, but consumers relying on empty attributes remaining present must remove `omitempty` or
+  use an explicit low-level `SET`. The Go module moves to `github.com/theory-cloud/tabletheory/v3`; Go consumers must
+  update module requirements and imports. DMS `M` values use carrier-size emptiness, so non-empty maps, objects, Go
+  structs, and Python dataclasses remain present even when every contained value is empty. Arrays/lists use length
+  semantics, including fixed-length Go arrays, which serialize as `L` on both Create and Update. Go's no-argument
+  `Update()` retains sparse zero-value selection so unselected structs and arrays cannot overwrite persisted data.
+  Fixed arrays round-trip through stream decoding, batch and transaction reads, and update-builder return values.
+  Tagged record fields without `omitempty` remain present in non-JSON `M` carriers, while untagged zero-valued fields
+  inside nested struct maps are now omitted; add explicit matching tags when a nested zero must remain present. Go
+  transaction writes now use the same top-level `omitempty` predicate, and transactional explicit-empty updates emit
+  `REMOVE`. Legacy `gsi:Name:pk` / `gsi:Name:sk` tags remain excluded from updates under exact token parsing. See
+  `docs/migration/v3.md`.
 * **go:** align `ConsistentRead()` on GSI queries with the cross-runtime contract by returning
   `ErrInvalidOperator` instead of silently dropping the flag, including when the Go query optimizer auto-selects a GSI
   from key conditions. Semver decision: this parity repair is release-major material and must not ship as a patch/minor.
@@ -18,6 +33,8 @@
 * **go:** add `NewWithClient` and a state-backed `pkg/testing/fakedb` consumer test fake
 * **contract:** validate the Go state-backed fake against the P0 contract corpus
 * **ts:** add a stateful DynamoDB `send()` fake to the public testkit
+* **ts:** add model-based transactional updates with explicit field selection; selected empty `omit_empty` attributes
+  emit `REMOVE`, while other selected attributes emit `SET`
 * **py:** add a stateful DynamoDB testkit fake and top-level re-exports
 * add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
 * add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage

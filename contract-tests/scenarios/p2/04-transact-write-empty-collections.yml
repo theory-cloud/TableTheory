@@ -1,5 +1,5 @@
 name: "p2.transact_write_empty_collections"
-dms_version: "0.1"
+dms_version: "0.2"
 requires_capabilities: ["transact.write", "release_state.write_policy"]
 model: "ReleaseStateEvent"
 table:

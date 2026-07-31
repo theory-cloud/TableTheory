@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v2/internal/numutil"
+	"github.com/theory-cloud/tabletheory/v3/internal/numutil"
 )
 
 func TestClampIntToInt32(t *testing.T) {

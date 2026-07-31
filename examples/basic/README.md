@@ -191,7 +191,7 @@ type EntityName struct {
 // CORRECT: Interface-based service for testability
 package services
 
-import "github.com/theory-cloud/tabletheory/v2/pkg/core"
+import "github.com/theory-cloud/tabletheory/v3/pkg/core"
 
 type TodoService struct {
     db core.DB  // Interface - enables mocking
@@ -258,7 +258,7 @@ package services
 import (
     "testing"
     "github.com/stretchr/testify/assert"
-    "github.com/theory-cloud/tabletheory/v2/pkg/mocks"
+    "github.com/theory-cloud/tabletheory/v3/pkg/mocks"
 )
 
 func TestTodoService_CreateTodo_Success(t *testing.T) {

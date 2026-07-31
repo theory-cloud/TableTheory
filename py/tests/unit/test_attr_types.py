@@ -69,6 +69,10 @@ def test_resolve_attribute_storage_type_uses_shared_fallbacks() -> None:
 
 
 def test_infer_json_storage_type_covers_branches() -> None:
+    @dataclass(frozen=True)
+    class Profile:
+        source: str = ""
+
     assert infer_json_storage_type(str) == "S"
     assert infer_json_storage_type(bytes) == "S"
     assert infer_json_storage_type(Any) == "S"
@@ -77,6 +81,7 @@ def test_infer_json_storage_type_covers_branches() -> None:
     assert infer_json_storage_type(type(None)) == "NULL"
     assert infer_json_storage_type(dict[str, int]) == "M"
     assert infer_json_storage_type(list[int]) == "L"
+    assert infer_json_storage_type(Profile) == "M"
     assert infer_json_storage_type(complex) == "S"
 
 
