@@ -13,7 +13,7 @@ This page documents TableTheory's public write-transaction surfaces, which use t
 - **Condition evaluation** is server-side: each write item carries its own conditional expression, and a single failed condition aborts the whole transaction.
 - **Optimistic-lock composition**: a versioned item in the group asserts its expected version; a version mismatch aborts the transaction atomically.
 - **Encryption composition**: encrypted fields are encrypted before the transaction is submitted; a KMS failure aborts before any write hits DynamoDB.
-- **Rejected-update atomicity**: an update-construction error prevents the service call, so already queued writes are not partially committed. The legacy Go `Transaction.Update` path stores its first error for `Commit` to return; `Rollback` clears it.
+- **Rejected-write atomicity**: a write-construction error prevents the service call, so already queued writes are not partially committed. The legacy Go `Transaction` stores the first `Create`, `Update`, or `Delete` error for `Commit` to return; `Rollback` clears it.
 - **Marshaling parity**: transaction puts preserve non-nil empty lists and maps, including inside nested Go structs, unless the field explicitly uses `omitempty`.
 - **Cross-runtime parity**: a write transaction submitted from Python sees the same atomicity guarantees as one submitted from Go.
 
@@ -88,10 +88,10 @@ of refreshed. Separately, v3.0.1 fixed an overlapping-document-path
 v3.0.0 and v2.x.
 
 A non-zero `version` adds both an expected-version condition and the managed
-increment; the corrected legacy path also adds both when the version is zero.
-This closes a legacy-only parity defect: v3.0.1 skipped locking and incrementing
-zero while the explicit Go query path and the TypeScript and Python runtimes
-already locked zero, as documented in
+increment. As of v3.0.2, the corrected legacy path also adds both when the
+version is zero. This closes a legacy-only parity defect: v3.0.1 skipped
+locking and incrementing zero while the explicit Go query path and the
+TypeScript and Python runtimes already locked zero, as documented in
 [Optimistic Locking](optimistic-locking.md#update-is-not-an-upsert). This is a
 behavior change from v3.0.1 for zero-version legacy updates.
 
@@ -105,8 +105,9 @@ backfills.
 The legacy implicit path does not reject caller-populated lifecycle fields;
 it ignores them. Rejection of `created_at`, `updated_at`, and version is limited
 to the explicit named-field transaction surfaces in Go, TypeScript, and Python.
-Use a deliberate caller-controlled low-level surface rather than the legacy
-whole-model path when a backfill must set a historical lifecycle value.
+Use the deliberate caller-controlled `UpdateWithBuilder` low-level surface
+rather than the legacy whole-model path when a backfill must set a historical
+lifecycle value.
 
 ## TypeScript
 
