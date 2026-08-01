@@ -399,7 +399,10 @@ func (q *Query) appendUpdatedAtAndVersionUpdates(builder *expr.Builder, modelVal
 	}
 
 	if q.rawMetadata.VersionField != nil {
-		current := modelValue.FieldByIndex(q.rawMetadata.VersionField.IndexPath).Int()
+		current, err := reflectutil.VersionNumber(modelValue.FieldByIndex(q.rawMetadata.VersionField.IndexPath))
+		if err != nil {
+			return fmt.Errorf("failed to read current version: %w", err)
+		}
 		if err := builder.AddConditionExpression(q.rawMetadata.VersionField.DBName, "=", current); err != nil {
 			return fmt.Errorf("failed to add version condition: %w", err)
 		}
@@ -553,7 +556,11 @@ func (q *Query) Delete() error {
 		if modelValue.Kind() == reflect.Struct {
 			versionValue := modelValue.FieldByIndex(q.rawMetadata.VersionField.IndexPath)
 			if !versionValue.IsZero() {
-				if err := builder.AddConditionExpression(q.rawMetadata.VersionField.DBName, "=", versionValue.Int()); err != nil {
+				current, err := reflectutil.VersionNumber(versionValue)
+				if err != nil {
+					return fmt.Errorf("failed to read current version: %w", err)
+				}
+				if err := builder.AddConditionExpression(q.rawMetadata.VersionField.DBName, "=", current); err != nil {
 					return fmt.Errorf("failed to add version condition: %w", err)
 				}
 			}

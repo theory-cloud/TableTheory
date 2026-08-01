@@ -162,10 +162,12 @@ func TestWritePolicyTransaction_EnforcesPolicies(t *testing.T) {
 	err := tx.Update(event)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, theorydbErrors.ErrImmutableModelMutation))
+	require.NoError(t, tx.Rollback())
 
 	err = tx.Delete(event)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, theorydbErrors.ErrImmutableModelMutation))
+	require.NoError(t, tx.Rollback())
 
 	actual := &writePolicyTransactionActual{
 		PK:              "release#svc",
