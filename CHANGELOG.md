@@ -63,6 +63,27 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.0.2](https://github.com/theory-cloud/TableTheory/compare/v3.0.2-rc...v3.0.2) (2026-08-01)
+
+Stable promotion of `v3.0.2-rc`.
+
+
+## [3.0.2-rc](https://github.com/theory-cloud/TableTheory/compare/v3.0.1...v3.0.2-rc) (2026-08-01)
+
+
+### Bug Fixes
+
+* **errors:** preserve duplicate key sentinel type ([86f45fd](https://github.com/theory-cloud/TableTheory/commit/86f45fd393bcb500693cc8d48901423e13b95e37))
+* **model:** align duplicate mapping diagnostics ([9dde04b](https://github.com/theory-cloud/TableTheory/commit/9dde04b5124b37f35862af7cd20628f35dc4d364))
+* **model:** preserve duplicate mapping diagnostics ([e42e776](https://github.com/theory-cloud/TableTheory/commit/e42e776c77560a899f4281c60c0c11a53449f535))
+* **model:** reject duplicate database attribute mappings ([1acd29a](https://github.com/theory-cloud/TableTheory/commit/1acd29ac03e351bb1018b932ab01f4b5bf9ce438))
+* **model:** reject duplicate database attribute mappings ([293cea9](https://github.com/theory-cloud/TableTheory/commit/293cea9e8f88c949b9c16790369d87fe3048e444))
+* **query:** support unsigned optimistic lock versions ([db75b15](https://github.com/theory-cloud/TableTheory/commit/db75b15f2ec17de3348d09370f0eef26a39c5025))
+* **transaction:** harden version locks and recovery ([93e2d20](https://github.com/theory-cloud/TableTheory/commit/93e2d20b5ca00ca517a729f7260ae811f87038de))
+* **transaction:** lock zero versions and poison failed updates ([be4dd64](https://github.com/theory-cloud/TableTheory/commit/be4dd6489a9829bdb287f90aa78e384e6059f902))
+* **transaction:** lock zero versions and poison failed updates ([484f9a0](https://github.com/theory-cloud/TableTheory/commit/484f9a0da7d6613451f93233920b200e87b8f71b))
+* **transaction:** restore zero-version delete parity ([20ac8bf](https://github.com/theory-cloud/TableTheory/commit/20ac8bf78de9da241ceeba655208d20657576331))
+
 ## [3.0.1](https://github.com/theory-cloud/TableTheory/compare/v3.0.1-rc...v3.0.1) (2026-08-01)
 
 Stable promotion of `v3.0.1-rc`.
