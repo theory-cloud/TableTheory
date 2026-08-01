@@ -352,13 +352,18 @@ func (tx *Transaction) Delete(model any) (err error) {
 		}
 		versionValue := modelValue.Field(metadata.VersionField.Index)
 
-		if versionValue.IsValid() {
+		if versionValue.IsValid() && !versionValue.IsZero() {
+			currentVersion, err := reflectutil.VersionNumber(versionValue)
+			if err != nil {
+				return fmt.Errorf("failed to read current version: %w", err)
+			}
+
 			deleteItem.ConditionExpression = aws.String("#ver = :ver")
 			deleteItem.ExpressionAttributeNames = map[string]string{
 				"#ver": metadata.VersionField.DBName,
 			}
 
-			av, err := tx.converter.ToAttributeValue(versionValue.Interface())
+			av, err := tx.converter.ToAttributeValue(currentVersion)
 			if err != nil {
 				return fmt.Errorf("failed to convert version for delete condition: %w", err)
 			}

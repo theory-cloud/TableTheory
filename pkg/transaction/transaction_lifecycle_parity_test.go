@@ -211,22 +211,53 @@ func TestTransactionUpdateLegacySupportsUint64Versions(t *testing.T) {
 	}
 }
 
-func TestTransactionDeleteLegacyLocksZeroVersion(t *testing.T) {
+func TestTransactionDeleteLegacyLocksOnlyNonZeroVersions(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&legacyUintVersionedRecord{}))
 
-	tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
-	require.NoError(t, tx.Delete(&legacyUintVersionedRecord{
-		PK:      "USER#legacy-delete-version-zero",
-		SK:      "PROFILE",
-		Version: 0,
-	}))
-	require.Len(t, tx.writes, 1)
+	t.Run("zero is unconditioned", func(t *testing.T) {
+		tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+		require.NoError(t, tx.Delete(&legacyUintVersionedRecord{
+			PK:      "USER#legacy-delete-version-zero",
+			SK:      "PROFILE",
+			Version: 0,
+		}))
+		require.Len(t, tx.writes, 1)
 
-	deleteItem := tx.writes[0].Delete
-	require.NotNil(t, deleteItem)
-	require.Equal(t, "#ver = :ver", aws.ToString(deleteItem.ConditionExpression))
-	require.Equal(t, "0", numericAttributeValue(t, deleteItem.ExpressionAttributeValues[":ver"]))
+		deleteItem := tx.writes[0].Delete
+		require.NotNil(t, deleteItem)
+		// Match the explicit query Delete surface: zero means a key-only,
+		// intentionally unconditioned delete rather than a version-zero lock.
+		require.Nil(t, deleteItem.ConditionExpression)
+		require.Empty(t, deleteItem.ExpressionAttributeNames)
+		require.Empty(t, deleteItem.ExpressionAttributeValues)
+	})
+
+	t.Run("non-zero is conditioned", func(t *testing.T) {
+		tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+		require.NoError(t, tx.Delete(&legacyUintVersionedRecord{
+			PK:      "USER#legacy-delete-version-non-zero",
+			SK:      "PROFILE",
+			Version: 7,
+		}))
+		require.Len(t, tx.writes, 1)
+
+		deleteItem := tx.writes[0].Delete
+		require.NotNil(t, deleteItem)
+		require.Equal(t, "#ver = :ver", aws.ToString(deleteItem.ConditionExpression))
+		require.Equal(t, "7", numericAttributeValue(t, deleteItem.ExpressionAttributeValues[":ver"]))
+	})
+
+	t.Run("overflow is rejected", func(t *testing.T) {
+		tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+		err := tx.Delete(&legacyUintVersionedRecord{
+			PK:      "USER#legacy-delete-version-overflow",
+			SK:      "PROFILE",
+			Version: ^uint64(0),
+		})
+		require.EqualError(t, err, "failed to read current version: version value overflows int64")
+		require.Empty(t, tx.writes, "an invalid version must not queue a delete")
+	})
 }
 
 func numericAttributeValue(t *testing.T, value dynamodbTypes.AttributeValue) string {

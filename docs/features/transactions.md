@@ -95,6 +95,11 @@ TypeScript and Python runtimes already locked zero, as documented in
 [Optimistic Locking](optimistic-locking.md#update-is-not-an-upsert). This is a
 behavior change from v3.0.1 for zero-version legacy updates.
 
+Deletes retain their established behavior: the legacy transactional
+`Transaction.Delete(model)` surface and the explicit query `Delete()` surface
+attach an optimistic-lock condition only when the model version is non-zero.
+A key-only delete of a versioned model is therefore unconditioned by design.
+
 When no caller field is selected and no managed assignment qualifies,
 `Update(model)` returns `no non-key fields to update` and does not queue a
 write. Earlier releases could commit an all-managed-field model by silently
