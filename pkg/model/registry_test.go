@@ -372,7 +372,7 @@ func TestRegisterRejectsEmbeddedTaggedFieldShadowing(t *testing.T) {
 		Name string `theorydb:"attr:name" json:"name"`
 	}
 	type OtherEmbeddedFields struct {
-		Name string `theorydb:"attr:name" json:"name"`
+		Name string `theorydb:"attr:name" json:"other_name"`
 	}
 	type EmbeddedShadowing struct {
 		PK   string `theorydb:"pk,attr:PK" json:"PK"`
@@ -386,8 +386,8 @@ func TestRegisterRejectsEmbeddedTaggedFieldShadowing(t *testing.T) {
 	}
 
 	for _, test := range []struct {
-		name  string
 		model any
+		name  string
 	}{
 		{name: "outer field shadows embedded field", model: &EmbeddedShadowing{}},
 		{name: "two embedded fields are ambiguous", model: &AmbiguousEmbedding{}},
