@@ -50,7 +50,7 @@ func TestTransaction_Commit_FailsWhenClientMissing_COV6(t *testing.T) {
 	require.Error(t, tx.Commit())
 }
 
-func TestTransaction_Update_SkipsUpdatedAtWhenAlreadySet_COV6(t *testing.T) {
+func TestTransaction_Update_OverridesUpdatedAtWhenAlreadySet_COV6(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&unitUser{}))
 
@@ -62,6 +62,14 @@ func TestTransaction_Update_SkipsUpdatedAtWhenAlreadySet_COV6(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
+	// Legacy whole-model updates are an implicit RMW surface: loaded lifecycle values
+	// are skipped, while the library-owned updated_at assignment is appended.
 	require.NoError(t, tx.Update(user))
-	require.NotEmpty(t, tx.writes)
+	require.Len(t, tx.writes, 1)
+	require.NotNil(t, tx.writes[0].Update)
+	require.Equal(t, 1, updatePathOccurrences(
+		*tx.writes[0].Update.UpdateExpression,
+		tx.writes[0].Update.ExpressionAttributeNames,
+		"updatedAt",
+	))
 }
