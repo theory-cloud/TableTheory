@@ -439,9 +439,26 @@ func isEmbeddedStruct(field reflect.StructField) bool {
 
 func registerField(metadata *Metadata, fieldMeta *FieldMetadata) error {
 	if existing := metadata.FieldsByDBName[fieldMeta.DBName]; existing != nil {
+		cause := errors.ErrInvalidModel
+		if existing.IsPK || existing.IsSK || fieldMeta.IsPK || fieldMeta.IsSK {
+			cause = errors.ErrDuplicatePrimaryKey
+		}
+
+		// Go-only: Python dataclasses have no equivalent to embedded-field
+		// promotion, so only Go can produce this shadowing shape.
+		if existing.Name == fieldMeta.Name &&
+			(len(existing.IndexPath) > 1 || len(fieldMeta.IndexPath) > 1) {
+			return fmt.Errorf(
+				"%w: Go struct embedding promotion shadowing of tagged field %q mapped to database attribute %q is not supported; the persisted value and resolved field can diverge depending on declaration order",
+				cause,
+				fieldMeta.Name,
+				fieldMeta.DBName,
+			)
+		}
+
 		return fmt.Errorf(
 			"%w: duplicate database attribute name %q for fields %s and %s",
-			errors.ErrInvalidModel,
+			cause,
 			fieldMeta.DBName,
 			existing.Name,
 			fieldMeta.Name,

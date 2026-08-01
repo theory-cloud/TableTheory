@@ -298,12 +298,37 @@ func TestRegisterDuplicatePrimaryKey(t *testing.T) {
 		ID1 string `theorydb:"pk"`
 		ID2 string `theorydb:"pk"`
 	}
+	type DynamORMDuplicatePKModel struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
 
-	registry := model.NewRegistry()
+		ID1 string `theorydb:"pk"`
+		ID2 string `theorydb:"pk"`
+	}
+	type DynamORMDuplicateSKModel struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
 
-	err := registry.Register(&DuplicatePKModel{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "duplicate primary key")
+		PK  string `theorydb:"pk"`
+		SK1 string `theorydb:"sk"`
+		SK2 string `theorydb:"sk"`
+	}
+
+	tests := []struct {
+		model any
+		name  string
+	}{
+		{name: "distinct database attributes", model: &DuplicatePKModel{}},
+		{name: "DynamORM partition key alias", model: &DynamORMDuplicatePKModel{}},
+		{name: "DynamORM sort key alias", model: &DynamORMDuplicateSKModel{}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			registry := model.NewRegistry()
+			err := registry.Register(test.model)
+			require.ErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
+			require.NotErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+		})
+	}
 }
 
 func TestRegisterRejectsDuplicateDBNameMappings(t *testing.T) {
@@ -334,11 +359,35 @@ func TestRegisterRejectsDuplicateDBNameMappings(t *testing.T) {
 			registry := model.NewRegistry()
 			err := registry.Register(test.model)
 			require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+			require.NotErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
 			require.ErrorContains(t, err, `duplicate database attribute name "shared"`)
 			require.ErrorContains(t, err, "First")
 			require.ErrorContains(t, err, "Second")
 		})
 	}
+}
+
+func TestRegisterRejectsEmbeddedTaggedFieldShadowing(t *testing.T) {
+	type EmbeddedFields struct {
+		Name string `theorydb:"attr:name" json:"name"`
+	}
+	type EmbeddedShadowing struct {
+		PK   string `theorydb:"pk,attr:PK" json:"PK"`
+		Name string `theorydb:"attr:name" json:"name"`
+		EmbeddedFields
+	}
+
+	registry := model.NewRegistry()
+	err := registry.Register(&EmbeddedShadowing{})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+	require.NotErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
+	require.ErrorContains(
+		t,
+		err,
+		`Go struct embedding promotion shadowing of tagged field "Name" mapped to database attribute "name" is not supported`,
+	)
+	require.ErrorContains(t, err, "persisted value and resolved field can diverge depending on declaration order")
+	require.NotContains(t, err.Error(), "fields Name and Name")
 }
 
 func TestRegisterModelWithIndexModifiers(t *testing.T) {

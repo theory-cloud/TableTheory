@@ -283,6 +283,8 @@ class ModelDefinition[T]:
             converter = cast(AttributeConverter | None, opts.get("converter"))
             attribute_name = cast(str, opts.get("name", dc_field.name))
             if previous_field := attribute_names.get(attribute_name):
+                # Python has no distinct duplicate-primary-key exception sentinel;
+                # all model-shape failures use ModelDefinitionError.
                 raise ModelDefinitionError(
                     f"duplicate database attribute name {attribute_name!r} "
                     f"for fields {previous_field} and {dc_field.name}"
