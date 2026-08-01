@@ -63,6 +63,24 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.0.1](https://github.com/theory-cloud/TableTheory/compare/v3.0.1-rc...v3.0.1) (2026-08-01)
+
+Stable promotion of `v3.0.1-rc`.
+
+
+## [3.0.1-rc](https://github.com/theory-cloud/TableTheory/compare/v3.0.0...v3.0.1-rc) (2026-08-01)
+
+
+### Bug Fixes
+
+* **deps:** bump aws-cdk-lib to 2.263.0 and retire bundled exception ([87d52bc](https://github.com/theory-cloud/TableTheory/commit/87d52bc1ceec695683e509bfd120e8f66b216b1d))
+* **deps:** bump aws-cdk-lib to 2.263.0 and retire bundled exception ([f90f50d](https://github.com/theory-cloud/TableTheory/commit/f90f50dfd1d4a285bee0f24990868c594ab4ad79))
+* **go:** align legacy transaction update lifecycle semantics ([560abfc](https://github.com/theory-cloud/TableTheory/commit/560abfc6c317258129dec2443098e47fd977b4b7))
+* **go:** align legacy transaction update lifecycle semantics ([0ca2ac3](https://github.com/theory-cloud/TableTheory/commit/0ca2ac307e0966534084d295ad9849b724586565))
+* **transaction:** exclude managed legacy update fields ([ab0b065](https://github.com/theory-cloud/TableTheory/commit/ab0b065d84c0ce84e4c26e405269be6e43928aee))
+* **transaction:** preserve implicit update compatibility ([be48d17](https://github.com/theory-cloud/TableTheory/commit/be48d170c6db38bd63858cffb54da489b71af103))
+* **transaction:** reject empty legacy updates ([61e431d](https://github.com/theory-cloud/TableTheory/commit/61e431d44b8a4ef6294018f8c02e66d05910e042))
+
 ## [3.0.0](https://github.com/theory-cloud/TableTheory/compare/v3.0.0-rc...v3.0.0) (2026-07-31)
 
 Stable promotion of `v3.0.0-rc`.
