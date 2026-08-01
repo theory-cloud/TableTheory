@@ -13,6 +13,7 @@ This page documents TableTheory's public write-transaction surfaces, which use t
 - **Condition evaluation** is server-side: each write item carries its own conditional expression, and a single failed condition aborts the whole transaction.
 - **Optimistic-lock composition**: a versioned item in the group asserts its expected version; a version mismatch aborts the transaction atomically.
 - **Encryption composition**: encrypted fields are encrypted before the transaction is submitted; a KMS failure aborts before any write hits DynamoDB.
+- **Rejected-write atomicity**: a write-construction error prevents the service call, so already queued writes are not partially committed. The legacy Go `Transaction` stores the first `Create`, `Update`, or `Delete` error for `Commit` to return; `Rollback` clears it.
 - **Marshaling parity**: transaction puts preserve non-nil empty lists and maps, including inside nested Go structs, unless the field explicitly uses `omitempty`.
 - **Cross-runtime parity**: a write transaction submitted from Python sees the same atomicity guarantees as one submitted from Go.
 
@@ -70,6 +71,48 @@ of the library-owned `created_at`, `updated_at`, and version fields with
 document paths. `UpdateWithBuilder` remains a caller-controlled low-level
 surface. The model-based path does not increment version or add a version
 condition; use `UpdateWithBuilder` for optimistic locking in a transaction.
+
+### Legacy one-argument `Transaction.Update(model)`
+
+The legacy `(*transaction.Transaction).Update(model)` path is a whole-model,
+implicit-selection surface. As of v3.0.1, its implicit candidate list excludes
+the five library-managed fields: `PK`, `SK`, `created_at`, `updated_at`, and
+`version`. It silently ignores caller-set lifecycle values: `created_at` is not
+assigned, and `updated_at` is assigned only by the library.
+
+Managed assignments are appended after implicit selection. An `updated_at`
+field always receives the library timestamp. This differs from v3.0.0 and every
+v2.x release, where a non-empty caller-set `updated_at` was preserved instead
+of refreshed. Separately, v3.0.1 fixed an overlapping-document-path
+`ValidationException` that broke versioned legacy `Update(model)` calls in
+v3.0.0 and v2.x.
+
+A non-zero `version` adds both an expected-version condition and the managed
+increment. As of v3.0.2, the corrected legacy path also adds both when the
+version is zero. This closes a legacy-only parity defect: v3.0.1 skipped
+locking and incrementing zero while the explicit Go query path and the
+TypeScript and Python runtimes already locked zero, as documented in
+[Optimistic Locking](optimistic-locking.md#update-is-not-an-upsert). This is a
+behavior change from v3.0.1 for zero-version legacy updates.
+
+Deletes retain their established behavior: the legacy transactional
+`Transaction.Delete(model)` surface and the explicit query `Delete()` surface
+attach an optimistic-lock condition only when the model version is non-zero.
+A key-only delete of a versioned model is therefore unconditioned by design.
+
+When no caller field is selected and no managed assignment qualifies,
+`Update(model)` returns `no non-key fields to update` and does not queue a
+write. Earlier releases could commit an all-managed-field model by silently
+writing its caller-set `created_at`, which could clobber the stored creation
+timestamp. Account for both changes in deterministic-timestamp tests and
+backfills.
+
+The legacy implicit path does not reject caller-populated lifecycle fields;
+it ignores them. Rejection of `created_at`, `updated_at`, and version is limited
+to the explicit named-field transaction surfaces in Go, TypeScript, and Python.
+Use the deliberate caller-controlled `UpdateWithBuilder` low-level surface
+rather than the legacy whole-model path when a backfill must set a historical
+lifecycle value.
 
 ## TypeScript
 

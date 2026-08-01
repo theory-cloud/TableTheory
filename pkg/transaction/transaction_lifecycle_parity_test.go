@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +120,17 @@ func (legacyCreatedAtOnlyRecord) TableName() string {
 	return "legacy_created_at_only_records"
 }
 
+type legacyUintVersionedRecord struct {
+	PK      string `theorydb:"pk,attr:PK" json:"PK"`
+	SK      string `theorydb:"sk,attr:SK" json:"SK"`
+	Value   string `theorydb:"attr:value" json:"value"`
+	Version uint64 `theorydb:"version,attr:version" json:"version"`
+}
+
+func (legacyUintVersionedRecord) TableName() string {
+	return "legacy_uint_versioned_records"
+}
+
 func TestTransactionUpdateLegacyOverlapExpressionProbe(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&legacyTransactionalLifecycleRecord{}))
@@ -145,6 +157,114 @@ func TestTransactionUpdateLegacyOverlapExpressionProbe(t *testing.T) {
 	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "createdAt"),
 		"created_at must not be selected by the implicit update")
 	require.Equal(t, "#ver = :currentVer", aws.ToString(update.ConditionExpression))
+}
+
+func TestTransactionUpdateLegacyLocksZeroVersion(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&legacyTransactionalLifecycleRecord{}))
+
+	tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+	require.NoError(t, tx.Update(&legacyTransactionalLifecycleRecord{
+		PK:      "USER#legacy-version-zero",
+		SK:      "PROFILE",
+		Value:   "changed",
+		Version: 0,
+	}))
+	require.Len(t, tx.writes, 1)
+
+	update := tx.writes[0].Update
+	require.NotNil(t, update)
+	require.Equal(t, "#ver = :currentVer", aws.ToString(update.ConditionExpression))
+	require.Contains(t, aws.ToString(update.UpdateExpression), "#ver = :newVer")
+	require.Equal(t, "0", numericAttributeValue(t, update.ExpressionAttributeValues[":currentVer"]))
+	require.Equal(t, "1", numericAttributeValue(t, update.ExpressionAttributeValues[":newVer"]))
+}
+
+func TestTransactionUpdateLegacySupportsUint64Versions(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&legacyUintVersionedRecord{}))
+
+	for _, test := range []struct {
+		name       string
+		newVersion string
+		version    uint64
+	}{
+		{name: "zero", version: 0, newVersion: "1"},
+		{name: "non-zero", version: 7, newVersion: "8"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+			require.NoError(t, tx.Update(&legacyUintVersionedRecord{
+				PK:      "USER#legacy-uint-version",
+				SK:      "PROFILE",
+				Value:   "changed",
+				Version: test.version,
+			}))
+			require.Len(t, tx.writes, 1)
+
+			update := tx.writes[0].Update
+			require.NotNil(t, update)
+			require.Equal(t, "#ver = :currentVer", aws.ToString(update.ConditionExpression))
+			require.Equal(t, fmt.Sprint(test.version), numericAttributeValue(t, update.ExpressionAttributeValues[":currentVer"]))
+			require.Equal(t, test.newVersion, numericAttributeValue(t, update.ExpressionAttributeValues[":newVer"]))
+		})
+	}
+}
+
+func TestTransactionDeleteLegacyLocksOnlyNonZeroVersions(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&legacyUintVersionedRecord{}))
+
+	t.Run("zero is unconditioned", func(t *testing.T) {
+		tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+		require.NoError(t, tx.Delete(&legacyUintVersionedRecord{
+			PK:      "USER#legacy-delete-version-zero",
+			SK:      "PROFILE",
+			Version: 0,
+		}))
+		require.Len(t, tx.writes, 1)
+
+		deleteItem := tx.writes[0].Delete
+		require.NotNil(t, deleteItem)
+		// Match the explicit query Delete surface: zero means a key-only,
+		// intentionally unconditioned delete rather than a version-zero lock.
+		require.Nil(t, deleteItem.ConditionExpression)
+		require.Empty(t, deleteItem.ExpressionAttributeNames)
+		require.Empty(t, deleteItem.ExpressionAttributeValues)
+	})
+
+	t.Run("non-zero is conditioned", func(t *testing.T) {
+		tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+		require.NoError(t, tx.Delete(&legacyUintVersionedRecord{
+			PK:      "USER#legacy-delete-version-non-zero",
+			SK:      "PROFILE",
+			Version: 7,
+		}))
+		require.Len(t, tx.writes, 1)
+
+		deleteItem := tx.writes[0].Delete
+		require.NotNil(t, deleteItem)
+		require.Equal(t, "#ver = :ver", aws.ToString(deleteItem.ConditionExpression))
+		require.Equal(t, "7", numericAttributeValue(t, deleteItem.ExpressionAttributeValues[":ver"]))
+	})
+
+	t.Run("overflow is rejected", func(t *testing.T) {
+		tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+		err := tx.Delete(&legacyUintVersionedRecord{
+			PK:      "USER#legacy-delete-version-overflow",
+			SK:      "PROFILE",
+			Version: ^uint64(0),
+		})
+		require.EqualError(t, err, "failed to read current version: version value overflows int64")
+		require.Empty(t, tx.writes, "an invalid version must not queue a delete")
+	})
+}
+
+func numericAttributeValue(t *testing.T, value dynamodbTypes.AttributeValue) string {
+	t.Helper()
+	number, ok := value.(*dynamodbTypes.AttributeValueMemberN)
+	require.True(t, ok)
+	return number.Value
 }
 
 func TestTransactionUpdateLegacyBuildsSetFromManagedOnlyAssignments(t *testing.T) {
@@ -202,7 +322,8 @@ func TestTransactionUpdateLegacyOverridesCallerSetUpdatedAtForImplicitRMW(t *tes
 	update := legacy.writes[0].Update
 	require.NotNil(t, update)
 	expression := aws.ToString(update.UpdateExpression)
-	require.ElementsMatch(t, []string{"value", "updatedAt"}, updateDocumentPaths(expression, update.ExpressionAttributeNames))
+	require.ElementsMatch(t, []string{"value", "version", "updatedAt"},
+		updateDocumentPaths(expression, update.ExpressionAttributeNames))
 	updatedAt, ok := update.ExpressionAttributeValues[":updTime"].(*dynamodbTypes.AttributeValueMemberS)
 	require.True(t, ok)
 	require.NotEqual(t, callerUpdatedAt.Format(time.RFC3339Nano), updatedAt.Value,
@@ -228,7 +349,8 @@ func TestTransactionUpdateLegacyIgnoresCallerSetCreatedAtForImplicitRMW(t *testi
 	update := legacy.writes[0].Update
 	require.NotNil(t, update)
 	expression := aws.ToString(update.UpdateExpression)
-	require.ElementsMatch(t, []string{"value", "updatedAt"}, updateDocumentPaths(expression, update.ExpressionAttributeNames))
+	require.ElementsMatch(t, []string{"value", "version", "updatedAt"},
+		updateDocumentPaths(expression, update.ExpressionAttributeNames))
 	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "createdAt"),
 		"caller-supplied created_at must be excluded so the stored lifecycle value is preserved")
 }
@@ -251,12 +373,12 @@ func TestTransactionUpdateLegacyPreservesSparseSetSemanticsAndRefreshesUpdatedAt
 	require.Contains(t, expression, "SET")
 	require.NotContains(t, expression, "REMOVE",
 		"legacy implicit updates keep zero-valued omitempty fields unselected rather than removing them")
-	require.ElementsMatch(t, []string{"value", "updatedAt"}, attributeNames(update.ExpressionAttributeNames))
-	require.Len(t, update.ExpressionAttributeValues, 2)
+	require.ElementsMatch(t, []string{"value", "version", "updatedAt"}, attributeNames(update.ExpressionAttributeNames))
+	require.Len(t, update.ExpressionAttributeValues, 4)
 	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "createdAt"),
 		"a zero created_at must not overwrite the stored lifecycle timestamp")
-	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "version"),
-		"a zero version must not be selected by the implicit update")
+	require.Equal(t, 1, updatePathOccurrences(expression, update.ExpressionAttributeNames, "version"),
+		"the persisted zero version must be incremented by the implicit update")
 	require.Equal(t, 1, updatePathOccurrences(expression, update.ExpressionAttributeNames, "updatedAt"))
 }
 
