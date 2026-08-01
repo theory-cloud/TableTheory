@@ -55,7 +55,16 @@ func (tx *Transaction) WithContext(ctx context.Context) *Transaction {
 }
 
 // Create adds a create operation to the transaction
-func (tx *Transaction) Create(model any) error {
+func (tx *Transaction) Create(model any) (err error) {
+	if tx.err != nil {
+		return tx.err
+	}
+	defer func() {
+		if err != nil && tx.err == nil {
+			tx.err = err
+		}
+	}()
+
 	metadata, err := tx.registry.GetMetadata(model)
 	if err != nil {
 		return fmt.Errorf("failed to get model metadata: %w", err)
@@ -260,7 +269,10 @@ func (tx *Transaction) applyVersionUpdate(
 		return "", nil
 	}
 
-	currentVersion := versionValue.Int()
+	currentVersion, err := reflectutil.VersionNumber(versionValue)
+	if err != nil {
+		return "", fmt.Errorf("failed to read current version: %w", err)
+	}
 	conditionExpression := "#ver = :currentVer"
 	expressionAttributeNames["#ver"] = metadata.VersionField.DBName
 
@@ -302,7 +314,16 @@ func (tx *Transaction) applyUpdatedAtUpdate(
 }
 
 // Delete adds a delete operation to the transaction
-func (tx *Transaction) Delete(model any) error {
+func (tx *Transaction) Delete(model any) (err error) {
+	if tx.err != nil {
+		return tx.err
+	}
+	defer func() {
+		if err != nil && tx.err == nil {
+			tx.err = err
+		}
+	}()
+
 	metadata, err := tx.registry.GetMetadata(model)
 	if err != nil {
 		return fmt.Errorf("failed to get model metadata: %w", err)
@@ -331,7 +352,7 @@ func (tx *Transaction) Delete(model any) error {
 		}
 		versionValue := modelValue.Field(metadata.VersionField.Index)
 
-		if versionValue.IsValid() && !versionValue.IsZero() {
+		if versionValue.IsValid() {
 			deleteItem.ConditionExpression = aws.String("#ver = :ver")
 			deleteItem.ExpressionAttributeNames = map[string]string{
 				"#ver": metadata.VersionField.DBName,
@@ -443,7 +464,7 @@ func (tx *Transaction) Rollback() error {
 	// Clear any pending operations
 	tx.writes = nil
 	tx.reads = nil
-	tx.results = nil
+	tx.results = make(map[string]map[string]types.AttributeValue)
 	tx.err = nil
 	return nil
 }

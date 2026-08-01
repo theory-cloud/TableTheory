@@ -333,7 +333,8 @@ func TestTransactionRollback(t *testing.T) {
 		// Operations should be cleared
 		assert.Nil(t, tx.writes)
 		assert.Nil(t, tx.reads)
-		assert.Nil(t, tx.results)
+		assert.NotNil(t, tx.results)
+		assert.Empty(t, tx.results)
 	})
 }
 

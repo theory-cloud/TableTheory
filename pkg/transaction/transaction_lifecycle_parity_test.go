@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +120,17 @@ func (legacyCreatedAtOnlyRecord) TableName() string {
 	return "legacy_created_at_only_records"
 }
 
+type legacyUintVersionedRecord struct {
+	PK      string `theorydb:"pk,attr:PK" json:"PK"`
+	SK      string `theorydb:"sk,attr:SK" json:"SK"`
+	Value   string `theorydb:"attr:value" json:"value"`
+	Version uint64 `theorydb:"version,attr:version" json:"version"`
+}
+
+func (legacyUintVersionedRecord) TableName() string {
+	return "legacy_uint_versioned_records"
+}
+
 func TestTransactionUpdateLegacyOverlapExpressionProbe(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&legacyTransactionalLifecycleRecord{}))
@@ -166,6 +178,55 @@ func TestTransactionUpdateLegacyLocksZeroVersion(t *testing.T) {
 	require.Contains(t, aws.ToString(update.UpdateExpression), "#ver = :newVer")
 	require.Equal(t, "0", numericAttributeValue(t, update.ExpressionAttributeValues[":currentVer"]))
 	require.Equal(t, "1", numericAttributeValue(t, update.ExpressionAttributeValues[":newVer"]))
+}
+
+func TestTransactionUpdateLegacySupportsUint64Versions(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&legacyUintVersionedRecord{}))
+
+	for _, test := range []struct {
+		name       string
+		version    uint64
+		newVersion string
+	}{
+		{name: "zero", version: 0, newVersion: "1"},
+		{name: "non-zero", version: 7, newVersion: "8"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+			require.NoError(t, tx.Update(&legacyUintVersionedRecord{
+				PK:      "USER#legacy-uint-version",
+				SK:      "PROFILE",
+				Value:   "changed",
+				Version: test.version,
+			}))
+			require.Len(t, tx.writes, 1)
+
+			update := tx.writes[0].Update
+			require.NotNil(t, update)
+			require.Equal(t, "#ver = :currentVer", aws.ToString(update.ConditionExpression))
+			require.Equal(t, fmt.Sprint(test.version), numericAttributeValue(t, update.ExpressionAttributeValues[":currentVer"]))
+			require.Equal(t, test.newVersion, numericAttributeValue(t, update.ExpressionAttributeValues[":newVer"]))
+		})
+	}
+}
+
+func TestTransactionDeleteLegacyLocksZeroVersion(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&legacyUintVersionedRecord{}))
+
+	tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+	require.NoError(t, tx.Delete(&legacyUintVersionedRecord{
+		PK:      "USER#legacy-delete-version-zero",
+		SK:      "PROFILE",
+		Version: 0,
+	}))
+	require.Len(t, tx.writes, 1)
+
+	deleteItem := tx.writes[0].Delete
+	require.NotNil(t, deleteItem)
+	require.Equal(t, "#ver = :ver", aws.ToString(deleteItem.ConditionExpression))
+	require.Equal(t, "0", numericAttributeValue(t, deleteItem.ExpressionAttributeValues[":ver"]))
 }
 
 func numericAttributeValue(t *testing.T, value dynamodbTypes.AttributeValue) string {
