@@ -52,8 +52,10 @@ var (
 	// ErrTableNotFound is returned when a table doesn't exist
 	ErrTableNotFound = errors.New("table not found")
 
-	// ErrDuplicatePrimaryKey is returned when multiple primary keys are defined
-	ErrDuplicatePrimaryKey = errors.New("duplicate primary key definition")
+	// ErrDuplicatePrimaryKey is returned when multiple primary keys are defined.
+	// It matches ErrInvalidModel via errors.Is because duplicate keys are invalid model shapes.
+	// Its declared error type is part of the published API contract.
+	ErrDuplicatePrimaryKey error = invalidModelSubtypeError("duplicate primary key definition")
 
 	// ErrEmptyValue is returned when a required value is empty
 	ErrEmptyValue = errors.New("empty value")
@@ -88,6 +90,16 @@ func (e conditionSubtypeError) Error() string {
 
 func (e conditionSubtypeError) Is(target error) bool {
 	return target == ErrConditionFailed
+}
+
+type invalidModelSubtypeError string
+
+func (e invalidModelSubtypeError) Error() string {
+	return string(e)
+}
+
+func (e invalidModelSubtypeError) Is(target error) bool {
+	return target == ErrInvalidModel
 }
 
 type transactionSubtypeError string

@@ -86,6 +86,20 @@ def test_model_definition_rejects_multiple_pk() -> None:
         ModelDefinition.from_dataclass(Bad)
 
 
+def test_model_definition_rejects_duplicate_database_attribute_names() -> None:
+    @dataclass(frozen=True)
+    class Collision:
+        pk: str = theorydb_field(name="PK", roles=["pk"])
+        first: str = theorydb_field(name="shared", default="")
+        second: str = theorydb_field(name="shared", default="")
+
+    with pytest.raises(
+        ModelDefinitionError,
+        match="duplicate database attribute name 'shared' for fields first and second",
+    ):
+        ModelDefinition.from_dataclass(Collision)
+
+
 def test_model_definition_rejects_encrypted_key() -> None:
     @dataclass(frozen=True)
     class Bad:
