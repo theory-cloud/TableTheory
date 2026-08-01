@@ -29,6 +29,7 @@ type Transaction struct {
 	session   *session.Session
 	registry  *model.Registry
 	converter *pkgTypes.Converter
+	err       error
 	results   map[string]map[string]types.AttributeValue
 	writes    []types.TransactWriteItem
 	reads     []types.TransactGetItem
@@ -54,7 +55,16 @@ func (tx *Transaction) WithContext(ctx context.Context) *Transaction {
 }
 
 // Create adds a create operation to the transaction
-func (tx *Transaction) Create(model any) error {
+func (tx *Transaction) Create(model any) (err error) {
+	if tx.err != nil {
+		return tx.err
+	}
+	defer func() {
+		if err != nil && tx.err == nil {
+			tx.err = err
+		}
+	}()
+
 	metadata, err := tx.registry.GetMetadata(model)
 	if err != nil {
 		return fmt.Errorf("failed to get model metadata: %w", err)
@@ -86,7 +96,16 @@ func (tx *Transaction) Create(model any) error {
 }
 
 // Update adds an update operation to the transaction
-func (tx *Transaction) Update(model any) error {
+func (tx *Transaction) Update(model any) (err error) {
+	if tx.err != nil {
+		return tx.err
+	}
+	defer func() {
+		if err != nil && tx.err == nil {
+			tx.err = err
+		}
+	}()
+
 	metadata, err := tx.registry.GetMetadata(model)
 	if err != nil {
 		return fmt.Errorf("failed to get model metadata: %w", err)
@@ -246,11 +265,14 @@ func (tx *Transaction) applyVersionUpdate(
 	}
 
 	versionValue := modelValue.FieldByIndex(metadata.VersionField.IndexPath)
-	if !versionValue.IsValid() || versionValue.IsZero() {
+	if !versionValue.IsValid() {
 		return "", nil
 	}
 
-	currentVersion := versionValue.Int()
+	currentVersion, err := reflectutil.VersionNumber(versionValue)
+	if err != nil {
+		return "", fmt.Errorf("failed to read current version: %w", err)
+	}
 	conditionExpression := "#ver = :currentVer"
 	expressionAttributeNames["#ver"] = metadata.VersionField.DBName
 
@@ -292,7 +314,16 @@ func (tx *Transaction) applyUpdatedAtUpdate(
 }
 
 // Delete adds a delete operation to the transaction
-func (tx *Transaction) Delete(model any) error {
+func (tx *Transaction) Delete(model any) (err error) {
+	if tx.err != nil {
+		return tx.err
+	}
+	defer func() {
+		if err != nil && tx.err == nil {
+			tx.err = err
+		}
+	}()
+
 	metadata, err := tx.registry.GetMetadata(model)
 	if err != nil {
 		return fmt.Errorf("failed to get model metadata: %w", err)
@@ -322,12 +353,17 @@ func (tx *Transaction) Delete(model any) error {
 		versionValue := modelValue.Field(metadata.VersionField.Index)
 
 		if versionValue.IsValid() && !versionValue.IsZero() {
+			currentVersion, err := reflectutil.VersionNumber(versionValue)
+			if err != nil {
+				return fmt.Errorf("failed to read current version: %w", err)
+			}
+
 			deleteItem.ConditionExpression = aws.String("#ver = :ver")
 			deleteItem.ExpressionAttributeNames = map[string]string{
 				"#ver": metadata.VersionField.DBName,
 			}
 
-			av, err := tx.converter.ToAttributeValue(versionValue.Interface())
+			av, err := tx.converter.ToAttributeValue(currentVersion)
 			if err != nil {
 				return fmt.Errorf("failed to convert version for delete condition: %w", err)
 			}
@@ -377,6 +413,10 @@ func (tx *Transaction) Get(model any, dest any) error {
 
 // Commit executes the transaction
 func (tx *Transaction) Commit() error {
+	if tx.err != nil {
+		return tx.err
+	}
+
 	// Execute writes if any
 	if len(tx.writes) > 0 {
 		input := &dynamodb.TransactWriteItemsInput{
@@ -429,7 +469,8 @@ func (tx *Transaction) Rollback() error {
 	// Clear any pending operations
 	tx.writes = nil
 	tx.reads = nil
-	tx.results = nil
+	tx.results = make(map[string]map[string]types.AttributeValue)
+	tx.err = nil
 	return nil
 }
 
