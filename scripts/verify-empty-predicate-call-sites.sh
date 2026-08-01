@@ -29,7 +29,6 @@ pkg/query/query_marshal.go|IsEmpty|if fieldMeta.OmitEmpty && reflectutil.IsEmpty
 pkg/query/query_marshal.go|IsEmpty|if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
 pkg/query/tagged_encode_helpers.go|IsEmpty|if fieldcodec.HasModifier(tag, "omitempty") && reflectutil.IsEmpty(fieldValue) {
 pkg/transaction/builder.go|IsEmpty|if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
-pkg/transaction/transaction.go|IsEmpty|if fieldValue.IsValid() && !reflectutil.IsEmpty(fieldValue) {
 pkg/transaction/transaction.go|IsEmpty|if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
 EOF
 
