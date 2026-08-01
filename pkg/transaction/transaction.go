@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -105,39 +106,29 @@ func (tx *Transaction) Update(model any) error {
 		modelValue = modelValue.Elem()
 	}
 
-	updateExpression, expressionAttributeNames, expressionAttributeValues, err := tx.buildUpdateExpression(modelValue, metadata)
+	setAssignments, expressionAttributeNames, expressionAttributeValues, err := tx.buildUpdateExpression(modelValue, metadata)
 	if err != nil {
 		return err
 	}
 
 	// Handle version field for optimistic locking
-	conditionExpression, err := tx.applyVersionUpdate(modelValue, metadata, &updateExpression, expressionAttributeNames, expressionAttributeValues)
+	conditionExpression, err := tx.applyVersionUpdate(modelValue, metadata, &setAssignments, expressionAttributeNames, expressionAttributeValues)
 	if err != nil {
 		return err
 	}
 
 	// Handle updated_at field
-	if err := tx.applyUpdatedAtUpdate(modelValue, metadata, &updateExpression, expressionAttributeNames, expressionAttributeValues); err != nil {
+	if err := tx.applyUpdatedAtUpdate(metadata, &setAssignments, expressionAttributeNames, expressionAttributeValues); err != nil {
 		return err
 	}
 
-	if encryption.MetadataHasEncryptedFields(metadata) && len(expressionAttributeValues) > 0 {
-		cfg := tx.session.Config()
-		keyARN := ""
-		var rng io.Reader
-		if cfg != nil {
-			keyARN = cfg.KMSKeyARN
-			rng = cfg.EncryptionRand
-		}
-		var svc *encryption.Service
-		if cfg != nil && cfg.KMSClient != nil {
-			svc = encryption.NewServiceWithRand(keyARN, cfg.KMSClient, rng)
-		} else {
-			svc = encryption.NewServiceFromAWSConfigWithRand(keyARN, tx.session.AWSConfig(), rng)
-		}
-		if err := encryption.EncryptUpdateExpressionValues(tx.ctx, svc, metadata, updateExpression, expressionAttributeNames, expressionAttributeValues); err != nil {
-			return err
-		}
+	updateExpression := buildSetUpdateExpression(setAssignments)
+	if updateExpression == "" {
+		return fmt.Errorf("no non-key fields to update")
+	}
+
+	if err := tx.encryptUpdateExpressionValues(metadata, updateExpression, expressionAttributeNames, expressionAttributeValues); err != nil {
+		return err
 	}
 
 	updateItem := &types.Update{
@@ -160,21 +151,54 @@ func (tx *Transaction) Update(model any) error {
 	return nil
 }
 
-func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata *model.Metadata) (string, map[string]string, map[string]types.AttributeValue, error) {
-	if err := rejectWriteOnceMutation(metadata, "transaction update"); err != nil {
-		return "", nil, nil, err
-	}
-	if err := rejectProtectedFieldMutation(metadata, fieldsMutatedByTransactionUpdate(modelValue, metadata)); err != nil {
-		return "", nil, nil, err
+func (tx *Transaction) encryptUpdateExpressionValues(
+	metadata *model.Metadata,
+	updateExpression string,
+	expressionAttributeNames map[string]string,
+	expressionAttributeValues map[string]types.AttributeValue,
+) error {
+	if !encryption.MetadataHasEncryptedFields(metadata) || len(expressionAttributeValues) == 0 {
+		return nil
 	}
 
-	updateExpression := "SET "
+	cfg := tx.session.Config()
+	keyARN := ""
+	var rng io.Reader
+	if cfg != nil {
+		keyARN = cfg.KMSKeyARN
+		rng = cfg.EncryptionRand
+	}
+	var svc *encryption.Service
+	if cfg != nil && cfg.KMSClient != nil {
+		svc = encryption.NewServiceWithRand(keyARN, cfg.KMSClient, rng)
+	} else {
+		svc = encryption.NewServiceFromAWSConfigWithRand(keyARN, tx.session.AWSConfig(), rng)
+	}
+
+	return encryption.EncryptUpdateExpressionValues(
+		tx.ctx,
+		svc,
+		metadata,
+		updateExpression,
+		expressionAttributeNames,
+		expressionAttributeValues,
+	)
+}
+
+func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata *model.Metadata) ([]string, map[string]string, map[string]types.AttributeValue, error) {
+	if err := rejectWriteOnceMutation(metadata, "transaction update"); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := rejectProtectedFieldMutation(metadata, fieldsMutatedByTransactionUpdate(modelValue, metadata)); err != nil {
+		return nil, nil, nil, err
+	}
+
+	setAssignments := make([]string, 0)
 	expressionAttributeNames := make(map[string]string)
 	expressionAttributeValues := make(map[string]types.AttributeValue)
 
-	updateCount := 0
 	for fieldName, fieldMeta := range metadata.Fields {
-		if fieldMeta.IsPK || fieldMeta.IsSK {
+		if isLibraryManagedUpdateField(fieldMeta) {
 			continue
 		}
 
@@ -183,31 +207,37 @@ func (tx *Transaction) buildUpdateExpression(modelValue reflect.Value, metadata 
 			continue
 		}
 
-		if updateCount > 0 {
-			updateExpression += ", "
-		}
-
-		attrName := fmt.Sprintf("#f%d", updateCount)
-		attrValue := fmt.Sprintf(":v%d", updateCount)
+		attrName := fmt.Sprintf("#f%d", len(setAssignments))
+		attrValue := fmt.Sprintf(":v%d", len(setAssignments))
 
 		expressionAttributeNames[attrName] = fieldMeta.DBName
 		av, err := tx.converter.ToAttributeValue(fieldValue.Interface())
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("failed to convert field %s: %w", fieldName, err)
+			return nil, nil, nil, fmt.Errorf("failed to convert field %s: %w", fieldName, err)
 		}
 		expressionAttributeValues[attrValue] = av
 
-		updateExpression += attrName + " = " + attrValue
-		updateCount++
+		setAssignments = append(setAssignments, attrName+" = "+attrValue)
 	}
 
-	return updateExpression, expressionAttributeNames, expressionAttributeValues, nil
+	return setAssignments, expressionAttributeNames, expressionAttributeValues, nil
+}
+
+func isLibraryManagedUpdateField(fieldMeta *model.FieldMetadata) bool {
+	return fieldMeta == nil || fieldMeta.IsPK || fieldMeta.IsSK || fieldMeta.IsCreatedAt || fieldMeta.IsUpdatedAt || fieldMeta.IsVersion
+}
+
+func buildSetUpdateExpression(setAssignments []string) string {
+	if len(setAssignments) == 0 {
+		return ""
+	}
+	return "SET " + strings.Join(setAssignments, ", ")
 }
 
 func (tx *Transaction) applyVersionUpdate(
 	modelValue reflect.Value,
 	metadata *model.Metadata,
-	updateExpression *string,
+	setAssignments *[]string,
 	expressionAttributeNames map[string]string,
 	expressionAttributeValues map[string]types.AttributeValue,
 ) (string, error) {
@@ -230,7 +260,7 @@ func (tx *Transaction) applyVersionUpdate(
 	}
 	expressionAttributeValues[":currentVer"] = av
 
-	*updateExpression += ", #ver = :newVer"
+	*setAssignments = append(*setAssignments, "#ver = :newVer")
 	newAv, err := tx.converter.ToAttributeValue(currentVersion + 1)
 	if err != nil {
 		return "", fmt.Errorf("failed to convert new version: %w", err)
@@ -241,9 +271,8 @@ func (tx *Transaction) applyVersionUpdate(
 }
 
 func (tx *Transaction) applyUpdatedAtUpdate(
-	modelValue reflect.Value,
 	metadata *model.Metadata,
-	updateExpression *string,
+	setAssignments *[]string,
 	expressionAttributeNames map[string]string,
 	expressionAttributeValues map[string]types.AttributeValue,
 ) error {
@@ -251,18 +280,7 @@ func (tx *Transaction) applyUpdatedAtUpdate(
 		return nil
 	}
 
-	for _, fieldMeta := range metadata.Fields {
-		if fieldMeta.DBName != metadata.UpdatedAtField.DBName {
-			continue
-		}
-
-		fieldValue := modelValue.FieldByIndex(fieldMeta.IndexPath)
-		if fieldValue.IsValid() && !reflectutil.IsEmpty(fieldValue) {
-			return nil
-		}
-	}
-
-	*updateExpression += ", #upd = :updTime"
+	*setAssignments = append(*setAssignments, "#upd = :updTime")
 	expressionAttributeNames["#upd"] = metadata.UpdatedAtField.DBName
 
 	av, err := tx.converter.ToAttributeValue(time.Now())
