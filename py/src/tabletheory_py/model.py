@@ -256,6 +256,7 @@ class ModelDefinition[T]:
             annotations = cast(dict[str, Any], getattr(model_type, "__annotations__", {}))
 
         attributes: dict[str, AttributeDefinition] = {}
+        attribute_names: dict[str, str] = {}
         pk_fields: list[str] = []
         sk_fields: list[str] = []
 
@@ -281,6 +282,12 @@ class ModelDefinition[T]:
 
             converter = cast(AttributeConverter | None, opts.get("converter"))
             attribute_name = cast(str, opts.get("name", dc_field.name))
+            if previous_field := attribute_names.get(attribute_name):
+                raise ModelDefinitionError(
+                    f"duplicate database attribute name {attribute_name!r} "
+                    f"for fields {previous_field} and {dc_field.name}"
+                )
+            attribute_names[attribute_name] = dc_field.name
             set_flag = bool(opts.get("set", False))
             json_flag = bool(opts.get("json", False))
             binary_flag = bool(opts.get("binary", False))

@@ -409,7 +409,9 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 		}
 	}
 
-	registerField(metadata, fieldMeta)
+	if err := registerField(metadata, fieldMeta); err != nil {
+		return err
+	}
 
 	if err := applyKeyFields(metadata, fieldMeta); err != nil {
 		return err
@@ -435,9 +437,19 @@ func isEmbeddedStruct(field reflect.StructField) bool {
 	return field.Anonymous && field.Type.Kind() == reflect.Struct
 }
 
-func registerField(metadata *Metadata, fieldMeta *FieldMetadata) {
+func registerField(metadata *Metadata, fieldMeta *FieldMetadata) error {
+	if existing := metadata.FieldsByDBName[fieldMeta.DBName]; existing != nil {
+		return fmt.Errorf(
+			"%w: duplicate database attribute name %q for fields %s and %s",
+			errors.ErrInvalidModel,
+			fieldMeta.DBName,
+			existing.Name,
+			fieldMeta.Name,
+		)
+	}
 	metadata.Fields[fieldMeta.Name] = fieldMeta
 	metadata.FieldsByDBName[fieldMeta.DBName] = fieldMeta
+	return nil
 }
 
 func applyKeyFields(metadata *Metadata, fieldMeta *FieldMetadata) error {

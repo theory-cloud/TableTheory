@@ -306,6 +306,41 @@ func TestRegisterDuplicatePrimaryKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "duplicate primary key")
 }
 
+func TestRegisterRejectsDuplicateDBNameMappings(t *testing.T) {
+	type DirectCollision struct {
+		PK     string `theorydb:"pk,attr:PK" json:"PK"`
+		First  string `theorydb:"attr:shared" json:"first"`
+		Second string `theorydb:"attr:shared" json:"second"`
+	}
+	type EmbeddedFields struct {
+		First string `theorydb:"attr:shared" json:"first"`
+	}
+	type EmbeddedCollision struct {
+		EmbeddedFields
+		PK     string `theorydb:"pk,attr:PK" json:"PK"`
+		Second string `theorydb:"attr:shared" json:"second"`
+	}
+
+	tests := []struct {
+		model any
+		name  string
+	}{
+		{name: "direct fields", model: &DirectCollision{}},
+		{name: "embedded field", model: &EmbeddedCollision{}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			registry := model.NewRegistry()
+			err := registry.Register(test.model)
+			require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+			require.ErrorContains(t, err, `duplicate database attribute name "shared"`)
+			require.ErrorContains(t, err, "First")
+			require.ErrorContains(t, err, "Second")
+		})
+	}
+}
+
 func TestRegisterModelWithIndexModifiers(t *testing.T) {
 	type IndexModifierModel struct {
 		PK     string `theorydb:"pk,attr:PK"`
