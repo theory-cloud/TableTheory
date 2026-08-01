@@ -326,7 +326,7 @@ func TestRegisterDuplicatePrimaryKey(t *testing.T) {
 			registry := model.NewRegistry()
 			err := registry.Register(test.model)
 			require.ErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
-			require.NotErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+			require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
 		})
 	}
 }
@@ -371,23 +371,41 @@ func TestRegisterRejectsEmbeddedTaggedFieldShadowing(t *testing.T) {
 	type EmbeddedFields struct {
 		Name string `theorydb:"attr:name" json:"name"`
 	}
+	type OtherEmbeddedFields struct {
+		Name string `theorydb:"attr:name" json:"name"`
+	}
 	type EmbeddedShadowing struct {
 		PK   string `theorydb:"pk,attr:PK" json:"PK"`
 		Name string `theorydb:"attr:name" json:"name"`
 		EmbeddedFields
 	}
+	type AmbiguousEmbedding struct {
+		PK string `theorydb:"pk,attr:PK" json:"PK"`
+		EmbeddedFields
+		OtherEmbeddedFields
+	}
 
-	registry := model.NewRegistry()
-	err := registry.Register(&EmbeddedShadowing{})
-	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
-	require.NotErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
-	require.ErrorContains(
-		t,
-		err,
-		`Go struct embedding promotion shadowing of tagged field "Name" mapped to database attribute "name" is not supported`,
-	)
-	require.ErrorContains(t, err, "persisted value and resolved field can diverge depending on declaration order")
-	require.NotContains(t, err.Error(), "fields Name and Name")
+	for _, test := range []struct {
+		name  string
+		model any
+	}{
+		{name: "outer field shadows embedded field", model: &EmbeddedShadowing{}},
+		{name: "two embedded fields are ambiguous", model: &AmbiguousEmbedding{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			registry := model.NewRegistry()
+			err := registry.Register(test.model)
+			require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+			require.NotErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
+			require.ErrorContains(
+				t,
+				err,
+				`duplicate tagged Go field name "Name" mapped to database attribute "name" in a model with embedded structs is not supported`,
+			)
+			require.ErrorContains(t, err, "TableTheory may persist and read a different field than the consumer's Go code addresses")
+			require.NotContains(t, err.Error(), "fields Name and Name")
+		})
+	}
 }
 
 func TestRegisterModelWithIndexModifiers(t *testing.T) {

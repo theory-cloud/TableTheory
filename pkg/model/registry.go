@@ -444,12 +444,13 @@ func registerField(metadata *Metadata, fieldMeta *FieldMetadata) error {
 			cause = errors.ErrDuplicatePrimaryKey
 		}
 
-		// Go-only: Python dataclasses have no equivalent to embedded-field
-		// promotion, so only Go can produce this shadowing shape.
+		// Go-only: Python dataclass inheritance collapses same-name fields
+		// deterministically by MRO. Go embedding leaves distinct tagged fields
+		// with the same Go name for TableTheory to resolve.
 		if existing.Name == fieldMeta.Name &&
 			(len(existing.IndexPath) > 1 || len(fieldMeta.IndexPath) > 1) {
 			return fmt.Errorf(
-				"%w: Go struct embedding promotion shadowing of tagged field %q mapped to database attribute %q is not supported; the persisted value and resolved field can diverge depending on declaration order",
+				"%w: duplicate tagged Go field name %q mapped to database attribute %q in a model with embedded structs is not supported; TableTheory may persist and read a different field than the consumer's Go code addresses",
 				cause,
 				fieldMeta.Name,
 				fieldMeta.DBName,
