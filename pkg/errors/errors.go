@@ -54,7 +54,8 @@ var (
 
 	// ErrDuplicatePrimaryKey is returned when multiple primary keys are defined.
 	// It matches ErrInvalidModel via errors.Is because duplicate keys are invalid model shapes.
-	ErrDuplicatePrimaryKey = invalidModelSubtypeError("duplicate primary key definition")
+	// Its declared error type is part of the published API contract.
+	ErrDuplicatePrimaryKey error = invalidModelSubtypeError("duplicate primary key definition")
 
 	// ErrEmptyValue is returned when a required value is empty
 	ErrEmptyValue = errors.New("empty value")

@@ -132,7 +132,10 @@ func TestErrorTaxonomySubtypeCompatibility(t *testing.T) {
 	require.ErrorIs(t, fmt.Errorf("wrapped: %w", ErrVersionConflict), ErrConditionFailed)
 	require.ErrorIs(t, ErrDuplicatePrimaryKey, ErrInvalidModel)
 	require.NotErrorIs(t, ErrInvalidModel, ErrDuplicatePrimaryKey)
-	require.ErrorIs(t, fmt.Errorf("wrapped: %w", ErrDuplicatePrimaryKey), ErrInvalidModel)
+	duplicatePrimaryKey := ErrDuplicatePrimaryKey
+	duplicatePrimaryKey = fmt.Errorf("wrapped: %w", duplicatePrimaryKey)
+	require.ErrorIs(t, duplicatePrimaryKey, ErrDuplicatePrimaryKey)
+	require.ErrorIs(t, duplicatePrimaryKey, ErrInvalidModel)
 	require.ErrorIs(t, ErrTransactionConflict, ErrTransactionFailed)
 	require.NotErrorIs(t, ErrTransactionFailed, ErrTransactionConflict)
 }
