@@ -63,6 +63,33 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 > `db.TransactionFunc(...)` compatibility helpers no longer exist; migrate to
 > the atomic `Transact()` surface.
 
+### Legacy one-argument `Transaction.Update(model)`
+
+The legacy `(*transaction.Transaction).Update(model)` path is a whole-model,
+implicit-selection surface. As of v3.0.1, its implicit candidate list excludes
+the five library-managed fields: `PK`, `SK`, `created_at`, `updated_at`, and
+`version`. It silently ignores caller-set lifecycle values: `created_at` is not
+assigned, and `updated_at` is assigned only by the library.
+
+Managed assignments are appended after implicit selection. An `updated_at`
+field always receives the library timestamp, and a non-zero `version` adds both
+an expected-version condition and the managed increment. A zero version adds
+neither. This differs from v3.0.0 and every v2.x release, where a non-empty
+caller-set `updated_at` was preserved instead of refreshed.
+
+When no caller field is selected and no managed assignment qualifies,
+`Update(model)` returns `no non-key fields to update` and does not queue a
+write. Earlier releases could commit an all-managed-field model by silently
+writing its caller-set `created_at`, which could clobber the stored creation
+timestamp. Account for both changes in deterministic-timestamp tests and
+backfills.
+
+The legacy implicit path does not reject caller-populated lifecycle fields;
+it ignores them. Rejection of `created_at`, `updated_at`, and version is limited
+to the explicit named-field transaction surfaces in Go, TypeScript, and Python.
+Use a deliberate caller-controlled low-level surface rather than the legacy
+whole-model path when a backfill must set a historical lifecycle value.
+
 Go model-based `Update(model, fields)` transactions reject explicit selection
 of the library-owned `created_at`, `updated_at`, and version fields with
 `ErrInvalidModel`. The transaction runtime remains the single writer of
