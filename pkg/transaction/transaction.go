@@ -29,6 +29,7 @@ type Transaction struct {
 	session   *session.Session
 	registry  *model.Registry
 	converter *pkgTypes.Converter
+	err       error
 	results   map[string]map[string]types.AttributeValue
 	writes    []types.TransactWriteItem
 	reads     []types.TransactGetItem
@@ -86,7 +87,16 @@ func (tx *Transaction) Create(model any) error {
 }
 
 // Update adds an update operation to the transaction
-func (tx *Transaction) Update(model any) error {
+func (tx *Transaction) Update(model any) (err error) {
+	if tx.err != nil {
+		return tx.err
+	}
+	defer func() {
+		if err != nil && tx.err == nil {
+			tx.err = err
+		}
+	}()
+
 	metadata, err := tx.registry.GetMetadata(model)
 	if err != nil {
 		return fmt.Errorf("failed to get model metadata: %w", err)
@@ -246,7 +256,7 @@ func (tx *Transaction) applyVersionUpdate(
 	}
 
 	versionValue := modelValue.FieldByIndex(metadata.VersionField.IndexPath)
-	if !versionValue.IsValid() || versionValue.IsZero() {
+	if !versionValue.IsValid() {
 		return "", nil
 	}
 
@@ -377,6 +387,10 @@ func (tx *Transaction) Get(model any, dest any) error {
 
 // Commit executes the transaction
 func (tx *Transaction) Commit() error {
+	if tx.err != nil {
+		return tx.err
+	}
+
 	// Execute writes if any
 	if len(tx.writes) > 0 {
 		input := &dynamodb.TransactWriteItemsInput{
@@ -430,6 +444,7 @@ func (tx *Transaction) Rollback() error {
 	tx.writes = nil
 	tx.reads = nil
 	tx.results = nil
+	tx.err = nil
 	return nil
 }
 

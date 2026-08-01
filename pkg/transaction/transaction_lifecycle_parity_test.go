@@ -147,6 +147,34 @@ func TestTransactionUpdateLegacyOverlapExpressionProbe(t *testing.T) {
 	require.Equal(t, "#ver = :currentVer", aws.ToString(update.ConditionExpression))
 }
 
+func TestTransactionUpdateLegacyLocksZeroVersion(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&legacyTransactionalLifecycleRecord{}))
+
+	tx := NewTransaction(&session.Session{}, registry, pkgTypes.NewConverter())
+	require.NoError(t, tx.Update(&legacyTransactionalLifecycleRecord{
+		PK:      "USER#legacy-version-zero",
+		SK:      "PROFILE",
+		Value:   "changed",
+		Version: 0,
+	}))
+	require.Len(t, tx.writes, 1)
+
+	update := tx.writes[0].Update
+	require.NotNil(t, update)
+	require.Equal(t, "#ver = :currentVer", aws.ToString(update.ConditionExpression))
+	require.Contains(t, aws.ToString(update.UpdateExpression), "#ver = :newVer")
+	require.Equal(t, "0", numericAttributeValue(t, update.ExpressionAttributeValues[":currentVer"]))
+	require.Equal(t, "1", numericAttributeValue(t, update.ExpressionAttributeValues[":newVer"]))
+}
+
+func numericAttributeValue(t *testing.T, value dynamodbTypes.AttributeValue) string {
+	t.Helper()
+	number, ok := value.(*dynamodbTypes.AttributeValueMemberN)
+	require.True(t, ok)
+	return number.Value
+}
+
 func TestTransactionUpdateLegacyBuildsSetFromManagedOnlyAssignments(t *testing.T) {
 	registry := model.NewRegistry()
 	require.NoError(t, registry.Register(&legacyManagedOnlyVersionedRecord{}))
@@ -202,7 +230,8 @@ func TestTransactionUpdateLegacyOverridesCallerSetUpdatedAtForImplicitRMW(t *tes
 	update := legacy.writes[0].Update
 	require.NotNil(t, update)
 	expression := aws.ToString(update.UpdateExpression)
-	require.ElementsMatch(t, []string{"value", "updatedAt"}, updateDocumentPaths(expression, update.ExpressionAttributeNames))
+	require.ElementsMatch(t, []string{"value", "version", "updatedAt"},
+		updateDocumentPaths(expression, update.ExpressionAttributeNames))
 	updatedAt, ok := update.ExpressionAttributeValues[":updTime"].(*dynamodbTypes.AttributeValueMemberS)
 	require.True(t, ok)
 	require.NotEqual(t, callerUpdatedAt.Format(time.RFC3339Nano), updatedAt.Value,
@@ -228,7 +257,8 @@ func TestTransactionUpdateLegacyIgnoresCallerSetCreatedAtForImplicitRMW(t *testi
 	update := legacy.writes[0].Update
 	require.NotNil(t, update)
 	expression := aws.ToString(update.UpdateExpression)
-	require.ElementsMatch(t, []string{"value", "updatedAt"}, updateDocumentPaths(expression, update.ExpressionAttributeNames))
+	require.ElementsMatch(t, []string{"value", "version", "updatedAt"},
+		updateDocumentPaths(expression, update.ExpressionAttributeNames))
 	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "createdAt"),
 		"caller-supplied created_at must be excluded so the stored lifecycle value is preserved")
 }
@@ -251,12 +281,12 @@ func TestTransactionUpdateLegacyPreservesSparseSetSemanticsAndRefreshesUpdatedAt
 	require.Contains(t, expression, "SET")
 	require.NotContains(t, expression, "REMOVE",
 		"legacy implicit updates keep zero-valued omitempty fields unselected rather than removing them")
-	require.ElementsMatch(t, []string{"value", "updatedAt"}, attributeNames(update.ExpressionAttributeNames))
-	require.Len(t, update.ExpressionAttributeValues, 2)
+	require.ElementsMatch(t, []string{"value", "version", "updatedAt"}, attributeNames(update.ExpressionAttributeNames))
+	require.Len(t, update.ExpressionAttributeValues, 4)
 	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "createdAt"),
 		"a zero created_at must not overwrite the stored lifecycle timestamp")
-	require.Zero(t, updatePathOccurrences(expression, update.ExpressionAttributeNames, "version"),
-		"a zero version must not be selected by the implicit update")
+	require.Equal(t, 1, updatePathOccurrences(expression, update.ExpressionAttributeNames, "version"),
+		"the persisted zero version must be incremented by the implicit update")
 	require.Equal(t, 1, updatePathOccurrences(expression, update.ExpressionAttributeNames, "updatedAt"))
 }
 

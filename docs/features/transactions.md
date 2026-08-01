@@ -13,6 +13,7 @@ This page documents TableTheory's public write-transaction surfaces, which use t
 - **Condition evaluation** is server-side: each write item carries its own conditional expression, and a single failed condition aborts the whole transaction.
 - **Optimistic-lock composition**: a versioned item in the group asserts its expected version; a version mismatch aborts the transaction atomically.
 - **Encryption composition**: encrypted fields are encrypted before the transaction is submitted; a KMS failure aborts before any write hits DynamoDB.
+- **Rejected-update atomicity**: an update-construction error prevents the service call, so already queued writes are not partially committed. The legacy Go `Transaction.Update` path stores its first error for `Commit` to return; `Rollback` clears it.
 - **Marshaling parity**: transaction puts preserve non-nil empty lists and maps, including inside nested Go structs, unless the field explicitly uses `omitempty`.
 - **Cross-runtime parity**: a write transaction submitted from Python sees the same atomicity guarantees as one submitted from Go.
 

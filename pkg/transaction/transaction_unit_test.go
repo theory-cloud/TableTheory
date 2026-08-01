@@ -41,9 +41,13 @@ func stubSessionConfigLoad(t *testing.T, fn func(context.Context, ...func(*confi
 
 type stubHTTPClient struct {
 	responses map[string]string
+	calls     *int
 }
 
 func (c stubHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	if c.calls != nil {
+		*c.calls++
+	}
 	target := req.Header.Get("X-Amz-Target")
 	if req.Body != nil {
 		if _, err := io.Copy(io.Discard, req.Body); err != nil {
@@ -87,6 +91,15 @@ type unitUser struct {
 	ID        string    `theorydb:"pk"`
 	Email     string
 	Version   int `theorydb:"version"`
+}
+
+type unitCreatedAtOnly struct {
+	CreatedAt time.Time `theorydb:"created_at,attr:createdAt" json:"createdAt"`
+	ID        string    `theorydb:"pk,attr:id" json:"id"`
+}
+
+func (unitCreatedAtOnly) TableName() string {
+	return "created_at_only_unit"
 }
 
 func (unitUser) TableName() string {
@@ -138,6 +151,37 @@ func TestTransaction_OperationsAndCommit(t *testing.T) {
 	require.Nil(t, tx.writes)
 	require.Nil(t, tx.reads)
 	require.Nil(t, tx.results)
+}
+
+func TestTransaction_UpdateErrorPoisonsCommit(t *testing.T) {
+	requestCount := 0
+	httpClient := stubHTTPClient{
+		responses: map[string]string{
+			"DynamoDB_20120810.TransactWriteItems": `{}`,
+		},
+		calls: &requestCount,
+	}
+
+	stubSessionConfigLoad(t, func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
+		return minimalAWSConfig(httpClient), nil
+	})
+
+	sess, err := session.NewSession(&session.Config{Region: "us-east-1"})
+	require.NoError(t, err)
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&unitUser{}))
+	require.NoError(t, registry.Register(&unitCreatedAtOnly{}))
+
+	tx := NewTransaction(sess, registry, pkgTypes.NewConverter())
+	require.NoError(t, tx.Create(&unitUser{ID: "queued-before-update-error"}))
+	updateErr := tx.Update(&unitCreatedAtOnly{ID: "rejected-update"})
+	require.EqualError(t, updateErr, "no non-key fields to update")
+
+	require.EqualError(t, tx.Commit(), "no non-key fields to update")
+	require.Zero(t, requestCount, "a poisoned transaction must not submit earlier queued writes")
+
+	require.NoError(t, tx.Rollback())
+	require.NoError(t, tx.Commit(), "rollback must clear the stored transaction error")
 }
 
 func TestTransaction_handleTransactionError(t *testing.T) {
