@@ -64,9 +64,7 @@ func TestLegacyTransactionUpdateExecutesWithoutLifecycleOverlap(t *testing.T) {
 			"value":     &types.AttributeValueMemberS{Value: "original"},
 			"createdAt": &types.AttributeValueMemberS{Value: seedCreatedAt},
 			"updatedAt": &types.AttributeValueMemberS{Value: seedUpdatedAt},
-		}
-		if version > 0 {
-			item["version"] = &types.AttributeValueMemberN{Value: strconv.Itoa(version)}
+			"version":   &types.AttributeValueMemberN{Value: strconv.Itoa(version)},
 		}
 		_, err := testCtx.DynamoDBClient.PutItem(context.Background(), &dynamodb.PutItemInput{
 			TableName: aws.String((legacyTransactionLifecycleRecord{}).TableName()),

@@ -298,12 +298,114 @@ func TestRegisterDuplicatePrimaryKey(t *testing.T) {
 		ID1 string `theorydb:"pk"`
 		ID2 string `theorydb:"pk"`
 	}
+	type DynamORMDuplicatePKModel struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
 
-	registry := model.NewRegistry()
+		ID1 string `theorydb:"pk"`
+		ID2 string `theorydb:"pk"`
+	}
+	type DynamORMDuplicateSKModel struct {
+		_ struct{} `theorydb:"naming:dynamorm"`
 
-	err := registry.Register(&DuplicatePKModel{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "duplicate primary key")
+		PK  string `theorydb:"pk"`
+		SK1 string `theorydb:"sk"`
+		SK2 string `theorydb:"sk"`
+	}
+
+	tests := []struct {
+		model any
+		name  string
+	}{
+		{name: "distinct database attributes", model: &DuplicatePKModel{}},
+		{name: "DynamORM partition key alias", model: &DynamORMDuplicatePKModel{}},
+		{name: "DynamORM sort key alias", model: &DynamORMDuplicateSKModel{}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			registry := model.NewRegistry()
+			err := registry.Register(test.model)
+			require.ErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
+			require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+		})
+	}
+}
+
+func TestRegisterRejectsDuplicateDBNameMappings(t *testing.T) {
+	type DirectCollision struct {
+		PK     string `theorydb:"pk,attr:PK" json:"PK"`
+		First  string `theorydb:"attr:shared" json:"first"`
+		Second string `theorydb:"attr:shared" json:"second"`
+	}
+	type EmbeddedFields struct {
+		First string `theorydb:"attr:shared" json:"first"`
+	}
+	type EmbeddedCollision struct {
+		EmbeddedFields
+		PK     string `theorydb:"pk,attr:PK" json:"PK"`
+		Second string `theorydb:"attr:shared" json:"second"`
+	}
+
+	tests := []struct {
+		model any
+		name  string
+	}{
+		{name: "direct fields", model: &DirectCollision{}},
+		{name: "embedded field", model: &EmbeddedCollision{}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			registry := model.NewRegistry()
+			err := registry.Register(test.model)
+			require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+			require.NotErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
+			require.ErrorContains(t, err, `duplicate database attribute name "shared"`)
+			require.ErrorContains(t, err, "First")
+			require.ErrorContains(t, err, "Second")
+		})
+	}
+}
+
+func TestRegisterRejectsEmbeddedTaggedFieldShadowing(t *testing.T) {
+	type EmbeddedFields struct {
+		Name string `theorydb:"attr:name" json:"name"`
+	}
+	type OtherEmbeddedFields struct {
+		Name string `theorydb:"attr:name" json:"other_name"`
+	}
+	type EmbeddedShadowing struct {
+		PK   string `theorydb:"pk,attr:PK" json:"PK"`
+		Name string `theorydb:"attr:name" json:"name"`
+		EmbeddedFields
+	}
+	type AmbiguousEmbedding struct {
+		PK string `theorydb:"pk,attr:PK" json:"PK"`
+		EmbeddedFields
+		OtherEmbeddedFields
+	}
+
+	for _, test := range []struct {
+		model any
+		name  string
+	}{
+		{name: "outer field shadows embedded field", model: &EmbeddedShadowing{}},
+		{name: "two embedded fields are ambiguous", model: &AmbiguousEmbedding{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			registry := model.NewRegistry()
+			err := registry.Register(test.model)
+			require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+			require.NotErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
+			require.ErrorContains(
+				t,
+				err,
+				`duplicate tagged Go field name "Name" mapped to database attribute "name" in a model with embedded structs is not supported`,
+			)
+			require.ErrorContains(t, err, "TableTheory may persist and read a different field than the consumer's Go code addresses")
+			require.NotContains(t, err.Error(), "fields Name and Name")
+		})
+	}
 }
 
 func TestRegisterModelWithIndexModifiers(t *testing.T) {

@@ -409,7 +409,9 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 		}
 	}
 
-	registerField(metadata, fieldMeta)
+	if err := registerField(metadata, fieldMeta); err != nil {
+		return err
+	}
 
 	if err := applyKeyFields(metadata, fieldMeta); err != nil {
 		return err
@@ -435,9 +437,37 @@ func isEmbeddedStruct(field reflect.StructField) bool {
 	return field.Anonymous && field.Type.Kind() == reflect.Struct
 }
 
-func registerField(metadata *Metadata, fieldMeta *FieldMetadata) {
+func registerField(metadata *Metadata, fieldMeta *FieldMetadata) error {
+	if existing := metadata.FieldsByDBName[fieldMeta.DBName]; existing != nil {
+		cause := errors.ErrInvalidModel
+		if existing.IsPK || existing.IsSK || fieldMeta.IsPK || fieldMeta.IsSK {
+			cause = errors.ErrDuplicatePrimaryKey
+		}
+
+		// Go-only: Python dataclass inheritance collapses same-name fields
+		// deterministically by MRO. Go embedding leaves distinct tagged fields
+		// with the same Go name for TableTheory to resolve.
+		if existing.Name == fieldMeta.Name &&
+			(len(existing.IndexPath) > 1 || len(fieldMeta.IndexPath) > 1) {
+			return fmt.Errorf(
+				"%w: duplicate tagged Go field name %q mapped to database attribute %q in a model with embedded structs is not supported; TableTheory may persist and read a different field than the consumer's Go code addresses",
+				cause,
+				fieldMeta.Name,
+				fieldMeta.DBName,
+			)
+		}
+
+		return fmt.Errorf(
+			"%w: duplicate database attribute name %q for fields %s and %s",
+			cause,
+			fieldMeta.DBName,
+			existing.Name,
+			fieldMeta.Name,
+		)
+	}
 	metadata.Fields[fieldMeta.Name] = fieldMeta
 	metadata.FieldsByDBName[fieldMeta.DBName] = fieldMeta
+	return nil
 }
 
 func applyKeyFields(metadata *Metadata, fieldMeta *FieldMetadata) error {
