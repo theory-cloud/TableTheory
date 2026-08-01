@@ -186,8 +186,8 @@ func TestTransactionUpdateLegacySupportsUint64Versions(t *testing.T) {
 
 	for _, test := range []struct {
 		name       string
-		version    uint64
 		newVersion string
+		version    uint64
 	}{
 		{name: "zero", version: 0, newVersion: "1"},
 		{name: "non-zero", version: 7, newVersion: "8"},

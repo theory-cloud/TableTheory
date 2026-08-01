@@ -192,8 +192,8 @@ func TestTransaction_UpdateErrorPoisonsCommit(t *testing.T) {
 
 func TestTransaction_CreateAndDeleteErrorsPoisonCommit(t *testing.T) {
 	tests := []struct {
-		name      string
 		operation func(*Transaction) error
+		name      string
 	}{
 		{
 			name: "create",
