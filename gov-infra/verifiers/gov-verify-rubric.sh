@@ -552,6 +552,32 @@ check_maintainability_roadmap() {
   return 0
 }
 
+check_branch_profile_consistency() {
+  local failures=0
+
+  local materialized_surface
+  for materialized_surface in \
+    ".codex/steward.md" \
+    ".codex/theorymcp/" \
+    ".theorymcp/"; do
+    if git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${materialized_surface}" >/dev/null 2>&1; then
+      echo "FAIL: TheoryCloud materialization must not be tracked: ${materialized_surface}"
+      failures=$((failures + 1))
+    fi
+    if ! git -C "${REPO_ROOT}" check-ignore -q -- "${materialized_surface}"; then
+      echo "FAIL: TheoryCloud materialization must be covered by .gitignore: ${materialized_surface}"
+      failures=$((failures + 1))
+    fi
+  done
+
+  if [[ "${failures}" -ne 0 ]]; then
+    return 1
+  fi
+
+  echo "Branch/profile consistency: PASS (TheoryCloud materialization hygiene)"
+  return 0
+}
+
 check_gov_doc_integrity() {
   # DOC-4: doc integrity for gov-infra only.
   # Checks:
@@ -664,7 +690,7 @@ CMD_TOOLCHAIN="bash scripts/verify-ci-toolchain.sh"
 CMD_PLANNING_DOCS="bash scripts/verify-planning-docs.sh"
 CMD_LINT_CONFIG="golangci-lint config verify -c .golangci-v2.yml"
 CMD_COV_THRESHOLD="bash scripts/verify-coverage.sh --check-threshold-config"
-CMD_CI_RUBRIC="bash scripts/verify-ci-rubric-enforced.sh"
+CMD_CI_RUBRIC="bash scripts/verify-ci-rubric-enforced.sh && check_branch_profile_consistency"
 CMD_DYNAMODB_PIN="bash scripts/verify-dynamodb-local-pin.sh"
 CMD_BRANCH_RELEASE="bash scripts/verify-branch-release-supply-chain.sh && bash scripts/verify-branch-version-sync.sh && bash scripts/verify-release-cycle-state.sh"
 
