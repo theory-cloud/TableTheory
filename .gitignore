@@ -86,6 +86,7 @@ Thumbs.db
 .codex/
 .claude/
 .agents/
+.theorymcp/
 .mcp.json
 GEMINI.md
 

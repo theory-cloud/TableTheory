@@ -12,3 +12,6 @@
 #
 # Examples (copy exact IDs from the failing scanner output):
 # GOV-SUPPLY:GO:REPLACE:rule=REMOTE_REPLACE:from=github.com/example/upstream@v1.2.3:to=github.com/example/fork@v1.2.3
+
+# New advisory; no fixed aws-cdk release available; operator-authorized exception 2026-08-03 pending upstream fix.
+NPM-AUDIT:examples/cdk-multilang:brace-expansion:GHSA-rgw5-rvv9-x895:node_modules/aws-cdk-lib/node_modules/brace-expansion
