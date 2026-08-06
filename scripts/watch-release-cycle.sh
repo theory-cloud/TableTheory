@@ -280,7 +280,7 @@ if [[ "${skip_github}" -eq 0 ]] && command -v gh >/dev/null 2>&1 && gh auth stat
       --base premain \
       --state open \
       --json number,title,headRefName,url \
-      --jq '.[] | select(.headRefName == "release-please--branches--premain") | select((.title | test("^chore\\(premain\\): release [0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[0-9]+$")) | not) | "\(.number) \(.title) \(.url)"' \
+      --jq '.[] | select(.headRefName == "release-please--branches--premain") | select((.title | test("^chore\\(premain\\): release [0-9]+\\.[0-9]+\\.[0-9]+-rc(?:\\.[0-9]+)?$")) | not) | "\(.number) \(.title) \(.url)"' \
       2>/dev/null || true
   )"
   if [[ -n "${premain_bad_release_prs}" ]]; then
@@ -295,7 +295,7 @@ if [[ "${skip_github}" -eq 0 ]] && command -v gh >/dev/null 2>&1 && gh auth stat
       --base premain \
       --state open \
       --json number,title,headRefName,url \
-      --jq '.[] | select(.headRefName == "release-please--branches--premain") | select(.title | test("^chore\\(premain\\): release [0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[0-9]+$")) | "\(.number) \(.title) \(.url)"' \
+      --jq '.[] | select(.headRefName == "release-please--branches--premain") | select(.title | test("^chore\\(premain\\): release [0-9]+\\.[0-9]+\\.[0-9]+-rc(?:\\.[0-9]+)?$")) | "\(.number) \(.title) \(.url)"' \
       2>/dev/null || true
   )"
   if [[ -n "${premain_rc_prs}" ]]; then
