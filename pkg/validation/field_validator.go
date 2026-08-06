@@ -57,13 +57,13 @@ var valueScriptPatterns = []string{
 	"javascript:", "vbscript:", "onload=", "onerror=", "onclick=",
 }
 
-var valueSQLInjectionPatterns = []string{
-	"'; drop table", "'; delete from", "'; update ", "'; insert into",
-	"\"; drop table", "\"; delete from", "\"; update ", "\"; insert into",
-	"' or 1=1", "\" or 1=1", "' or '1'='1", "\" or \"1\"=\"1",
-	"/**/union/**/select", "concat(0x", "char(", "load_file(",
-	"--", // SQL comment at end of value is suspicious
-}
+// NOTE: SQL-injection patterns are intentionally NOT applied to values.
+// DynamoDB ExpressionAttributeValues are bound parameters that are never
+// interpolated into the expression string, so SQL-style injection through a
+// value is structurally impossible. Rejecting SQL-shaped strings here only
+// breaks legitimate opaque values (e.g. base64url credential IDs containing
+// "--"). Attribute NAMES are interpolated and remain fully guarded by
+// dangerousPatterns in ValidateFieldName.
 
 // Valid operator whitelist
 var allowedOperators = map[string]bool{
@@ -357,10 +357,7 @@ func validateStringValue(s string) error {
 
 	stringLower := strings.ToLower(s)
 
-	if containsAnySubstring(stringLower, valueScriptPatterns) ||
-		(strings.Contains(s, "/*") && strings.Contains(s, "*/")) ||
-		containsAnySubstring(stringLower, valueSQLInjectionPatterns) ||
-		looksLikeUnionSelectInjection(stringLower, s) {
+	if containsAnySubstring(stringLower, valueScriptPatterns) {
 		return &SecurityError{
 			Type:   "InjectionAttempt",
 			Field:  "",
@@ -401,23 +398,6 @@ func isBuiltInScalarSlice(value any) (int, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func looksLikeUnionSelectInjection(stringLower, raw string) bool {
-	if !strings.Contains(stringLower, "union") || !strings.Contains(stringLower, "select") {
-		return false
-	}
-
-	if !strings.Contains(stringLower, "union select") &&
-		!strings.Contains(stringLower, "union all select") &&
-		!strings.Contains(stringLower, "union/**/select") {
-		return false
-	}
-
-	return strings.Contains(stringLower, "from") ||
-		strings.Contains(stringLower, "*") ||
-		strings.HasSuffix(raw, "--") ||
-		strings.HasSuffix(raw, ";")
 }
 
 // validateSliceValue validates slice values (for IN operator, etc.)

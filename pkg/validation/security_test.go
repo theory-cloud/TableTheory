@@ -254,10 +254,7 @@ func TestValueValidation(t *testing.T) {
 
 	t.Run("RejectDangerousStringPatterns", func(t *testing.T) {
 		dangerousStrings := []string{
-			"'; DROP TABLE users; --",
 			"<script>alert('xss')</script>",
-			"UNION SELECT * FROM passwords",
-			"/* malicious comment */",
 		}
 
 		for _, str := range dangerousStrings {
@@ -265,6 +262,25 @@ func TestValueValidation(t *testing.T) {
 				err := ValidateValue(str)
 				assert.Error(t, err, "Should reject dangerous string: %s", str)
 				assertSecurityError(t, err, "InjectionAttempt", "dangerous pattern")
+			})
+		}
+	})
+
+	t.Run("AcceptSQLShapedBoundValues", func(t *testing.T) {
+		// Values are bound via ExpressionAttributeValues and never interpolated
+		// into the expression string, so SQL-shaped strings are inert data and
+		// must be accepted.
+		sqlShapedStrings := []string{
+			"'; DROP TABLE users; --",
+			"UNION SELECT * FROM passwords",
+			"/* malicious comment */",
+			"m7WUcUKcPcWDKEsh_lGCqi3Imqt2jIODoBBdlXs2Ady4Ukj2EFY1Yn--fNuPDvHB", // base64url WebAuthn credential ID
+		}
+
+		for _, str := range sqlShapedStrings {
+			t.Run(str, func(t *testing.T) {
+				err := ValidateValue(str)
+				assert.NoError(t, err, "Bound value should be accepted: %s", str)
 			})
 		}
 	})

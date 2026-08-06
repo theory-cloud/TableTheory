@@ -44,7 +44,7 @@ func TestBuilder_convertToSliceSecure_CoversErrorsAndTypes_COV6(t *testing.T) {
 	var secErr *validation.SecurityError
 	require.ErrorAs(t, err, &secErr)
 
-	_, err = b.convertToSliceSecure([]string{"union select * from users"})
+	_, err = b.convertToSliceSecure([]string{"<script>alert(1)</script>"})
 	require.ErrorAs(t, err, &secErr)
 
 	got, err = b.convertToSliceSecure([]int{1, 2})
