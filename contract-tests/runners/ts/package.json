@@ -21,7 +21,7 @@
     "fast-xml-parser": "5.7.3"
   },
   "devDependencies": {
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.5",
     "yaml": "^2.9.0"
   },
   "dependencies": {
