@@ -63,6 +63,16 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.0.3-rc](https://github.com/theory-cloud/TableTheory/compare/v3.0.2...v3.0.3-rc) (2026-08-06)
+
+
+### Bug Fixes
+
+* **deps:** consolidate dependabot security updates for v3.0.3 ([d07863e](https://github.com/theory-cloud/TableTheory/commit/d07863e0c43817d02a08849e6c1dcb92831c5114))
+* **deps:** consolidate dependabot security updates for v3.0.3 ([7953626](https://github.com/theory-cloud/TableTheory/commit/79536260ee9ec7f345d763c30e556bd1482f7e96))
+* **governance:** enforce materialization hygiene ([ba5c74d](https://github.com/theory-cloud/TableTheory/commit/ba5c74d4ef244f4eb896606aad580e8e6f207284))
+* **validation:** accept bound expression values containing SQL comment tokens ([a82248e](https://github.com/theory-cloud/TableTheory/commit/a82248e280022aa24c2194b2bd05deb6f309e346))
+
 ## [3.0.2](https://github.com/theory-cloud/TableTheory/compare/v3.0.2-rc...v3.0.2) (2026-08-01)
 
 Stable promotion of `v3.0.2-rc`.
