@@ -748,6 +748,28 @@ expect_failure_contains \
     --title "chore(premain): release 1.9.3-beta.1" \
     --dry-run
 
+watch_rc_title_regex='^chore\(premain\): release [0-9]+\.[0-9]+\.[0-9]+-rc(?:\.[0-9]+)?$'
+if [[ "$(grep -Fc -- '-rc(?:\\.[0-9]+)?$' "${repo_root}/scripts/watch-release-cycle.sh")" -ne 2 ]]; then
+  echo "release-hygiene-policy-test: watch-release-cycle must use first-or-numbered RC title matching"
+  exit 1
+fi
+
+for title in \
+  "chore(premain): release 3.0.4-rc" \
+  "chore(premain): release 3.0.4-rc.1"; do
+  jq -ne --arg title "${title}" --arg regex "${watch_rc_title_regex}" \
+    '$title | test($regex)' >/dev/null || {
+    echo "release-hygiene-policy-test: watch-release-cycle must accept RC title ${title}"
+    exit 1
+  }
+done
+
+if jq -ne --arg title "chore(premain): release 3.0.4-beta.1" --arg regex "${watch_rc_title_regex}" \
+  '$title | test($regex)' >/dev/null; then
+  echo "release-hygiene-policy-test: watch-release-cycle must reject non-RC prerelease titles"
+  exit 1
+fi
+
 pending_fixture="$(mktemp -d)"
 tmpdirs+=("${pending_fixture}")
 mkdir -p \
