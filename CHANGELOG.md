@@ -63,6 +63,20 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.0.4](https://github.com/theory-cloud/TableTheory/compare/v3.0.4-rc...v3.0.4) (2026-08-07)
+
+Stable promotion of `v3.0.4-rc`.
+
+
+## [3.0.4-rc](https://github.com/theory-cloud/TableTheory/compare/v3.0.3...v3.0.4-rc) (2026-08-07)
+
+
+### Bug Fixes
+
+* **ci:** restore supported action and AWS SDK dependencies ([1d980ee](https://github.com/theory-cloud/TableTheory/commit/1d980eea128b1f0289255d5ada6e6191c3daa55d))
+* **release:** accept first release candidate titles ([c6ae8cb](https://github.com/theory-cloud/TableTheory/commit/c6ae8cbf9c09d0467e3cb6d79613223dfef0498a))
+* **release:** accept first release candidate titles ([0a69b70](https://github.com/theory-cloud/TableTheory/commit/0a69b70f89289c79b773626afe34caab0b5a7ecd))
+
 ## [3.0.3](https://github.com/theory-cloud/TableTheory/compare/v3.0.3-rc...v3.0.3) (2026-08-06)
 
 Stable promotion of `v3.0.3-rc`.
