@@ -91,17 +91,17 @@
     "flatted": "^3.4.2"
   },
   "devDependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1101.0",
-    "@aws-sdk/client-kms": "^3.1101.0",
-    "@aws-sdk/client-sts": "^3.1101.0",
+    "@aws-sdk/client-dynamodb": "^3.1106.0",
+    "@aws-sdk/client-kms": "^3.1106.0",
+    "@aws-sdk/client-sts": "^3.1106.0",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^26.1.2",
-    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@types/node": "^26.2.0",
+    "@typescript-eslint/eslint-plugin": "^8.66.0",
     "@typescript-eslint/parser": "^8.60.0",
-    "eslint": "^10.8.0",
-    "globals": "^17.8.0",
+    "eslint": "^10.8.1",
+    "globals": "^17.9.0",
     "prettier": "^3.9.6",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.11",
     "typescript": "^6.0.3"
   }
 }
