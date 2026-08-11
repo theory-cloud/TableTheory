@@ -156,3 +156,4 @@ docs/.jekyll-metadata
 docs/vendor/
 docs/.bundle/
 docs/Gemfile.lock
+AGENTS.md
