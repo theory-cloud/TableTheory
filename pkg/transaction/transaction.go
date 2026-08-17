@@ -487,17 +487,13 @@ func (tx *Transaction) handleTransactionError(err error) error {
 
 	var canceled *types.TransactionCanceledException
 	if stderrs.As(err, &canceled) {
-		if transactionCanceledHasReason(canceled, "ConditionalCheckFailed") {
+		if transactionCanceledHasClassification(canceled, errors.ErrConditionFailed) {
 			return errors.ErrConditionFailed
 		}
-		if transactionCanceledHasReason(canceled, "TransactionConflict") {
+		if transactionCanceledHasClassification(canceled, errors.ErrTransactionConflict) {
 			return errors.ErrTransactionConflict
 		}
-		if transactionCanceledHasReason(canceled,
-			"ProvisionedThroughputExceeded",
-			"ThrottlingError",
-			"InternalServerError",
-		) {
+		if transactionCanceledHasClassification(canceled, errors.ErrThrottled) {
 			return fmt.Errorf("%w: transaction canceled: %v", errors.ErrThrottled, err)
 		}
 		return fmt.Errorf("transaction canceled: %w", err)
@@ -505,15 +501,14 @@ func (tx *Transaction) handleTransactionError(err error) error {
 
 	var apiErr smithy.APIError
 	if stderrs.As(err, &apiErr) {
+		classification := classifyTransactionCancellationCode(apiErr.ErrorCode())
+		if classification != nil {
+			if classification == errors.ErrThrottled {
+				return fmt.Errorf("%w: %v", errors.ErrThrottled, err)
+			}
+			return classification
+		}
 		switch apiErr.ErrorCode() {
-		case "ConditionalCheckFailedException", "ConditionalCheckFailed":
-			return errors.ErrConditionFailed
-		case "TransactionConflictException", "TransactionConflict":
-			return errors.ErrTransactionConflict
-		case "ProvisionedThroughputExceededException", "ProvisionedThroughputExceeded",
-			"ThrottlingException", "ThrottlingError", "RequestLimitExceeded",
-			"InternalServerError", "ServiceUnavailable":
-			return fmt.Errorf("%w: %v", errors.ErrThrottled, err)
 		case "TransactionCanceledException", "TransactionCanceled":
 			return fmt.Errorf("transaction canceled: %w", err)
 		case "ValidationException":
@@ -522,25 +517,6 @@ func (tx *Transaction) handleTransactionError(err error) error {
 	}
 
 	return err
-}
-
-func transactionCanceledHasReason(exc *types.TransactionCanceledException, codes ...string) bool {
-	if exc == nil {
-		return false
-	}
-	wanted := make(map[string]struct{}, len(codes))
-	for _, code := range codes {
-		wanted[code] = struct{}{}
-	}
-	for _, reason := range exc.CancellationReasons {
-		if reason.Code == nil {
-			continue
-		}
-		if _, ok := wanted[*reason.Code]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 // marshalItem converts a model to DynamoDB attribute values

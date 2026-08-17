@@ -919,9 +919,9 @@ func (b *Builder) buildTransactionError(exc *types.TransactionCanceledException,
 			modelName = reflect.TypeOf(b.operations[idx].model).String()
 		}
 
-		baseErr := customerrors.ErrTransactionFailed
-		if *reason.Code == "ConditionalCheckFailed" {
-			baseErr = customerrors.ErrConditionFailed
+		baseErr := classifyTransactionCancellationCode(*reason.Code)
+		if baseErr == nil {
+			baseErr = customerrors.ErrTransactionFailed
 		}
 
 		return &customerrors.TransactionError{
