@@ -89,7 +89,7 @@ Every `theorydb` tag is accompanied by a matching `json` tag per the [Developmen
 The query builder is reached through `db.Model(&model)`:
 
 ```go
-// Create
+// Create — fails with ErrConditionFailed if the partition key already exists
 db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome", Body: "Hi."}).Create()
 
 // Read (use First with a destination)
@@ -102,8 +102,8 @@ db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome", Body: "Updated."}).Update("bod
 // Delete
 db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome"}).Delete()
 
-// Conditional create — fails if the key already exists
-db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome"}).IfNotExists().Create()
+// Intentional overwrite/upsert — the explicit opt-out from Create's guard
+db.Model(&Note{PK: "USER#42", SK: "NOTE#welcome", Body: "Replacement."}).CreateOrUpdate()
 ```
 
 When `Update()` is called without field names, Go treats the model as a sparse
