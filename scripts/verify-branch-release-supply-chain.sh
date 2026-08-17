@@ -549,6 +549,8 @@ if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
     "promotion release driver guard must instruct normal PR-flow remediation"
   require_fixed "X.Y.Z-rc or X.Y.Z-rc.N" "${driver}" \
     "promotion release driver guard must accept release-please first RC and numbered later RC syntax"
+  require_fixed "newest Release-As footer wins" "${driver}" \
+    "promotion release driver guard must match release-please Release-As supersession"
 fi
 
 if [[ -f "scripts/verify-release-lane-provenance.sh" ]]; then

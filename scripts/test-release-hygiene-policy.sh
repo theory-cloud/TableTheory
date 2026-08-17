@@ -323,10 +323,12 @@ require_fixed "scripts/create-stable-release-pr.py" "${rp}" \
   "release-pr workflow must create the stable Release PR deterministically"
 forbid_fixed "merge_group:" "${h}" \
   "release-hygiene must not use the prohibited merge-queue event"
+# TACTICAL (replaced-by-wave): materialization fidelity fixture marker.
 SH
   cat >"${root}/scripts/verify-promotion-release-driver.sh" <<'SH'
 #!/usr/bin/env bash
 echo "manifest-derived stable Release-As"
+echo "newest Release-As footer wins"
 SH
   cat >"${root}/scripts/verify-go-semantic-import-version.sh" <<'SH'
 #!/usr/bin/env bash
@@ -342,6 +344,14 @@ write_v2_pre_pending_major_transition_verifier_fixture() {
 #!/usr/bin/env bash
 echo "go-semantic-import: PASS"
 SH
+}
+
+write_v2_pre_release_as_supersession_verifier_fixture() {
+  local root="$1"
+
+  write_v2_verifier_fixture "${root}"
+  sed -i '/newest Release-As footer wins/d' \
+    "${root}/scripts/verify-promotion-release-driver.sh"
 }
 
 write_v2_merge_queue_verifier_fixture() {
@@ -449,6 +459,7 @@ run_verifier_source_selector_fixture() {
     v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/trusted-release" ;;
     v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/trusted-release" ;;
     v2-pre-pending-major-transition) write_v2_pre_pending_major_transition_verifier_fixture "${fixture}/trusted-release" ;;
+    v2-pre-release-as-supersession) write_v2_pre_release_as_supersession_verifier_fixture "${fixture}/trusted-release" ;;
     v2) write_v2_verifier_fixture "${fixture}/trusted-release" ;;
     *) echo "release-hygiene-policy-test: unknown trusted fixture ${trusted_shape}" >&2; exit 1 ;;
   esac
@@ -459,6 +470,7 @@ run_verifier_source_selector_fixture() {
     v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/pr" ;;
     v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/pr" ;;
     v2-pre-pending-major-transition) write_v2_pre_pending_major_transition_verifier_fixture "${fixture}/pr" ;;
+    v2-pre-release-as-supersession) write_v2_pre_release_as_supersession_verifier_fixture "${fixture}/pr" ;;
     v2) write_v2_verifier_fixture "${fixture}/pr" ;;
     *) echo "release-hygiene-policy-test: unknown head fixture ${head_shape}" >&2; exit 1 ;;
   esac
@@ -730,6 +742,27 @@ expect_failure_contains \
     --head staging \
     --title "Promote staging to premain" \
     --body "Release-As: 1.9.3" \
+    --dry-run
+
+expect_success_contains \
+  "superseded older Release-As 3.0.5" \
+  bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+    --base premain \
+    --head staging \
+    --title "Promote staging to premain" \
+    --commit-message $'fix: mistaken stable footer\n\nRelease-As: 3.0.5' \
+    --commit-message $'fix: correct RC footer\n\nRelease-As: 3.0.5-rc.1' \
+    --commit-message "fix: later release-eligible repair" \
+    --dry-run
+
+expect_failure_contains \
+  "X.Y.Z-rc or X.Y.Z-rc.N" \
+  bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+    --base premain \
+    --head staging \
+    --title "Promote staging to premain" \
+    --commit-message $'fix: correct older RC footer\n\nRelease-As: 3.0.5-rc.1' \
+    --commit-message $'fix: newest footer is stable-shaped\n\nRelease-As: 3.0.5' \
     --dry-run
 
 expect_success_contains \
@@ -1300,13 +1333,18 @@ grep -Fq "Resolve release verifier source" "${repo_root}/.github/workflows/relea
   exit 1
 }
 
+grep -Fq "newest Release-As footer wins" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must feature-detect Release-As supersession support"
+  exit 1
+}
+
 grep -Fq "premain:staging|main:premain" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: PR-head verifier selection must be limited to protected promotion branch pairs"
   exit 1
 }
 
-grep -Fq "trusted base lacks v2 single-manifest support, RC-first verifier support, release-please v5 verifier support, or deterministic stable Release PR verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must document old trusted-script, RC-first, release-please v5, and deterministic-stable reasons"
+grep -Fq "trusted base lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: verifier selector must document every trusted-base feature-detection reason"
   exit 1
 }
 
@@ -1391,7 +1429,7 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/release-as-supersession"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1419,6 +1457,18 @@ assert_selector_result \
 
 selector_result="$(
   run_verifier_source_selector_fixture \
+    v2-pre-release-as-supersession v2 \
+    premain staging \
+    "${repo}" "${repo}"
+)"
+assert_selector_result \
+  "${selector_result}" \
+  "." \
+  "protected-pr-head-v2" \
+  "scripts/verify-promotion-release-driver.sh lacks Release-As supersession marker"
+
+selector_result="$(
+  run_verifier_source_selector_fixture \
     v2-merge-queue v2 \
     main premain \
     "${repo}" "${repo}"
@@ -1439,7 +1489,7 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/release-as-supersession"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1451,7 +1501,7 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/release-as-supersession"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1463,7 +1513,7 @@ assert_selector_result \
   "${selector_result}" \
   "." \
   "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
+  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/release-as-supersession"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1523,7 +1573,7 @@ assert_selector_result \
   "${selector_result}" \
   "../trusted-release" \
   "trusted-base" \
-  "trusted base supports v2 single-manifest, RC-first, release-please v5, and deterministic stable Release PR verifier markers"
+  "trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, and AGENTS.md materialization-aware verifier markers"
 
 selector_result="$(
   run_verifier_source_selector_fixture \
@@ -1533,7 +1583,7 @@ selector_result="$(
 )"
 assert_selector_failure \
   "${selector_result}" \
-  "protected PR head lacks v2 single-manifest support, RC-first verifier support, release-please v5 verifier support, or deterministic stable Release PR verifier support"
+  "protected PR head lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support"
 
 grep -Fq "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: promotion driver must log the selected verifier source"
