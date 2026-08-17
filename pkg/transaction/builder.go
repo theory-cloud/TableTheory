@@ -886,7 +886,7 @@ func (b *Builder) translateError(err error) (bool, error) {
 	if errors.As(err, &canceled) {
 		retryable := true
 		for _, reason := range canceled.CancellationReasons {
-			if reason.Code == nil {
+			if reason.Code == nil || *reason.Code == "None" {
 				continue
 			}
 			if !isRetryableReason(*reason.Code) {
@@ -906,9 +906,11 @@ func (b *Builder) buildTransactionError(exc *types.TransactionCanceledException,
 	}
 
 	for idx, reason := range exc.CancellationReasons {
-		if reason.Code == nil {
+		if reason.Code == nil || *reason.Code == "None" {
 			continue
 		}
+		// DynamoDB can report more than one genuine failure. Attribute the
+		// transaction to the first real failure in operation order.
 
 		opName := "unknown"
 		if idx < len(b.operations) {

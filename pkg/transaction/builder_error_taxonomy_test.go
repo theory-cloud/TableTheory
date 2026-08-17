@@ -72,3 +72,50 @@ func TestBuilderCancellationTaxonomyMatchesTransaction(t *testing.T) {
 		})
 	}
 }
+
+func TestBuilderCancellationSkipsNoneAndAttributesRealFailure(t *testing.T) {
+	canceled := &types.TransactionCanceledException{
+		CancellationReasons: []types.CancellationReason{
+			{Code: aws.String("None")},
+			{Code: aws.String("ConditionalCheckFailed"), Message: aws.String("survivor condition failed")},
+		},
+	}
+	builder := &Builder{operations: []transactOperation{
+		{typ: opDelete, model: &User{}},
+		{typ: opConditionCheck, model: &Order{}},
+	}}
+
+	retryable, err := builder.translateError(canceled)
+	require.False(t, retryable)
+	require.ErrorIs(t, err, theorydbErrors.ErrConditionFailed)
+
+	var transactionErr *theorydbErrors.TransactionError
+	require.ErrorAs(t, err, &transactionErr)
+	require.Equal(t, 1, transactionErr.OperationIndex)
+	require.Equal(t, "ConditionCheck", transactionErr.Operation)
+	require.Equal(t, "*transaction.Order", transactionErr.Model)
+	require.Equal(t, "survivor condition failed", transactionErr.Reason)
+}
+
+func TestBuilderCancellationAttributesFirstRealFailure(t *testing.T) {
+	canceled := &types.TransactionCanceledException{
+		CancellationReasons: []types.CancellationReason{
+			{Code: aws.String("None")},
+			{Code: aws.String("ConditionalCheckFailed"), Message: aws.String("first real failure")},
+			{Code: aws.String("RequestLimitExceeded"), Message: aws.String("second real failure")},
+		},
+	}
+	builder := &Builder{operations: []transactOperation{
+		{typ: opDelete, model: &User{}},
+		{typ: opConditionCheck, model: &Order{}},
+		{typ: opPut, model: &User{}},
+	}}
+
+	err := builder.buildTransactionError(canceled, canceled)
+	require.ErrorIs(t, err, theorydbErrors.ErrConditionFailed)
+
+	var transactionErr *theorydbErrors.TransactionError
+	require.ErrorAs(t, err, &transactionErr)
+	require.Equal(t, 1, transactionErr.OperationIndex)
+	require.Equal(t, "first real failure", transactionErr.Reason)
+}
