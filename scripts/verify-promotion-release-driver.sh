@@ -242,6 +242,40 @@ def release_as_versions(text: str) -> list[str]:
     ]
 
 
+def effective_premain_release_as(
+    title: str, body: str, commits: list[str]
+) -> tuple[list[str], list[str]]:
+    """Match release-please's newest Release-As footer wins behavior.
+
+    GitHub returns pull-request commits oldest to newest. A footer on the
+    promotion PR itself is the final squash-message override; otherwise the
+    newest commit that carries a footer is authoritative. Older footer-bearing
+    commits remain auditable but are superseded rather than lane-invalidating.
+    """
+    pr_versions = release_as_versions("\n\n".join([title, body]))
+    commit_versions = [release_as_versions(commit) for commit in commits]
+
+    if pr_versions:
+        superseded = [
+            version
+            for versions in commit_versions
+            for version in versions
+        ]
+        return pr_versions, superseded
+
+    for index in range(len(commit_versions) - 1, -1, -1):
+        versions = commit_versions[index]
+        if versions:
+            superseded = [
+                version
+                for older_versions in commit_versions[:index]
+                for version in older_versions
+            ]
+            return versions, superseded
+
+    return [], []
+
+
 def release_eligible_driver(text: str) -> str | None:
     release_types = {"feat", "fix", "perf"}
     for line in text.splitlines():
@@ -306,7 +340,9 @@ if base == "main" and head == "release-please--branches--main":
 if base == "premain":
     if head != "staging":
         fail(f"premain promotion PR head must be staging, got {head!r}")
-    versions = release_as_versions(aggregate)
+    versions, superseded_versions = effective_premain_release_as(
+        title, body, commits
+    )
     invalid = [version for version in versions if not rc_version_re.match(version)]
     if invalid:
         fail(
@@ -314,9 +350,16 @@ if base == "premain":
             f"X.Y.Z-rc or X.Y.Z-rc.N, got {', '.join(invalid)}"
         )
     if versions:
+        superseded = ""
+        if superseded_versions:
+            superseded = (
+                "; superseded older Release-As "
+                + ", ".join(superseded_versions)
+            )
         print(
             "promotion-release-driver: PASS "
-            f"(staging -> premain RC Release-As {', '.join(versions)})"
+            f"(staging -> premain effective RC Release-As {', '.join(versions)}"
+            f"{superseded})"
         )
         raise SystemExit(0)
     driver = release_eligible_driver(aggregate)
