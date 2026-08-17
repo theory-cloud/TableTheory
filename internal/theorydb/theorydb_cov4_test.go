@@ -125,7 +125,21 @@ func TestQuery_ConditionExpressionMerging_COV4(t *testing.T) {
 
 	putReq := findRequestByTarget(httpClient.Requests(), "DynamoDB_20120810.PutItem")
 	require.NotNil(t, putReq)
-	require.Equal(t, "name = :raw", putReq.Payload["ConditionExpression"])
+	condExpr, ok := putReq.Payload["ConditionExpression"].(string)
+	require.True(t, ok)
+	require.Contains(t, condExpr, "attribute_not_exists")
+	require.Contains(t, condExpr, "name = :raw")
+	require.Contains(t, condExpr, ") AND (")
+
+	names, ok := putReq.Payload["ExpressionAttributeNames"].(map[string]any)
+	require.True(t, ok)
+	foundID := false
+	for _, rawName := range names {
+		if name, ok := rawName.(string); ok && name == "id" {
+			foundID = true
+		}
+	}
+	require.True(t, foundID, "default Create guard should reference the partition key attribute")
 
 	values, ok := putReq.Payload["ExpressionAttributeValues"].(map[string]any)
 	require.True(t, ok)
@@ -138,7 +152,7 @@ func TestQuery_ConditionExpressionMerging_COV4(t *testing.T) {
 
 	putReq = findRequestByTarget(httpClient.Requests(), "DynamoDB_20120810.PutItem")
 	require.NotNil(t, putReq)
-	condExpr, ok := putReq.Payload["ConditionExpression"].(string)
+	condExpr, ok = putReq.Payload["ConditionExpression"].(string)
 	require.True(t, ok)
 	require.Contains(t, condExpr, ") AND (")
 
