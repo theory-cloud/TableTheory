@@ -199,13 +199,14 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 ## Conditional Writes
 
 **Problem:** Prevent overwriting data if it already exists (idempotency).
-**Solution:** Use `.IfNotExists()` or `.Where()` conditions on writes.
+**Solution:** Use `Create()`, which asserts that the partition key does not
+already exist. Use `CreateOrUpdate()` only when overwrite/upsert semantics are
+intentional. `.IfNotExists()` remains available as an explicit, compatible
+guard but is redundant with `Create()`.
 
 ```go
 // ✅ CORRECT: Insert only if ID doesn't exist
-err := db.Model(&User{ID: "123"}).
-    IfNotExists().
-    Create()
+err := db.Model(&User{ID: "123"}).Create()
 
 if errors.Is(err, customerrors.ErrConditionFailed) {
     log.Println("User already exists!")
@@ -215,13 +216,12 @@ if errors.Is(err, customerrors.ErrConditionFailed) {
 ## Conditional Writes
 
 **Problem:** Prevent overwriting data if it already exists (idempotency).
-**Solution:** Use `.IfNotExists()` or `.Where()` conditions on writes.
+**Solution:** Use `Create()`, which is conditional by default. Choose
+`CreateOrUpdate()` explicitly when an existing item may be overwritten.
 
 ```go
 // ✅ CORRECT: Insert only if ID doesn't exist
-err := db.Model(&User{ID: "123"}).
-    IfNotExists().
-    Create()
+err := db.Model(&User{ID: "123"}).Create()
 
 if errors.Is(err, customerrors.ErrConditionFailed) {
     log.Println("User already exists!")
@@ -337,13 +337,12 @@ db.Model(&Product{}).Index("category-index").Where("Category", "=", "electronics
 ```
 
 **Problem:** Prevent overwriting data if it already exists (idempotency).
-**Solution:** Use `.IfNotExists()` or `.Where()` conditions on writes.
+**Solution:** Use conditional-by-default `Create()`. Use `CreateOrUpdate()` only
+for an intentional upsert.
 
 ```go
 // ✅ CORRECT: Insert only if ID doesn't exist
-err := db.Model(&User{ID: "123"}).
-    IfNotExists().
-    Create()
+err := db.Model(&User{ID: "123"}).Create()
 
 if errors.Is(err, customerrors.ErrConditionFailed) {
     log.Println("User already exists!")

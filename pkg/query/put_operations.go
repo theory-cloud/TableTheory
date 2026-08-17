@@ -8,7 +8,8 @@ import (
 	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
 )
 
-// Create creates a new item
+// Create creates a new item and fails if its partition key already exists.
+// Use CreateOrUpdate when intentional overwrite/upsert semantics are required.
 func (q *Query) Create() error {
 	if err := q.checkBuilderError(); err != nil {
 		return err
@@ -26,10 +27,8 @@ func (q *Query) Create() error {
 	}
 
 	conditionBuilder := q.newBuilder()
-	if q.requiresCreateNotExistsCondition() {
-		if defaultErr := q.addDefaultCondition(conditionBuilder); defaultErr != nil {
-			return defaultErr
-		}
+	if defaultErr := q.addDefaultCondition(conditionBuilder); defaultErr != nil {
+		return defaultErr
 	}
 
 	conditionExpr, names, values, err := q.buildConditionExpression(conditionBuilder, false, false, false)

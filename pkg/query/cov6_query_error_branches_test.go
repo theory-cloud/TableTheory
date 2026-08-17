@@ -182,7 +182,7 @@ func TestQuery_Create_ErrorBranches_COV6(t *testing.T) {
 	t.Run("errors when executor lacks PutItem support", func(t *testing.T) {
 		q := &Query{
 			model:    &struct{}{},
-			metadata: cov5Metadata{table: "tbl"},
+			metadata: cov5Metadata{table: "tbl", primaryKey: core.KeySchema{PartitionKey: "ID"}},
 			executor: cov6NoopExecutor{},
 		}
 		require.ErrorContains(t, q.Create(), "does not support PutItem")

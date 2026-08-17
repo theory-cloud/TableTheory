@@ -41,6 +41,14 @@
 
 ### Bug Fixes
 
+* **transaction:** align Builder cancellation classification with the Transaction API. Existing conflict and throttle
+  sentinels are now live on the Builder path: consumer retry code using `errors.Is(err, ErrTransactionConflict)` or
+  `errors.Is(err, ErrThrottled)` will now receive the documented signal while operation attribution remains intact
+* **transaction:** ignore DynamoDB's literal `None` cancellation reasons and attribute a canceled transaction to its
+  first genuinely failing operation
+* **query:** make ordinary `Create()` conditional by default. **Consumer impact:** a duplicate partition key now returns
+  `ErrConditionFailed` instead of overwriting the existing item; callers that intentionally require overwrite/upsert
+  semantics must use `CreateOrUpdate()`
 * **transaction:** refresh library-owned `updated_at` values on Go and TypeScript model-shaped transactional updates,
   matching Python and each runtime's non-transactional update behavior
 * **ts:** reject `createdAt` and version fields from model-shaped transactional update selections, and validate
