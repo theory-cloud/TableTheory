@@ -507,8 +507,19 @@ func TestQueryCreatePopulatesTimestampsAndCondition(t *testing.T) {
 
 	payload := req.Payload
 
-	_, hasCond := payload["ConditionExpression"]
-	require.False(t, hasCond, "Create should not add conditions unless requested")
+	condExpr, hasCond := payload["ConditionExpression"].(string)
+	require.True(t, hasCond, "Create should guard against overwriting an existing partition key")
+	require.Contains(t, condExpr, "attribute_not_exists")
+
+	namesMap, hasNames := payload["ExpressionAttributeNames"].(map[string]any)
+	require.True(t, hasNames)
+	foundTenant := false
+	for _, rawName := range namesMap {
+		if name, ok := rawName.(string); ok && name == "tenantId" {
+			foundTenant = true
+		}
+	}
+	require.True(t, foundTenant, "default Create guard should reference the partition key attribute")
 
 	item, ok := payload["Item"].(map[string]any)
 	require.True(t, ok)
@@ -527,7 +538,7 @@ func TestQueryCreatePopulatesTimestampsAndCondition(t *testing.T) {
 	_, err = time.Parse(time.RFC3339Nano, updatedStr)
 	require.NoError(t, err)
 
-	// IfNotExists should add the guard when explicitly requested
+	// IfNotExists remains idempotent with Create's default guard.
 	guarded := &auditOrderModel{
 		TenantID: "tenant#guard",
 		OrderID:  "order#guard",
@@ -540,13 +551,13 @@ func TestQueryCreatePopulatesTimestampsAndCondition(t *testing.T) {
 	require.NotNil(t, req)
 	payload = req.Payload
 
-	condExpr, hasCond := payload["ConditionExpression"].(string)
+	condExpr, hasCond = payload["ConditionExpression"].(string)
 	require.True(t, hasCond, "IfNotExists should add a conditional guard")
 	require.Contains(t, condExpr, "attribute_not_exists")
 
-	namesMap, hasNames := payload["ExpressionAttributeNames"].(map[string]any)
+	namesMap, hasNames = payload["ExpressionAttributeNames"].(map[string]any)
 	require.True(t, hasNames)
-	foundTenant := false
+	foundTenant = false
 	for _, rawName := range namesMap {
 		if name, ok := rawName.(string); ok && name == "tenantId" {
 			foundTenant = true
