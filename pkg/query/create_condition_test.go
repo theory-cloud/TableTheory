@@ -22,9 +22,9 @@ type ordinaryCreateItem struct {
 func (ordinaryCreateItem) TableName() string { return "ordinary_create_items" }
 
 type conditionalCreateExecutor struct {
+	payload types.AttributeValue
 	mu      sync.Mutex
 	exists  bool
-	payload types.AttributeValue
 }
 
 func (e *conditionalCreateExecutor) ExecuteQuery(*core.CompiledQuery, any) error { return nil }

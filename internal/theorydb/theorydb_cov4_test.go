@@ -135,7 +135,7 @@ func TestQuery_ConditionExpressionMerging_COV4(t *testing.T) {
 	require.True(t, ok)
 	foundID := false
 	for _, rawName := range names {
-		if name, ok := rawName.(string); ok && name == "id" {
+		if name, nameOK := rawName.(string); nameOK && name == "id" {
 			foundID = true
 		}
 	}
