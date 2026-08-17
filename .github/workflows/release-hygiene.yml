@@ -204,28 +204,31 @@ jobs:
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
               "must not use the prohibited merge-queue event" \
               "direct protected-PR verifier marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "replaced-by-wave" \
+              "AGENTS.md materialization-aware verifier marker" "${reasons_name}"
           }
 
           trusted_reasons=()
           collect_v2_marker_reasons "${trusted_root}" trusted_reasons
 
           if [[ "${#trusted_reasons[@]}" -eq 0 ]]; then
-            echo "release-verifier-source: trusted base supports v2 single-manifest, RC-first, release-please v5, and deterministic stable Release PR verifier markers"
+            echo "release-verifier-source: trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, and AGENTS.md materialization-aware verifier markers"
           else
-            printf 'release-verifier-source: trusted base lacks v2 single-manifest support, RC-first verifier support, release-please v5 verifier support, or deterministic stable Release PR verifier support (%s)\n' "$(IFS='; '; echo "${trusted_reasons[*]}")"
+            printf 'release-verifier-source: trusted base lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, or AGENTS.md materialization-aware verifier support (%s)\n' "$(IFS='; '; echo "${trusted_reasons[*]}")"
           fi
 
           if [[ "${protected_promotion}" == "true" && "${#trusted_reasons[@]}" -ne 0 ]]; then
             head_reasons=()
             collect_v2_marker_reasons "." head_reasons
             if [[ "${#head_reasons[@]}" -ne 0 ]]; then
-              printf 'release-verifier-source: FAIL (protected PR head lacks v2 single-manifest support, RC-first verifier support, release-please v5 verifier support, or deterministic stable Release PR verifier support: %s)\n' "$(IFS='; '; echo "${head_reasons[*]}")" >&2
+              printf 'release-verifier-source: FAIL (protected PR head lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, or AGENTS.md materialization-aware verifier support: %s)\n' "$(IFS='; '; echo "${head_reasons[*]}")" >&2
               exit 1
             fi
 
             verifier_root="."
             verifier_label="protected-pr-head-v2"
-            echo "release-verifier-source: protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable verifier scripts after provenance"
+            echo "release-verifier-source: protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/materialization-aware verifier scripts after provenance"
           else
             echo "release-verifier-source: using trusted base verifier scripts"
           fi
