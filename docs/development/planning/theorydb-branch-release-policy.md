@@ -31,6 +31,10 @@ TableTheory has one release lane: `staging` -> `premain` -> `main` -> `staging` 
   conventional commit or RC-shaped `Release-As:` footer so release-please can open the generated RC PR. If release-please
   would report "No user facing commits", the gate is failing and the fix must happen through normal `staging` PR content
   or the promotion PR squash title/body/footer.
+- Release-please evaluates commits newest to oldest and uses the first commit carrying `Release-As:`. The promotion guard
+  mirrors that behavior: a footer in the promotion PR squash title/body is authoritative; otherwise the newest
+  footer-bearing commit in the promotion range wins. Older footer-bearing commits remain auditable but are superseded.
+  The effective footer must still have the lane's RC shape, and a later malformed footer still fails closed.
 - A **stable release** is prepared by verifying the intended RC release, then opening and merging the `premain` -> `main`
   promotion PR. The promoted single manifest may briefly be RC-shaped on `main`; `release.yml` must skip publication in
   that state and `release-pr.yml` must open the deterministic stable Release PR with `release-as` computed from the RC
