@@ -63,6 +63,31 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.0.5](https://github.com/theory-cloud/TableTheory/compare/v3.0.5-rc.1...v3.0.5) (2026-08-18)
+
+Stable promotion of `v3.0.5-rc.1`.
+
+
+## [3.0.5-rc.1](https://github.com/theory-cloud/TableTheory/compare/v3.0.4...v3.0.5-rc.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* **ci:** make branch-release AGENTS.md assertions materialization-aware ([5fb115e](https://github.com/theory-cloud/TableTheory/commit/5fb115ee78af08e17ffe3afbeab9afa1cdbe91f1))
+* **ci:** materialization-aware trusted-base verifier selection ([a404dec](https://github.com/theory-cloud/TableTheory/commit/a404dec4e903df4782bbd8d30a2fed6c5e291f2e))
+* materialization hygiene — untrack AGENTS.md + branch-release fidelity patch ([1b8dde2](https://github.com/theory-cloud/TableTheory/commit/1b8dde215cb9b9c525737c7357838dacb693919d))
+* Release-As 3.0.5 — single-PR restoration of release-please derivation ([416495f](https://github.com/theory-cloud/TableTheory/commit/416495f35b6ad8a6f04c813f0f50f8e027071242))
+* Release-As 3.0.5 — single-PR restoration of release-please derivation ([41cfc18](https://github.com/theory-cloud/TableTheory/commit/41cfc184e2a54070229532ce1c90027340e8353b))
+* Release-As 3.0.5-rc.1 — RC-shaped footer for release-please derivation ([295700c](https://github.com/theory-cloud/TableTheory/commit/295700c7e24b67be4f7c384bef100d7effbab94a))
+* Release-As 3.0.5-rc.1 — RC-shaped footer for release-please derivation ([41694ab](https://github.com/theory-cloud/TableTheory/commit/41694aba87b60ed0f447440ff3aeba9270ab79be))
+* release-please resync trigger ([#530](https://github.com/theory-cloud/TableTheory/issues/530)) ([a1ab302](https://github.com/theory-cloud/TableTheory/commit/a1ab3023554978da884389da79f2cfd4841c9808))
+* **release:** honor newest Release-As footer ([6dcfd8d](https://github.com/theory-cloud/TableTheory/commit/6dcfd8d16d81af088da52608155e8f52451ab9da))
+* **release:** honor newest Release-As footer ([00a2849](https://github.com/theory-cloud/TableTheory/commit/00a28490e3f21c6e48a22ccf0ff580518f3eb19b))
+* **release:** restore release-please baseline ([b7c9812](https://github.com/theory-cloud/TableTheory/commit/b7c9812cf9922b0938bd2a08e30e5bea9d78e8ce))
+* **release:** restore release-please baseline for v3.0.5 RC ([12b5247](https://github.com/theory-cloud/TableTheory/commit/12b5247807560979277db3fc815a478683acaf12))
+* revert empty staging commit a404dec (net-zero placeholder, no content) ([#527](https://github.com/theory-cloud/TableTheory/issues/527)) ([bfc2141](https://github.com/theory-cloud/TableTheory/commit/bfc2141936229ca31fc8cb1447b13a1ad176682d))
+* untrack materialized AGENTS.md ([246a716](https://github.com/theory-cloud/TableTheory/commit/246a716320e8953654eafa453415e89b77290779))
+
 ## [3.0.4](https://github.com/theory-cloud/TableTheory/compare/v3.0.4-rc...v3.0.4) (2026-08-07)
 
 Stable promotion of `v3.0.4-rc`.
