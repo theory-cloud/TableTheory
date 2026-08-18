@@ -52,7 +52,6 @@ require_regex() {
 }
 
 required_files=(
-  "AGENTS.md"
   "docs/development/planning/theorydb-branch-release-policy.md"
   "docs/development/planning/theorydb-release-cycle-recovery-1.9.3.md"
   "docs/development/planning/templates/high-risk-branch-release-policy.template.md"
@@ -83,6 +82,15 @@ required_files=(
 for path in "${required_files[@]}"; do
   require_file "${path}"
 done
+
+# TACTICAL (replaced-by-wave): materialization fidelity, see factory docs/049
+# AGENTS.md is materialized content and may be untracked/gitignored, so a CI
+# checkout may legitimately not contain it. PASS when it exists on disk OR when
+# a gitignore rule covers it; FAIL only when neither holds (merge-order
+# independent with the untrack PR that introduces the .gitignore rule).
+if [[ ! -f "AGENTS.md" ]] && ! git check-ignore -q --no-index -- AGENTS.md 2>/dev/null; then
+  fail "missing AGENTS.md (materialized content absent and no gitignore rule covers it)"
+fi
 
 retired_files=(
   "scripts/prepare-stable-promotion.sh"
@@ -289,10 +297,17 @@ require_fixed "tag_name was used by an immutable release" \
 require_fixed "one-time-use" \
   "docs/development/planning/theorydb-branch-release-policy.md" \
   "branch release policy must name one-time-use immutable release versions"
-require_fixed "Do not manually recreate tags" "AGENTS.md" \
-  "AGENTS.md must prohibit manual tag recreation during release recovery"
-require_fixed "Release-As: 1.9.3-rc.1" "AGENTS.md" \
-  "AGENTS.md must document the THE-1869 1.9.3 recovery footer"
+# TACTICAL (replaced-by-wave): materialization fidelity, see factory docs/049
+# AGENTS.md may be absent in CI (materialized, untracked); gate the content
+# greps on file presence and do not count failures when it is absent.
+if [[ -f "AGENTS.md" ]]; then
+  require_fixed "Do not manually recreate tags" "AGENTS.md" \
+    "AGENTS.md must prohibit manual tag recreation during release recovery"
+  require_fixed "Release-As: 1.9.3-rc.1" "AGENTS.md" \
+    "AGENTS.md must document the THE-1869 1.9.3 recovery footer"
+else
+  echo "SKIP (replaced-by-wave): AGENTS.md materialized/absent in CI; content claims pending relocation to a tracked gov-infra surface"
+fi
 require_fixed "tag_name was used by an immutable release" \
   "docs/development/planning/templates/high-risk-branch-release-policy.template.md" \
   "high-risk branch policy template must include immutable release reuse recovery"
@@ -534,6 +549,8 @@ if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
     "promotion release driver guard must instruct normal PR-flow remediation"
   require_fixed "X.Y.Z-rc or X.Y.Z-rc.N" "${driver}" \
     "promotion release driver guard must accept release-please first RC and numbered later RC syntax"
+  require_fixed "newest Release-As footer wins" "${driver}" \
+    "promotion release driver guard must match release-please Release-As supersession"
 fi
 
 if [[ -f "scripts/verify-release-lane-provenance.sh" ]]; then

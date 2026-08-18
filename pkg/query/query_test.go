@@ -314,7 +314,7 @@ func TestQuery_Projection(t *testing.T) {
 func TestQuery_WriteConditions(t *testing.T) {
 	metadata := &mockMetadata{}
 
-	t.Run("create without helpers has no default condition", func(t *testing.T) {
+	t.Run("create without helpers has default not-exists condition", func(t *testing.T) {
 		exec := &recordingExecutor{}
 		item := &TestItem{ID: "user#122"}
 		q := query.New(item, metadata, exec)
@@ -322,7 +322,7 @@ func TestQuery_WriteConditions(t *testing.T) {
 		err := q.Create()
 		require.NoError(t, err)
 		require.NotNil(t, exec.lastCompiled)
-		assert.Equal(t, "", exec.lastCompiled.ConditionExpression)
+		assert.Contains(t, exec.lastCompiled.ConditionExpression, "attribute_not_exists")
 	})
 
 	t.Run("create ignores where clauses", func(t *testing.T) {
@@ -335,7 +335,7 @@ func TestQuery_WriteConditions(t *testing.T) {
 			Create()
 		require.NoError(t, err)
 		require.NotNil(t, exec.lastCompiled)
-		assert.Equal(t, "", exec.lastCompiled.ConditionExpression)
+		assert.Contains(t, exec.lastCompiled.ConditionExpression, "attribute_not_exists")
 	})
 
 	t.Run("create with helpers", func(t *testing.T) {
@@ -377,7 +377,9 @@ func TestQuery_WriteConditions(t *testing.T) {
 		}).Create()
 		require.NoError(t, err)
 		require.NotNil(t, exec.lastCompiled)
-		assert.Equal(t, "attribute_exists(id) AND Status <> :inactive", exec.lastCompiled.ConditionExpression)
+		assert.Contains(t, exec.lastCompiled.ConditionExpression, "attribute_not_exists")
+		assert.Contains(t, exec.lastCompiled.ConditionExpression, "attribute_exists(id) AND Status <> :inactive")
+		assert.Contains(t, exec.lastCompiled.ConditionExpression, ") AND (")
 
 		val, ok := exec.lastCompiled.ExpressionAttributeValues[":inactive"].(*types.AttributeValueMemberS)
 		require.True(t, ok)
