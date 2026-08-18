@@ -41,14 +41,6 @@
 
 ### Bug Fixes
 
-* **transaction:** align Builder cancellation classification with the Transaction API. Existing conflict and throttle
-  sentinels are now live on the Builder path: consumer retry code using `errors.Is(err, ErrTransactionConflict)` or
-  `errors.Is(err, ErrThrottled)` will now receive the documented signal while operation attribution remains intact
-* **transaction:** ignore DynamoDB's literal `None` cancellation reasons and attribute a canceled transaction to its
-  first genuinely failing operation
-* **query:** make ordinary `Create()` conditional by default. **Consumer impact:** a duplicate partition key now returns
-  `ErrConditionFailed` instead of overwriting the existing item; callers that intentionally require overwrite/upsert
-  semantics must use `CreateOrUpdate()`
 * **transaction:** refresh library-owned `updated_at` values on Go and TypeScript model-shaped transactional updates,
   matching Python and each runtime's non-transactional update behavior
 * **ts:** reject `createdAt` and version fields from model-shaped transactional update selections, and validate
@@ -70,20 +62,6 @@
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
-
-## [3.0.5-rc.1](https://github.com/theory-cloud/TableTheory/compare/v3.0.4-rc...v3.0.5-rc.1) (2026-08-17)
-
-### Bug Fixes
-
-* **transaction:** align Builder cancellation taxonomy with documented sentinels (ErrTransactionConflict reachable on the Builder path) ([a2839e3](https://github.com/theory-cloud/TableTheory/commit/a2839e358970d1f2531f6d9a8c29ee6a1e60c91f))
-* **transaction:** skip survivor "None" cancellation reasons; attribute failures to the genuinely failing operation ([c413855](https://github.com/theory-cloud/TableTheory/commit/c4138556c30f9a1a498b07d3d9047e5a5061c8f8))
-* **query:** Create() guards the partition key by default; CreateOrUpdate() remains the overwrite opt-out ([925c897](https://github.com/theory-cloud/TableTheory/commit/925c8970d63fc916b896fe178e41d3ab32516ec8))
-* **ci:** materialization-aware trusted-base verifier selection; complete self-cleaning dependency consolidation (Go 1.26.6, CDK 2.265.0, brace-expansion 5.0.9) ([#526](https://github.com/theory-cloud/TableTheory/pull/526))
-
-### ⚠ Consumer notes
-
-* Builder-path consumers: conflict-handling keyed on documented sentinels is now live on this path.
-* Default Create() is now conditional; intentional overwrite uses CreateOrUpdate().
 
 ## [3.0.4](https://github.com/theory-cloud/TableTheory/compare/v3.0.4-rc...v3.0.4) (2026-08-07)
 
