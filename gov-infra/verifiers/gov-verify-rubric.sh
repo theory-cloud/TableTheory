@@ -3,6 +3,11 @@
 # Generated from pack version: 816465a1618d
 # Project: theorydb (theorydb)
 #
+# Exit codes:
+#   0 - All rubric items PASS
+#   1 - One or more rubric items FAIL or BLOCKED
+#   2 - Script error (missing dependencies, invalid config, etc.)
+#
 # Usage (from repo root; scripts may be non-executable by default):
 #   bash gov-infra/verifiers/gov-verify-rubric.sh
 
