@@ -229,9 +229,35 @@ ensure_go_tool_pinned() {
   return 0
 }
 
+require_intended_git_root() {
+  if ! command -v git >/dev/null 2>&1; then
+    echo "BLOCKED: git is unavailable; this check requires the intended Git worktree" >&2
+    return 2
+  fi
+
+  local git_toplevel
+  git_toplevel="$(git -C "${REPO_ROOT}" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -z "${git_toplevel}" || "${git_toplevel}" != "${REPO_ROOT}" ]]; then
+    echo "BLOCKED: repository root is not the intended Git worktree root" >&2
+    return 2
+  fi
+
+  return 0
+}
+
 prepare_check_env() {
   local id="$1"
   local cmd="$2"
+
+  # These repo-local assertions genuinely require Git: they enumerate tracked
+  # files, validate ignored materializations, or inspect branch/release state.
+  # Guard them before execution so copied non-Git trees report clean BLOCKED
+  # evidence instead of leaking raw `fatal:` diagnostics or false failures.
+  case "$id" in
+    QUA-2|CON-1|COM-1|COM-6|COM-8|SEC-9|MAI-1|MAI-3)
+      require_intended_git_root
+      ;;
+  esac
 
   # Only attempt installs if this repo is a Go module.
   [[ -f "${REPO_ROOT}/go.mod" ]] || return 0
