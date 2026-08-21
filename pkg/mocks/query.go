@@ -107,6 +107,9 @@ func (m *MockQuery) AssertExpectations(t mock.TestingT) bool {
 
 // MockQuery is a mock implementation of the core.Query interface.
 // It can be used for unit testing code that depends on TableTheory queries.
+// MockQuery replays configured calls and returns; it does not compile or
+// evaluate condition expressions. Use pkg/testing/fakedb for tests whose
+// outcome depends on stored state or conditional-write semantics.
 //
 // Example usage:
 //
@@ -225,7 +228,8 @@ func (m *MockQuery) Count() (int64, error) {
 	return mockInt64(&m.Mock, "Count", args.Get(0)), args.Error(1)
 }
 
-// Create creates a new item
+// Create returns the configured mock result. It does not evaluate the real
+// Create operation's partition-key not-exists condition.
 func (m *MockQuery) Create() error {
 	args := m.Called()
 	return args.Error(0)

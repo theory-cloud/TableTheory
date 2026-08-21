@@ -66,6 +66,22 @@ func TestCreateUser(t *testing.T) {
 }
 ```
 
+### Scripted mocks versus the state-backed fake (Go)
+
+The simple doubles in `pkg/mocks` are interaction mocks. `MockDB` and `MockQuery` replay the calls and return values that
+the test configures, so they do not run TableTheory's query compiler. `MockDynamoDBClient` can capture an already-built
+AWS request, but it does not evaluate that request's `ConditionExpression`; it also returns only the result or error that
+the test configured.
+
+Consequently, condition failures do not arise from mock state. This includes optimistic-lock conflicts and the v3.0.5
+`Create()` guard: a repeated `MockQuery.Create()` returns `nil` whenever the expectation says it should, even though the
+real operation applies `attribute_not_exists` to the partition key.
+
+Use `pkg/mocks` for interaction tests that verify which TableTheory methods consumer code calls. Use the state-backed
+`pkg/testing/fakedb` fake when the outcome depends on stored state or a condition expression, including strict
+create-versus-upsert behavior. Use DynamoDB Local when the test needs DynamoDB behavior outside the fake's
+scenario-validated scope.
+
 ### 3. Encryption + lifecycle determinism (Go)
 
 If you use `theorydb:"encrypted"` fields or lifecycle tags, inject test doubles via `session.Config`:
@@ -140,6 +156,10 @@ func TestServiceWritesAndQueries(t *testing.T) {
 TableTheory keys, conditional writes, optimistic-lock version increments, TTL attributes, batches, transactions, and basic
 query/scan filters. It is a deterministic local testing aid, not a DynamoDB replacement; behavior beyond the
 scenario-validated fake lane should still be covered with DynamoDB Local integration tests.
+
+For a condition-sensitive test, issue the same strict `Create()` twice and assert that the second call matches
+`pkg/errors.ErrConditionFailed`. If the access pattern is an intentional upsert, exercise `CreateOrUpdate()` instead and
+assert that the stored item changes. This pins the semantic distinction that scripted `pkg/mocks` tests cannot evaluate.
 
 ## TypeScript unit testing
 

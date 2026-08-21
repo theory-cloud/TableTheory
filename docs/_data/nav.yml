@@ -103,6 +103,7 @@ groups:
       - { id: migration-guide,       title: Migration,               url: /migration-guide/,                  icon: arrow-right }
       - { id: migration-v2,          title: v2 Migration,            url: /migration/v2/,                     icon: git-branch,  tag: major }
       - { id: migration-v3,          title: v3 Migration,            url: /migration/v3/,                     icon: git-branch,  tag: major }
+      - { id: migration-v3-0-5-create, title: v3.0.5 Create Migration, url: /migration/v3.0.5-create/,           icon: git-branch }
       - { id: llm-faq,               title: LLM FAQ,                 url: /llm-faq/module-faq/,               icon: help-circle }
 
   - label: Reference
@@ -227,6 +228,7 @@ url_to_id:
   /migration-guide/:                       migration-guide
   /migration/v2/:                          migration-v2
   /migration/v3/:                          migration-v3
+  /migration/v3.0.5-create/:               migration-v3-0-5-create
   /llm-faq/module-faq/:                    llm-faq
   /reference/dms-spec/:                    ref-dms
   /reference/contract-scenarios/:          ref-scenarios
