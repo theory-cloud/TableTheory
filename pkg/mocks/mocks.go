@@ -4,6 +4,12 @@
 // of the core.Query interface when writing unit tests. Instead of discovering
 // missing methods through trial and error, you can use these pre-built mocks.
 //
+// These are scripted interaction mocks, not a state-backed DynamoDB fake. They
+// do not build or evaluate condition expressions, so state-dependent failures
+// such as a duplicate Create's partition-key not-exists guard do not arise
+// unless the test configures the error explicitly. Use pkg/testing/fakedb when
+// a test must observe condition-expression behavior.
+//
 // # Installation
 //
 // Import the mocks package in your test files:

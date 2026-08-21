@@ -15,6 +15,9 @@ import (
 //
 // This complements the existing TableTheory interface mocks by providing
 // low-level AWS SDK operation mocking.
+// It records configured calls and returns configured results; it does not
+// evaluate ConditionExpression values against stored item state. Use
+// pkg/testing/fakedb for condition-sensitive behavior tests.
 //
 // Example usage:
 //

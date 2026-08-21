@@ -3,6 +3,9 @@
 //
 // The fake is a local testing aid. It is intentionally bounded to TableTheory's
 // scenario-validated behavior and should not be treated as a DynamoDB emulator.
+// Unlike the scripted doubles in pkg/mocks, it stores item state and evaluates
+// supported condition expressions, including the partition-key not-exists
+// guard used by Create.
 package fakedb
 
 import (
@@ -47,7 +50,9 @@ type indexState struct {
 	sk string
 }
 
-// New returns an empty in-memory DynamoDB fake.
+// New returns an empty in-memory DynamoDB fake. Use it for tests whose outcome
+// depends on stored state or supported condition expressions; pkg/mocks does
+// not evaluate those conditions.
 func New() *Fake {
 	return &Fake{tables: make(map[string]*tableState)}
 }

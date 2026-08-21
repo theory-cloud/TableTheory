@@ -67,6 +67,16 @@
 
 Stable promotion of `v3.0.5-rc.1`.
 
+### Behavioral change
+
+> **Go `Create()` is now strict.** As of v3.0.5, ordinary `Create()` always applies `attribute_not_exists` to the
+> partition key and returns `ErrConditionFailed` when an item with that key already exists. This prevents the silent
+> overwrite reported in [#523](https://github.com/theory-cloud/TableTheory/issues/523) and shipped through
+> [#524](https://github.com/theory-cloud/TableTheory/pull/524). Consumers that used `Create()` for overwrite/upsert
+> semantics must migrate those call sites to `CreateOrUpdate()`; strict-create call sites require no change. See the
+> [migration note](docs/migration/v3.0.5-create.md) and the release-visibility follow-up
+> [#552](https://github.com/theory-cloud/TableTheory/issues/552).
+
 
 ## [3.0.5-rc.1](https://github.com/theory-cloud/TableTheory/compare/v3.0.4...v3.0.5-rc.1) (2026-08-18)
 
