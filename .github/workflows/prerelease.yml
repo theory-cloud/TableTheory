@@ -201,20 +201,24 @@ jobs:
           fi
 
           notes_path="docs/release-notes/${tag}.md"
+          outcome="exact-tag applied"
           if [[ ! -f "${notes_path}" ]]; then
             base_tag="${tag}"
-            if [[ "${tag}" =~ ^(.+)-rc\.[0-9]+$ ]]; then
+            if [[ "${tag}" =~ ^(.+)-rc(\.[0-9]+)?$ ]]; then
               base_tag="${BASH_REMATCH[1]}"
             fi
 
             base_notes_path="docs/release-notes/${base_tag}.md"
             if [[ ! -f "${base_notes_path}" ]]; then
+              echo "release-notes: no curated file — skipped (tag=${tag})"
               exit 0
             fi
             notes_path="${base_notes_path}"
+            outcome="fallback applied"
           fi
 
           gh release edit "${tag}" --notes-file "${notes_path}"
+          echo "release-notes: ${outcome} (${notes_path})"
 
       - name: Publish prerelease (immutable)
         if: steps.release.outputs.release_created == 'true'

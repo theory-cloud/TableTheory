@@ -134,8 +134,12 @@ Use `feat!:` or `fix!:` only for planned breaking changes, and include a `BREAKI
 
 When a release needs a complete, curated GitHub release body, add
 `docs/release-notes/vX.Y.Z.md` through a normal pull request to `staging` **before** the `staging` to `premain` promotion.
-The release workflow uses that file for both release candidates (for example, `vX.Y.Z-rc.1`) and the stable `vX.Y.Z`
-release. If no curated file exists, release-please's generated notes remain unchanged.
+The stable `.github/workflows/release.yml` and prerelease `.github/workflows/prerelease.yml` workflows use that file for
+the stable `vX.Y.Z` release and for release candidates in either the bare `vX.Y.Z-rc` or numbered `vX.Y.Z-rc.N` form.
+An exact-tag file wins over the base-version fallback; for example, `docs/release-notes/vX.Y.Z-rc.N.md` takes precedence
+over `docs/release-notes/vX.Y.Z.md`. A curated file replaces release-please's generated GitHub Release body wholesale;
+`CHANGELOG.md` still carries the generated commit list. If no curated file exists, release-please's generated notes
+remain unchanged.
 
 Do not hand-edit a GitHub release body. Curated release content must always land through `staging` and the pull-request
 review path before release creation.
