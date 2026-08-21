@@ -3,8 +3,18 @@
 # Generated from pack version: 816465a1618d
 # Project: theorydb (theorydb)
 #
+# Exit codes:
+#   0 - All rubric items PASS
+#   1 - One or more rubric items FAIL or BLOCKED
+#   2 - Script error (missing dependencies, invalid config, etc.)
+#
 # Usage (from repo root; scripts may be non-executable by default):
 #   bash gov-infra/verifiers/gov-verify-rubric.sh
+#
+# Provenance note: git_head is emitted only when this repository is the resolved
+# Git worktree root and HEAD is a 40-hex SHA-1 object ID. It is omitted when
+# git/the intended Git tree is unavailable and in SHA-256 object-format
+# repositories, whose longer object IDs are not yet in the schema.
 
 set -euo pipefail
 
@@ -42,27 +52,25 @@ FEATURE_OSS_RELEASE="false"
 
 mkdir -p "${EVIDENCE_DIR}"
 
-PREVIOUS_REPORT_PATH=""
-if [[ -f "${REPORT_PATH}" ]]; then
-  PREVIOUS_REPORT_PATH="$(mktemp)"
-  cp "${REPORT_PATH}" "${PREVIOUS_REPORT_PATH}"
-fi
-
-cleanup_previous_report() {
-  if [[ -n "${PREVIOUS_REPORT_PATH}" && -f "${PREVIOUS_REPORT_PATH}" ]]; then
-    rm -f "${PREVIOUS_REPORT_PATH}"
-  fi
-}
-trap cleanup_previous_report EXIT
-
 rm -f \
   "${REPORT_PATH}" \
   "${EVIDENCE_DIR}/"*-output.log \
   "${EVIDENCE_DIR}/DOC-5-parity.log"
 
-REPORT_SCHEMA_URI="theorymcp://namespaces/theorycloud/governance-profiles/theorycloud_governance_profile.v0.1/schemas/gov_rubric_report.v1"
-REPORT_SCHEMA_VERSION="gov_rubric_report.v1"
-REPORT_TIMESTAMP_CURRENT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+REPORT_SCHEMA_VERSION=1
+REPORT_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+REPORT_GIT_HEAD=""
+if command -v git >/dev/null 2>&1; then
+  REPORT_GIT_HEAD_CANDIDATE="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+  REPORT_GIT_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ "${REPORT_GIT_TOPLEVEL}" == "${REPO_ROOT}" && "${REPORT_GIT_HEAD_CANDIDATE}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    REPORT_GIT_HEAD="${REPORT_GIT_HEAD_CANDIDATE}"
+  fi
+fi
+REPORT_GIT_HEAD_JSON=""
+if [[ -n "${REPORT_GIT_HEAD}" ]]; then
+  printf -v REPORT_GIT_HEAD_JSON '  "git_head": "%s",\n' "${REPORT_GIT_HEAD}"
+fi
 PASS_COUNT=0
 FAIL_COUNT=0
 BLOCKED_COUNT=0
@@ -224,9 +232,35 @@ ensure_go_tool_pinned() {
   return 0
 }
 
+require_intended_git_root() {
+  if ! command -v git >/dev/null 2>&1; then
+    echo "BLOCKED: git is unavailable; this check requires the intended Git worktree" >&2
+    return 2
+  fi
+
+  local git_toplevel
+  git_toplevel="$(git -C "${REPO_ROOT}" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -z "${git_toplevel}" || "${git_toplevel}" != "${REPO_ROOT}" ]]; then
+    echo "BLOCKED: repository root is not the intended Git worktree root" >&2
+    return 2
+  fi
+
+  return 0
+}
+
 prepare_check_env() {
   local id="$1"
   local cmd="$2"
+
+  # These repo-local assertions genuinely require Git: they enumerate tracked
+  # files, validate ignored materializations, or inspect branch/release state.
+  # Guard them before execution so copied non-Git trees report clean BLOCKED
+  # evidence instead of leaking raw `fatal:` diagnostics or false failures.
+  case "$id" in
+    QUA-2|CON-1|COM-1|COM-6|COM-8|SEC-9|MAI-1|MAI-3)
+      require_intended_git_root
+      ;;
+  esac
 
   # Only attempt installs if this repo is a Go module.
   [[ -f "${REPO_ROOT}/go.mod" ]] || return 0
@@ -671,7 +705,7 @@ check_doc_integrity() {
 
 echo "=== gov-infra Rubric Verifier ==="
 echo "Project: theorydb"
-echo "Timestamp: ${REPORT_TIMESTAMP_CURRENT}"
+echo "Timestamp: ${REPORT_TIMESTAMP}"
 echo ""
 
 # Commands are centralized here so the rubric docs and verifier stay aligned.
@@ -772,16 +806,12 @@ elif [[ ${BLOCKED_COUNT} -gt 0 ]]; then
   OVERALL_STATUS="BLOCKED"
 fi
 
-write_report() {
-  local output_path="$1"
-  local report_timestamp="$2"
-
-  cat >"${output_path}" <<EOF
+cat >"${REPORT_PATH}" <<EOF
 {
-  "\$schema": "${REPORT_SCHEMA_URI}",
-  "schemaVersion": "${REPORT_SCHEMA_VERSION}",
-  "timestamp": "${report_timestamp}",
-  "pack": {
+  "\$schema": "https://gov.pai.dev/schemas/gov-rubric-report.schema.json",
+  "schemaVersion": ${REPORT_SCHEMA_VERSION},
+  "timestamp": "${REPORT_TIMESTAMP}",
+${REPORT_GIT_HEAD_JSON}  "pack": {
     "version": "816465a1618d",
     "digest": "896aed16549928f21626fb4effe9bb6236fc60292a8f50bae8ce77e873ac775b"
   },
@@ -798,57 +828,6 @@ write_report() {
   "results": ${RESULTS_JSON}
 }
 EOF
-}
-
-previous_report_timestamp() {
-  local report_path="$1"
-  python3 - "${report_path}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-try:
-    report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-except Exception:
-    raise SystemExit(1)
-
-timestamp = report.get("timestamp")
-if not isinstance(timestamp, str) or not timestamp:
-    raise SystemExit(1)
-print(timestamp)
-PY
-}
-
-reports_match_except_timestamp() {
-  local previous_path="$1"
-  local current_path="$2"
-
-  python3 - "${previous_path}" "${current_path}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-previous = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-current = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-previous["timestamp"] = None
-current["timestamp"] = None
-raise SystemExit(0 if previous == current else 1)
-PY
-}
-
-NEW_REPORT_PATH="$(mktemp)"
-write_report "${NEW_REPORT_PATH}" "${REPORT_TIMESTAMP_CURRENT}"
-
-if [[ -n "${PREVIOUS_REPORT_PATH}" ]] && reports_match_except_timestamp "${PREVIOUS_REPORT_PATH}" "${NEW_REPORT_PATH}"; then
-  if previous_timestamp="$(previous_report_timestamp "${PREVIOUS_REPORT_PATH}")"; then
-    write_report "${REPORT_PATH}" "${previous_timestamp}"
-    rm -f "${NEW_REPORT_PATH}"
-  else
-    mv "${NEW_REPORT_PATH}" "${REPORT_PATH}"
-  fi
-else
-  mv "${NEW_REPORT_PATH}" "${REPORT_PATH}"
-fi
 
 echo "Report written to: ${REPORT_PATH}"
 echo "Status: ${OVERALL_STATUS} (pass=${PASS_COUNT} fail=${FAIL_COUNT} blocked=${BLOCKED_COUNT})"

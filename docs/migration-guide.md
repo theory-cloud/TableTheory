@@ -9,6 +9,13 @@ This guide assists in migrating existing Go applications to use TableTheory, foc
 TypeScript and Python ship their own runtime-specific migration guides as sibling package surfaces in the shared
 TheoryCloud TableTheory subtree. This page is the Go migration guide.
 
+## Version-specific notices
+
+- [v3.0.5 `Create()` migration](./migration/v3.0.5-create.md) — ordinary Go `Create()` is a strict conditional write;
+  migrate only overwrite/upsert-flavored call sites to `CreateOrUpdate()`.
+- [v3 migration](./migration/v3.md) — DMS v0.2 and Go semantic import versioning.
+- [v2 migration](./migration/v2.md) — v2 public API and compatibility changes.
+
 ## From Raw AWS SDK for Go (v2)
 
 **Problem:** Directly using the AWS SDK for Go v2 for DynamoDB operations often leads to verbose code, manual attribute marshaling, and lacks type safety. It also requires explicit context management for every call.

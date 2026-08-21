@@ -63,9 +63,32 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.0.6-rc](https://github.com/theory-cloud/TableTheory/compare/v3.0.5...v3.0.6-rc) (2026-08-21)
+
+
+### Bug Fixes
+
+* **gov-infra:** align rubric report provenance ([6e47aab](https://github.com/theory-cloud/TableTheory/commit/6e47aab5375cd65e41677c47c78bcf68a6a880b6))
+* **gov-infra:** block git checks outside intended root ([c2b4ab6](https://github.com/theory-cloud/TableTheory/commit/c2b4ab6a5ebf961f72f54ddca01901f1d74d6180))
+* **release-notes:** document v3.0.5 Create() conditional flip and migration path ([e3d610c](https://github.com/theory-cloud/TableTheory/commit/e3d610caf9e8b3b524ec5b357d8ceff349785eea))
+* **release-notes:** document v3.0.5 Create() migration ([2a00809](https://github.com/theory-cloud/TableTheory/commit/2a0080987b69b3ff23833c987a464d892d459d98))
+* **release:** carry curated notes through RC and stable workflows ([9e5d0d4](https://github.com/theory-cloud/TableTheory/commit/9e5d0d416742c7c0fee98972e7fc16bb251acd4b))
+* **release:** carry curated release notes from docs/release-notes via release workflow ([6a2300b](https://github.com/theory-cloud/TableTheory/commit/6a2300bbe3ca7a2476a207587951cfa5c41031b2))
+* **release:** cover bare RC curated notes ([60a86c3](https://github.com/theory-cloud/TableTheory/commit/60a86c32a9c8fd7a6188bece2861d3fe51654d63))
+
 ## [3.0.5](https://github.com/theory-cloud/TableTheory/compare/v3.0.5-rc.1...v3.0.5) (2026-08-18)
 
 Stable promotion of `v3.0.5-rc.1`.
+
+### Behavioral change
+
+> **Go `Create()` is now strict.** As of v3.0.5, ordinary `Create()` always applies `attribute_not_exists` to the
+> partition key and returns `ErrConditionFailed` when an item with that key already exists. This prevents the silent
+> overwrite reported in [#523](https://github.com/theory-cloud/TableTheory/issues/523) and shipped through
+> [#524](https://github.com/theory-cloud/TableTheory/pull/524). Consumers that used `Create()` for overwrite/upsert
+> semantics must migrate those call sites to `CreateOrUpdate()`; strict-create call sites require no change. See the
+> [migration note](docs/migration/v3.0.5-create.md) and the release-visibility follow-up
+> [#552](https://github.com/theory-cloud/TableTheory/issues/552).
 
 
 ## [3.0.5-rc.1](https://github.com/theory-cloud/TableTheory/compare/v3.0.4...v3.0.5-rc.1) (2026-08-18)
