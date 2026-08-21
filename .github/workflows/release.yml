@@ -180,6 +180,36 @@ jobs:
             gh release upload "${TAG_NAME}" "${asset_path}"
           done
 
+      - name: Apply curated release notes
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          tag="${TAG_NAME}"
+          if [[ -z "${tag}" ]]; then
+            echo "release-notes: FAIL (missing tag_name output)"
+            exit 1
+          fi
+
+          notes_path="docs/release-notes/${tag}.md"
+          if [[ ! -f "${notes_path}" ]]; then
+            base_tag="${tag}"
+            if [[ "${tag}" =~ ^(.+)-rc\.[0-9]+$ ]]; then
+              base_tag="${BASH_REMATCH[1]}"
+            fi
+
+            base_notes_path="docs/release-notes/${base_tag}.md"
+            if [[ ! -f "${base_notes_path}" ]]; then
+              exit 0
+            fi
+            notes_path="${base_notes_path}"
+          fi
+
+          gh release edit "${tag}" --notes-file "${notes_path}"
+
       - name: Publish release (immutable)
         if: steps.release.outputs.release_created == 'true'
         env:

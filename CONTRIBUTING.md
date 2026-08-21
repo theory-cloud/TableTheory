@@ -130,6 +130,16 @@ Use `feat!:` or `fix!:` only for planned breaking changes, and include a `BREAKI
 - none / release-eligible / breaking-major
 ```
 
+### Curated release notes
+
+When a release needs a complete, curated GitHub release body, add
+`docs/release-notes/vX.Y.Z.md` through a normal pull request to `staging` **before** the `staging` to `premain` promotion.
+The release workflow uses that file for both release candidates (for example, `vX.Y.Z-rc.1`) and the stable `vX.Y.Z`
+release. If no curated file exists, release-please's generated notes remain unchanged.
+
+Do not hand-edit a GitHub release body. Curated release content must always land through `staging` and the pull-request
+review path before release creation.
+
 ## Style guide
 
 ### Go
