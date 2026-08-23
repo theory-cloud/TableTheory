@@ -94,6 +94,17 @@ jobs:
               echo "tag input '${TAG_INPUT}' is not a stable vX.Y.Z tag" >&2
               exit 1
             fi
+            # The tag must name a real published release before it may
+            # select the checkout ref: `gh release view` fails for unknown
+            # tags, and draft/prerelease tags are never deployable.
+            release_state="$(gh release view "${TAG_INPUT}" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '.isDraft + "," + .isPrerelease' 2>/dev/null)" || {
+              echo "tag input '${TAG_INPUT}' does not name a published GitHub release" >&2
+              exit 1
+            }
+            if [[ "${release_state}" != "false,false" ]]; then
+              echo "tag input '${TAG_INPUT}' is a draft or prerelease, not a stable release" >&2
+              exit 1
+            fi
             resolved_tag="${TAG_INPUT}"
             checkout_ref="${TAG_INPUT}"
           else
@@ -117,12 +128,16 @@ jobs:
           # Explicit tag deploys build the release tag; everything else
           # builds the triggering ref's head (empty = default).
           ref: ${{ steps.tag.outputs.checkout_ref }}
+          # This workflow never pushes git; don't persist the token.
+          persist-credentials: false
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: "3.3"
-          bundler-cache: true
+          # No bundler-cache: a cache writer here is exactly what CodeQL
+          # flags as cache-poisonable when a dispatch input selects the ref;
+          # a plain bundle install is slower but has no cache surface.
           working-directory: docs
 
       - name: Configure Pages
