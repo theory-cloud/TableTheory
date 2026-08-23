@@ -69,12 +69,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [[ "${{ github.event_name }}" == "release" ]]; then
-            resolved_tag="${{ github.event.release.tag_name }}"
+            # Read the tag from the event payload via jq so no untrusted event
+            # field is interpolated into the shell command.
+            resolved_tag="$(jq -r .release.tag_name "$GITHUB_EVENT_PATH")"
           else
             # workflow_dispatch: latest published non-prerelease release.
             # `gh release view` without a tag resolves GitHub's "latest"
             # release, which excludes drafts and prereleases.
-            resolved_tag="$(gh release view --repo theory-cloud/TableTheory --json tagName --jq .tagName)"
+            resolved_tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
           fi
           if [[ -z "${resolved_tag}" ]]; then
             echo "could not resolve a release tag" >&2
@@ -100,10 +102,13 @@ jobs:
 
       - name: Generate version override
         run: |
-          ruby scripts/generate-docs-version-override.rb \
-            --config docs/_config.yml \
-            --tag "${{ steps.tag.outputs.tag }}" \
-            --output docs/_config_versions.yml
+          set -euo pipefail
+          # The generator ships with this workflow's ref — release tags cut before
+          # this workflow promoted do NOT contain it, so never read it from the
+          # tag checkout.
+          git fetch origin "${GITHUB_REF_NAME}" --depth=1
+          git show "FETCH_HEAD:scripts/generate-docs-version-override.rb" > /tmp/generate-docs-version-override.rb
+          ruby /tmp/generate-docs-version-override.rb --tag "${{ steps.tag.outputs.tag }}" --config docs/_config.yml --output docs/_config_versions.yml
 
       - name: Generate Python find-links index
         env:
@@ -129,6 +134,20 @@ jobs:
         run: |
           if grep -R -nE --include='*.html' '(href|src)="/(TableTheory|tabletheory)/' ./_site; then
             echo "Found root-relative links with the repository path; custom-domain assets must resolve from /." >&2
+            exit 1
+          fi
+
+      - name: Verify stamped version in built site
+        working-directory: docs
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if ! grep -qF "theory-cloud-tabletheory-ts-${TAG#v}.tgz" _site/index.html; then
+            echo "homepage does not show the stamped TypeScript install URL for tag ${TAG}" >&2
+            exit 1
+          fi
+          if grep -qF 'vX.Y.Z' _site/index.html; then
+            echo "homepage still contains un-stamped vX.Y.Z placeholder install URLs" >&2
             exit 1
           fi
 
