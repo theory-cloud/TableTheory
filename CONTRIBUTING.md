@@ -187,7 +187,7 @@ review path before release creation.
 
 ### Authoring documentation
 
-The public documentation site at `https://tabletheory.theorycloud.ai/` is a Jekyll site rooted at `docs/`. It uses the Theory Cloud design system and is deployed by `.github/workflows/pages.yml` when a stable GitHub release publishes (non-prerelease `release: published`) or on manual `workflow_dispatch` from an allowed ref; the build checks out the release tag.
+The public documentation site at `https://tabletheory.theorycloud.ai/` is a Jekyll site rooted at `docs/`. It uses the Theory Cloud design system and is deployed by `.github/workflows/pages.yml` on every push to `staging` and, automatically, right after each stable release publishes (the release workflow dispatches pages.yml with the exact tag, so the deployed docs and install commands always match the release that just shipped — never the previous one). The version pill and install commands are stamped from the release tag at build time; manual `workflow_dispatch` from an allowed ref re-deploys on demand.
 
 **Adding a page**
 

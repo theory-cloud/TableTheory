@@ -6,11 +6,12 @@
 #
 # Writes docs/_config_versions.yml — a Jekyll config override that stamps the
 # docs site with a real release tag. .github/workflows/pages.yml resolves the
-# release tag (release event payload, or the latest published non-prerelease
-# tag for workflow_dispatch), calls this script, and builds with
+# deploy tag (the workflow_dispatch `tag` input handed off by release.yml
+# after a stable publish, or the latest published non-prerelease tag for
+# pushes and bare manual dispatch), calls this script, and builds with
 # `--config _config.yml,_config_versions.yml`, so the site's version pill and
-# runtime install commands always match the latest published release instead of
-# the hand-maintained pins in docs/_config.yml (`version_pill: "v1.x"`,
+# runtime install commands always match the deployed release instead of the
+# hand-maintained pins in docs/_config.yml (`version_pill: "v1.x"`,
 # `vX.Y.Z` placeholder install URLs).
 #
 # Jekyll config merging (`jekyll build --config a,b`) deep-merges hashes but
