@@ -472,14 +472,17 @@ func makeProgressReporter(cb core.BatchProgressCallback, total int) func(delta i
 	retrieved := 0
 
 	return func(delta int) {
+		// Deliver under the lock so parallel chunk workers never invoke the
+		// callback concurrently; the callback contract does not promise
+		// concurrent-safe invocation. defer keeps the lock released even if
+		// the callback exits the goroutine (e.g. require.FailNow).
 		mu.Lock()
+		defer mu.Unlock()
 		if delta != 0 {
 			retrieved += delta
 		}
-		current := retrieved
-		mu.Unlock()
 
-		cb(current, total)
+		cb(retrieved, total)
 	}
 }
 
