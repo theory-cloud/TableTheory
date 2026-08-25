@@ -16,7 +16,7 @@ package. Every release attaches a static binary per platform alongside the TypeS
 | macOS x86_64        | `tabletheory-darwin-amd64` |
 | macOS Apple Silicon | `tabletheory-darwin-arm64` |
 
-`tabletheory-SHA256SUMS.txt` lists the SHA-256 of every binary. Download and install the one for your platform (replace
+`tabletheory-SHA256SUMS.txt` lists the SHA-256 of every binary and the TypeScript tarball. Download and install the one for your platform (replace
 `vX.Y.Z` and the asset name):
 
 ```bash
