@@ -243,11 +243,14 @@ func (q *Query) executeBatchesParallel(batches [][]any, opts *BatchUpdateOptions
 				}
 			}
 
-			// Update progress
+			// Deliver progress under the lock so parallel batch workers never
+			// invoke the callback concurrently; the callback contract does not
+			// promise concurrent-safe invocation. defer keeps the lock released
+			// even if the callback exits the goroutine (e.g. require.FailNow).
 			progressMutex.Lock()
+			defer progressMutex.Unlock()
 			*processed += len(b)
 			currentProgress := *processed
-			progressMutex.Unlock()
 
 			if opts.ProgressCallback != nil {
 				opts.ProgressCallback(currentProgress, total)
