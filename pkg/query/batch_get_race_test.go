@@ -1,6 +1,7 @@
 package query
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -65,4 +66,51 @@ func TestBatchGetParallelProgressCallbackSerialized(t *testing.T) {
 	require.Len(t, out, totalKeys)
 	require.Equal(t, totalKeys/chunkSize, calls)
 	require.Equal(t, totalKeys, lastRetrieved)
+}
+
+// batchGetFailingExecutor fails every requested chunk without touching shared
+// state, so it is safe for concurrent chunk workers.
+type batchGetFailingExecutor struct{}
+
+func (e *batchGetFailingExecutor) ExecuteQuery(_ *core.CompiledQuery, _ any) error { return nil }
+func (e *batchGetFailingExecutor) ExecuteScan(_ *core.CompiledQuery, _ any) error  { return nil }
+func (e *batchGetFailingExecutor) ExecuteBatchWrite(_ *CompiledBatchWrite) error   { return nil }
+
+func (e *batchGetFailingExecutor) ExecuteBatchGet(_ *CompiledBatchGet, _ *core.BatchGetOptions) ([]map[string]types.AttributeValue, error) {
+	return nil, errors.New("chunk failed")
+}
+
+// TestBatchGetParallelOnChunkErrorSerialized guards against the library invoking
+// the user-supplied OnChunkError handler concurrently when chunks run in
+// parallel. The handler writes shared state with no synchronization, so this
+// test fails under -race if a future change reintroduces concurrent delivery.
+func TestBatchGetParallelOnChunkErrorSerialized(t *testing.T) {
+	exec := &batchGetFailingExecutor{}
+	q := New(&struct{}{}, cov5Metadata{
+		table:      "tbl",
+		primaryKey: core.KeySchema{PartitionKey: "pk"},
+	}, exec)
+
+	const totalKeys = 90
+	const chunkSize = 10
+	keys := make([]any, 0, totalKeys)
+	for i := 0; i < totalKeys; i++ {
+		keys = append(keys, core.NewKeyPair(fmt.Sprintf("p%03d", i)))
+	}
+
+	var calls int
+	opts := core.DefaultBatchGetOptions()
+	opts.ChunkSize = chunkSize
+	opts.Parallel = true
+	opts.MaxConcurrency = 8
+	opts.OnChunkError = func(chunk []any, err error) error {
+		calls++
+		require.Error(t, err)
+		return err
+	}
+
+	var out []map[string]types.AttributeValue
+	err := q.BatchGetWithOptions(keys, &out, opts)
+	require.Error(t, err)
+	require.Equal(t, totalKeys/chunkSize, calls)
 }

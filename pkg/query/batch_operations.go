@@ -233,7 +233,19 @@ func (q *Query) executeBatchesParallel(batches [][]any, opts *BatchUpdateOptions
 			err := q.executeUpdateBatch(b, opts, fields)
 			if err != nil {
 				if opts.ErrorHandler != nil {
-					if handlerErr := opts.ErrorHandler(b, err); handlerErr != nil {
+					// Deliver under the lock so parallel batch workers never
+					// invoke the handler concurrently; the handler contract
+					// does not promise concurrent-safe invocation. defer
+					// keeps the lock released even if the handler exits the
+					// goroutine (e.g. require.FailNow), and release before
+					// fall-through so the progress section's own lock
+					// acquisition is unchanged.
+					handlerErr := func() error {
+						progressMutex.Lock()
+						defer progressMutex.Unlock()
+						return opts.ErrorHandler(b, err)
+					}()
+					if handlerErr != nil {
 						errChan <- handlerErr
 						return
 					}
