@@ -153,7 +153,7 @@ jobs:
               go build -trimpath -ldflags="-s -w -X main.defaultRuntimeVersion=${runtime_version}" \
               -o "release-assets/tabletheory-${os}-${arch}" ./cmd/tabletheory
           done
-          ( cd release-assets && sha256sum tabletheory-linux-* tabletheory-darwin-* theory-cloud-tabletheory-ts-*.tgz > tabletheory-SHA256SUMS.txt )
+          ( cd release-assets && sha256sum tabletheory-linux-* tabletheory-darwin-* theory-cloud-tabletheory-ts-*.tgz tabletheory_py-*.whl tabletheory_py-*.tar.gz > tabletheory-SHA256SUMS.txt )
 
           python3 scripts/verify-release-package-version-assets.py \
             --tag-name "${TAG_NAME}" \
