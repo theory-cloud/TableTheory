@@ -750,8 +750,10 @@ func (q *Query) batchCreateWithOptionsInternal(items any, opts *BatchUpdateOptio
 
 // batchCreateWithBatchWriteItemExecutor writes items in chunks of 25 through
 // the BatchWriteItemExecutor path. Marshal failures are routed through the
-// error handler (with nil opts the first one aborts) and a failed chunk write
-// reports every item of the chunk as failed so Failed/Errors stay item-accurate.
+// error handler (with nil opts the first one aborts); a failed chunk write
+// reports only the successfully-marshaled items of the chunk as failed so
+// Failed/Errors stay item-accurate (marshal-failed items are not reported a
+// second time).
 func (q *Query) batchCreateWithBatchWriteItemExecutor(itemsValue reflect.Value, opts *BatchUpdateOptions) error {
 	tableName := q.metadata.TableName()
 	const batchSize = 25
@@ -768,11 +770,10 @@ func (q *Query) batchCreateWithBatchWriteItemExecutor(itemsValue reflect.Value, 
 		// the error handler and the item skipped so the rest of the chunk
 		// still gets written; without options the first failure aborts,
 		// matching the legacy BatchCreate behavior.
-		batchItems := make([]any, 0, end-i)
+		marshaledItems := make([]any, 0, end-i)
 		writeRequests := make([]types.WriteRequest, 0, end-i)
 		for j := i; j < end; j++ {
 			item := itemsValue.Index(j).Interface()
-			batchItems = append(batchItems, item)
 
 			av, err := q.marshalItem(item)
 			if err != nil {
@@ -783,6 +784,10 @@ func (q *Query) batchCreateWithBatchWriteItemExecutor(itemsValue reflect.Value, 
 				continue
 			}
 
+			// Mirror the legacy path's `created` shape: only items that were
+			// successfully marshaled can be part of the chunk write, so only
+			// they are candidates for a chunk-write failure report.
+			marshaledItems = append(marshaledItems, item)
 			writeRequests = append(writeRequests, types.WriteRequest{
 				PutRequest: &types.PutRequest{
 					Item: av,
@@ -790,11 +795,12 @@ func (q *Query) batchCreateWithBatchWriteItemExecutor(itemsValue reflect.Value, 
 			})
 		}
 
-		// A failed batch write leaves every item of the chunk unwritten;
-		// report each one through the error handler. With nil opts the first
-		// failure still aborts.
+		// A failed batch write leaves every successfully-marshaled item of the
+		// chunk unwritten; report each one through the error handler. Marshal-
+		// failed items were already reported above and are not reported again.
+		// With nil opts the first failure still aborts.
 		if err := q.executeBatchWriteWithRetries(tableName, writeRequests, nil); err != nil {
-			for _, item := range batchItems {
+			for _, item := range marshaledItems {
 				if handlerErr := handleBatchUpdateError(opts, item, err, err); handlerErr != nil {
 					return handlerErr
 				}

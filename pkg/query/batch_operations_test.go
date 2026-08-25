@@ -705,6 +705,46 @@ func TestBatchCreateWithResult_BatchWriteErrorReportsEveryItem(t *testing.T) {
 	require.Equal(t, 0, result.Succeeded)
 }
 
+// TestBatchCreateWithResult_MixedChunkDoesNotDoubleCountMarshalFailures proves
+// that when a chunk contains a marshal-failing item and the batch write of the
+// successfully-marshaled items then fails, the marshal-failed item is reported
+// exactly once (as its marshal error), not a second time as a chunk-write
+// failure. Regression test for the mixed-chunk double count that produced
+// Failed=4/Errors=4/Succeeded=-1 for a 3-item chunk with one marshal failure.
+func TestBatchCreateWithResult_MixedChunkDoesNotDoubleCountMarshalFailures(t *testing.T) {
+	boom := errors.New("boom")
+	exec := &cov6BatchWriteExecutor{err: boom}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	// The middle item is not a struct, so marshaling it fails; the two struct
+	// items marshal successfully and are sent in the chunk write, which fails.
+	items := []any{
+		cov6BatchCreateItem{ID: "1"},
+		123,
+		cov6BatchCreateItem{ID: "3"},
+	}
+
+	result, err := q.BatchCreateWithResult(items)
+	require.NoError(t, err)
+	// 1 marshal failure + 2 successfully-marshaled items in the failed chunk.
+	require.Equal(t, 3, result.Failed)
+	require.Len(t, result.Errors, 3)
+	require.Equal(t, 0, result.Succeeded) // len(items) - Failed, never negative
+
+	// The marshal error appears exactly once and the chunk-write failure once
+	// per successfully-marshaled item — no item is double-counted.
+	var chunkWriteFailures, otherErrors int
+	for _, e := range result.Errors {
+		if errors.Is(e, boom) {
+			chunkWriteFailures++
+		} else {
+			otherErrors++
+		}
+	}
+	require.Equal(t, 2, chunkWriteFailures)
+	require.Equal(t, 1, otherErrors)
+}
+
 // TestQuery_batchCreateWithOptionsInternal_InvokesErrorHandlerPerItem proves
 // that the shared options-driven create path invokes the configured error
 // handler once per failed item (here: every item of a chunk whose batch write
