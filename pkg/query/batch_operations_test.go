@@ -14,6 +14,8 @@ import (
 
 	"github.com/aws/smithy-go"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/theory-cloud/tabletheory/v3/pkg/core"
 )
 
@@ -748,52 +750,71 @@ func TestBatchDeleteWithOptions(t *testing.T) {
 	})
 }
 
+// batchParallelProbeExecutor fails every update but records how many
+// ExecuteUpdateItem calls overlap. It is the concurrency probe for
+// TestExecuteBatchesParallel: user callback delivery is serialized by design,
+// so batch-level parallelism must be observed on the executor instead.
+type batchParallelProbeExecutor struct {
+	reached   chan struct{}
+	release   chan struct{}
+	reachOnce sync.Once
+	mu        sync.Mutex
+	want      int
+	current   int
+	max       int
+}
+
+func (e *batchParallelProbeExecutor) ExecuteQuery(_ *core.CompiledQuery, _ any) error { return nil }
+func (e *batchParallelProbeExecutor) ExecuteScan(_ *core.CompiledQuery, _ any) error  { return nil }
+
+func (e *batchParallelProbeExecutor) ExecuteUpdateItem(_ *core.CompiledQuery, _ map[string]types.AttributeValue) error {
+	e.mu.Lock()
+	e.current++
+	if e.current > e.max {
+		e.max = e.current
+		if e.max == e.want {
+			e.reachOnce.Do(func() { close(e.reached) })
+		}
+	}
+	e.mu.Unlock()
+
+	<-e.release
+
+	e.mu.Lock()
+	e.current--
+	e.mu.Unlock()
+	return errors.New("update failed")
+}
+
 func TestExecuteBatchesParallel(t *testing.T) {
 	items := make([][]any, 10)
 	for i := 0; i < 10; i++ {
 		items[i] = []any{TestItem{ID: fmt.Sprintf("%d", i)}}
 	}
 
-	var mu sync.Mutex
 	const expectedConcurrency = 3
-	currentConcurrency := 0
-	maxConcurrency := 0
-	handlerCalls := 0
-	concurrencyReached := make(chan struct{})
-	releaseHandlers := make(chan struct{})
-	var reachOnce sync.Once
+	exec := &batchParallelProbeExecutor{
+		want:    expectedConcurrency,
+		reached: make(chan struct{}),
+		release: make(chan struct{}),
+	}
 
 	q := &Query{
 		metadata: &TestMetadata{},
 		ctx:      context.Background(),
+		executor: exec,
 	}
 
 	processed := 0
 	total := 10
 
+	handlerCalls := 0
 	opts := &BatchUpdateOptions{
 		Parallel:       true,
 		MaxConcurrency: expectedConcurrency,
 		ErrorHandler: func(item any, err error) error {
-			mu.Lock()
 			handlerCalls++
-			currentConcurrency++
-			if currentConcurrency > maxConcurrency {
-				maxConcurrency = currentConcurrency
-				if maxConcurrency == expectedConcurrency {
-					reachOnce.Do(func() {
-						close(concurrencyReached)
-					})
-				}
-			}
-			mu.Unlock()
-
-			<-releaseHandlers
-
-			mu.Lock()
-			currentConcurrency--
-			mu.Unlock()
-			return nil
+			return nil // Ignore errors
 		},
 	}
 
@@ -803,15 +824,18 @@ func TestExecuteBatchesParallel(t *testing.T) {
 	}()
 
 	select {
-	case <-concurrencyReached:
+	case <-exec.reached:
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for parallel batch handlers to overlap")
+		t.Fatal("timed out waiting for parallel batch workers to overlap")
 	}
 
-	close(releaseHandlers)
+	close(exec.release)
 
 	err := <-errCh
 	assert.NoError(t, err)
 	assert.Equal(t, total, handlerCalls)
-	assert.Equal(t, expectedConcurrency, maxConcurrency, "expected handlers to overlap up to the configured concurrency")
+
+	exec.mu.Lock()
+	defer exec.mu.Unlock()
+	assert.Equal(t, expectedConcurrency, exec.max, "expected batch workers to overlap up to the configured concurrency")
 }

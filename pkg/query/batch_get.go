@@ -109,13 +109,11 @@ func executeBatchGetChunks(executor BatchExecutor, chunks []batchGetChunk, keySp
 	var orderMu sync.Mutex
 
 	progress := makeProgressReporter(opts.ProgressCallback, len(keySpecs))
+	reportChunkError := makeChunkErrorReporter(opts.OnChunkError)
 	processChunk := func(chunk batchGetChunk) error {
 		items, execErr := executor.ExecuteBatchGet(chunk.request, opts)
 		if execErr != nil {
-			if opts.OnChunkError != nil {
-				return opts.OnChunkError(chunk.originals, execErr)
-			}
-			return execErr
+			return reportChunkError(chunk.originals, execErr)
 		}
 
 		matched := alignChunkResults(chunk.keys, items, ordered, &orderMu)
@@ -472,14 +470,38 @@ func makeProgressReporter(cb core.BatchProgressCallback, total int) func(delta i
 	retrieved := 0
 
 	return func(delta int) {
+		// Deliver under the lock so parallel chunk workers never invoke the
+		// callback concurrently; the callback contract does not promise
+		// concurrent-safe invocation. defer keeps the lock released even if
+		// the callback exits the goroutine (e.g. require.FailNow).
 		mu.Lock()
+		defer mu.Unlock()
 		if delta != 0 {
 			retrieved += delta
 		}
-		current := retrieved
-		mu.Unlock()
 
-		cb(current, total)
+		cb(retrieved, total)
+	}
+}
+
+// makeChunkErrorReporter serializes OnChunkError delivery. The returned
+// reporter mirrors makeProgressReporter's locking idiom: with no handler it
+// simply propagates the chunk error, preserving the caller's control flow.
+func makeChunkErrorReporter(cb core.BatchChunkErrorHandler) func(chunk []any, err error) error {
+	if cb == nil {
+		return func(_ []any, err error) error { return err }
+	}
+
+	var mu sync.Mutex
+
+	return func(chunk []any, err error) error {
+		// Deliver under the lock so parallel chunk workers never invoke the
+		// handler concurrently; the handler contract does not promise
+		// concurrent-safe invocation. defer keeps the lock released even if
+		// the handler exits the goroutine (e.g. require.FailNow).
+		mu.Lock()
+		defer mu.Unlock()
+		return cb(chunk, err)
 	}
 }
 

@@ -233,7 +233,19 @@ func (q *Query) executeBatchesParallel(batches [][]any, opts *BatchUpdateOptions
 			err := q.executeUpdateBatch(b, opts, fields)
 			if err != nil {
 				if opts.ErrorHandler != nil {
-					if handlerErr := opts.ErrorHandler(b, err); handlerErr != nil {
+					// Deliver under the lock so parallel batch workers never
+					// invoke the handler concurrently; the handler contract
+					// does not promise concurrent-safe invocation. defer
+					// keeps the lock released even if the handler exits the
+					// goroutine (e.g. require.FailNow), and release before
+					// fall-through so the progress section's own lock
+					// acquisition is unchanged.
+					handlerErr := func() error {
+						progressMutex.Lock()
+						defer progressMutex.Unlock()
+						return opts.ErrorHandler(b, err)
+					}()
+					if handlerErr != nil {
 						errChan <- handlerErr
 						return
 					}
@@ -243,11 +255,14 @@ func (q *Query) executeBatchesParallel(batches [][]any, opts *BatchUpdateOptions
 				}
 			}
 
-			// Update progress
+			// Deliver progress under the lock so parallel batch workers never
+			// invoke the callback concurrently; the callback contract does not
+			// promise concurrent-safe invocation. defer keeps the lock released
+			// even if the callback exits the goroutine (e.g. require.FailNow).
 			progressMutex.Lock()
+			defer progressMutex.Unlock()
 			*processed += len(b)
 			currentProgress := *processed
-			progressMutex.Unlock()
 
 			if opts.ProgressCallback != nil {
 				opts.ProgressCallback(currentProgress, total)
