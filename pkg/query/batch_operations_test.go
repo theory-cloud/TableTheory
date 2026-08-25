@@ -651,6 +651,80 @@ func TestBatchCreateWithResult(t *testing.T) {
 	// Errors may or may not be recorded depending on when failure occurs
 }
 
+// TestBatchCreateWithResult_PartialFailurePopulatesResult proves that on
+// partial failure BatchCreateWithResult reports the failed item through
+// Failed/Errors and the remaining items through Succeeded instead of
+// returning an error with an all-zero result.
+func TestBatchCreateWithResult_PartialFailurePopulatesResult(t *testing.T) {
+	exec := &cov6BatchWriteExecutor{result: &core.BatchWriteResult{UnprocessedItems: map[string][]types.WriteRequest{}}}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	// The middle item is not a struct, so marshaling it fails.
+	items := []any{
+		cov6BatchCreateItem{ID: "1"},
+		123,
+		cov6BatchCreateItem{ID: "3"},
+	}
+
+	result, err := q.BatchCreateWithResult(items)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Failed)
+	require.Len(t, result.Errors, 1)
+	require.Equal(t, 2, result.Succeeded)
+}
+
+// TestBatchCreateWithResult_FullSuccessPopulatesSucceeded proves that a fully
+// successful batch is counted in Succeeded (the legacy implementation left it
+// at zero because the progress callback never ran).
+func TestBatchCreateWithResult_FullSuccessPopulatesSucceeded(t *testing.T) {
+	exec := &cov6BatchWriteExecutor{result: &core.BatchWriteResult{UnprocessedItems: map[string][]types.WriteRequest{}}}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	items := []cov6BatchCreateItem{{ID: "1"}, {ID: "2"}, {ID: "3"}}
+
+	result, err := q.BatchCreateWithResult(items)
+	require.NoError(t, err)
+	require.Equal(t, 0, result.Failed)
+	require.Empty(t, result.Errors)
+	require.Equal(t, 3, result.Succeeded)
+}
+
+// TestBatchCreateWithResult_BatchWriteErrorReportsEveryItem proves that when a
+// chunk's batch write fails, every item of that chunk is reported as a failed
+// item (Failed and Errors are item-accurate, not chunk-accurate).
+func TestBatchCreateWithResult_BatchWriteErrorReportsEveryItem(t *testing.T) {
+	exec := &cov6BatchWriteExecutor{err: errors.New("boom")}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	items := []cov6BatchCreateItem{{ID: "1"}, {ID: "2"}}
+
+	result, err := q.BatchCreateWithResult(items)
+	require.NoError(t, err)
+	require.Equal(t, 2, result.Failed)
+	require.Len(t, result.Errors, 2)
+	require.Equal(t, 0, result.Succeeded)
+}
+
+// TestQuery_batchCreateWithOptionsInternal_InvokesErrorHandlerPerItem proves
+// that the shared options-driven create path invokes the configured error
+// handler once per failed item (here: every item of a chunk whose batch write
+// failed), not once per chunk.
+func TestQuery_batchCreateWithOptionsInternal_InvokesErrorHandlerPerItem(t *testing.T) {
+	exec := &cov6BatchWriteExecutor{err: errors.New("boom")}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	var subjects []any
+	opts := DefaultBatchOptions()
+	opts.ErrorHandler = func(item any, _ error) error {
+		subjects = append(subjects, item)
+		return nil
+	}
+
+	require.NoError(t, q.batchCreateWithOptionsInternal(
+		[]cov6BatchCreateItem{{ID: "1"}, {ID: "2"}}, opts))
+	require.Len(t, subjects, 2)
+}
+
 // Add a mock executor to avoid nil panics
 type mockQueryExecutor struct{}
 
