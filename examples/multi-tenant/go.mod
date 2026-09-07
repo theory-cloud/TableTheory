@@ -1,6 +1,6 @@
 module github.com/theory-cloud/tabletheory/v3/examples/multi-tenant
 
-go 1.26
+go 1.26.0
 
 toolchain go1.26.6
 
@@ -10,7 +10,7 @@ require (
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.12.1
 	github.com/theory-cloud/tabletheory/v3 v3.0.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (
