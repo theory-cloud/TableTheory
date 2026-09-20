@@ -699,8 +699,23 @@ func (q *Query) ScanAllSegments(dest any, totalSegments int32) error {
 	return nil
 }
 
-// BatchCreate creates multiple items
+// BatchCreate creates multiple items.
 func (q *Query) BatchCreate(items any) error {
+	return q.batchCreateWithOptionsInternal(items, nil)
+}
+
+// batchCreateWithOptionsInternal is the shared implementation behind
+// BatchCreate and BatchCreateWithResult. With a nil opts it preserves the
+// legacy fail-fast behavior: the first marshal or write error aborts the
+// operation. With opts provided, item-level failures are delivered through
+// opts.ErrorHandler (returning nil skips the item and keeps processing) and
+// cumulative progress through opts.ProgressCallback.
+//
+// The execution path is strictly sequential: chunks are written one at a time
+// on the caller's goroutine and executeBatchWriteWithRetries retries
+// synchronously, so user callbacks are never invoked concurrently and need no
+// extra synchronization.
+func (q *Query) batchCreateWithOptionsInternal(items any, opts *BatchUpdateOptions) error {
 	if err := q.checkBuilderError(); err != nil {
 		return err
 	}
@@ -722,64 +737,125 @@ func (q *Query) BatchCreate(items any) error {
 
 	// Try to use the new BatchWriteItemExecutor first
 	if _, ok := q.executor.(BatchWriteItemExecutor); ok {
-		tableName := q.metadata.TableName()
-		const batchSize = 25
-		totalItems := itemsValue.Len()
-
-		for i := 0; i < totalItems; i += batchSize {
-			end := i + batchSize
-			if end > totalItems {
-				end = totalItems
-			}
-
-			writeRequests := make([]types.WriteRequest, 0, end-i)
-			for j := i; j < end; j++ {
-				item := itemsValue.Index(j).Interface()
-				av, err := q.marshalItem(item)
-				if err != nil {
-					return fmt.Errorf("failed to marshal item %d: %w", j, err)
-				}
-
-				writeRequests = append(writeRequests, types.WriteRequest{
-					PutRequest: &types.PutRequest{
-						Item: av,
-					},
-				})
-			}
-
-			if err := q.executeBatchWriteWithRetries(tableName, writeRequests, nil); err != nil {
-				return err
-			}
-		}
-
-		return nil
+		return q.batchCreateWithBatchWriteItemExecutor(itemsValue, opts)
 	}
 
 	// Fall back to old BatchExecutor for backward compatibility
 	if executor, ok := q.executor.(BatchExecutor); ok {
-		// Build batch write request
-		batchWrite := &CompiledBatchWrite{
-			TableName: q.metadata.TableName(),
-			Items:     make([]map[string]types.AttributeValue, 0, itemsValue.Len()),
-		}
-
-		// Convert items to AttributeValues
-		for i := 0; i < itemsValue.Len(); i++ {
-			item := itemsValue.Index(i).Interface()
-
-			// Convert item to map[string]types.AttributeValue
-			av, err := q.marshalItem(item)
-			if err != nil {
-				return fmt.Errorf("failed to convert item %d: %w", i, err)
-			}
-
-			batchWrite.Items = append(batchWrite.Items, av)
-		}
-
-		return executor.ExecuteBatchWrite(batchWrite)
+		return q.batchCreateWithLegacyBatchExecutor(itemsValue, opts, executor)
 	}
 
 	return errors.New("executor does not support batch operations")
+}
+
+// batchCreateWithBatchWriteItemExecutor writes items in chunks of 25 through
+// the BatchWriteItemExecutor path. Marshal failures are routed through the
+// error handler (with nil opts the first one aborts); a failed chunk write
+// reports only the successfully-marshaled items of the chunk as failed so
+// Failed/Errors stay item-accurate (marshal-failed items are not reported a
+// second time).
+func (q *Query) batchCreateWithBatchWriteItemExecutor(itemsValue reflect.Value, opts *BatchUpdateOptions) error {
+	tableName := q.metadata.TableName()
+	const batchSize = 25
+	totalItems := itemsValue.Len()
+	processed := 0
+
+	for i := 0; i < totalItems; i += batchSize {
+		end := i + batchSize
+		if end > totalItems {
+			end = totalItems
+		}
+
+		// Marshal the chunk. With options, a marshal failure is delivered to
+		// the error handler and the item skipped so the rest of the chunk
+		// still gets written; without options the first failure aborts,
+		// matching the legacy BatchCreate behavior.
+		marshaledItems := make([]any, 0, end-i)
+		writeRequests := make([]types.WriteRequest, 0, end-i)
+		for j := i; j < end; j++ {
+			item := itemsValue.Index(j).Interface()
+
+			av, err := q.marshalItem(item)
+			if err != nil {
+				wrapped := fmt.Errorf("failed to marshal item %d: %w", j, err)
+				if handlerErr := handleBatchUpdateError(opts, item, err, wrapped); handlerErr != nil {
+					return handlerErr
+				}
+				continue
+			}
+
+			// Mirror the legacy path's `created` shape: only items that were
+			// successfully marshaled can be part of the chunk write, so only
+			// they are candidates for a chunk-write failure report.
+			marshaledItems = append(marshaledItems, item)
+			writeRequests = append(writeRequests, types.WriteRequest{
+				PutRequest: &types.PutRequest{
+					Item: av,
+				},
+			})
+		}
+
+		// A failed batch write leaves every successfully-marshaled item of the
+		// chunk unwritten; report each one through the error handler. Marshal-
+		// failed items were already reported above and are not reported again.
+		// With nil opts the first failure still aborts.
+		if err := q.executeBatchWriteWithRetries(tableName, writeRequests, nil); err != nil {
+			for _, item := range marshaledItems {
+				if handlerErr := handleBatchUpdateError(opts, item, err, err); handlerErr != nil {
+					return handlerErr
+				}
+			}
+		}
+
+		processed += end - i
+		if opts != nil && opts.ProgressCallback != nil {
+			opts.ProgressCallback(processed, totalItems)
+		}
+	}
+
+	return nil
+}
+
+// batchCreateWithLegacyBatchExecutor writes all items in a single request
+// through the legacy BatchExecutor interface, applying the same options
+// semantics as the BatchWriteItemExecutor path.
+func (q *Query) batchCreateWithLegacyBatchExecutor(itemsValue reflect.Value, opts *BatchUpdateOptions, executor BatchExecutor) error {
+	batchWrite := &CompiledBatchWrite{
+		TableName: q.metadata.TableName(),
+		Items:     make([]map[string]types.AttributeValue, 0, itemsValue.Len()),
+	}
+	created := make([]any, 0, itemsValue.Len())
+
+	// Convert items to AttributeValues
+	for i := 0; i < itemsValue.Len(); i++ {
+		item := itemsValue.Index(i).Interface()
+
+		av, err := q.marshalItem(item)
+		if err != nil {
+			wrapped := fmt.Errorf("failed to convert item %d: %w", i, err)
+			if handlerErr := handleBatchUpdateError(opts, item, err, wrapped); handlerErr != nil {
+				return handlerErr
+			}
+			continue
+		}
+
+		created = append(created, item)
+		batchWrite.Items = append(batchWrite.Items, av)
+	}
+
+	if err := executor.ExecuteBatchWrite(batchWrite); err != nil {
+		for _, item := range created {
+			if handlerErr := handleBatchUpdateError(opts, item, err, err); handlerErr != nil {
+				return handlerErr
+			}
+		}
+		return nil
+	}
+
+	if opts != nil && opts.ProgressCallback != nil {
+		opts.ProgressCallback(itemsValue.Len(), itemsValue.Len())
+	}
+	return nil
 }
 
 // WithConverter configures the query to use the provided converter for expression and key/value conversion.

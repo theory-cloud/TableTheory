@@ -233,7 +233,19 @@ func (q *Query) executeBatchesParallel(batches [][]any, opts *BatchUpdateOptions
 			err := q.executeUpdateBatch(b, opts, fields)
 			if err != nil {
 				if opts.ErrorHandler != nil {
-					if handlerErr := opts.ErrorHandler(b, err); handlerErr != nil {
+					// Deliver under the lock so parallel batch workers never
+					// invoke the handler concurrently; the handler contract
+					// does not promise concurrent-safe invocation. defer
+					// keeps the lock released even if the handler exits the
+					// goroutine (e.g. require.FailNow), and release before
+					// fall-through so the progress section's own lock
+					// acquisition is unchanged.
+					handlerErr := func() error {
+						progressMutex.Lock()
+						defer progressMutex.Unlock()
+						return opts.ErrorHandler(b, err)
+					}()
+					if handlerErr != nil {
 						errChan <- handlerErr
 						return
 					}
@@ -243,11 +255,14 @@ func (q *Query) executeBatchesParallel(batches [][]any, opts *BatchUpdateOptions
 				}
 			}
 
-			// Update progress
+			// Deliver progress under the lock so parallel batch workers never
+			// invoke the callback concurrently; the callback contract does not
+			// promise concurrent-safe invocation. defer keeps the lock released
+			// even if the callback exits the goroutine (e.g. require.FailNow).
 			progressMutex.Lock()
+			defer progressMutex.Unlock()
 			*processed += len(b)
 			currentProgress := *processed
-			progressMutex.Unlock()
 
 			if opts.ProgressCallback != nil {
 				opts.ProgressCallback(currentProgress, total)
@@ -508,7 +523,12 @@ func isRetryableError(err error) bool {
 	}
 }
 
-// BatchResult represents the result of a batch operation
+// BatchResult represents the result of a batch operation.
+//
+// Errors holds one entry per failed item, Failed counts those items, and
+// Succeeded counts the items that were written. UnprocessedKeys is retained
+// for API compatibility and is not populated; per-item failures are reported
+// through Errors and Failed instead.
 type BatchResult struct {
 	UnprocessedKeys []any
 	Errors          []error
@@ -516,7 +536,15 @@ type BatchResult struct {
 	Failed          int
 }
 
-// BatchCreateWithResult creates multiple items and returns detailed results
+// BatchCreateWithResult creates multiple items and returns detailed per-item
+// results.
+//
+// The operation continues past item-level failures: items that fail to marshal
+// and items in chunks whose batch write fails are counted in Failed with their
+// errors collected in Errors, while successfully written items are counted in
+// Succeeded. A non-nil error is returned only for environment-level failures
+// (invalid input, unsupported executor, or write-once/protected-field guard
+// violations); item-level failures are reported through the result instead.
 func (q *Query) BatchCreateWithResult(items any) (*BatchResult, error) {
 	opts := DefaultBatchOptions()
 	result := &BatchResult{
@@ -536,7 +564,7 @@ func (q *Query) BatchCreateWithResult(items any) (*BatchResult, error) {
 		result.Succeeded = processed - result.Failed
 	}
 
-	err := q.BatchCreate(items)
+	err := q.batchCreateWithOptionsInternal(items, opts)
 	return result, err
 }
 

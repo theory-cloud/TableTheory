@@ -14,6 +14,8 @@ import (
 
 	"github.com/aws/smithy-go"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/theory-cloud/tabletheory/v3/pkg/core"
 )
 
@@ -649,6 +651,120 @@ func TestBatchCreateWithResult(t *testing.T) {
 	// Errors may or may not be recorded depending on when failure occurs
 }
 
+// TestBatchCreateWithResult_PartialFailurePopulatesResult proves that on
+// partial failure BatchCreateWithResult reports the failed item through
+// Failed/Errors and the remaining items through Succeeded instead of
+// returning an error with an all-zero result.
+func TestBatchCreateWithResult_PartialFailurePopulatesResult(t *testing.T) {
+	exec := &cov6BatchWriteExecutor{result: &core.BatchWriteResult{UnprocessedItems: map[string][]types.WriteRequest{}}}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	// The middle item is not a struct, so marshaling it fails.
+	items := []any{
+		cov6BatchCreateItem{ID: "1"},
+		123,
+		cov6BatchCreateItem{ID: "3"},
+	}
+
+	result, err := q.BatchCreateWithResult(items)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Failed)
+	require.Len(t, result.Errors, 1)
+	require.Equal(t, 2, result.Succeeded)
+}
+
+// TestBatchCreateWithResult_FullSuccessPopulatesSucceeded proves that a fully
+// successful batch is counted in Succeeded (the legacy implementation left it
+// at zero because the progress callback never ran).
+func TestBatchCreateWithResult_FullSuccessPopulatesSucceeded(t *testing.T) {
+	exec := &cov6BatchWriteExecutor{result: &core.BatchWriteResult{UnprocessedItems: map[string][]types.WriteRequest{}}}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	items := []cov6BatchCreateItem{{ID: "1"}, {ID: "2"}, {ID: "3"}}
+
+	result, err := q.BatchCreateWithResult(items)
+	require.NoError(t, err)
+	require.Equal(t, 0, result.Failed)
+	require.Empty(t, result.Errors)
+	require.Equal(t, 3, result.Succeeded)
+}
+
+// TestBatchCreateWithResult_BatchWriteErrorReportsEveryItem proves that when a
+// chunk's batch write fails, every item of that chunk is reported as a failed
+// item (Failed and Errors are item-accurate, not chunk-accurate).
+func TestBatchCreateWithResult_BatchWriteErrorReportsEveryItem(t *testing.T) {
+	exec := &cov6BatchWriteExecutor{err: errors.New("boom")}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	items := []cov6BatchCreateItem{{ID: "1"}, {ID: "2"}}
+
+	result, err := q.BatchCreateWithResult(items)
+	require.NoError(t, err)
+	require.Equal(t, 2, result.Failed)
+	require.Len(t, result.Errors, 2)
+	require.Equal(t, 0, result.Succeeded)
+}
+
+// TestBatchCreateWithResult_MixedChunkDoesNotDoubleCountMarshalFailures proves
+// that when a chunk contains a marshal-failing item and the batch write of the
+// successfully-marshaled items then fails, the marshal-failed item is reported
+// exactly once (as its marshal error), not a second time as a chunk-write
+// failure. Regression test for the mixed-chunk double count that produced
+// Failed=4/Errors=4/Succeeded=-1 for a 3-item chunk with one marshal failure.
+func TestBatchCreateWithResult_MixedChunkDoesNotDoubleCountMarshalFailures(t *testing.T) {
+	boom := errors.New("boom")
+	exec := &cov6BatchWriteExecutor{err: boom}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	// The middle item is not a struct, so marshaling it fails; the two struct
+	// items marshal successfully and are sent in the chunk write, which fails.
+	items := []any{
+		cov6BatchCreateItem{ID: "1"},
+		123,
+		cov6BatchCreateItem{ID: "3"},
+	}
+
+	result, err := q.BatchCreateWithResult(items)
+	require.NoError(t, err)
+	// 1 marshal failure + 2 successfully-marshaled items in the failed chunk.
+	require.Equal(t, 3, result.Failed)
+	require.Len(t, result.Errors, 3)
+	require.Equal(t, 0, result.Succeeded) // len(items) - Failed, never negative
+
+	// The marshal error appears exactly once and the chunk-write failure once
+	// per successfully-marshaled item — no item is double-counted.
+	var chunkWriteFailures, otherErrors int
+	for _, e := range result.Errors {
+		if errors.Is(e, boom) {
+			chunkWriteFailures++
+		} else {
+			otherErrors++
+		}
+	}
+	require.Equal(t, 2, chunkWriteFailures)
+	require.Equal(t, 1, otherErrors)
+}
+
+// TestQuery_batchCreateWithOptionsInternal_InvokesErrorHandlerPerItem proves
+// that the shared options-driven create path invokes the configured error
+// handler once per failed item (here: every item of a chunk whose batch write
+// failed), not once per chunk.
+func TestQuery_batchCreateWithOptionsInternal_InvokesErrorHandlerPerItem(t *testing.T) {
+	exec := &cov6BatchWriteExecutor{err: errors.New("boom")}
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
+
+	var subjects []any
+	opts := DefaultBatchOptions()
+	opts.ErrorHandler = func(item any, _ error) error {
+		subjects = append(subjects, item)
+		return nil
+	}
+
+	require.NoError(t, q.batchCreateWithOptionsInternal(
+		[]cov6BatchCreateItem{{ID: "1"}, {ID: "2"}}, opts))
+	require.Len(t, subjects, 2)
+}
+
 // Add a mock executor to avoid nil panics
 type mockQueryExecutor struct{}
 
@@ -748,52 +864,71 @@ func TestBatchDeleteWithOptions(t *testing.T) {
 	})
 }
 
+// batchParallelProbeExecutor fails every update but records how many
+// ExecuteUpdateItem calls overlap. It is the concurrency probe for
+// TestExecuteBatchesParallel: user callback delivery is serialized by design,
+// so batch-level parallelism must be observed on the executor instead.
+type batchParallelProbeExecutor struct {
+	reached   chan struct{}
+	release   chan struct{}
+	reachOnce sync.Once
+	mu        sync.Mutex
+	want      int
+	current   int
+	max       int
+}
+
+func (e *batchParallelProbeExecutor) ExecuteQuery(_ *core.CompiledQuery, _ any) error { return nil }
+func (e *batchParallelProbeExecutor) ExecuteScan(_ *core.CompiledQuery, _ any) error  { return nil }
+
+func (e *batchParallelProbeExecutor) ExecuteUpdateItem(_ *core.CompiledQuery, _ map[string]types.AttributeValue) error {
+	e.mu.Lock()
+	e.current++
+	if e.current > e.max {
+		e.max = e.current
+		if e.max == e.want {
+			e.reachOnce.Do(func() { close(e.reached) })
+		}
+	}
+	e.mu.Unlock()
+
+	<-e.release
+
+	e.mu.Lock()
+	e.current--
+	e.mu.Unlock()
+	return errors.New("update failed")
+}
+
 func TestExecuteBatchesParallel(t *testing.T) {
 	items := make([][]any, 10)
 	for i := 0; i < 10; i++ {
 		items[i] = []any{TestItem{ID: fmt.Sprintf("%d", i)}}
 	}
 
-	var mu sync.Mutex
 	const expectedConcurrency = 3
-	currentConcurrency := 0
-	maxConcurrency := 0
-	handlerCalls := 0
-	concurrencyReached := make(chan struct{})
-	releaseHandlers := make(chan struct{})
-	var reachOnce sync.Once
+	exec := &batchParallelProbeExecutor{
+		want:    expectedConcurrency,
+		reached: make(chan struct{}),
+		release: make(chan struct{}),
+	}
 
 	q := &Query{
 		metadata: &TestMetadata{},
 		ctx:      context.Background(),
+		executor: exec,
 	}
 
 	processed := 0
 	total := 10
 
+	handlerCalls := 0
 	opts := &BatchUpdateOptions{
 		Parallel:       true,
 		MaxConcurrency: expectedConcurrency,
 		ErrorHandler: func(item any, err error) error {
-			mu.Lock()
 			handlerCalls++
-			currentConcurrency++
-			if currentConcurrency > maxConcurrency {
-				maxConcurrency = currentConcurrency
-				if maxConcurrency == expectedConcurrency {
-					reachOnce.Do(func() {
-						close(concurrencyReached)
-					})
-				}
-			}
-			mu.Unlock()
-
-			<-releaseHandlers
-
-			mu.Lock()
-			currentConcurrency--
-			mu.Unlock()
-			return nil
+			return nil // Ignore errors
 		},
 	}
 
@@ -803,15 +938,18 @@ func TestExecuteBatchesParallel(t *testing.T) {
 	}()
 
 	select {
-	case <-concurrencyReached:
+	case <-exec.reached:
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for parallel batch handlers to overlap")
+		t.Fatal("timed out waiting for parallel batch workers to overlap")
 	}
 
-	close(releaseHandlers)
+	close(exec.release)
 
 	err := <-errCh
 	assert.NoError(t, err)
 	assert.Equal(t, total, handlerCalls)
-	assert.Equal(t, expectedConcurrency, maxConcurrency, "expected handlers to overlap up to the configured concurrency")
+
+	exec.mu.Lock()
+	defer exec.mu.Unlock()
+	assert.Equal(t, expectedConcurrency, exec.max, "expected batch workers to overlap up to the configured concurrency")
 }
