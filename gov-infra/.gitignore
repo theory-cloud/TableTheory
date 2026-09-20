@@ -1,9 +1,10 @@
 # Local-only tool installs (do not commit)
 .tools/
 
-# Generated evidence logs (CI artifacts; keep the machine report tracked)
+# Generated evidence (CI artifacts; the verifier regenerates report + logs every
+# run, embedding a fresh timestamp and git_head, so none of it is tracked)
 evidence/*.log
-!evidence/gov-rubric-report.json
+evidence/gov-rubric-report.json
 
 # Local certification/signature bundles (do not commit)
 signatures/

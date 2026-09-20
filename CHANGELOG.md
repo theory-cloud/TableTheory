@@ -63,6 +63,37 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.0.7-rc](https://github.com/theory-cloud/TableTheory/compare/v3.0.6...v3.0.7-rc) (2026-09-20)
+
+
+### Bug Fixes
+
+* **ci:** harden pages dispatch tag validation and cache surface ([4eb3696](https://github.com/theory-cloud/TableTheory/commit/4eb3696ccc7b9a84f5653a19ab8f1e50983de3a6))
+* **ci:** include Python wheel and sdist in release SHA256SUMS ([71028f8](https://github.com/theory-cloud/TableTheory/commit/71028f80d5915762fdbf19ff3233cc6e46d50709))
+* **ci:** include Python wheel and sdist in release SHA256SUMS ([872c11b](https://github.com/theory-cloud/TableTheory/commit/872c11b54f3e81b814c728387e590944d79c79e7))
+* **ci:** include TS tarball in release SHA256SUMS ([de86a9d](https://github.com/theory-cloud/TableTheory/commit/de86a9da0efd026f288eaed7b6ec51c982c04251))
+* **ci:** include TS tarball in release SHA256SUMS ([1a599db](https://github.com/theory-cloud/TableTheory/commit/1a599db3cace4ea7b608e16b57ef8cf669c515ee))
+* **ci:** pass repo context to pages deploy dispatch ([4ec1fc4](https://github.com/theory-cloud/TableTheory/commit/4ec1fc4e980cc9737a13ff67196a146bf6e8cee2))
+* **ci:** pass repo context to pages deploy dispatch ([d9a1fdf](https://github.com/theory-cloud/TableTheory/commit/d9a1fdfb3bdc531cf4fd0e9bed9e0f7288220a8d))
+* **ci:** restore automated Pages deploys stamped from the deployed release ([aaabd3a](https://github.com/theory-cloud/TableTheory/commit/aaabd3a3a6a482b1e43a61b4181de18930b38094))
+* **ci:** restore pages deploy correctness after adversarial review ([584c2e0](https://github.com/theory-cloud/TableTheory/commit/584c2e060fd6209fd196a4418c0b6e5add2c8a71))
+* **deps:** apply consolidated dependency sweep 2026-09 ([47092ed](https://github.com/theory-cloud/TableTheory/commit/47092ed305821589a3c94b0a17fe9562b4cb7099))
+* **deps:** apply dependency wave 2026-08 ([9d3b363](https://github.com/theory-cloud/TableTheory/commit/9d3b36302272257645947fa749cb2d2675ef0c38))
+* **deps:** apply dependency wave 2026-08 ([3d8d33b](https://github.com/theory-cloud/TableTheory/commit/3d8d33b38f67f430d8729d63dd14c99626d7cc5f))
+* **deps:** bump github-actions group ([137ae42](https://github.com/theory-cloud/TableTheory/commit/137ae42c9b640a5e3e1b97dccd012dd5562c8c7f))
+* **deps:** bump go dependency groups (root, contract-runner, examples) ([6d8029a](https://github.com/theory-cloud/TableTheory/commit/6d8029a68d1f4a579cd6997374b8e275c14762b2))
+* **deps:** bump python example dependencies ([0027599](https://github.com/theory-cloud/TableTheory/commit/00275996b35bbd02694b6ac8858977c25417a6c2))
+* **deps:** bump ts runtime, contract-runner, and npm example groups ([1471b91](https://github.com/theory-cloud/TableTheory/commit/1471b91ffdc4f8ab3e1571a2dc8582ffcd9f7ed1))
+* **gov-infra:** treat gov-rubric-report.json as generated untracked evidence ([9e68f0b](https://github.com/theory-cloud/TableTheory/commit/9e68f0b00328638e9775ba288f73410ba9431fe5))
+* **gov-infra:** untrack generated rubric report evidence ([c469d63](https://github.com/theory-cloud/TableTheory/commit/c469d638afef7205fe003604c2492f6e8591f1e4))
+* **query:** make BatchCreateWithResult report per-item results ([9cc4eb0](https://github.com/theory-cloud/TableTheory/commit/9cc4eb0e7ff74212e80cbd2b9f967c12eea60f1c))
+* **query:** make BatchCreateWithResult report per-item results ([83d5503](https://github.com/theory-cloud/TableTheory/commit/83d550365b32caf53801271696c17c24144eb704))
+* **query:** report only marshaled items on batch-create chunk write failure ([3af0ce7](https://github.com/theory-cloud/TableTheory/commit/3af0ce7c859a849c00de00eb910c58403139a7f9))
+* **query:** resolve data race in parallel batch get ([a691c20](https://github.com/theory-cloud/TableTheory/commit/a691c2094f08b5b6aaf8cad84f2e91b0d3755681))
+* **query:** resolve data race in parallel batch get ([d43f010](https://github.com/theory-cloud/TableTheory/commit/d43f010659b5bc9a1d4df0ce00f6d5bf3885d777))
+* **query:** synchronize BatchUpdate parallel progress callback delivery ([ec20240](https://github.com/theory-cloud/TableTheory/commit/ec20240b0f17d6971718b13c567b1628a9308cda))
+* **query:** synchronize remaining parallel batch error callback delivery ([880f895](https://github.com/theory-cloud/TableTheory/commit/880f895bec46eee9284dff2a812bda76bfe41f6d))
+
 ## [3.0.6](https://github.com/theory-cloud/TableTheory/compare/v3.0.6-rc...v3.0.6) (2026-08-21)
 
 Stable promotion of `v3.0.6-rc`.
