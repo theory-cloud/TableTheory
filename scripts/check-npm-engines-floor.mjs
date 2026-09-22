@@ -446,6 +446,53 @@ function rangeAdmitsBelowFloorMajor(rawRange, floorMajor) {
 
 // === lockfile set ==========================================================
 
+// The audit scanner enumerates the lockfiles it audits as `run_npm_audit
+// <prefix>` call sites. AUDITED_LOCKFILES is hand-maintained, so the two lists
+// are cross-checked rather than trusted: a lockfile audited by one gate and
+// skipped by the other is exactly the gap this closes, and divergence fails
+// closed in whichever direction it appears.
+const AUDIT_SCANNER = "scripts/sec-npm-audit.sh";
+
+function lockfilesAuditedByScanner() {
+  let text;
+  try {
+    text = fs.readFileSync(path.join(repositoryRoot, AUDIT_SCANNER), "utf8");
+  } catch (err) {
+    fail(`could not read ${AUDIT_SCANNER} to cross-check the audited lockfile set: ${err.message}`);
+  }
+  const prefixes = [];
+  for (const line of text.split("\n")) {
+    const match = /^\s*run_npm_audit\s+(\S+)\s*$/.exec(line);
+    if (match !== null) prefixes.push(match[1]);
+  }
+  if (prefixes.length === 0) {
+    fail(
+      `${AUDIT_SCANNER} declares no run_npm_audit prefixes; the audited lockfile set cannot be ` +
+        "cross-checked, so this gate refuses to run",
+    );
+  }
+  return prefixes.map((prefix) => `${prefix}/package-lock.json`);
+}
+
+function assertLockfileSetMatchesScanner() {
+  const audited = lockfilesAuditedByScanner().sort();
+  const declared = [...AUDITED_LOCKFILES].sort();
+  if (audited.join("\n") === declared.join("\n")) return;
+  const detail = [];
+  const auditedOnly = audited.filter((label) => !declared.includes(label));
+  const declaredOnly = declared.filter((label) => !audited.includes(label));
+  if (auditedOnly.length > 0) {
+    detail.push(`audited by ${AUDIT_SCANNER} but not judged here: ${auditedOnly.join(", ")}`);
+  }
+  if (declaredOnly.length > 0) {
+    detail.push(`judged here but not audited by ${AUDIT_SCANNER}: ${declaredOnly.join(", ")}`);
+  }
+  fail(
+    `AUDITED_LOCKFILES has drifted from the audited lockfile set (${detail.join("; ")}); ` +
+      "no lockfile may be audited by one gate and skipped by the other",
+  );
+}
+
 function defaultLockfiles() {
   const lockfiles = AUDITED_LOCKFILES.map((relative) => ({
     absolute: path.join(repositoryRoot, relative),
@@ -816,6 +863,10 @@ function main() {
   const args = process.argv.slice(2);
   const selfTest = args[0] === "--self-test";
   const lockfileArgs = selfTest ? args.slice(1) : args;
+
+  // The audited set is cross-checked against the audit scanner on every run,
+  // self-test or not, so the two gates can never cover different lockfiles.
+  assertLockfileSetMatchesScanner();
 
   const selfTestCases = selfTest ? runSelfTest() : 0;
 

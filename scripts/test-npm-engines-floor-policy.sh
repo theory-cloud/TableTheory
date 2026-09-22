@@ -282,6 +282,63 @@ expect_success_contains \
   "excluded 0" \
   bash "${wrapper}"
 
+# --- audited-set parity ----------------------------------------------------
+# AUDITED_LOCKFILES is hand-maintained, so the checker cross-checks it against
+# the prefixes scripts/sec-npm-audit.sh audits on every run. A lockfile audited
+# by one gate and skipped by the other must fail rather than be silently
+# dropped. The probe below points the real checker at a synthetic repository
+# root whose audit scanner covers a different lockfile set.
+parity_root="${tmpdir}/parity"
+mkdir -p \
+  "${parity_root}/scripts" \
+  "${parity_root}/ts" \
+  "${parity_root}/contract-tests/runners/ts" \
+  "${parity_root}/examples/cdk-multilang"
+cp "${checker}" "${parity_root}/scripts/check-npm-engines-floor.mjs"
+cp ts/package.json "${parity_root}/ts/package.json"
+write_fixture "${parity_root}/ts/package-lock.json" ">=22"
+write_fixture "${parity_root}/contract-tests/runners/ts/package-lock.json" ">=22"
+write_fixture "${parity_root}/examples/cdk-multilang/package-lock.json" ">=22" ">=24"
+cat >"${parity_root}/scripts/sec-npm-audit.sh" <<'SH'
+run_npm_audit ts
+run_npm_audit contract-tests/runners/ts
+run_npm_audit examples/cdk-multilang
+SH
+# Identical sets: the parity assertion is satisfied and the scan proceeds.
+expect_success_contains \
+  "project roots judged 3" \
+  node "${parity_root}/scripts/check-npm-engines-floor.mjs"
+
+# A lockfile the audit scanner covers but the checker does not judge.
+cat >"${parity_root}/scripts/sec-npm-audit.sh" <<'SH'
+run_npm_audit ts
+run_npm_audit contract-tests/runners/ts
+run_npm_audit examples/cdk-multilang
+run_npm_audit examples/extra
+SH
+expect_failure_contains \
+  "AUDITED_LOCKFILES has drifted from the audited lockfile set" \
+  node "${parity_root}/scripts/check-npm-engines-floor.mjs"
+expect_failure_contains \
+  "audited by scripts/sec-npm-audit.sh but not judged here: examples/extra/package-lock.json" \
+  node "${parity_root}/scripts/check-npm-engines-floor.mjs"
+
+# A lockfile the checker judges but the audit scanner does not cover.
+cat >"${parity_root}/scripts/sec-npm-audit.sh" <<'SH'
+run_npm_audit ts
+run_npm_audit contract-tests/runners/ts
+SH
+expect_failure_contains \
+  "judged here but not audited by scripts/sec-npm-audit.sh: examples/cdk-multilang/package-lock.json" \
+  node "${parity_root}/scripts/check-npm-engines-floor.mjs"
+
+# An audit scanner with no enumerated prefixes cannot be cross-checked, so the
+# gate refuses to run rather than assuming agreement.
+: >"${parity_root}/scripts/sec-npm-audit.sh"
+expect_failure_contains \
+  "declares no run_npm_audit prefixes" \
+  node "${parity_root}/scripts/check-npm-engines-floor.mjs"
+
 # There is no waiver machinery: the shipped gate refuses arguments.
 expect_failure_contains \
   "this gate takes no arguments" \
