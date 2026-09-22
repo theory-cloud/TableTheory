@@ -895,26 +895,6 @@ function main() {
     }
   }
 
-  if (!selfTest) {
-    // The coverage walk is what makes an unmodelled surface fail closed; it runs
-    // on every real scan, not only under --self-test.
-    const discovered = collectDeclarationSurfaces();
-    const expected = [...SCANNED_SURFACES].sort();
-    const undeclared = discovered.filter((label) => !SCANNED_SURFACES.includes(label));
-    if (undeclared.length > 0) {
-      fail(
-        `unmodelled surface(s) declare a Lambda runtime but are not judged: ` +
-          `${undeclared.join(", ")}; add each to SCANNED_SURFACES in ` +
-          `scripts/check-lambda-runtime-deprecations.mjs - surfaces are never skipped`,
-      );
-    }
-    for (const label of expected) {
-      if (!discovered.includes(label)) {
-        fail(`declared surface ${label} declares no modelled Lambda runtime`);
-      }
-    }
-  }
-
   // A failure in the coverage walk (a missing scan root, an undeclared surface)
   // is a gate failure like any other and must report as a FAIL line rather than
   // a stack trace, so the walk and the scan share one error boundary.

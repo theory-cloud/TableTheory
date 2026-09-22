@@ -59,6 +59,42 @@ expect_failure_contains() {
   fi
 }
 
+# expect_failure_reports_a_fail_line <expected substring> <command...>
+# Same as expect_failure_contains, plus the assertion that the failure really is
+# the gate's own FAIL line rather than an uncaught error's stack trace. The
+# message substring alone cannot prove that: node prints an uncaught error's
+# message inside its stack trace, so a substring probe passes on the very output
+# this rejects.
+expect_failure_reports_a_fail_line() {
+  local expected="$1"
+  shift
+
+  local output
+  if output="$("$@" 2>&1)"; then
+    printf '%s\n' "${output}"
+    echo "lambda-runtime-deprecations-policy-test: expected command to fail"
+    exit 1
+  fi
+  if ! grep -Fq "${expected}" <<<"${output}"; then
+    printf '%s\n' "${output}"
+    echo "lambda-runtime-deprecations-policy-test: expected failure output to contain: ${expected}"
+    exit 1
+  fi
+  if ! grep -Fq "lambda-runtime-deprecations: FAIL (" <<<"${output}"; then
+    printf '%s\n' "${output}"
+    echo "lambda-runtime-deprecations-policy-test: expected the gate's own 'lambda-runtime-deprecations: FAIL (' line"
+    exit 1
+  fi
+  local frames
+  frames="$(grep -E '^[[:space:]]+at .*\(|node:internal/|^Node\.js v' <<<"${output}" || true)"
+  if [[ -n "${frames}" ]]; then
+    printf '%s\n' "${output}"
+    echo "lambda-runtime-deprecations-policy-test: failure was reported as a node stack trace, not the gate's FAIL line:"
+    printf '%s\n' "${frames}"
+    exit 1
+  fi
+}
+
 # write_surface <repository root> <relative path> <content>
 write_surface() {
   local root="$1"
@@ -96,10 +132,14 @@ synthetic_checker="${synthetic}/scripts/check-lambda-runtime-deprecations.mjs"
 
 # A scope with no scan root fails closed instead of scanning nothing and
 # reporting a pass, through the shipped path and through the self-test alike.
-expect_failure_contains \
+# Asserted as a real FAIL line rather than a message substring: an uncaught
+# GateFailure prints its message inside a node stack trace, so a substring probe
+# would pass on exactly the defect this asserts against. The bare path is the one
+# that exercises it, because the self-test reads a root it walks itself.
+expect_failure_reports_a_fail_line \
   "scan root examples/cdk-multilang/lib is missing" \
   node "${synthetic_checker}"
-expect_failure_contains \
+expect_failure_reports_a_fail_line \
   "scan root examples/cdk-multilang/lib is missing" \
   node "${synthetic_checker}" --self-test
 
