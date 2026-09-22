@@ -126,16 +126,16 @@ fi
 
 # Staging PRs no longer run the standalone TS/Python PR matrices; require the
 # Quality Gates job itself to exercise the lower supported runtimes before merge.
-grep -Eq 'node-version:[[:space:]]*["'"'"']?20(\\.x)?["'"'"']?' "${wf}" || {
-  echo "ci-rubric: ${wf}: staging Quality Gates must include Node 20 compatibility"
+grep -Eq 'node-version:[[:space:]]*["'"'"']?22(\\.x)?["'"'"']?' "${wf}" || {
+  echo "ci-rubric: ${wf}: staging Quality Gates must include Node 22 compatibility"
   failures=$((failures + 1))
 }
-grep -Fq 'Run Node 20 pre-merge compatibility' "${wf}" || {
-  echo "ci-rubric: ${wf}: missing Node 20 pre-merge compatibility step"
+grep -Fq 'Run Node 22 pre-merge compatibility' "${wf}" || {
+  echo "ci-rubric: ${wf}: missing Node 22 pre-merge compatibility step"
   failures=$((failures + 1))
 }
 grep -Fq 'npm --prefix ts run test:integration' "${wf}" || {
-  echo "ci-rubric: ${wf}: Node 20 compatibility must include TypeScript integration tests"
+  echo "ci-rubric: ${wf}: Node 22 compatibility must include TypeScript integration tests"
   failures=$((failures + 1))
 }
 
