@@ -44,6 +44,34 @@
 // model fails the gate outright - the legacy tilde alias `~>` included.
 //
 // ===========================================================================
+// Root semantics (one rule, converged across the framework repos)
+// ===========================================================================
+// Every audited lockfile's own root entry ("") must DECLARE engines.node, and
+// the declaration must not admit any release below the repository floor major.
+// The two halves fail differently and both fail closed:
+//
+//   absent declaration        -> FAIL (a project that never states the Node
+//                                line it ships to is the hole this rule closes)
+//   admits below the floor    -> FAIL
+//   >=22 on a floor of 22     -> pass
+//   >=24 on a floor of 22     -> pass (declaring a HIGHER floor is legitimate;
+//                                the rule is about the lower edge, not about
+//                                matching the repository floor exactly)
+//   ^20.19.0 || >=22          -> FAIL (the first branch still admits 20.x)
+//   * / >=20 / 22.x           -> * fails, >=20 fails, 22.x passes
+//
+// An example project that ships only on Node 24 may therefore keep declaring
+// >=24, while a project that declares nothing - or that still admits Node 20 -
+// cannot pass. This is the same shape FaceTheory already enforces and that
+// AppTheory is converging on in a parallel wave.
+//
+// A root is deliberately NOT held to the dependency rule, which is stricter in
+// the other direction: a dependency must admit at least one floor release
+// (>=24 fails), while a root must not admit a sub-floor release (>=24 passes).
+// The two directions are different questions and are evaluated by different
+// predicates below.
+//
+// ===========================================================================
 // Scope
 // ===========================================================================
 // Dependency entries (node_modules/**) in the lockfiles that
@@ -53,13 +81,13 @@
 // set, which is how the negative proof drives the checker with a synthetic
 // lockfile.
 //
-// A lockfile's own root entry ("") is the project's declared floor rather than
-// an upstream dependency, so it is counted and left unjudged here. Project
-// floors are the manifest/CI floor surfaces' business, and an example project
-// may legitimately declare a higher floor than the repository floor.
+// AUDITED_LOCKFILES is not allowed to drift from the audited set by hand. Every
+// real scan asserts that the set matches the prefixes scripts/sec-npm-audit.sh
+// audits, so a lockfile cannot be audited by one gate and skipped by the other.
 //
 // There is no exception list and no waiver flag: every dependency entry with a
-// declared engines.node must admit the floor, or the gate fails.
+// declared engines.node must admit the floor, and every root must declare a
+// floor that does not admit a release below it, or the gate fails.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -377,25 +405,43 @@ function bandAdmitsRelease(bounds, band) {
   return upper.inclusive ? order <= 0 : order < 0;
 }
 
-// True when the declared range admits at least one release on the floor's
-// major line, i.e. when a release in [floorMajor.0.0, (floorMajor + 1).0.0)
-// satisfies it.
-//
+// Bands are half-open release intervals: [major.0.0, (major + 1).0.0).
+function bandForMajor(major) {
+  return {
+    lower: { version: { major, minor: 0, patch: 0, prerelease: null }, inclusive: true },
+    upper: { version: { major: major + 1, minor: 0, patch: 0, prerelease: null }, inclusive: false },
+  };
+}
+
 // Every branch is parsed before any of them is evaluated, so an unmodelled
-// branch fails the gate even when an earlier branch already admits the floor;
+// branch fails the gate even when an earlier branch already admits the band;
 // strictness must not depend on the order of the alternatives.
-function rangeAdmitsFloorMajor(rawRange, floorMajor) {
+function rangeAdmitsBand(rawRange, band) {
   const range = String(rawRange);
   if (range.trim() === "") return true;
-  const band = {
-    lower: { version: { major: floorMajor, minor: 0, patch: 0, prerelease: null }, inclusive: true },
-    upper: { version: { major: floorMajor + 1, minor: 0, patch: 0, prerelease: null }, inclusive: false },
-  };
-
   return range
     .split("||")
     .map((branch) => branchBounds(branch))
     .some((bounds) => bandAdmitsRelease(bounds, band));
+}
+
+// True when the declared range admits at least one release on the floor's
+// major line, i.e. when a release in [floorMajor.0.0, (floorMajor + 1).0.0)
+// satisfies it. This is the DEPENDENCY rule.
+function rangeAdmitsFloorMajor(rawRange, floorMajor) {
+  return rangeAdmitsBand(rawRange, bandForMajor(floorMajor));
+}
+
+// True when the declared range admits at least one concrete release BELOW the
+// floor major, i.e. when a release in [0.0.0, floorMajor.0.0) satisfies it.
+// This is the inverse question the ROOT rule asks: a project root passes when
+// this is false, so `>=22` and `>=24` both pass on a floor of 22 while `>=20`,
+// `*`, and `^20.19.0 || >=22` all fail.
+function rangeAdmitsBelowFloorMajor(rawRange, floorMajor) {
+  return rangeAdmitsBand(rawRange, {
+    lower: { version: { major: 0, minor: 0, patch: 0, prerelease: null }, inclusive: true },
+    upper: { version: { major: floorMajor, minor: 0, patch: 0, prerelease: null }, inclusive: false },
+  });
 }
 
 // === lockfile set ==========================================================
@@ -429,6 +475,24 @@ function resolveLockfileArgument(value) {
 
 // === scan ==================================================================
 
+// Runs a range predicate, converting the matcher's unmodelled-grammar signal
+// into a gate failure that names the declaration. Ranges are never skipped: a
+// grammar the matcher cannot read fails the gate, wherever it appears.
+function judgeRange(rawRange, floorMajor, predicate, where) {
+  try {
+    return predicate(rawRange, floorMajor);
+  } catch (err) {
+    if (err instanceof UnmodelledRange) {
+      fail(
+        `${where} declares engines.node ${JSON.stringify(rawRange)}, ` +
+          `which scripts/check-npm-engines-floor.mjs does not model (${err.message}); ` +
+          "extend the matcher - ranges are never skipped",
+      );
+    }
+    throw err;
+  }
+}
+
 function scanLockfile(lockfile, floorMajor) {
   const { absolute, label } = lockfile;
   const packages = readJsonFile(absolute, "lockfile", label)?.packages;
@@ -436,32 +500,50 @@ function scanLockfile(lockfile, floorMajor) {
     fail(`${label} is missing its packages map`);
   }
 
-  const result = { checked: 0, skippedRoots: 0, violations: [] };
+  const result = { checked: 0, judgedRoots: 0, rootViolations: [], violations: [] };
+
+  // Every audited lockfile root must DECLARE engines.node, and the declaration
+  // must not admit a release below the repository floor. Absence fails closed:
+  // a project that never states the Node line it ships to is the hole this rule
+  // exists to close, and a missing declaration must never read as a pass.
+  const rootEntry = packages[""];
+  if (rootEntry === undefined || typeof rootEntry !== "object" || rootEntry === null) {
+    fail(`${label} is missing its root entry (""); an audited lockfile must declare its Node floor`);
+  }
+  const rootDeclared = rootEntry.engines?.node;
+  if (rootDeclared === undefined || rootDeclared === null) {
+    fail(
+      `${label} <root> declares no engines.node; every audited lockfile root must declare the Node ` +
+        `floor it ships to (add engines.node ">=${floorMajor}" to the package manifest and regenerate ` +
+        "the lockfile)",
+    );
+  }
+  if (typeof rootDeclared !== "string") {
+    fail(`${label} <root> engines.node is not a string`);
+  }
+  result.judgedRoots += 1;
+  if (judgeRange(rootDeclared, floorMajor, rangeAdmitsBelowFloorMajor, `${label} <root>`)) {
+    result.rootViolations.push({
+      lockfile: label,
+      version: rootEntry.version ?? "<unknown>",
+      declared: rootDeclared,
+    });
+  }
+
   for (const [packagePath, entry] of Object.entries(packages)) {
+    if (packagePath === "") continue;
     const declared = entry?.engines?.node;
     if (declared === undefined || declared === null) continue;
     if (typeof declared !== "string") {
-      fail(`${label} ${packagePath || "<root>"} engines.node is not a string`);
-    }
-    if (packagePath === "") {
-      // The lockfile's own project floor, not an upstream dependency.
-      result.skippedRoots += 1;
-      continue;
+      fail(`${label} ${packagePath} engines.node is not a string`);
     }
 
-    let admits;
-    try {
-      admits = rangeAdmitsFloorMajor(declared, floorMajor);
-    } catch (err) {
-      if (err instanceof UnmodelledRange) {
-        fail(
-          `${label} ${packagePath} declares engines.node ${JSON.stringify(declared)}, ` +
-            `which scripts/check-npm-engines-floor.mjs does not model (${err.message}); ` +
-            "extend the matcher - ranges are never skipped",
-        );
-      }
-      throw err;
-    }
+    const admits = judgeRange(
+      declared,
+      floorMajor,
+      rangeAdmitsFloorMajor,
+      `${label} ${packagePath}`,
+    );
 
     result.checked += 1;
     if (!admits) {
@@ -594,6 +676,75 @@ function runSelfTest() {
     [">=24", 22, false],
   ];
 
+  // [range, floor, admits a release below the floor]. The root rule asks the
+  // INVERSE of the dependency rule: a root passes when it does not admit a
+  // sub-floor release, so `>=24` passes on a floor of 22 while `>=20` fails.
+  const rootCases = [
+    // Declarations at or above the floor: no sub-floor release is admitted.
+    [">=22", FLOOR, false],
+    [">=24", FLOOR, false],
+    [">=22.0.0", FLOOR, false],
+    [">= 22.0.0", FLOOR, false],
+    ["22", FLOOR, false],
+    ["22.0", FLOOR, false],
+    ["=22.0.0", FLOOR, false],
+    ["22.x", FLOOR, false],
+    ["22.4.x", FLOOR, false],
+    ["^22.13.0", FLOOR, false],
+    ["~22.1.0", FLOOR, false],
+    ["23.x", FLOOR, false],
+    ["^24.0.0", FLOOR, false],
+    [">=24 <25", FLOOR, false],
+    [">=26", FLOOR, false],
+    [">=22 <23", FLOOR, false],
+    [">=22.0.0-0", FLOOR, false],
+    [">=22.13.0-0", FLOOR, false],
+    ["^22.0.0-0", FLOOR, false],
+    [">=23.0.0-0", FLOOR, false],
+    [">=22.0.0-0 <23.0.0", FLOOR, false],
+    ["22.0.0-0 - 22.9.9", FLOOR, false],
+    // `>21` desugars to `>=22.0.0` in node-semver - the whole 21.x line is
+    // excluded - so it admits no sub-floor release even though the bound it
+    // names sits below the floor.
+    [">21", FLOOR, false],
+    ["22.0.0 - 22.0.5", FLOOR, false],
+    // The FaceTheory "root false-fail" class: a prerelease anchored on the
+    // floor's own line sorts above every sub-floor release, so it must not be
+    // reported as admitting one.
+    [">=22.0.0-0 <23", FLOOR, false],
+    // A stricter root than the repository floor is legitimate.
+    [">=24", 20, false],
+    [">=22", 20, false],
+    [">=20", 20, false],
+    // Declarations that still admit a sub-floor release.
+    [">=20", FLOOR, true],
+    [">=18", FLOOR, true],
+    [">=18", 20, true],
+    ["*", FLOOR, true],
+    ["x", FLOOR, true],
+    [">=0.4", FLOOR, true],
+    ["20", FLOOR, true],
+    ["20.x", FLOOR, true],
+    ["^20.19.0", FLOOR, true],
+    ["^20.19.0 || >=22", FLOOR, true],
+    ["^20.19.0 || ^22.13.0 || >=24", FLOOR, true],
+    ["^18.18.0 || ^20.9.0 || >=21.1.0", FLOOR, true],
+    ["18 || 20", FLOOR, true],
+    ["20 || >=22", FLOOR, true],
+    ["<=22", FLOOR, true],
+    ["<22", FLOOR, true],
+    ["<=21", FLOOR, true],
+    ["<23.0.0", FLOOR, true],
+    ["<=23.0.0-0", FLOOR, true],
+    [">=21", FLOOR, true],
+    ["21 - 21.9", FLOOR, true],
+    ["21 - 22", FLOOR, true],
+    ["1 - 22", FLOOR, true],
+    ["20.1 - 22.3.4", FLOOR, true],
+    ["^14.17.0 || ^16.0.0 || >=18.0.0", FLOOR, true],
+    ["0.10.x", FLOOR, true],
+  ];
+
   let failures = 0;
   for (const [range, floor, expected] of cases) {
     let actual;
@@ -612,25 +763,51 @@ function runSelfTest() {
     }
   }
 
-  // Grammar the matcher does not model must fail closed rather than be skipped,
-  // and it must do so whichever branch or position it appears in.
-  for (const range of UNMODELLED_CASES) {
-    let thrown = null;
+  // The root rule is judged by its own predicate, so it is self-tested against
+  // its own table: an inverted expectation here would silently pass every root.
+  for (const [range, floor, expectedAdmitsBelow] of rootCases) {
+    let actual;
     try {
-      rangeAdmitsFloorMajor(range, FLOOR);
+      actual = rangeAdmitsBelowFloorMajor(range, floor);
     } catch (err) {
-      thrown = err;
+      console.error(`  self-test root: ${JSON.stringify(range)} at floor ${floor} threw ${err.message}`);
+      failures += 1;
+      continue;
     }
-    if (!(thrown instanceof UnmodelledRange)) {
+    if (actual !== expectedAdmitsBelow) {
       console.error(
-        `  self-test: ${JSON.stringify(range)} must fail closed as unmodelled, ` +
-          `but ${thrown === null ? "was accepted" : `threw ${thrown.message}`}`,
+        `  self-test root: ${JSON.stringify(range)} at floor ${floor} ` +
+          `expected admits-below-floor ${expectedAdmitsBelow}, got ${actual}`,
       );
       failures += 1;
     }
   }
 
-  const total = cases.length + UNMODELLED_CASES.length;
+  // Grammar the matcher does not model must fail closed rather than be skipped,
+  // and it must do so whichever branch or position it appears in - for the
+  // dependency predicate and the root predicate alike.
+  for (const range of UNMODELLED_CASES) {
+    for (const [label, predicate] of [
+      ["dependency", rangeAdmitsFloorMajor],
+      ["root", rangeAdmitsBelowFloorMajor],
+    ]) {
+      let thrown = null;
+      try {
+        predicate(range, FLOOR);
+      } catch (err) {
+        thrown = err;
+      }
+      if (!(thrown instanceof UnmodelledRange)) {
+        console.error(
+          `  self-test ${label}: ${JSON.stringify(range)} must fail closed as unmodelled, ` +
+            `but ${thrown === null ? "was accepted" : `threw ${thrown.message}`}`,
+        );
+        failures += 1;
+      }
+    }
+  }
+
+  const total = cases.length + rootCases.length + 2 * UNMODELLED_CASES.length;
   if (failures > 0) fail(`self-test failed (${failures} of ${total} cases)`);
   return total;
 }
@@ -647,33 +824,51 @@ function main() {
     lockfileArgs.length > 0 ? lockfileArgs.map(resolveLockfileArgument) : defaultLockfiles();
 
   let checked = 0;
-  let skippedRoots = 0;
+  let judgedRoots = 0;
+  const rootViolations = [];
   const violations = [];
   for (const lockfile of lockfiles) {
     const result = scanLockfile(lockfile, floorMajor);
     checked += result.checked;
-    skippedRoots += result.skippedRoots;
+    judgedRoots += result.judgedRoots;
+    rootViolations.push(...result.rootViolations);
     violations.push(...result.violations);
   }
 
-  if (violations.length > 0) {
-    for (const violation of violations) {
-      console.error(
-        `npm-engines-floor: unexpected engines.node ${JSON.stringify(violation.declared)} in ` +
-          `${violation.packagePath}@${violation.version} from ${violation.lockfile} ` +
-          `(excludes Node ${floorMajor}.x, the ${FLOOR_MANIFEST} floor ${JSON.stringify(floorSpec)})`,
+  for (const violation of rootViolations) {
+    console.error(
+      `npm-engines-floor: lockfile root declares engines.node ${JSON.stringify(violation.declared)} ` +
+        `in ${violation.lockfile} <root>@${violation.version}, which admits a release below the ` +
+        `Node ${floorMajor} floor (${FLOOR_MANIFEST} declares ${JSON.stringify(floorSpec)})`,
+    );
+  }
+  for (const violation of violations) {
+    console.error(
+      `npm-engines-floor: unexpected engines.node ${JSON.stringify(violation.declared)} in ` +
+        `${violation.packagePath}@${violation.version} from ${violation.lockfile} ` +
+        `(excludes Node ${floorMajor}.x, the ${FLOOR_MANIFEST} floor ${JSON.stringify(floorSpec)})`,
+    );
+  }
+  if (rootViolations.length > 0 || violations.length > 0) {
+    const causes = [];
+    if (rootViolations.length > 0) {
+      causes.push(
+        `${rootViolations.length} of ${judgedRoots} lockfile root(s) admit a release below the Node ${floorMajor} floor`,
       );
     }
-    fail(
-      `${violations.length} of ${checked} npm dependency engine ranges exclude the Node ${floorMajor} floor`,
-    );
+    if (violations.length > 0) {
+      causes.push(
+        `${violations.length} of ${checked} npm dependency engine ranges exclude the Node ${floorMajor} floor`,
+      );
+    }
+    fail(causes.join("; "));
   }
 
   const selfTestSummary = selfTest ? `self-test ${selfTestCases} cases; ` : "";
   console.log(
     `npm-engines-floor: PASS (${selfTestSummary}floor ${JSON.stringify(floorSpec)}; ` +
-      `lockfiles ${lockfiles.length}; dependency engine ranges ${checked}; ` +
-      `own-project engine declarations not judged ${skippedRoots}; excluded 0)`,
+      `lockfiles ${lockfiles.length}; project roots judged ${judgedRoots}; ` +
+      `dependency engine ranges ${checked}; excluded 0)`,
   );
 }
 

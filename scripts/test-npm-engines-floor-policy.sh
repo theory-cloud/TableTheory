@@ -16,6 +16,10 @@ tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
 
 # write_fixture <path> <dependency engines.node spec, or "" for none> [root engines.node spec]
+#
+# The root spec defaults to ">=22", the repository floor. The sentinel "<omit>"
+# writes a root entry with no engines key at all, which is the absent-root case
+# the gate must fail closed on.
 write_fixture() {
   local target="$1"
   local declared="$2"
@@ -26,17 +30,18 @@ const fs = require('node:fs');
 const [target, declared, rootDeclared] = process.argv.slice(2);
 const dependency = { version: '1.0.0' };
 if (declared !== '') dependency.engines = { node: declared };
+const root = {
+  name: 'synthetic-engines-floor-fixture',
+  version: '0.0.0',
+};
+if (rootDeclared !== '<omit>') root.engines = { node: rootDeclared };
 const lockfile = {
   name: 'synthetic-engines-floor-fixture',
   version: '0.0.0',
   lockfileVersion: 3,
   requires: true,
   packages: {
-    '': {
-      name: 'synthetic-engines-floor-fixture',
-      version: '0.0.0',
-      engines: { node: rootDeclared },
-    },
+    '': root,
     'node_modules/synthetic-dep': dependency,
   },
 };
@@ -143,14 +148,82 @@ expect_success_contains \
   "dependency engine ranges 1" \
   node "${checker}" "${tmpdir}/prerelease-disjunction-admits.json"
 
-# A project root declaring a prerelease-anchored floor is a project floor, not
-# an upstream dependency: it is counted and left unjudged, so it must not be
-# reported as a violation. Judging roots would also fail the real tree, whose
-# examples/cdk-multilang declares a floor above the repository floor.
+# --- lockfile roots --------------------------------------------------------
+# One rule, converged across the framework repos: every audited lockfile root
+# must DECLARE engines.node, and the declaration must not admit a release below
+# the repository floor. Absence fails closed, and a declaration above the floor
+# is legitimate rather than drift.
+write_fixture "${tmpdir}/root-at-floor.json" ">=22" ">=22"
+expect_success_contains \
+  "project roots judged 1" \
+  node "${checker}" "${tmpdir}/root-at-floor.json"
+
+# Declaring a HIGHER floor than the repository floor passes: the rule is about
+# the lower edge, not about matching the repository floor exactly. This is the
+# case examples/cdk-multilang exercises in the real tree with its ">=24".
+write_fixture "${tmpdir}/root-above-floor.json" ">=22" ">=24"
+expect_success_contains \
+  "project roots judged 1" \
+  node "${checker}" "${tmpdir}/root-above-floor.json"
+expect_success_contains \
+  "excluded 0" \
+  node "${checker}" "${tmpdir}/root-above-floor.json"
+
+# A prerelease anchored on the floor's own line admits no release below the
+# floor, so it is not the drift class (the FaceTheory "root false-fail").
 write_fixture "${tmpdir}/root-prerelease-floor.json" ">=22" ">=22.0.0-0"
 expect_success_contains \
-  "own-project engine declarations not judged 1" \
+  "project roots judged 1" \
   node "${checker}" "${tmpdir}/root-prerelease-floor.json"
+
+# A root that still reaches below the floor fails, and is named with the
+# lockfile and the declaration it made.
+write_fixture "${tmpdir}/root-below-floor.json" ">=22" ">=20"
+expect_failure_contains \
+  "root-below-floor.json <root>" \
+  node "${checker}" "${tmpdir}/root-below-floor.json"
+expect_failure_contains \
+  "admits a release below the Node 22 floor" \
+  node "${checker}" "${tmpdir}/root-below-floor.json"
+
+# A disjunction whose floor-admitting branch still leaves an older release
+# reachable fails: roots are judged branch by branch, like dependencies.
+write_fixture "${tmpdir}/root-disjunction-below.json" ">=22" "^20.19.0 || >=22"
+expect_failure_contains \
+  "admits a release below the Node 22 floor" \
+  node "${checker}" "${tmpdir}/root-disjunction-below.json"
+
+# A wildcard root admits every release, the sub-floor ones included.
+write_fixture "${tmpdir}/root-wildcard.json" ">=22" "*"
+expect_failure_contains \
+  "admits a release below the Node 22 floor" \
+  node "${checker}" "${tmpdir}/root-wildcard.json"
+
+# A root with no engines declaration at all fails closed. This is the hole the
+# rule exists to close, and it must never read as a pass.
+write_fixture "${tmpdir}/root-absent.json" ">=22" "<omit>"
+expect_failure_contains \
+  "declares no engines.node" \
+  node "${checker}" "${tmpdir}/root-absent.json"
+
+# A root whose declaration is not a string is refused rather than coerced.
+write_fixture "${tmpdir}/root-non-string.json" ">=22" ">=22"
+node -e '
+const fs = require("node:fs");
+const target = process.argv[1];
+const lockfile = JSON.parse(fs.readFileSync(target, "utf8"));
+lockfile.packages[""].engines.node = 22;
+fs.writeFileSync(target, `${JSON.stringify(lockfile, null, 2)}\n`);
+' "${tmpdir}/root-non-string.json"
+expect_failure_contains \
+  "engines.node is not a string" \
+  node "${checker}" "${tmpdir}/root-non-string.json"
+
+# Unmodelled root grammar fails closed rather than being skipped.
+write_fixture "${tmpdir}/root-unmodelled.json" ">=22" "~>22"
+expect_failure_contains \
+  "does not model" \
+  node "${checker}" "${tmpdir}/root-unmodelled.json"
 
 # --- unmodelled grammar ----------------------------------------------------
 # Ranges the matcher does not model fail closed rather than being skipped. That
@@ -196,9 +269,14 @@ expect_success_contains \
   "dependency engine ranges 0" \
   node "${checker}" "${tmpdir}/no-engines.json"
 
-# The real tree must pass through the shipped wrapper.
+# --- the real tree, through the shipped wrapper -----------------------------
+# A scanner-level probe, not a predicate probe: the numbers below are the
+# shipped gate's own summary line over the real lockfile set.
 expect_success_contains \
   "lockfiles 3" \
+  bash "${wrapper}"
+expect_success_contains \
+  "project roots judged 3" \
   bash "${wrapper}"
 expect_success_contains \
   "excluded 0" \
