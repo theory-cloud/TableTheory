@@ -70,6 +70,18 @@
 // go) are visible to the classifier but carry no data here, so a declaration
 // in one of them fails closed rather than being skipped.
 //
+// The family list is closed, and that is a limit rather than a blanket
+// fail-closed guarantee. A quoted literal whose family is not in the list is not
+// runtime-shaped at all, so `lambda.Runtime.fromString('rust1.0')` declares
+// nothing; and the shape rule requires a version component, so
+// `lambda.Runtime.fromString('provided')` declares nothing either even though
+// `provided` IS in the deprecated set. As with the receiver limits below, either
+// one fails closed when it is its surface's only declaration and is invisible
+// when the surface declares something else. Scoping the quoted-literal rule to
+// `fromString(...)` arguments would close both; that change belongs to the
+// cross-repo follow-up wave carrying the same defect in FaceTheory's checker,
+// and is deliberately not made here.
+//
 // ===========================================================================
 // Scope
 // ===========================================================================
@@ -90,9 +102,31 @@
 // "Declares a runtime" means the same thing to the coverage walk and to the
 // per-surface scan, and it covers the receiver forms a real surface uses:
 // `lambda.Runtime.X`, a named import's `Runtime.X`, and either of those aliased
-// to a local name. A surface that binds the namespace and then hides the member
-// behind an index, a lookup table, or a helper declares nothing the model can
-// read, which fails closed rather than passing unjudged.
+// to a local name.
+//
+// A form the receiver model cannot read declares nothing, and what that costs
+// depends on whether it was the surface's LAST modelled declaration. Hiding the
+// only one - behind an index, a lookup table, or a helper - leaves the surface
+// with no modelled runtime, which fails closed. Hiding one of several does not:
+// the remaining declarations still satisfy the coverage walk, so this checker
+// passes, and the obfuscated runtime is caught instead by the policy test's
+// `declarations 4` count pin over the real surfaces. The multi-declaration case
+// is therefore a caught regression rather than a silent one, but it is caught by
+// that pin, not by the coverage walk.
+//
+// Three receiver forms are measured as declaring nothing, and are known limits
+// of this classifier rather than waivers:
+//
+//   Runtime['PYTHON_3_8']         bracket access: not a `.` member access
+//   const S = R                   a second hop: an alias of an alias binds to R
+//                                 rather than to `lambda.Runtime`, so S never
+//                                 becomes a receiver
+//   const { Runtime: RT } = ...   a renamed destructure: only the
+//                                 `import { Runtime as R }` form registers an
+//                                 alias
+//
+// Plain `const { Runtime } = lambda` IS caught, because the bare `Runtime`
+// receiver is fixed rather than alias-derived.
 //
 // A member access that is followed by a property read is the same declaration,
 // not a second one: `lambda.Runtime.PROVIDED_AL2023.bundlingImage` reads the
@@ -245,9 +279,12 @@ const UNPINNED_RUNTIME_ALIAS_ENUMS = new Set(["NODEJS_LATEST"]);
 // AWS's runtime families. The classifier is not an alternation of these names:
 // the list is what makes a runtime-shaped quoted literal a declaration at all,
 // so a declaration in a family with no data below still reaches the classifier
-// and fails closed instead of being invisible. It also has to be a closed list,
-// because loosening it further would turn unrelated identifiers such as the
-// `target: 'node24'` bundling option into declarations.
+// and fails closed instead of being invisible - `fromString('ruby3.2')` is a
+// violation, not a skip. Keeping the list closed is deliberate, because loosening
+// it further would turn unrelated identifiers such as the `target: 'node24'`
+// bundling option into declarations; the measured cost is that a family outside
+// the list declares nothing, so `fromString('rust1.0')` is invisible rather than
+// fail-closed. The header states both that limit and the version-component one.
 const LAMBDA_RUNTIME_FAMILIES = [
   "nodejs",
   "python",
