@@ -6,7 +6,7 @@
 
 ## Prerequisites
 
-- Node.js **20+** (Node 20 LTS and Node 24 are both exercised in CI)
+- Node.js **22+** (Node 22 LTS and Node 24 are both exercised in CI)
 - AWS credentials (for AWS) or DynamoDB Local
 - Basic DynamoDB concepts (PK/SK, GSIs, condition expressions)
 
