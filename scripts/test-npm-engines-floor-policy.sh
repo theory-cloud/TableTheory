@@ -15,14 +15,15 @@ wrapper="scripts/verify-npm-engines-floor.sh"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
 
-# write_fixture <path> <dependency engines.node spec, or "" for none>
+# write_fixture <path> <dependency engines.node spec, or "" for none> [root engines.node spec]
 write_fixture() {
   local target="$1"
   local declared="$2"
+  local root_declared="${3:->=22}"
 
-  node - "${target}" "${declared}" <<'NODE'
+  node - "${target}" "${declared}" "${root_declared}" <<'NODE'
 const fs = require('node:fs');
-const [target, declared] = process.argv.slice(2);
+const [target, declared, rootDeclared] = process.argv.slice(2);
 const dependency = { version: '1.0.0' };
 if (declared !== '') dependency.engines = { node: declared };
 const lockfile = {
@@ -34,7 +35,7 @@ const lockfile = {
     '': {
       name: 'synthetic-engines-floor-fixture',
       version: '0.0.0',
-      engines: { node: '>=22' },
+      engines: { node: rootDeclared },
     },
     'node_modules/synthetic-dep': dependency,
   },
@@ -92,7 +93,82 @@ expect_failure_contains \
   "exclude the Node 22 floor" \
   node "${checker}" "${tmpdir}/excludes-via-disjunction.json"
 
-# Ranges that admit the floor pass.
+# --- prerelease-anchored ranges -------------------------------------------
+# Prereleases of the line above the floor sort above every floor release, so a
+# range anchored only on one admits no floor release even though the anchor
+# itself is numerically above the floor's lower edge.
+write_fixture "${tmpdir}/prerelease-next-line.json" ">=23.0.0-0"
+expect_failure_contains \
+  "exclude the Node 22 floor" \
+  node "${checker}" "${tmpdir}/prerelease-next-line.json"
+
+# A range that matches a single prerelease on the floor's own line matches no
+# release at all.
+write_fixture "${tmpdir}/prerelease-only-pin.json" "=22.13.0-rc.1"
+expect_failure_contains \
+  "exclude the Node 22 floor" \
+  node "${checker}" "${tmpdir}/prerelease-only-pin.json"
+
+# Adjacent exclusive bounds admit no release between them.
+write_fixture "${tmpdir}/adjacent-exclusive-bounds.json" ">22.0.0 <22.0.1"
+expect_failure_contains \
+  "exclude the Node 22 floor" \
+  node "${checker}" "${tmpdir}/adjacent-exclusive-bounds.json"
+
+# A prerelease-anchored hyphen range above the floor line admits no floor
+# release either.
+write_fixture "${tmpdir}/prerelease-hyphen-excludes.json" "23.0.0-0 - 24.0.0"
+expect_failure_contains \
+  "exclude the Node 22 floor" \
+  node "${checker}" "${tmpdir}/prerelease-hyphen-excludes.json"
+
+# A hyphen range anchored on a prerelease of the floor line still admits floor
+# releases, so it must pass.
+write_fixture "${tmpdir}/prerelease-hyphen-admits.json" "22.0.0-0 - 22.9.9"
+expect_success_contains \
+  "dependency engine ranges 1" \
+  node "${checker}" "${tmpdir}/prerelease-hyphen-admits.json"
+
+# A disjunction mixing release branches with a prerelease-anchored branch is
+# judged branch by branch, so the prerelease branch cannot smuggle the floor in
+# when no release branch reaches it.
+write_fixture "${tmpdir}/prerelease-disjunction.json" "^18.18.0 || ^20.9.0 || >=23.0.0-0"
+expect_failure_contains \
+  "exclude the Node 22 floor" \
+  node "${checker}" "${tmpdir}/prerelease-disjunction.json"
+
+# The same shape with a floor-admitting release branch passes.
+write_fixture "${tmpdir}/prerelease-disjunction-admits.json" "^18.18.0 || ^20.9.0 || ^22.13.0"
+expect_success_contains \
+  "dependency engine ranges 1" \
+  node "${checker}" "${tmpdir}/prerelease-disjunction-admits.json"
+
+# A project root declaring a prerelease-anchored floor is a project floor, not
+# an upstream dependency: it is counted and left unjudged, so it must not be
+# reported as a violation. Judging roots would also fail the real tree, whose
+# examples/cdk-multilang declares a floor above the repository floor.
+write_fixture "${tmpdir}/root-prerelease-floor.json" ">=22" ">=22.0.0-0"
+expect_success_contains \
+  "own-project engine declarations not judged 1" \
+  node "${checker}" "${tmpdir}/root-prerelease-floor.json"
+
+# --- unmodelled grammar ----------------------------------------------------
+# Ranges the matcher does not model fail closed rather than being skipped. That
+# includes the legacy tilde alias `~>`, which npm's semver reads as `~` but the
+# matcher deliberately refuses to guess at.
+write_fixture "${tmpdir}/legacy-tilde-alias.json" "~>22"
+expect_failure_contains \
+  "does not model" \
+  node "${checker}" "${tmpdir}/legacy-tilde-alias.json"
+
+# A wildcard component followed by a concrete one is semver-invalid, so it must
+# be refused rather than silently coerced to `22.x`.
+write_fixture "${tmpdir}/invalid-wildcard-tail.json" "22.x.1"
+expect_failure_contains \
+  "does not model" \
+  node "${checker}" "${tmpdir}/invalid-wildcard-tail.json"
+
+# A range that admits the floor passes.
 write_fixture "${tmpdir}/admits-floor.json" ">=22"
 expect_success_contains \
   "dependency engine ranges 1" \

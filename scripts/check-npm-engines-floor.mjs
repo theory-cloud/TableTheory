@@ -18,15 +18,30 @@
 //   floor >=22 | engines 18 || 20 || >=22      -> pass
 //   floor >=22 | engines >=24                  -> FAIL
 //   floor >=22 | engines ^20.19.0 || >=24      -> FAIL
+//   floor >=22 | engines >=23.0.0-0            -> FAIL (23.0.0-0 sorts above
+//                                                 every 22.x release, so no
+//                                                 floor release satisfies it)
+//   floor >=22 | engines =22.13.0-rc.1         -> FAIL (matches a single
+//                                                 prerelease, and a prerelease
+//                                                 is not a release)
+//   floor >=22 | engines >22.0.0 <22.0.1       -> FAIL (no release lies strictly
+//                                                 between adjacent bounds)
 //   floor >=20 | engines >=22                  -> FAIL (the drift class this
 //                                                 gate exists to catch: a
 //                                                 locked dependency that cannot
 //                                                 run on the floor it ships to)
 //
+// A range admits the floor only when some concrete release (a version with no
+// prerelease component) satisfies it, and prereleases of the line's upper edge
+// sort above every release on the line: `>=23.0.0-0` admits no 22.x release
+// even though 23.0.0-0 itself lies above 22.0.0. Bounds are therefore
+// normalized to the release edge they delimit before the bands are compared,
+// which keeps the predicate exact in release space.
+//
 // The matcher below is deliberately self-contained: a dependency gate must not
 // depend on a transitive npm package, and it must model every range it can
 // meet rather than skip the ones it cannot. Any range grammar it does not
-// model fails the gate outright.
+// model fails the gate outright - the legacy tilde alias `~>` included.
 //
 // ===========================================================================
 // Scope
@@ -120,10 +135,16 @@ function parsePartial(raw) {
     if (value === undefined || /^[xX*]$/.test(value)) return null;
     return Number(value);
   };
+  const wildcardComponent = (value) => value !== undefined && /^[xX*]$/.test(value);
   const major = component(match[1]);
   const minor = component(match[2]);
   const patch = component(match[3]);
   const prerelease = match[4] ?? null;
+  // A concrete component must not follow a wildcard component. The regex
+  // above accepts `22.x.1` syntactically, but npm's semver rejects it, so
+  // accepting it would mean silently coercing an unmodelled range to `22.x`
+  // and reporting a floor result the declaration does not actually make.
+  if (wildcardComponent(match[2]) && match[3] !== undefined && !wildcardComponent(match[3])) return null;
   if (major === null) {
     // `*`, `x`, `X` and `v*` leave the major unconstrained.
     if (minor !== null || patch !== null || prerelease !== null) return null;
@@ -315,8 +336,50 @@ function branchBounds(rawBranch) {
   return bounds;
 }
 
+// === release-space intersection ============================================
+// A band is a pair of version bounds; `null` means unbounded on that side. The
+// bounds are compared over concrete releases, so a prerelease bound collapses
+// to the release edge it delimits:
+//   lower `23.0.0-x` inclusive -> `23.0.0` inclusive (23.0.0 is the first release >= it)
+//   lower `23.0.0-x` exclusive -> `23.0.0` inclusive (23.0.0 is the first release > it)
+//   upper `23.0.0-x` inclusive -> `23.0.0` exclusive (no release <= it reaches 23.0.0)
+//   upper `23.0.0-x` exclusive -> `23.0.0` exclusive (no release lies between them)
+
+function toReleaseLower(bound) {
+  if (bound === null || bound.version.prerelease === null) return bound;
+  return { version: { ...bound.version, prerelease: null }, inclusive: true };
+}
+
+function toReleaseUpper(bound) {
+  if (bound === null || bound.version.prerelease === null) return bound;
+  return { version: { ...bound.version, prerelease: null }, inclusive: false };
+}
+
+const ZERO_RELEASE = { major: 0, minor: 0, patch: 0, prerelease: null };
+
+// Smallest concrete release admitted by an already-normalized lower bound.
+function firstRelease(lower) {
+  if (lower.inclusive) return lower.version;
+  return bump(lower.version, "patch");
+}
+
+// True when some concrete release satisfies both the range bounds and the band.
+function bandAdmitsRelease(bounds, band) {
+  const lower = maxLower(toReleaseLower(bounds.lower), toReleaseLower(band.lower));
+  const upper = minUpper(toReleaseUpper(bounds.upper), toReleaseUpper(band.upper));
+  if (upper === null) return true;
+  if (lower === null) {
+    // The band's upper edge is itself a release, so it witnesses the band
+    // unless it is exclusive at the 0.0.0 floor.
+    return upper.inclusive || compareVersions(upper.version, ZERO_RELEASE) > 0;
+  }
+  const order = compareVersions(firstRelease(lower), upper.version);
+  return upper.inclusive ? order <= 0 : order < 0;
+}
+
 // True when the declared range admits at least one release on the floor's
-// major line, i.e. when it intersects [floorMajor.0.0, (floorMajor + 1).0.0).
+// major line, i.e. when a release in [floorMajor.0.0, (floorMajor + 1).0.0)
+// satisfies it.
 //
 // Every branch is parsed before any of them is evaluated, so an unmodelled
 // branch fails the gate even when an earlier branch already admits the floor;
@@ -324,18 +387,15 @@ function branchBounds(rawBranch) {
 function rangeAdmitsFloorMajor(rawRange, floorMajor) {
   const range = String(rawRange);
   if (range.trim() === "") return true;
-  const floorLower = { version: { major: floorMajor, minor: 0, patch: 0, prerelease: null }, inclusive: true };
-  const floorUpper = { version: { major: floorMajor + 1, minor: 0, patch: 0, prerelease: null }, inclusive: false };
+  const band = {
+    lower: { version: { major: floorMajor, minor: 0, patch: 0, prerelease: null }, inclusive: true },
+    upper: { version: { major: floorMajor + 1, minor: 0, patch: 0, prerelease: null }, inclusive: false },
+  };
 
-  const branches = range.split("||").map((branch) => branchBounds(branch));
-  for (const bounds of branches) {
-    const lower = maxLower(bounds.lower, floorLower);
-    const upper = minUpper(bounds.upper, floorUpper);
-    const order = compareVersions(lower.version, upper.version);
-    if (order < 0) return true;
-    if (order === 0 && lower.inclusive && upper.inclusive) return true;
-  }
-  return false;
+  return range
+    .split("||")
+    .map((branch) => branchBounds(branch))
+    .some((bounds) => bandAdmitsRelease(bounds, band));
 }
 
 // === lockfile set ==========================================================
@@ -416,6 +476,23 @@ function scanLockfile(lockfile, floorMajor) {
   return result;
 }
 
+// Range grammar the matcher deliberately does not model. Each of these must
+// throw UnmodelledRange, so an unmodelled range is never silently read as a
+// pass. `~>` is the legacy tilde alias; npm's semver accepts it as `~`, but the
+// matcher does not model it and fails closed rather than guess. The trailing
+// `x.N` forms are semver-invalid, and the matcher must reject them instead of
+// coercing them to `22.x`.
+const UNMODELLED_CASES = [
+  "~>22",
+  "~> 22.0.0",
+  "~>22.0.0",
+  "lts/*",
+  ">=22.0.0 || lts/*",
+  "22.x.1",
+  "22.*.1",
+  "22.x.0",
+];
+
 function runSelfTest() {
   const FLOOR = 22;
   const cases = [
@@ -461,6 +538,13 @@ function runSelfTest() {
     [">=22.13.0-0", FLOOR, true],
     ["<24.0.0", FLOOR, true],
     ["^20.19.0 || ^22.13.0 || >=24.0.0", FLOOR, true],
+    // Prerelease bounds on the floor line itself still admit floor releases.
+    [">=22.0.0-0", FLOOR, true],
+    ["^22.0.0-0", FLOOR, true],
+    ["<=23.0.0-0", FLOOR, true],
+    [">=22.0.0-0 <23.0.0", FLOOR, true],
+    ["<23.0.0-0", FLOOR, true],
+    ["22.0.0-0 - 22.9.9", FLOOR, true],
     // Ranges that exclude the floor major.
     [">=24", FLOOR, false],
     [">24", FLOOR, false],
@@ -481,6 +565,27 @@ function runSelfTest() {
     ["23.x", FLOOR, false],
     ["21 - 21.9", FLOOR, false],
     ["18.0.0 - 20.19.5", FLOOR, false],
+    // Prereleases of the next line's release sort above every floor release, so
+    // they admit no floor release at all and must fail.
+    [">=23.0.0-0", FLOOR, false],
+    ["23.0.0-0", FLOOR, false],
+    ["v23.0.0-0", FLOOR, false],
+    ["=23.0.0-rc.0", FLOOR, false],
+    ["^23.0.0-alpha", FLOOR, false],
+    ["~23.0.0-beta", FLOOR, false],
+    [">23.0.0-0", FLOOR, false],
+    [">23.0.0-beta.1", FLOOR, false],
+    [">=23.0.0-0 <23.0.0", FLOOR, false],
+    // A prerelease anchored range that matches only prereleases is not a
+    // release range, even when the prerelease sits on the floor's own line.
+    ["=22.13.0-rc.1", FLOOR, false],
+    ["23.0.0-0 - 24.0.0", FLOOR, false],
+    // Disjunctions mixing a release branch with a prerelease-anchored branch
+    // are judged branch by branch, so no branch may smuggle the floor in.
+    ["^20.19.0 || >=23.0.0-0", FLOOR, false],
+    ["^18.18.0 || ^20.9.0 || >=23.0.0-0", FLOOR, false],
+    // Exclusive bounds on adjacent releases admit no release either.
+    [">22.0.0 <22.0.1", FLOOR, false],
     // The stream-chain class against the previous floor: this is the drift the
     // gate exists to catch.
     [">=22", 20, false],
@@ -506,8 +611,28 @@ function runSelfTest() {
       failures += 1;
     }
   }
-  if (failures > 0) fail(`self-test failed (${failures} of ${cases.length} cases)`);
-  return cases.length;
+
+  // Grammar the matcher does not model must fail closed rather than be skipped,
+  // and it must do so whichever branch or position it appears in.
+  for (const range of UNMODELLED_CASES) {
+    let thrown = null;
+    try {
+      rangeAdmitsFloorMajor(range, FLOOR);
+    } catch (err) {
+      thrown = err;
+    }
+    if (!(thrown instanceof UnmodelledRange)) {
+      console.error(
+        `  self-test: ${JSON.stringify(range)} must fail closed as unmodelled, ` +
+          `but ${thrown === null ? "was accepted" : `threw ${thrown.message}`}`,
+      );
+      failures += 1;
+    }
+  }
+
+  const total = cases.length + UNMODELLED_CASES.length;
+  if (failures > 0) fail(`self-test failed (${failures} of ${total} cases)`);
+  return total;
 }
 
 function main() {
