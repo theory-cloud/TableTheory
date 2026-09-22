@@ -39,7 +39,7 @@ make unit-cover
 
 ### TypeScript runtime
 
-The TypeScript SDK lives in `ts/`. Development requires Node.js 20 or newer; CI validates the current supported matrix, and Node.js 24 is the preferred local development version.
+The TypeScript SDK lives in `ts/`. Development requires Node.js 22 or newer; CI validates the current supported matrix (Node.js 22 and 24), and Node.js 24 is the preferred local development version.
 
 ```bash
 cd ts
