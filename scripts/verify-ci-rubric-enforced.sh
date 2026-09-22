@@ -257,6 +257,17 @@ else
   done
 fi
 
+# The standalone TypeScript leg is the only place both supported Node lines run
+# on a push to staging, and nothing else pins that matrix.
+ts_wf=".github/workflows/typescript.yml"
+if [[ ! -f "${ts_wf}" ]]; then
+  echo "ci-rubric: FAIL (missing ${ts_wf})"
+  failures=$((failures + 1))
+elif ! grep -Eq 'node-version:[[:space:]]*\[[[:space:]]*"22"[[:space:]]*,[[:space:]]*"24"[[:space:]]*\][[:space:]]*(#.*)?$' "${ts_wf}"; then
+  echo "ci-rubric: ${ts_wf}: Node matrix must be exactly [\"22\", \"24\"]"
+  failures=$((failures + 1))
+fi
+
 if [[ "${failures}" -ne 0 ]]; then
   echo "ci-rubric: FAIL (${failures} issue(s))"
   exit 1
