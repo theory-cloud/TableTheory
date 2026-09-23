@@ -63,6 +63,39 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [3.1.0](https://github.com/theory-cloud/TableTheory/compare/v3.1.0-rc...v3.1.0) (2026-09-23)
+
+Stable promotion of `v3.1.0-rc`.
+
+
+## [3.1.0-rc](https://github.com/theory-cloud/TableTheory/compare/v3.0.7...v3.1.0-rc) (2026-09-23)
+
+
+### Features
+
+* **ci:** read bracket, second-hop, and destructured runtime receivers ([0bd7915](https://github.com/theory-cloud/TableTheory/commit/0bd791593899813c01a2cd2385a758fa9f1b1194))
+
+
+### Bug Fixes
+
+* **ci:** close the prerelease false pass in the npm engines-floor gate ([daad28c](https://github.com/theory-cloud/TableTheory/commit/daad28c122c60d639f19d78188e207e70e1768f0))
+* **ci:** cross-check the audited lockfile set against the npm audit scanner ([4e53e64](https://github.com/theory-cloud/TableTheory/commit/4e53e64e5eaeeda53794e2d702d60864aef7e800))
+* **ci:** gate deprecated Lambda runtimes and judge npm lockfile roots ([221dfa1](https://github.com/theory-cloud/TableTheory/commit/221dfa1e8077698ab9e5ab5c93231c3f8d0c11e5))
+* **ci:** gate deprecated Lambda runtimes on the CDK surfaces we ship ([593497c](https://github.com/theory-cloud/TableTheory/commit/593497ca45d5f24f31944a1c2c8a0bafadf77a90))
+* **ci:** gate npm lockfiles on the Node engines floor ([c260117](https://github.com/theory-cloud/TableTheory/commit/c26011728cdda9f55fb1f8368523743591d6759d))
+* **ci:** give the Lambda runtime coverage walk one error boundary ([a94da48](https://github.com/theory-cloud/TableTheory/commit/a94da4815f5668d27b8836e368cf12df513fc8fd))
+* **ci:** harden the Lambda runtime deprecation gate (parity port of FaceTheory [#481](https://github.com/theory-cloud/TableTheory/issues/481)) ([1927e35](https://github.com/theory-cloud/TableTheory/commit/1927e3574872fc43b525f53ce72ab2192dc75def))
+* **ci:** harden the npm engines-floor matcher and fold in the Dependabot queue ([9690c60](https://github.com/theory-cloud/TableTheory/commit/9690c60c201dcfe37fce12432266eccb55baa757))
+* **ci:** judge npm lockfile roots against the Node floor ([63f72e2](https://github.com/theory-cloud/TableTheory/commit/63f72e2407ee49bae28afc2068bc8d5e1cec0c54))
+* **ci:** pin the TypeScript Node matrix ([726bf41](https://github.com/theory-cloud/TableTheory/commit/726bf413a38e6aca1817bff2c1ceb408c4ef8281))
+* **ci:** recognize Node 22 release verifier policy ([48d1a47](https://github.com/theory-cloud/TableTheory/commit/48d1a476d96ad77d12f2b3a4a1d8432691a8ff21))
+* **ci:** recognize Node 22 release verifier policy ([3461384](https://github.com/theory-cloud/TableTheory/commit/3461384aba65bda73b3f83bd8f6a20440ec272c3))
+* **ci:** scope the runtime-literal rule to fromString receivers ([2e4beb6](https://github.com/theory-cloud/TableTheory/commit/2e4beb680f63bf009346a1625e9eada4f53f1271))
+* **ci:** wire the Lambda runtime gate into SEC-2 and pin its scope ([8d54cf9](https://github.com/theory-cloud/TableTheory/commit/8d54cf92864bfcea51a2f2e0cfadbd095fb284e9))
+* **security:** raise the Node floor to 22 ([1f269ac](https://github.com/theory-cloud/TableTheory/commit/1f269ac5f5cbec91a77a04f30084c866d3f8d9f3))
+* **security:** raise the Node floor to 22 and gate engines drift ([6ff3891](https://github.com/theory-cloud/TableTheory/commit/6ff38913abb3fa7cf13f6396afa86c0ac9a4672f))
+* **security:** remove the stale cdk-multilang brace-expansion exception ([8bda8b6](https://github.com/theory-cloud/TableTheory/commit/8bda8b61e7f564fefe8db6e6d77e24a6e247f673))
+
 ## [3.0.7](https://github.com/theory-cloud/TableTheory/compare/v3.0.7-rc...v3.0.7) (2026-09-20)
 
 Stable promotion of `v3.0.7-rc`.
