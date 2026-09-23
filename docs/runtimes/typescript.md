@@ -5,7 +5,7 @@ description: TableTheory for TypeScript — installation, defineModel + Theorydb
 
 # TypeScript runtime
 
-The TypeScript runtime lives under [`ts/`](https://github.com/theory-cloud/tabletheory/tree/main/ts) and is distributed as `@theory-cloud/tabletheory-ts`. It targets **Node.js 20+** (Node 20 LTS and Node 24 are exercised in CI) and the AWS SDK for JavaScript v3.
+The TypeScript runtime lives under [`ts/`](https://github.com/theory-cloud/tabletheory/tree/main/ts) and is distributed as `@theory-cloud/tabletheory-ts`. It targets **Node.js 22+** (Node 22 LTS and Node 24 are exercised in CI) and the AWS SDK for JavaScript v3.
 
 The TypeScript runtime is a **peer**, not a port: it implements the same P0 contract scenarios as Go and Python, and a behavior that passes the Go contract test but fails in TypeScript is a parity regression — never a "TypeScript-specific quirk."
 

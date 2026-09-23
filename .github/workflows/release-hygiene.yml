@@ -172,7 +172,7 @@ jobs:
             # older trusted verifier shapes that either required the retired premain
             # manifest/helper/Python path, still assumed numbered-only RC syntax,
             # had not moved the release-please-action policy from v4 to v5, or still
-            # enforced the retired merge-queue lane.
+            # enforced the retired merge-queue lane or Node 20 compatibility floor.
             add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
               "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
@@ -206,6 +206,10 @@ jobs:
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
               "must not use the prohibited merge-queue event" \
               "direct protected-PR verifier marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              "require_fixed 'node-version: \"22\"'" "Node 22 compatibility policy marker" "${reasons_name}"
+            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
+              'require_fixed "Run Node 22 pre-merge compatibility"' "Node 22 compatibility step marker" "${reasons_name}"
             add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
               "replaced-by-wave" \
               "AGENTS.md materialization-aware verifier marker" "${reasons_name}"
