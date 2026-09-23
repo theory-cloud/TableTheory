@@ -3,6 +3,11 @@ set -euo pipefail
 
 # Verifies that CI runs the repo's rubric via `make rubric` with pinned tooling and uploads key artifacts.
 #
+# It also pins the surfaces the rubric depends on but does not read directly:
+# the SEC-2 dependency-scan aggregator and the gates chained into it, the scanned
+# scope of the Lambda-runtime deprecation gate, and the TypeScript Node matrix.
+# A gate dropped from any of those stops running without any other signal.
+#
 # This is intentionally a deterministic, text-based check. It is not a full YAML parser.
 
 wf=".github/workflows/quality-gates.yml"
@@ -126,16 +131,16 @@ fi
 
 # Staging PRs no longer run the standalone TS/Python PR matrices; require the
 # Quality Gates job itself to exercise the lower supported runtimes before merge.
-grep -Eq 'node-version:[[:space:]]*["'"'"']?20(\\.x)?["'"'"']?' "${wf}" || {
-  echo "ci-rubric: ${wf}: staging Quality Gates must include Node 20 compatibility"
+grep -Eq 'node-version:[[:space:]]*["'"'"']?22(\\.x)?["'"'"']?' "${wf}" || {
+  echo "ci-rubric: ${wf}: staging Quality Gates must include Node 22 compatibility"
   failures=$((failures + 1))
 }
-grep -Fq 'Run Node 20 pre-merge compatibility' "${wf}" || {
-  echo "ci-rubric: ${wf}: missing Node 20 pre-merge compatibility step"
+grep -Fq 'Run Node 22 pre-merge compatibility' "${wf}" || {
+  echo "ci-rubric: ${wf}: missing Node 22 pre-merge compatibility step"
   failures=$((failures + 1))
 }
 grep -Fq 'npm --prefix ts run test:integration' "${wf}" || {
-  echo "ci-rubric: ${wf}: Node 20 compatibility must include TypeScript integration tests"
+  echo "ci-rubric: ${wf}: Node 22 compatibility must include TypeScript integration tests"
   failures=$((failures + 1))
 }
 
@@ -205,6 +210,61 @@ grep -q 'gov-infra/evidence' "${wf}" || {
 legacy_evidence_path="hgm""-infra/evidence"
 if grep -q "${legacy_evidence_path}" "${wf}"; then
   echo "ci-rubric: ${wf}: must not upload legacy governance evidence"
+  failures=$((failures + 1))
+fi
+
+# The SEC-2 dependency-scan aggregator is what carries the security gates into
+# the rubric, so a gate dropped from it stops running without any other signal.
+scan_aggregator="scripts/sec-dependency-scans.sh"
+if [[ ! -f "${scan_aggregator}" ]]; then
+  echo "ci-rubric: FAIL (missing ${scan_aggregator})"
+  failures=$((failures + 1))
+else
+  for needle in \
+    "bash scripts/sec-npm-audit.sh" \
+    "bash scripts/test-npm-engines-floor-policy.sh" \
+    "bash scripts/verify-npm-engines-floor.sh" \
+    "bash scripts/test-lambda-runtime-deprecations-policy.sh" \
+    "bash scripts/verify-lambda-runtime-deprecations.sh"; do
+    grep -Fq -- "${needle}" "${scan_aggregator}" || {
+      echo "ci-rubric: ${scan_aggregator}: must chain ${needle}"
+      failures=$((failures + 1))
+    }
+  done
+fi
+
+# The Lambda-runtime gate's scanned scope is pinned on the QUOTED ARRAY ELEMENT,
+# not on the bare path. The bare paths also appear in the checker's header
+# comment, so an unanchored needle would still match that prose after the arrays
+# were emptied; anchoring on the quoted element pins the constant instead of the
+# comment. The single-element SCAN_ROOTS array carries its closing bracket in the
+# needle for the same reason. The checker's own self-test independently fails
+# when SCANNED_SURFACES or SCAN_ROOTS drift from their EXPECTED_* copies, so the
+# pair covers both the constant being present and the two copies agreeing.
+runtime_checker="scripts/check-lambda-runtime-deprecations.mjs"
+if [[ ! -f "${runtime_checker}" ]]; then
+  echo "ci-rubric: FAIL (missing ${runtime_checker})"
+  failures=$((failures + 1))
+else
+  for needle in \
+    '"examples/cdk-multilang/lib/multilang-demo-stack.ts",' \
+    '"examples/cdk-multilang/lib/tabletheory-ttl-archive.ts",' \
+    '"examples/cdk-multilang/lib"]'; do
+    grep -Fq -- "${needle}" "${runtime_checker}" || {
+      echo "ci-rubric: ${runtime_checker}: must pin the scanned scope entry ${needle}"
+      failures=$((failures + 1))
+    }
+  done
+fi
+
+# The standalone TypeScript leg is the only place both supported Node lines run
+# on a push to staging, and nothing else pins that matrix.
+ts_wf=".github/workflows/typescript.yml"
+if [[ ! -f "${ts_wf}" ]]; then
+  echo "ci-rubric: FAIL (missing ${ts_wf})"
+  failures=$((failures + 1))
+elif ! grep -Eq 'node-version:[[:space:]]*\[[[:space:]]*"22"[[:space:]]*,[[:space:]]*"24"[[:space:]]*\][[:space:]]*(#.*)?$' "${ts_wf}"; then
+  echo "ci-rubric: ${ts_wf}: Node matrix must be exactly [\"22\", \"24\"]"
   failures=$((failures + 1))
 fi
 

@@ -18,8 +18,8 @@ command -v npm >/dev/null 2>&1 || {
 node_version="$(node --version | tr -d '\n' || true)"
 if [[ "${node_version}" =~ ^v([0-9]+)\. ]]; then
   major="${BASH_REMATCH[1]}"
-  if [[ "${major}" -lt 20 ]]; then
-    echo "typescript-deps: FAIL (node ${node_version}; require >= v20)"
+  if [[ "${major}" -lt 22 ]]; then
+    echo "typescript-deps: FAIL (node ${node_version}; require >= v22)"
     exit 1
   fi
 else

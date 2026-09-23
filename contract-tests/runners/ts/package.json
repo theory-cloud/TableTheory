@@ -3,6 +3,9 @@
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "npm run test:key-contract && npm run test:fixtures && npm run test:encoding && npm run test:reserved-words && npm run test:update-builder && npm run test:filters && npm run test:crypto && npm run test:contract:p0 && npm run test:contract:p1 && npm run test:contract:p2",
     "test:crypto": "tsx test/crypto.contract.test.ts",
@@ -25,6 +28,6 @@
     "yaml": "^2.9.1"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1131.0"
+    "@aws-sdk/client-dynamodb": "^3.1136.0"
   }
 }

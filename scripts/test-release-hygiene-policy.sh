@@ -323,6 +323,10 @@ require_fixed "scripts/create-stable-release-pr.py" "${rp}" \
   "release-pr workflow must create the stable Release PR deterministically"
 forbid_fixed "merge_group:" "${h}" \
   "release-hygiene must not use the prohibited merge-queue event"
+require_fixed 'node-version: "22"' "${q}" \
+  "quality-gates must cover Node 22 before staging merge"
+require_fixed "Run Node 22 pre-merge compatibility" "${q}" \
+  "quality-gates must name the Node 22 pre-merge compatibility step"
 # TACTICAL (replaced-by-wave): materialization fidelity fixture marker.
 SH
   cat >"${root}/scripts/verify-promotion-release-driver.sh" <<'SH'
@@ -334,6 +338,14 @@ SH
 #!/usr/bin/env bash
 echo "go-semantic-import: PASS (pending-major-transition=2->3)"
 SH
+}
+
+write_v2_node20_verifier_fixture() {
+  local root="$1"
+
+  write_v2_verifier_fixture "${root}"
+  sed -i 's/Node 22/Node 20/g; s/node-version: "22"/node-version: "20"/g' \
+    "${root}/scripts/verify-branch-release-supply-chain.sh"
 }
 
 write_v2_pre_pending_major_transition_verifier_fixture() {
@@ -460,6 +472,7 @@ run_verifier_source_selector_fixture() {
     v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/trusted-release" ;;
     v2-pre-pending-major-transition) write_v2_pre_pending_major_transition_verifier_fixture "${fixture}/trusted-release" ;;
     v2-pre-release-as-supersession) write_v2_pre_release_as_supersession_verifier_fixture "${fixture}/trusted-release" ;;
+    v2-node20) write_v2_node20_verifier_fixture "${fixture}/trusted-release" ;;
     v2) write_v2_verifier_fixture "${fixture}/trusted-release" ;;
     *) echo "release-hygiene-policy-test: unknown trusted fixture ${trusted_shape}" >&2; exit 1 ;;
   esac
@@ -471,6 +484,7 @@ run_verifier_source_selector_fixture() {
     v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/pr" ;;
     v2-pre-pending-major-transition) write_v2_pre_pending_major_transition_verifier_fixture "${fixture}/pr" ;;
     v2-pre-release-as-supersession) write_v2_pre_release_as_supersession_verifier_fixture "${fixture}/pr" ;;
+    v2-node20) write_v2_node20_verifier_fixture "${fixture}/pr" ;;
     v2) write_v2_verifier_fixture "${fixture}/pr" ;;
     *) echo "release-hygiene-policy-test: unknown head fixture ${head_shape}" >&2; exit 1 ;;
   esac
@@ -1418,6 +1432,39 @@ grep -Fq "pending-major-transition" "${repo_root}/.github/workflows/release-hygi
   echo "release-hygiene-policy-test: verifier selector must feature-detect pending major transition support"
   exit 1
 }
+
+# A stale Node 20 base may adopt the Node 22 verifier only on protected,
+# same-repository promotions. Ordinary branches and forks retain the base.
+for lane in "premain staging" "main premain"; do
+  read -r selector_base selector_head <<<"${lane}"
+  selector_result="$(
+    run_verifier_source_selector_fixture \
+      v2-node20 v2 "${selector_base}" "${selector_head}" "${repo}" "${repo}"
+  )"
+  assert_selector_result "${selector_result}" "." "protected-pr-head-v2" \
+    "lacks Node 22 compatibility policy marker"
+
+  selector_result="$(
+    run_verifier_source_selector_fixture \
+      v2-node20 v2-node20 "${selector_base}" "${selector_head}" "${repo}" "${repo}"
+  )"
+  assert_selector_failure "${selector_result}" \
+    "lacks Node 22 compatibility policy marker"
+
+  selector_result="$(
+    run_verifier_source_selector_fixture \
+      v2-node20 v2 "${selector_base}" "${selector_head}" "${repo}" "attacker/TableTheory"
+  )"
+  assert_selector_result "${selector_result}" "../trusted-release" "trusted-base" \
+    "using trusted base verifier scripts"
+
+  selector_result="$(
+    run_verifier_source_selector_fixture \
+      v2-node20 v2 "${selector_base}" "feature/arbitrary-head" "${repo}" "${repo}"
+  )"
+  assert_selector_result "${selector_result}" "../trusted-release" "trusted-base" \
+    "using trusted base verifier scripts"
+done
 
 selector_result="$(
   run_verifier_source_selector_fixture \
