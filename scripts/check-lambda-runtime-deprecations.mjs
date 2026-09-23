@@ -70,17 +70,20 @@
 // go) are visible to the classifier but carry no data here, so a declaration
 // in one of them fails closed rather than being skipped.
 //
-// The family list is closed, and that is a limit rather than a blanket
-// fail-closed guarantee. A quoted literal whose family is not in the list is not
-// runtime-shaped at all, so `lambda.Runtime.fromString('rust1.0')` declares
-// nothing; and the shape rule requires a version component, so
-// `lambda.Runtime.fromString('provided')` declares nothing either even though
-// `provided` IS in the deprecated set. As with the receiver limits below, either
-// one fails closed when it is its surface's only declaration and is invisible
-// when the surface declares something else. Scoping the quoted-literal rule to
-// `fromString(...)` arguments would close both; that change belongs to the
-// cross-repo follow-up wave carrying the same defect in FaceTheory's checker,
-// and is deliberately not made here.
+// A quoted literal is a declaration only as the argument of `fromString` on one
+// of the receivers the Scope section lists. Scoping it that way is what keeps
+// the rule honest in both directions: an unmodelled argument
+// (`fromString('rust1.0')`, or a family with no version such as
+// `fromString('provided')`) is recorded and fails closed instead of vanishing,
+// while a runtime-shaped string that is not a runtime argument - a log message,
+// a description, `'nodejs22.x'` beside a genuinely dynamic
+// `fromString(config.runtime)` - is no longer read as a declaration that rescues
+// the surface. Two consequences are deliberate rather than oversights:
+// `fromString` with a non-literal argument declares nothing readable, and a call
+// whose receiver is not traceable to a Runtime binding (a bare
+// `fromString('nodejs18.x')` in a helper) is not read either. Both leave the
+// surface without the declaration that would otherwise be judged, so they end in
+// the same fail-closed rule as an obfuscated surface.
 //
 // ===========================================================================
 // Scope
@@ -104,10 +107,11 @@
 // `lambda.Runtime.X`, a named import's `Runtime.X`, `lambda['Runtime'].X`, a
 // renamed destructure's `const { Runtime: RT } = lambda` with `RT.X`, and
 // either of the first two aliased to a local name through any number of hops
-// (`const R = lambda.Runtime`, then `const R2 = R`). A surface that binds the
-// namespace and then hides the member behind a computed index, a lookup table,
-// or a helper declares nothing the model can read, which fails closed rather
-// than passing unjudged.
+// (`const R = lambda.Runtime`, then `const R2 = R`) - plus a runtime literal
+// passed to `fromString` on one of those receivers, which is the only reading
+// the literal rule has. A surface that binds the namespace and then hides the
+// member behind a computed index, a lookup table, or a helper declares nothing
+// the model can read, which fails closed rather than passing unjudged.
 //
 // A form the receiver model cannot read declares nothing, and what that costs
 // depends on whether it was the surface's LAST modelled declaration. Hiding the
@@ -119,8 +123,8 @@
 // is therefore a caught regression rather than a silent one, but it is caught by
 // that pin, not by the coverage walk.
 //
-// Four receiver forms stay outside the model, measured as declaring nothing.
-// They are known limits of this classifier rather than waivers:
+// Five forms stay outside the model, measured as declaring nothing. They are
+// known limits of this classifier rather than waivers:
 //
 //   R[process.env.NAME]           a computed key: not a literal member access
 //   Runtime lookups / helpers     a runtime reached through a table or a call
@@ -130,6 +134,9 @@
 //                                 enum or the namespace, not a member read
 //   R['PYTHON_3_8']               an enum member read through an index: only the
 //                                 `.` member form is modelled
+//   fromString('nodejs20.x')      a literal on no receiver at all: the literal
+//                                 rule reads only a call on a Runtime receiver,
+//                                 so this is not a declaration either
 //
 // Plain `const { Runtime } = lambda` IS caught, because the bare `Runtime`
 // receiver is fixed rather than alias-derived.
@@ -145,9 +152,10 @@
 //
 // Fail-closed cases: a surface that is missing, unreadable, or declares no
 // modelled runtime; a runtime literal in a modelled shape whose family or value
-// is not modelled; a declaration that names an unpinned moving alias rather
-// than a pinned runtime; and any file inside SCAN_ROOTS that declares a Lambda
-// runtime without being a declared surface.
+// is not modelled, including a `fromString` argument that resolves to no runtime
+// at all; a declaration that names an unpinned moving alias rather than a pinned
+// runtime; and any file inside SCAN_ROOTS that declares a Lambda runtime without
+// being a declared surface.
 //
 // The scope is owned by this checker and there is no allowlist, no waiver flag,
 // and no exception list. EXPECTED_SCANNED_SURFACES and EXPECTED_SCAN_ROOTS are
@@ -283,14 +291,17 @@ const LAMBDA_RUNTIME_ENUMS = new Map([
 const UNPINNED_RUNTIME_ALIAS_ENUMS = new Set(["NODEJS_LATEST"]);
 
 // AWS's runtime families. The classifier is not an alternation of these names:
-// the list is what makes a runtime-shaped quoted literal a declaration at all,
-// so a declaration in a family with no data below still reaches the classifier
-// and fails closed instead of being invisible - `fromString('ruby3.2')` is a
-// violation, not a skip. Keeping the list closed is deliberate, because loosening
-// it further would turn unrelated identifiers such as the `target: 'node24'`
-// bundling option into declarations; the measured cost is that a family outside
-// the list declares nothing, so `fromString('rust1.0')` is invisible rather than
-// fail-closed. The header states both that limit and the version-component one.
+// the list is what makes a runtime-shaped `fromString` argument a declaration at
+// all, so an argument in a family with no data below still reaches the
+// classifier and fails closed instead of being invisible - `fromString('ruby3.2')`
+// is a violation, not a skip. Keeping the list closed is deliberate, because
+// loosening it further would turn unrelated identifiers such as the
+// `target: 'node24'` bundling option into declarations. The membership test is
+// part of the shape predicate rather than a filter over its output, so an
+// argument outside the list is recorded with no resolved runtime and fails
+// closed as an unmodelled literal:
+// `fromString('rust1.0')` and `fromString('provided')` are violations, not
+// skips. The header states both of those readings.
 const LAMBDA_RUNTIME_FAMILIES = [
   "nodejs",
   "python",
@@ -320,7 +331,7 @@ function fail(message) {
 // by the literal rule below, and an unmodelled dynamic runtime leaves the
 // surface without a declaration, which fails closed on its own.
 //
-// The receiver is read in four forms, because requiring the literal text
+// The receiver is read in five forms, because requiring the literal text
 // `lambda.Runtime.` left the others declaring nothing at all:
 //
 //   lambda.Runtime.NODEJS_20_X   a `lambda` namespace import's member
@@ -332,6 +343,7 @@ function fail(message) {
 //                                 `import { Runtime as R } from ...`,
 //                                 `const { Runtime: R } = lambda`, or a second
 //                                 hop, `const R2 = R` where `R` is an alias
+//   R.fromString('nodejs20.x')    a runtime literal passed to the enum factory
 //
 // A new undeclared surface written in any of those idioms was invisible to the
 // classifier and to the coverage walk alike, so it passed the gate without ever
@@ -341,9 +353,10 @@ function fail(message) {
 // What stays outside the model, deliberately and now by measurement rather than
 // by omission: a member read through a computed key (`R[process.env.NAME]`), a
 // runtime hidden behind a lookup table or a helper, a `['Runtime']` read bound
-// to a local name and used later, and an enum member read as `R['NODEJS_20_X']`.
-// None of them yields a declaration, so a surface written that way fails closed
-// on the "declares no modelled Lambda runtime" rule instead of passing unjudged.
+// to a local name and used later, an enum member read as `R['NODEJS_20_X']`, and
+// a bare `fromString('nodejs20.x')` on no receiver. None of them yields a
+// declaration, so a surface written that way fails closed on the "declares no
+// modelled Lambda runtime" rule instead of passing unjudged.
 const RUNTIME_NAMESPACE_RECEIVERS = ["lambda\\.Runtime", "Runtime"];
 
 // Names a surface binds to the Runtime enum (`R` beside `R.NODEJS_20_X`) or to
@@ -445,16 +458,29 @@ function enumDeclarationPattern(text) {
   return new RegExp(`\\b(${runtimeReceiverAlternation(text)})\\.${ENUM_MEMBER_NAME}\\b`, "g");
 }
 
-// Quoted strings that could be a runtime identifier. Deliberately loose - the
-// predicate below decides, so a candidate that is not a runtime is simply not a
-// declaration - but it must not be an alternation of family names, or an
-// unfamiliar family would be invisible instead of failing closed.
-const QUOTED_LITERAL_RE = /["'`]([a-z][a-z0-9._-]{2,})["'`]/g;
+// The runtime-literal pattern for one surface: the argument of `fromString` on a
+// receiver that surface binds, so both this rule and the enum rule above are
+// built from the same alternation. The value pattern is deliberately loose - the
+// predicate below decides - so an unfamiliar runtime family still reaches the
+// classifier instead of being invisible. The receiver is what keeps the rule
+// scoped: without it a quoted literal on any other receiver, such as an S3
+// deployment's `CacheControl.fromString('public,max-age=0')`, could be read as a
+// Lambda declaration.
+function literalDeclarationPattern(text) {
+  return new RegExp(
+    `\\b(${runtimeReceiverAlternation(text)})\\.fromString\\s*\\(\\s*["'\`]([^"'\`]+)["'\`]`,
+    "g",
+  );
+}
 
-// The identifier a quoted string names, or null when it is not runtime-shaped.
-// A runtime identifier is a known family followed by a version component, so
-// `python3.14` and `provided.al2023` are declarations while `node_modules`,
-// `assets`, `go.mod`, and the `node24` esbuild bundling target are not.
+// The identifier a `fromString` argument names, or null when the argument is not
+// runtime-shaped. A runtime identifier is a known family followed by a version
+// component, so `python3.14` and `provided.al2023` resolve while `node_modules`,
+// `assets`, `go.mod`, and the `node24` esbuild bundling target do not - and
+// neither does a family this gate does not model (`rust1.0`), nor a family with
+// no version at all (`provided`, which is in the deprecated set but carries no
+// version component). Returning null for those is what makes them fail closed as
+// an unmodelled literal rather than disappear.
 function runtimeIdentifierFromLiteral(value) {
   const match = /^([a-z][a-z0-9-]*?)(\.al[0-9]+|[0-9][0-9A-Za-z._-]*)$/.exec(value);
   if (match === null) return null;
@@ -470,36 +496,51 @@ function lineOf(text, index) {
 }
 
 // Collects every runtime declaration in a surface's text, in source order, as
-// { line, form, identifier, enumName }. `identifier` is null when the form
-// could not be resolved to a runtime, and `enumName` is null for literal forms.
-// `form` is the receiver exactly as written, so a violation reports the idiom
-// the surface actually used rather than the one the gate prefers.
+// { line, form, identifier, enumName, literal }. `identifier` is null when the
+// form could not be resolved to a modelled runtime, and that is a declaration
+// all the same: it is what makes an unmodelled name fail closed instead of
+// dropping out of the count. `enumName` is null for literal forms and `literal`
+// is null for enum forms. `form` is the receiver and member exactly as written,
+// so a violation reports the idiom the surface actually used rather than the one
+// the gate prefers.
 //
 // Declarations are de-duplicated by the runtime they resolve to, falling back
 // to the member access as written when there is no runtime to resolve. That is
 // what keeps `lambda.Runtime.PROVIDED_AL2023.bundlingImage` from being counted
 // as a second `lambda.Runtime.PROVIDED_AL2023` declaration: both resolve to
 // provided.al2023. Two genuinely different declarations are never merged,
-// because two different runtimes or two different unreadable members resolve to
-// two different keys.
+// because two different runtimes, two different unreadable members, or two
+// different unmodelled literals resolve to two different keys.
 function collectDeclarations(text) {
   const byKey = new Map();
 
-  const record = (index, form, enumName, identifier) => {
+  const record = (index, form, enumName, literal, identifier) => {
     const key = identifier === null ? `form:${form}` : `runtime:${identifier}`;
     if (byKey.has(key)) return;
-    byKey.set(key, { index, line: lineOf(text, index), form, enumName, identifier });
+    byKey.set(key, { index, line: lineOf(text, index), form, enumName, literal, identifier });
   };
 
   for (const match of text.matchAll(enumDeclarationPattern(text))) {
     const receiver = match[1];
     const enumName = match[2];
-    record(match.index, `${receiver}.${enumName}`, enumName, LAMBDA_RUNTIME_ENUMS.get(enumName) ?? null);
+    record(
+      match.index,
+      `${receiver}.${enumName}`,
+      enumName,
+      null,
+      LAMBDA_RUNTIME_ENUMS.get(enumName) ?? null,
+    );
   }
-  for (const match of text.matchAll(QUOTED_LITERAL_RE)) {
-    const identifier = runtimeIdentifierFromLiteral(match[1]);
-    if (identifier === null) continue;
-    record(match.index, `"${match[1]}"`, null, identifier);
+  for (const match of text.matchAll(literalDeclarationPattern(text))) {
+    const receiver = match[1];
+    const literal = match[2];
+    record(
+      match.index,
+      `${receiver}.fromString("${literal}")`,
+      null,
+      literal,
+      runtimeIdentifierFromLiteral(literal),
+    );
   }
 
   return [...byKey.values()].sort((left, right) => left.index - right.index);
@@ -521,6 +562,22 @@ function classifyDeclaration(declaration) {
     };
   }
   if (declaration.identifier === null) {
+    // Two ways to be unreadable, and both fail closed on their own reason: an
+    // enum name this gate has no mapping for, and a `fromString` argument that
+    // resolves to no modelled runtime at all. The second is the one an
+    // unmodelled family used to escape through, so it is named as a literal
+    // rather than reported as an enum with a null name.
+    if (declaration.literal !== null) {
+      return {
+        kind: "unmodelled-literal",
+        line: declaration.line,
+        form: declaration.form,
+        detail:
+          `passes '${declaration.literal}' to fromString, which resolves to no runtime this gate ` +
+          `models: its family is not in LAMBDA_RUNTIME_FAMILIES, or it carries no version; ` +
+          `${UNMODELLED_DECLARATION_HINT}`,
+      };
+    }
     return {
       kind: "unmodelled-enum",
       line: declaration.line,
@@ -699,11 +756,43 @@ const CLASSIFIER_CASES = [
     expected: [],
   },
   // A family the gate has no data for is a declaration that fails closed, not
-  // one that is invisible.
+  // one that is invisible. The modelled family with an unmodelled version
+  // (`ruby3.2`) resolves to an identifier and fails as an unmodelled runtime;
+  // the family outside the list (`rust1.0`) resolves to no runtime at all and
+  // fails as an unmodelled literal. Before the literal rule was scoped to
+  // `fromString` on a Runtime receiver the second case declared nothing at all -
+  // the argument was dropped - so an unmodelled family was invisible rather than
+  // judged.
   {
     name: "unmodelled-family-literal",
     text: "runtime: lambda.Runtime.fromString('ruby3.2'),\n",
     expected: ["unmodelled-runtime"],
+  },
+  {
+    name: "unmodelled-family-literal-outside-the-family-list",
+    text: "runtime: lambda.Runtime.fromString('rust1.0'),\n",
+    expected: ["unmodelled-literal"],
+  },
+  // A runtime identifier needs a version component, and the deprecated set has
+  // an entry without one. `provided` is a real AWS runtime that this gate has no
+  // version to resolve, so the argument fails closed as an unmodelled literal
+  // rather than being read as the deprecated `provided` identifier.
+  {
+    name: "runtime-literal-without-a-version",
+    text: "runtime: lambda.Runtime.fromString('provided'),\n",
+    expected: ["unmodelled-literal"],
+  },
+  // The other direction: a runtime-shaped string that is not a `fromString`
+  // argument is not a declaration, so it cannot be judged in place of the
+  // dynamic runtime beside it. Before the fix this surface was reported as
+  // declaring the stray literal, which is a violation the surface never wrote.
+  {
+    name: "stray-runtime-literal-is-not-a-declaration",
+    text:
+      "runtime: lambda.Runtime.fromString(config.runtime),\n" +
+      "const releaseNote = 'nodejs18.x';\n" +
+      "runtime: lambda.Runtime.NODEJS_24_X,\n",
+    expected: [],
   },
   {
     name: "unmodelled-family-enum",
@@ -846,6 +935,16 @@ const FAIL_CLOSED_CASES = [
   {
     name: "dynamic-fromString-with-no-literal",
     text: "runtime: lambda.Runtime.fromString(process.env.LAMBDA_RUNTIME),\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  // The false-declaration direction of the same rule. A dynamic `fromString`
+  // declares nothing readable, and an unrelated runtime-shaped string must not
+  // stand in for it. Before the literal rule was scoped, the stray literal WAS
+  // the declaration, so this surface was judged as declaring a supported runtime
+  // and passed.
+  {
+    name: "dynamic-fromString-rescued-by-a-stray-runtime-literal",
+    text: "runtime: lambda.Runtime.fromString(config.runtime),\nconst releaseNote = 'nodejs22.x';\n",
     expectFailureReason: "declares no modelled Lambda runtime",
   },
 ];
