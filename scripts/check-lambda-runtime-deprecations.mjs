@@ -157,12 +157,18 @@
 // runtime; and any file inside SCAN_ROOTS that declares a Lambda runtime without
 // being a declared surface.
 //
+// A coverage walk that cannot run is a gate failure in its own right, and it
+// reports as this gate's FAIL line rather than as an uncaught stack trace: a
+// missing scan root means the scope was never checked, which is the one outcome
+// this gate must never present as a passing scan.
+//
 // The scope is owned by this checker and there is no allowlist, no waiver flag,
 // and no exception list. EXPECTED_SCANNED_SURFACES and EXPECTED_SCAN_ROOTS are
 // independent copies of the scope, so the self-test fails when either is
 // narrowed. `--self-test` is the only argument, and it runs the classifier
 // self-test plus synthetic surfaces driven through the real read path before
 // the real scan. The checker reads no environment variable.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1112,15 +1118,67 @@ function runSelfTest() {
     }
   }
 
+  // The entry-point error boundary is in main(), so it can only be pinned by
+  // running the entry point. This probe copies the checker into a scratch
+  // repository whose scan root is absent, runs the bare path there, and asserts
+  // the child reported this gate's own FAIL line: a coverage walk that cannot
+  // run must never present itself as a passing scan, and an uncaught
+  // GateFailure stack trace is not that FAIL line.
+  //
+  // The scratch repository gets no scan root at all, rather than an empty first
+  // one followed by an absent second. That is the whole of the difference from
+  // the FaceTheory checker this probe is ported from: SCAN_ROOTS here holds one
+  // root, so that root is itself the absent one and the walk reaches it
+  // immediately.
+  const entryPointProbes = 1;
+  try {
+    const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tabletheory-lambda-entry-point-"));
+    try {
+      const scratchScripts = path.join(scratchRoot, "scripts");
+      fs.mkdirSync(scratchScripts, { recursive: true });
+      fs.copyFileSync(
+        fileURLToPath(import.meta.url),
+        path.join(scratchScripts, "check-lambda-runtime-deprecations.mjs"),
+      );
+      const probe = spawnSync(
+        process.execPath,
+        [path.join(scratchScripts, "check-lambda-runtime-deprecations.mjs")],
+        { encoding: "utf8" },
+      );
+      const output = `${probe.stdout ?? ""}${probe.stderr ?? ""}`;
+      const reportedMissingRoot =
+        /lambda-runtime-deprecations: FAIL \(scan root \S+ is missing/.test(output);
+      const stackFrames = /\n\s+at /.test(output);
+      if (probe.status !== 1 || !reportedMissingRoot || stackFrames) {
+        failures.push(
+          `an entry point whose coverage walk cannot run must report the gate FAIL line with no ` +
+            `stack frames; got exit ${probe.status}, FAIL line ` +
+            `${reportedMissingRoot ? "present" : "absent"}, stack frames ` +
+            `${stackFrames ? "present" : "absent"}: ${output.trim()}`,
+        );
+        console.log("  self-test entry point without a coverage scan root: NOT A GATE FAILURE");
+      } else {
+        console.log(
+          "  self-test entry point without a coverage scan root: FAIL CLOSED (gate FAIL line, no stack frames)",
+        );
+      }
+    } finally {
+      fs.rmSync(scratchRoot, { recursive: true, force: true });
+    }
+  } catch (err) {
+    failures.push(`entry-point probe threw ${err.name}: ${err.message}`);
+    console.log("  self-test entry point without a coverage scan root: UNEXPECTED FAILURE");
+  }
+
   if (failures.length > 0) {
     for (const failure of failures) console.error(`  self-test: ${failure}`);
     throw new GateFailure(
-      `self-test failed (${failures.length} failures across ${classifierCases} synthetic surfaces ` +
-        `plus ${scopeCases} scope cases)`,
+      `self-test failed (${failures.length} failures across ${classifierCases} synthetic surfaces, ` +
+        `${scopeCases} scope cases, and ${entryPointProbes} entry-point probe)`,
     );
   }
 
-  return { classifierCases, scopeCases };
+  return { classifierCases, scopeCases, entryPointProbes };
 }
 
 // === entry point ===========================================================
@@ -1193,7 +1251,8 @@ function main() {
   }
 
   const selfTestSummary = selfTestCounts
-    ? `self-test ${selfTestCounts.classifierCases} synthetic surfaces + ${selfTestCounts.scopeCases} scope cases; `
+    ? `self-test ${selfTestCounts.classifierCases} synthetic surfaces + ` +
+      `${selfTestCounts.scopeCases} scope cases + ${selfTestCounts.entryPointProbes} entry-point probe; `
     : "";
   console.log(
     `lambda-runtime-deprecations: PASS (${selfTestSummary}surfaces ${outcomes.length}; ` +

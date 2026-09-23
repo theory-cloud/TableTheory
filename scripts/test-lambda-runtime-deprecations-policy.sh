@@ -151,7 +151,7 @@ write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL
 expect_success_contains "surfaces 2" node "${synthetic_checker}"
 expect_success_contains "declarations 2" node "${synthetic_checker}"
 expect_success_contains \
-  "self-test 45 synthetic surfaces + 2 scope cases" \
+  "self-test 45 synthetic surfaces + 2 scope cases + 1 entry-point probe" \
   node "${synthetic_checker}" --self-test
 
 # --- deprecated declarations ------------------------------------------------
