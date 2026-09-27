@@ -21,12 +21,17 @@ type pyFinding struct {
 	Line int
 }
 
+// pyTarget matches the receiver or assignment target of a launch: a name with
+// optional attribute and subscript parts, so a thread held on `self.worker`,
+// `obj.items`, or `pool["a"]` is tracked exactly like a plain local name.
+const pyTarget = `(?:[A-Za-z_]\w*)(?:\s*\.\s*[A-Za-z_]\w*|\s*\[[^\]]*\])*`
+
 var (
 	// A thread or process started and never joined outlives the caller.
 	pyThreadCtor   = regexp.MustCompile(`\b(?:threading\.(?:Thread|Timer)|multiprocessing\.Process)\s*\(`)
-	pyThreadAssign = regexp.MustCompile(`^\s*([A-Za-z_]\w*)\s*(?::[^=]*)?=\s*(?:threading\.(?:Thread|Timer)|multiprocessing\.Process)\s*\(`)
-	pyStart        = regexp.MustCompile(`^\s*([A-Za-z_]\w*)\s*\.\s*start\s*\(\s*\)`)
-	pyJoin         = regexp.MustCompile(`(?:^|\s)([A-Za-z_]\w*)\s*\.\s*join\s*\(`)
+	pyThreadAssign = regexp.MustCompile(`^\s*(` + pyTarget + `)\s*(?::[^=]*)?=\s*(?:threading\.(?:Thread|Timer)|multiprocessing\.Process)\s*\(`)
+	pyStart        = regexp.MustCompile(`^\s*(` + pyTarget + `)\s*\.\s*start\s*\(\s*\)`)
+	pyJoin         = regexp.MustCompile(`\b(` + pyTarget + `)\s*\.\s*join\s*\(`)
 
 	// A thread created inline in a comprehension has no name to join later.
 	pyComprehension = regexp.MustCompile(`\bfor\b[^:]*\bin\b`)
@@ -34,75 +39,336 @@ var (
 	// A daemon thread is explicitly declared as one not to wait for; it is
 	// killed when the process exits and no caller holds a handle to join.
 	pyDaemonKwarg  = regexp.MustCompile(`\bdaemon\s*=\s*True\b`)
-	pyDaemonAssign = regexp.MustCompile(`^\s*([A-Za-z_]\w*)\s*\.\s*daemon\s*=\s*True`)
+	pyDaemonAssign = regexp.MustCompile(`^\s*` + pyTarget + `\s*\.\s*daemon\s*=\s*True`)
 
 	// A task created with asyncio and never awaited or gathered is detached.
 	pyAsyncioTask = regexp.MustCompile(`\basyncio\.(?:create_task|ensure_future)\s*\(`)
-	pyTaskAssign  = regexp.MustCompile(`^\s*([A-Za-z_]\w*)\s*=\s*.*?\basyncio\.(?:create_task|ensure_future)\s*\(`)
+	pyTaskAssign  = regexp.MustCompile(`^\s*(` + pyTarget + `)\s*(?::[^=]*)?=\s*(?:await\s+)?.*?\basyncio\.(?:create_task|ensure_future)\s*\(`)
 	pyGather      = regexp.MustCompile(`\basyncio\.(?:gather|wait)\s*\(`)
 
+	// The join forms an awaitable target can carry. Cancellation is not one: it
+	// requests a stop but does not wait for the task to reach it, so a task that
+	// is only canceled can still be running when the caller returns.
+	pyAwaitTarget = regexp.MustCompile(`\bawait\s+(` + pyTarget + `)\b`)
+	pyGatherCall  = regexp.MustCompile(`\b(?:gather|wait)\s*\(\s*\*?\s*(` + pyTarget + `)\b`)
+
 	// Offloading to a worker thread is only joined by awaiting the result.
-	pyToThread      = regexp.MustCompile(`\basyncio\.to_thread\s*\(`)
-	pyRunInExecutor = regexp.MustCompile(`\brun_in_executor\s*\(`)
+	pyToThread    = regexp.MustCompile(`\basyncio\.to_thread\s*\(`)
+	pyRunInExec   = regexp.MustCompile(`\brun_in_executor\s*\(`)
+	pyOffloadAsgn = regexp.MustCompile(`^\s*(` + pyTarget + `)\s*(?::[^=]*)?=\s*.*?\b(?:asyncio\.to_thread|run_in_executor)\s*\(`)
 
 	// An executor submit outside its `with` block is not joined by the context
 	// manager's exit.
 	pyWithExecutor = regexp.MustCompile(`^(\s*)with\s+.*(?:ThreadPoolExecutor|ProcessPoolExecutor)\s*[(.]`)
 	pySubmit       = regexp.MustCompile(`\.submit\s*\(`)
+
+	// A statement that can leave the enclosing function or loop before a later
+	// join runs: a return, raise, break, or continue, including one written as
+	// the body of a single-line compound statement (`if cond: return`).
+	pyExitStmt = regexp.MustCompile(`^(?:return|raise|break|continue)\b|^(?:if|elif|else|for|while|try|except|finally|with|match|case)\b.*:\s*(?:return|raise|break|continue)\b`)
 )
 
+// pyFrame is one open Python block: its indentation, the line that opened it,
+// and whether that line is a function definition.
+type pyFrame struct {
+	indent int
+	line   int
+	isDef  bool
+}
+
+// pyStructure is the indentation-derived block structure of a Python source. It
+// exists so a join can be required to dominate every return path of the
+// function that launched the work, mirroring the Go AST walk. No Python parser
+// is available to this Go test, so the structure is read from indentation: a
+// block opens with a `def`/`async def` or a keyword statement whose header ends
+// in `:`, and closes at the next line indented at or below its opener. The
+// reading is deliberately conservative — a shape it cannot place is treated as
+// un-joined rather than assumed joined.
+type pyStructure struct {
+	indent    []int
+	defStack  [][]int
+	enclosers [][]int
+	exit      []bool
+}
+
+// pyBlockKeywords open a block when their header ends in `:`.
+var pyBlockKeywords = []string{"if", "elif", "else", "for", "while", "try", "except", "finally", "with", "class", "match", "case"}
+
+// buildPyStructure reads the block structure of src line by line.
+func buildPyStructure(lines []string) pyStructure {
+	st := pyStructure{
+		indent:    make([]int, len(lines)),
+		defStack:  make([][]int, len(lines)),
+		enclosers: make([][]int, len(lines)),
+		exit:      make([]bool, len(lines)),
+	}
+	var stack []pyFrame
+	depth := 0
+	record := func(i int) {
+		encl := make([]int, 0, len(stack))
+		var defs []int
+		for _, f := range stack {
+			encl = append(encl, f.line)
+			if f.isDef {
+				defs = append(defs, f.line)
+			}
+		}
+		st.enclosers[i] = encl
+		st.defStack[i] = defs
+	}
+	for i, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		startDepth := depth
+		depth += pyCodeDelta(raw)
+		st.indent[i] = pythonIndent(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if startDepth > 0 {
+			// A continuation line inside brackets belongs to the block the
+			// statement it continues sits in; it opens and closes nothing.
+			record(i)
+			continue
+		}
+		for len(stack) > 0 && stack[len(stack)-1].indent >= st.indent[i] {
+			stack = stack[:len(stack)-1]
+		}
+		record(i)
+		st.exit[i] = pyExitStmt.MatchString(trimmed)
+		if isDef, opens := pyBlockOpener(trimmed); opens {
+			stack = append(stack, pyFrame{indent: st.indent[i], line: i + 1, isDef: isDef})
+		}
+	}
+	return st
+}
+
+// pyBlockOpener reports whether a statement opens a block, and whether that
+// block is a function body.
+func pyBlockOpener(trimmed string) (isDef, opens bool) {
+	if headerIsDef(trimmed) {
+		return true, true
+	}
+	head := stripPyComment(trimmed)
+	if !strings.HasSuffix(head, ":") {
+		return false, false
+	}
+	word := head
+	if idx := strings.IndexAny(word, " \t(:"); idx >= 0 {
+		word = word[:idx]
+	}
+	for _, kw := range pyBlockKeywords {
+		if word == kw {
+			return false, true
+		}
+	}
+	return false, false
+}
+
+// headerIsDef reports whether a header begins a def or async def, including one
+// whose signature is spread over several lines.
+func headerIsDef(header string) bool {
+	rest := header
+	if strings.HasPrefix(rest, "async") {
+		rest = strings.TrimSpace(strings.TrimPrefix(rest, "async"))
+	}
+	return strings.HasPrefix(rest, "def ") || strings.HasPrefix(rest, "def(")
+}
+
+// stripPyComment removes a trailing comment, ignoring a `#` inside a simple
+// string literal.
+func stripPyComment(line string) string {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if quote != 0 {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '#':
+			return line[:i]
+		}
+	}
+	return line
+}
+
+// pyCodeDelta is the net opening-bracket count of a line once comments and
+// simple string contents are removed, so a bracket in prose or a literal cannot
+// shift where a block starts.
+func pyCodeDelta(line string) int {
+	code := stripPyComment(line)
+	delta := 0
+	var quote byte
+	for i := 0; i < len(code); i++ {
+		c := code[i]
+		if quote != 0 {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '(', '[', '{':
+			delta++
+		case ')', ']', '}':
+			delta--
+		}
+	}
+	return delta
+}
+
+// pyDominates reports whether a join for the work launched at launchLine (a
+// 1-based line number) runs on every path that returns from the launch's own
+// function. The join must appear after the launch, must not sit inside a block
+// the launch is not inside (so a join behind `if`, in a loop body, or in a
+// nested function does not count), and no return, raise, break, or continue may
+// be crossed first. That is the Python reading of the Go dominance walk.
+func pyDominates(st pyStructure, lines []string, launchLine int, isJoin func(line int) bool) bool {
+	start := launchLine - 1
+	if start < 0 || start >= len(lines) {
+		return false
+	}
+	baseDefs := st.defStack[start]
+	baseEncl := st.enclosers[start]
+	for j := start + 1; j < len(lines); j++ {
+		if !intStackPrefix(baseDefs, st.defStack[j]) {
+			return false
+		}
+		if intSubset(st.enclosers[j], baseEncl) && isJoin(j+1) {
+			return true
+		}
+		if st.exit[j] && intStackEqual(baseDefs, st.defStack[j]) {
+			return false
+		}
+	}
+	return false
+}
+
+// pyKey normalizes a target so a spaced spelling and a compact one match.
+func pyKey(target string) string {
+	return strings.Join(strings.Fields(target), "")
+}
+
+// isPyCommentLine reports whether a whole line is blank or a comment.
+func isPyCommentLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed == "" || strings.HasPrefix(trimmed, "#")
+}
+
+// pyJoinForThread reports whether a line joins the given thread target.
+func pyJoinForThread(line, target string) bool {
+	if isPyCommentLine(line) {
+		return false
+	}
+	for _, m := range pyJoin.FindAllStringSubmatch(line, -1) {
+		if pyKey(m[1]) == target {
+			return true
+		}
+	}
+	return false
+}
+
+// pyJoinForTask reports whether a line joins the given asyncio task: awaiting
+// it, or gathering it. Canceling it is not a join, because cancellation is
+// cooperative and the task can still be running when the caller returns.
+func pyJoinForTask(line, target string) bool {
+	if isPyCommentLine(line) {
+		return false
+	}
+	if m := pyAwaitTarget.FindStringSubmatch(line); m != nil && pyKey(m[1]) == target {
+		return true
+	}
+	if m := pyGatherCall.FindStringSubmatch(line); m != nil && pyKey(m[1]) == target {
+		return true
+	}
+	return false
+}
+
+// pyJoinForOffload reports whether a line awaits the given offload result.
+func pyJoinForOffload(line, target string) bool {
+	if isPyCommentLine(line) {
+		return false
+	}
+	m := pyAwaitTarget.FindStringSubmatch(line)
+	return m != nil && pyKey(m[1]) == target
+}
+
+// pyDominatingJoin reports whether the join for the launch at launchLine
+// dominates every return path of its function.
+func pyDominatingJoin(st pyStructure, lines []string, launchLine int, target string, lineJoins func(string, string) bool) bool {
+	return pyDominates(st, lines, launchLine, func(line int) bool {
+		if line < 1 || line > len(lines) {
+			return false
+		}
+		return lineJoins(lines[line-1], target)
+	})
+}
+
+// pyOffloadJoined reports whether an offload assigned on the given line has a
+// dominating await of the bound result.
+func pyOffloadJoined(st pyStructure, lines []string, launchLine int, line string) bool {
+	m := pyOffloadAsgn.FindStringSubmatch(line)
+	if m == nil {
+		return false
+	}
+	return pyDominatingJoin(st, lines, launchLine, pyKey(m[1]), pyJoinForOffload)
+}
+
 // scanPythonSource finds Python detached-work launches: threads or processes
-// started without a later join (including threads created inline in a
-// comprehension and daemon threads), asyncio tasks created without await or
+// started without a dominating join (including threads created inline in a
+// comprehension, daemon threads, and threads held on an attribute or a
+// container element), asyncio tasks created without a dominating await or
 // gather, thread offloads (asyncio.to_thread, loop.run_in_executor) that are
 // never awaited, and executor submits that escape their `with` block. It is a
-// deliberately conservative line scan, since no Python parser is available to
-// this Go test.
+// deliberately conservative line-and-indentation scan, since no Python parser
+// is available to this Go test; a launch whose join cannot be shown to dominate
+// every return path is reported.
 func scanPythonSource(src string) []pyFinding {
 	lines := strings.Split(src, "\n")
+	st := buildPyStructure(lines)
 	var findings []pyFinding
 
-	// Thread names bound to a Thread/Timer/Process constructor, and the lines
-	// where each such name is started and joined. A start with a later join is
-	// a joined thread and is not detached work.
+	// Threads and processes are tracked by the target they are bound to, which
+	// may be a local name, an attribute (self.worker), or a container element
+	// (pool["a"]).
 	threadNames := map[string]bool{}
 	for _, line := range lines {
+		if isPyCommentLine(line) {
+			continue
+		}
 		if m := pyThreadAssign.FindStringSubmatch(line); m != nil {
-			threadNames[m[1]] = true
+			threadNames[pyKey(m[1])] = true
 		}
 	}
 	joinedStarts := map[string]bool{}
-	startLines := map[string][]int{}
-	joinLines := map[string][]int{}
 	for i, line := range lines {
-		if m := pyStart.FindStringSubmatch(line); m != nil && threadNames[m[1]] {
-			startLines[m[1]] = append(startLines[m[1]], i+1)
+		if isPyCommentLine(line) {
+			continue
 		}
-		if m := pyJoin.FindStringSubmatch(line); m != nil && threadNames[m[1]] {
-			joinLines[m[1]] = append(joinLines[m[1]], i+1)
+		m := pyStart.FindStringSubmatch(line)
+		if m == nil {
+			continue
 		}
-	}
-	for name, starts := range startLines {
-		for _, s := range starts {
-			for _, j := range joinLines[name] {
-				if j > s {
-					joinedStarts[nameLineKey(name, s)] = true
-				}
-			}
+		target := pyKey(m[1])
+		if !threadNames[target] {
+			continue
 		}
-	}
-
-	taskNames := map[string]bool{}
-	for _, line := range lines {
-		if m := pyTaskAssign.FindStringSubmatch(line); m != nil {
-			taskNames[m[1]] = true
-		}
-	}
-	joinedTasks := map[string]bool{}
-	for name := range taskNames {
-		if strings.Contains(src, "await "+name) || strings.Contains(src, "gather("+name) ||
-			strings.Contains(src, "gather(*"+name) || strings.Contains(src, name+".cancel()") {
-			joinedTasks[name] = true
+		if pyDominatingJoin(st, lines, i+1, target, pyJoinForThread) {
+			joinedStarts[nameLineKey(target, i+1)] = true
 		}
 	}
 
@@ -121,7 +387,7 @@ func scanPythonSource(src string) []pyFinding {
 			findings = append(findings, pyFinding{Line: lineNo, Text: trimmed, Rule: rule})
 		}
 
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		if isPyCommentLine(line) {
 			continue
 		}
 
@@ -137,8 +403,8 @@ func scanPythonSource(src string) []pyFinding {
 			// Inline `Thread(...).start()` discards the handle, so it can never
 			// be joined.
 			record("thread-start")
-		} else if m := pyStart.FindStringSubmatch(line); m != nil && threadNames[m[1]] {
-			if !joinedStarts[nameLineKey(m[1], lineNo)] {
+		} else if m := pyStart.FindStringSubmatch(line); m != nil && threadNames[pyKey(m[1])] {
+			if !joinedStarts[nameLineKey(pyKey(m[1]), lineNo)] {
 				record("thread-start")
 			}
 		}
@@ -156,8 +422,8 @@ func scanPythonSource(src string) []pyFinding {
 		if pyAsyncioTask.MatchString(line) {
 			recognized := strings.Contains(line, "await ") || pyGather.MatchString(line)
 			if !recognized {
-				if m := pyTaskAssign.FindStringSubmatch(line); m != nil && joinedTasks[m[1]] {
-					recognized = true
+				if m := pyTaskAssign.FindStringSubmatch(line); m != nil {
+					recognized = pyDominatingJoin(st, lines, lineNo, pyKey(m[1]), pyJoinForTask)
 				}
 			}
 			if !recognized {
@@ -166,10 +432,14 @@ func scanPythonSource(src string) []pyFinding {
 		}
 
 		if pyToThread.MatchString(line) && !strings.Contains(line, "await ") {
-			record("asyncio-to-thread")
+			if !pyOffloadJoined(st, lines, lineNo, line) {
+				record("asyncio-to-thread")
+			}
 		}
-		if pyRunInExecutor.MatchString(line) && !strings.Contains(line, "await ") {
-			record("run-in-executor")
+		if pyRunInExec.MatchString(line) && !strings.Contains(line, "await ") {
+			if !pyOffloadJoined(st, lines, lineNo, line) {
+				record("run-in-executor")
+			}
 		}
 
 		if pySubmit.MatchString(line) && len(executorBlocks) == 0 {
@@ -243,7 +513,7 @@ func pyBracketDelta(line string) int {
 	return delta
 }
 
-// keys builds the "<name>:<line>" key used for joined-start bookkeeping.
+// nameLineKey builds the "<name>:<line>" key used for joined-start bookkeeping.
 func nameLineKey(name string, line int) string {
 	return name + ":" + strconv.Itoa(line)
 }
@@ -329,10 +599,23 @@ func TestPythonDetachedWorkDetectorIsNotVacuous(t *testing.T) {
 		{"daemon attribute", "t = threading.Thread(target=work)\nt.daemon = True\nt.start()\n", "daemon-thread"},
 		{"create_task", "asyncio.create_task(work())\n", "asyncio-task"},
 		{"ensure_future", "task = asyncio.ensure_future(work())\n", "asyncio-task"},
+		{"canceled but not awaited", "task = asyncio.create_task(work())\ntask.cancel()\n", "asyncio-task"},
 		{"to_thread not awaited", "result = asyncio.to_thread(compute, arg)\n", "asyncio-to-thread"},
 		{"to_thread bare", "asyncio.to_thread(compute, arg)\n", "asyncio-to-thread"},
 		{"run_in_executor not awaited", "future = loop.run_in_executor(pool, compute)\n", "run-in-executor"},
 		{"submit outside with", "ex = ThreadPoolExecutor(max_workers=4)\nex.submit(work)\n", "executor-submit"},
+		// A join that is present but does not dominate is not a join.
+		{"conditional thread join", "def run(cond):\n    t = threading.Thread(target=work)\n    t.start()\n    if cond:\n        t.join()\n", "thread-start"},
+		{"early return before join", "def run(abort):\n    t = threading.Thread(target=work)\n    t.start()\n    if abort:\n        return\n    t.join()\n", "thread-start"},
+		{"single-line return before join", "def run(cond):\n    t = threading.Thread(target=work)\n    t.start()\n    if cond: return\n    t.join()\n", "thread-start"},
+		{"thread joined in a nested function", "def run():\n    t = threading.Thread(target=work)\n    t.start()\n    def inner():\n        t.join()\n    inner()\n", "thread-start"},
+		{"conditional task await", "async def run(cond):\n    task = asyncio.create_task(work())\n    if cond:\n        await task\n", "asyncio-task"},
+		{"early return before await", "async def run(abort):\n    task = asyncio.create_task(work())\n    if abort:\n        return\n    await task\n", "asyncio-task"},
+		// A thread held on an attribute or a container element is still a thread.
+		{"self-held thread", "class W:\n    def go(self):\n        self.worker = threading.Thread(target=work)\n        self.worker.start()\n", "thread-start"},
+		{"self-held thread conditional join", "class W:\n    def go(self, cond):\n        self.worker = threading.Thread(target=work)\n        self.worker.start()\n        if cond:\n            self.worker.join()\n", "thread-start"},
+		{"container-held thread", "pool = {}\npool[\"a\"] = threading.Thread(target=work)\npool[\"a\"].start()\n", "thread-start"},
+		{"offload conditional await", "async def run(cond):\n    result = asyncio.to_thread(compute, arg)\n    if cond:\n        await result\n", "asyncio-to-thread"},
 	}
 	for _, tc := range flagged {
 		if !containsPyRule(scanPythonSource(tc.src), tc.rule) {
@@ -353,6 +636,13 @@ func TestPythonDetachedWorkDetectorIsNotVacuous(t *testing.T) {
 		{"comment", "# asyncio.create_task(work()) is deliberately not used here\n"},
 		{"comment comprehension", "# threads = [threading.Thread(target=work) for _ in range(4)] is not used\n"},
 		{"import only", "import threading\nlock = threading.Lock()\n"},
+		// A dominating join is accepted.
+		{"thread joined in function", "def run():\n    t = threading.Thread(target=work)\n    t.start()\n    t.join()\n"},
+		{"thread joined before a later return", "def run(cond):\n    t = threading.Thread(target=work)\n    t.start()\n    t.join()\n    if cond:\n        return\n"},
+		{"self-held thread joined", "class W:\n    def go(self):\n        self.worker = threading.Thread(target=work)\n        self.worker.start()\n        self.worker.join()\n"},
+		{"container-held thread joined", "pool = {}\npool[\"a\"] = threading.Thread(target=work)\npool[\"a\"].start()\npool[\"a\"].join()\n"},
+		{"task awaited in return", "async def run():\n    task = asyncio.create_task(work())\n    other = await load()\n    return await task\n"},
+		{"to_thread assigned then awaited", "result = asyncio.to_thread(compute, arg)\nvalue = await result\n"},
 	}
 	for _, tc := range clean {
 		if found := scanPythonSource(tc.src); len(found) > 0 {

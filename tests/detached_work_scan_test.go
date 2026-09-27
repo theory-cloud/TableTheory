@@ -780,6 +780,62 @@ func executesJoinUnconditionally(node ast.Node, isJoin func(ast.Node) bool) bool
 }
 
 // ---------------------------------------------------------------------------
+// Shared line-based stack helpers
+// ---------------------------------------------------------------------------
+//
+// The Python and TypeScript detectors read their block structure from text —
+// indentation for Python, braces for TypeScript — because neither language
+// offers a parser to this Go test. Both walks compare the block a launch sits
+// in with the block a join sits in, and both need the same three comparisons:
+// whether one opener stack is a prefix of another (still inside the owner),
+// whether two stacks are the same (an exit that belongs to the owner), and
+// whether every opener of one stack appears in another (the join is not deeper
+// than the launch).
+
+// intStackPrefix reports whether inner is a prefix of outer.
+func intStackPrefix(inner, outer []int) bool {
+	if len(inner) > len(outer) {
+		return false
+	}
+	for i := range inner {
+		if inner[i] != outer[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// intStackEqual reports whether two opener stacks hold the same lines.
+func intStackEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// intSubset reports whether every element of sub also appears in super.
+func intSubset(sub, super []int) bool {
+	for _, v := range sub {
+		found := false
+		for _, s := range super {
+			if v == s {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// ---------------------------------------------------------------------------
 // The two recognized join shapes
 // ---------------------------------------------------------------------------
 
