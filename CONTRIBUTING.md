@@ -165,6 +165,17 @@ review path before release creation.
 - Keep typing strict; run the Python build verifier for public API changes.
 - Preserve compatibility with the supported Python version floor unless a coordinated release plan says otherwise.
 
+### Lambda and serverless code
+
+- No work may outlive the invocation that started it. Lambda freezes the execution environment the moment the handler
+  returns, so never launch a goroutine (Go), timer/promise (TypeScript), or thread/future (Python) from an init path or
+  a handler and assume it will finish. Keep init paths synchronous, and make any deferred step explicit, bounded, and
+  joined to the call that started it.
+- Do not add an init-time network probe. A cold-start pre-warm only pays off when it completes, and it needs IAM
+  permissions beyond the operations the handler already performs.
+- `internal/theorydb/goroutine_leak_test.go` enforces the goroutine half of this rule for the Go Lambda init path; the
+  TypeScript and Python unit suites assert the runtime equivalents.
+
 ### Commit messages
 
 - Keep the first line at or under 72 characters.
@@ -177,6 +188,8 @@ review path before release creation.
 - Prefer unit tests that do not require Docker.
 - Use DynamoDB Local for integration and contract tests; do not point CI at a real AWS account.
 - For cross-runtime behavior, update or add contract scenarios and verify Go, TypeScript, and Python together.
+- Any change to a Lambda init or handler path must keep its goroutine-leak check green
+  (`internal/theorydb/goroutine_leak_test.go`, plus the TypeScript and Python runtime suites).
 - Do not skip or weaken a rubric gate to make a PR pass.
 
 ## Documentation

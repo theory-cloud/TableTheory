@@ -66,6 +66,16 @@ func main() { lambda.Start(handler) }
 
 `tabletheory.LambdaInit(models ...any) (*LambdaDB, error)` exists as the lower-level variant if you want to register specific model types explicitly at cold start. Most consumers should prefer `NewLambdaOptimized()` and use `db.Model(&Foo{})` per request.
 
+### No background work
+
+**Invariant:** no TableTheory init or handler path leaves work running after it returns. Every step is synchronous and joined to the call that started it.
+
+Lambda freezes the execution environment as soon as the handler returns. A goroutine started during init is not guaranteed to run: it can be frozen mid-flight and later resume against an invocation that has already completed, and any network call it made is billed to an invocation that is already over. TableTheory therefore starts no goroutine that outlives its init or its operation.
+
+`LambdaDB.OptimizeForColdStart()` follows this rule. It keeps its signature and performs only synchronous, local model-metadata work. It deliberately does not pre-warm the connection with a DynamoDB API call: earlier releases issued `ListTables` from a detached goroutine with a 100 ms timeout, which needed `dynamodb:ListTables` on top of the item permissions a handler actually uses, and which could be frozen before it ever completed. If your policies grant `dynamodb:ListTables` only for that old pre-warm, you can remove the grant. Connection reuse across warm invocations still comes from constructing the client once at module scope.
+
+`MultiAccountDB` follows the same rule: it refreshes expired partner sessions synchronously on the `Partner()` path rather than from a background ticker.
+
 ## Model shape
 
 A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag vocabulary alongside matching `json:` tags:

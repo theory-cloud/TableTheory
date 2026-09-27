@@ -299,6 +299,7 @@ func handler(ctx context.Context) error {
 - **Recommendation:** Always use `tabletheory.NewLambdaOptimized()` or `tabletheory.LambdaInit()` in your `init()` function or global scope.
 - **Details:** TableTheory's `LambdaDB` manages an optimized `http.Client` with appropriate `MaxIdleConns` and `IdleConnTimeout` settings for Lambda's execution model.
 - **Timeout buffer:** Use `LambdaDB.WithLambdaTimeoutConfig(tabletheory.LambdaTimeoutConfig{Buffer: ...})` during cold start to customize the buffer left before the Lambda hard deadline. Continue to call `db.WithLambdaTimeout(ctx)` per invocation.
+- **No background work:** Every TableTheory init and operation path is synchronous. Nothing is left running after an init or a call returns, because Lambda freezes the execution environment when the handler returns and a frozen goroutine may resume against an invocation that is already over. Earlier releases pre-warmed the connection from a detached goroutine that called `ListTables`; that pre-warm is gone, so a `dynamodb:ListTables` grant is no longer needed for it.
 
 **Example:**
 

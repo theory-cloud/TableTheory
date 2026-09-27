@@ -41,6 +41,13 @@
 
 ### Bug Fixes
 
+* **go:** remove the detached cold-start pre-warm and the multi-account credential-refresh ticker, so no TableTheory
+  init path leaves work running after it returns. Lambda freezes the execution environment as soon as the handler
+  returns, so a pre-warm started in a goroutine could be frozen mid-flight and resume against an invocation that had
+  already completed. `OptimizeForColdStart` keeps its signature and now performs only synchronous, local
+  model-metadata work: the removed pre-warm issued `ListTables`, which needed IAM permissions beyond item access and
+  was therefore pure waste for consumers that grant only item operations. `MultiAccountDB` refreshes expired partner
+  sessions synchronously on the `Partner()` path instead of from a five-minute background ticker.
 * **transaction:** refresh library-owned `updated_at` values on Go and TypeScript model-shaped transactional updates,
   matching Python and each runtime's non-transactional update behavior
 * **ts:** reject `createdAt` and version fields from model-shaped transactional update selections, and validate

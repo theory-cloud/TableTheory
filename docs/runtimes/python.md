@@ -140,6 +140,14 @@ count-only access patterns.
 - `uv --directory py run pytest -q tests/integration` — integration tests with DynamoDB Local
 - Exercised against shared contract scenarios via [`contract-tests/runners/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/runners) on every commit
 
+## Lambda and background work
+
+The Python runtime follows the same invariant as Go and TypeScript: **no init or handler path leaves work running after it returns.** Lambda freezes the execution environment as soon as the handler returns, so a thread or future left behind by one invocation must not be assumed to complete.
+
+`tabletheory_py/runtime.py` therefore exposes no cold-start pre-warm. It offers `is_lambda_environment()`, `create_lambda_boto3_config()`, `get_lambda_boto3_client()` (synchronous client construction with a module-level cache), `check_lambda_timeout()`, and `with_lambda_timeout()`.
+
+The one place the runtimes use real concurrency is `Table.scan_all_segments()`, which fans out over a `ThreadPoolExecutor`. It joins every worker before returning, so no thread outlives the call.
+
 ## Where to go next
 
 - [Getting Started](https://tabletheory.theorycloud.ai/getting-started/) — full walkthrough
