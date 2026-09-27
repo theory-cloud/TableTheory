@@ -2,15 +2,13 @@ package tests
 
 import (
 	"go/token"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 )
 
 // libraryDetachedWorkAllowlist lists library launches that are genuinely
-// long-lived and therefore bypass the join recogniser. Keys are
+// long-lived and therefore bypass the join recognizer. Keys are
 // "<relative path>:<line>"; the guard fails when a key stops matching a real
 // launch. Every entry is reported in the PR body.
 var libraryDetachedWorkAllowlist = launchAllowlist{
@@ -34,15 +32,11 @@ func TestLibrary_NoDetachedWorkInGoSources(t *testing.T) {
 
 	scanned := 0
 	launches := 0
-	recognised := 0
+	recognized := 0
 	scannedKeys := map[string]bool{}
 	var problems []string
 
-	visit := func(abs, rel string) error {
-		src, err := os.ReadFile(abs)
-		if err != nil {
-			return err
-		}
+	visit := func(rel string, src []byte) error {
 		scanned++
 		sites, err := scanGoSource(token.NewFileSet(), rel, src)
 		if err != nil {
@@ -57,7 +51,7 @@ func TestLibrary_NoDetachedWorkInGoSources(t *testing.T) {
 				continue
 			}
 			if site.Joined {
-				recognised++
+				recognized++
 				t.Logf("joined launch: %s:%d (%s) — %s", site.Rel, site.Line, site.Func, site.Evidence)
 				continue
 			}
@@ -66,26 +60,23 @@ func TestLibrary_NoDetachedWorkInGoSources(t *testing.T) {
 		return nil
 	}
 
-	// Root-level package sources.
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatalf("read repo root: %v", err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		if err := visit(filepath.Join(root, name), name); err != nil {
-			t.Fatalf("scan %s: %v", name, err)
-		}
-	}
-
-	// Library subpackages.
+	// One walk of the repository root, keeping the root package sources and the
+	// pkg/, internal/, and cmd/ subpackages. The root package lives at depth 1
+	// (no slash in the relative path), which is why the walk starts at ".".
 	include := func(rel string) bool {
-		return strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go")
+		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+			return false
+		}
+		switch {
+		case !strings.Contains(rel, "/"):
+			return true
+		case strings.HasPrefix(rel, "pkg/"), strings.HasPrefix(rel, "internal/"), strings.HasPrefix(rel, "cmd/"):
+			return true
+		default:
+			return false
+		}
 	}
-	walkDetachedWorkSources(t, root, []string{"pkg", "internal", "cmd"}, include, visit)
+	walkDetachedWorkSources(t, root, []string{"."}, include, visit)
 
 	if scanned == 0 {
 		t.Fatal("guard is vacuous: no library Go files were scanned")
@@ -93,8 +84,8 @@ func TestLibrary_NoDetachedWorkInGoSources(t *testing.T) {
 	if launches == 0 {
 		t.Fatal("guard is vacuous: no library goroutine launches were detected at all")
 	}
-	if recognised == 0 {
-		t.Fatal("guard is vacuous: no library launch was recognised as joined; the join analyser may be broken")
+	if recognized == 0 {
+		t.Fatal("guard is vacuous: no library launch was recognized as joined; the join analyzer may be broken")
 	}
 	libraryDetachedWorkAllowlist.checkAllowlistCoverage(t, scannedKeys)
 	if len(problems) > 0 {
@@ -107,7 +98,7 @@ func TestLibrary_NoDetachedWorkInGoSources(t *testing.T) {
 	}
 }
 
-// TestLibraryDetachedWorkDetectorIsNotVacuous proves the join recogniser is not
+// TestLibraryDetachedWorkDetectorIsNotVacuous proves the join recognizer is not
 // vacuous and is conservative: it must accept WaitGroup, errgroup, and drained
 // channel joins, and it must reject a launch whose Wait ran before the launch,
 // a launch whose goroutine never signals Done, and a channel that is only ever
@@ -177,10 +168,6 @@ func doWork() {}
 		t.Fatalf("parse sample: %v", err)
 	}
 
-	type expectation struct {
-		funcName string
-		joined   bool
-	}
 	want := map[string]bool{
 		"waitgroupJoin":            true,
 		"errgroupJoin":             true,

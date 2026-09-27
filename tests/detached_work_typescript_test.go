@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -16,9 +15,9 @@ var typescriptDetachedWorkAllowlist = launchAllowlist{}
 
 // tsFinding is one fire-and-forget construct found in a TypeScript source.
 type tsFinding struct {
-	Line int
 	Text string
 	Rule string
+	Line int
 }
 
 var (
@@ -28,7 +27,7 @@ var (
 
 	// Timer calls detach work from the current task. They are legitimate only
 	// when they delay a promise being awaited, or when the handle is stored and
-	// later unref'd or cleared — both recognised below.
+	// later unref'd or cleared — both recognized below.
 	tsTimerCall = regexp.MustCompile(`\b(setTimeout|setInterval|setImmediate)\s*\(`)
 
 	// `const timer = setTimeout(...)` — the handle is stored so it can be
@@ -198,11 +197,7 @@ func TestTypeScript_NoDetachedWork(t *testing.T) {
 		}
 		return true
 	}
-	visit := func(abs, rel string) error {
-		src, err := os.ReadFile(abs)
-		if err != nil {
-			return err
-		}
+	visit := func(rel string, src []byte) error {
 		scanned++
 		for _, finding := range scanTypeScriptSource(string(src)) {
 			key := launchKey(rel, finding.Line)

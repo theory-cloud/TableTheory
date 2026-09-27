@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -16,9 +15,9 @@ var pythonDetachedWorkAllowlist = launchAllowlist{}
 
 // pyFinding is one detached-work construct found in a Python source.
 type pyFinding struct {
-	Line int
 	Text string
 	Rule string
+	Line int
 }
 
 var (
@@ -124,13 +123,13 @@ func scanPythonSource(src string) []pyFinding {
 		}
 
 		if pyAsyncioTask.MatchString(line) {
-			recognised := strings.Contains(line, "await ") || pyGather.MatchString(line)
-			if !recognised {
+			recognized := strings.Contains(line, "await ") || pyGather.MatchString(line)
+			if !recognized {
 				if m := pyTaskAssign.FindStringSubmatch(line); m != nil && joinedTasks[m[1]] {
-					recognised = true
+					recognized = true
 				}
 			}
-			if !recognised {
+			if !recognized {
 				record("asyncio-task")
 			}
 		}
@@ -182,11 +181,7 @@ func TestPython_NoDetachedWork(t *testing.T) {
 		base := rel[strings.LastIndex(rel, "/")+1:]
 		return !strings.HasPrefix(base, "test_") && !strings.HasSuffix(base, "_test.py")
 	}
-	visit := func(abs, rel string) error {
-		src, err := os.ReadFile(abs)
-		if err != nil {
-			return err
-		}
+	visit := func(rel string, src []byte) error {
 		scanned++
 		for _, finding := range scanPythonSource(string(src)) {
 			key := launchKey(rel, finding.Line)

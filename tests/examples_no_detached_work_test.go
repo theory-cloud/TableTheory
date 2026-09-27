@@ -2,7 +2,6 @@ package tests
 
 import (
 	"go/token"
-	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -33,11 +32,7 @@ func TestExamples_NoDetachedWorkInLambdaEntrypoints(t *testing.T) {
 	include := func(rel string) bool {
 		return strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go")
 	}
-	walkDetachedWorkSources(t, root, []string{"examples"}, include, func(abs, rel string) error {
-		src, err := os.ReadFile(abs)
-		if err != nil {
-			return err
-		}
+	walkDetachedWorkSources(t, root, []string{"examples"}, include, func(rel string, src []byte) error {
 		scanned++
 		sites, err := scanGoSource(token.NewFileSet(), rel, src)
 		if err != nil {
@@ -71,7 +66,7 @@ func TestExamples_NoDetachedWorkInLambdaEntrypoints(t *testing.T) {
 
 // TestExamplesDetachedWorkDetectorIsNotVacuous proves the AST detector is not
 // vacuous: it must find real launches — including the same-line `; go f()` form
-// that a line-anchored regex misses — it must recognise a WaitGroup join and a
+// that a line-anchored regex misses — it must recognize a WaitGroup join and a
 // channel-drain join, it must refuse to call a launch joined when the Wait runs
 // before it, and it must not invent launches out of directives, comments,
 // prose, or string literals.
@@ -153,7 +148,7 @@ func methodValue() {
 		t.Error("detector matched a string literal as a goroutine launch")
 	}
 
-	// Same-line form must be recognised as a launch and as unjoined.
+	// Same-line form must be recognized as a launch and as unjoined.
 	if joined, ok := byText["_ = ready; go worker()"]; !ok || joined {
 		t.Errorf("same-line `; go worker()`: found=%v joined=%v, want found=true joined=false", ok, joined)
 	}
@@ -171,7 +166,7 @@ func methodValue() {
 		}
 	}
 	if joined != 2 {
-		t.Errorf("recognised %d joined `go func() {` launches, want 2 (WaitGroup + channel drain)", joined)
+		t.Errorf("recognized %d joined `go func() {` launches, want 2 (WaitGroup + channel drain)", joined)
 	}
 }
 

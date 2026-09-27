@@ -63,11 +63,11 @@ var detachedWorkSkipDirs = map[string]bool{
 }
 
 // walkDetachedWorkSources visits every file below each of dirs (relative to the
-// repository root) whose repository-relative slash path satisfies include.
-// Missing roots are skipped so a language surface that does not exist cannot
-// make the guard fail; the caller is responsible for proving it scanned
-// something.
-func walkDetachedWorkSources(t *testing.T, root string, dirs []string, include func(rel string) bool, visit func(abs, rel string) error) {
+// repository root) whose repository-relative slash path satisfies include, and
+// hands the file's contents to visit. Missing roots are skipped so a language
+// surface that does not exist cannot make the guard fail; the caller is
+// responsible for proving it scanned something.
+func walkDetachedWorkSources(t *testing.T, root string, dirs []string, include func(rel string) bool, visit func(rel string, src []byte) error) {
 	t.Helper()
 
 	for _, dir := range dirs {
@@ -93,7 +93,13 @@ func walkDetachedWorkSources(t *testing.T, root string, dirs []string, include f
 			if include != nil && !include(rel) {
 				return nil
 			}
-			return visit(path, rel)
+			// The walker is the single place that reads source, always from a
+			// path it derived itself by walking the repository root.
+			src, err := os.ReadFile(filepath.Clean(path))
+			if err != nil {
+				return err
+			}
+			return visit(rel, src)
 		})
 		if err != nil {
 			t.Fatalf("scan %s: %v", dir, err)
@@ -150,11 +156,11 @@ func reportAllowlist(t *testing.T, a launchAllowlist) {
 // goLaunchSite is one `go` statement located by the AST scanner.
 type goLaunchSite struct {
 	Rel      string
-	Line     int
 	Text     string
 	Func     string
-	Joined   bool
 	Evidence string
+	Line     int
+	Joined   bool
 }
 
 // funcBody pairs a function's body with the declaration that owns it, so a
@@ -166,7 +172,7 @@ type funcBody struct {
 
 // scanGoSource parses Go source with go/ast — never a regex — and returns every
 // goroutine launch it contains, classified as joined or not. Parsing means a
-// launch is recognised wherever it appears, including the `; go f()` form on a
+// launch is recognized wherever it appears, including the `; go f()` form on a
 // line that also holds other statements, which a line-anchored pattern misses.
 // Both launch mechanisms are found: `go` statements and errgroup-style
 // `<g>.Go(func(){...})` calls, because errgroup hides a goroutine behind an
@@ -226,7 +232,7 @@ func scanGoSource(fset *token.FileSet, rel string, src []byte) ([]goLaunchSite, 
 	return sites, nil
 }
 
-// errgroupFuncLit recognises an errgroup-style launch: a call to a method named
+// errgroupFuncLit recognizes an errgroup-style launch: a call to a method named
 // Go whose argument is a function literal. It returns the literal's body and
 // the receiver expression used to name the group.
 func errgroupFuncLit(call *ast.CallExpr) (*ast.BlockStmt, string, bool) {
@@ -272,7 +278,7 @@ func funcName(decl ast.Node) string {
 }
 
 // goLaunchJoined reports whether the goroutine started by goStmt provably
-// finishes before the enclosing function returns. It recognises the two idioms
+// finishes before the enclosing function returns. It recognizes the two idioms
 // this codebase uses to join: a sync.WaitGroup (Add before the launch, Wait
 // after it, and Done inside the launched function) and a channel the enclosing
 // function drains after the launch whose writes happen inside the launched
@@ -283,7 +289,7 @@ func funcName(decl ast.Node) string {
 // signals, so a WaitGroup or channel that only exists inside the goroutine — or
 // a Wait that runs before the launch — cannot masquerade as a join. That is why
 // MemoryMonitor.Start in pkg/protection (which calls mm.wg.Wait() *before*
-// mm.wg.Add(1) and launches the next monitor) is not recognised as joined.
+// mm.wg.Add(1) and launches the next monitor) is not recognized as joined.
 func goLaunchJoined(fset *token.FileSet, owner *ast.BlockStmt, launchPos token.Pos, launched *ast.BlockStmt) (bool, string) {
 	goOffset := fset.Position(launchPos).Offset
 
