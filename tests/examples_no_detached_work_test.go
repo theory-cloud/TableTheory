@@ -1,148 +1,185 @@
 package tests
 
 import (
-	"fmt"
+	"go/token"
 	"os"
-	"path/filepath"
-	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
 )
 
-// examplesDetachedWorkAllowlist lists the example Go files that may start a
-// goroutine because the example really is a long-lived process rather than a
-// Lambda handler. Every entry carries a justification so that adding one is a
-// conscious decision; anything not listed here must deliver its work on the
-// invocation path, because Lambda freezes the execution environment the moment
-// the handler returns and a frozen goroutine can resume against an invocation
-// that is already over.
-var examplesDetachedWorkAllowlist = map[string]string{
-	"examples/multi-tenant/cmd/local/main.go": "local dev HTTP server, not a Lambda handler: main starts ListenAndServe and then blocks on SIGINT/SIGTERM before a graceful shutdown",
+// examplesDetachedWorkAllowlist lists example launches that may outlive their
+// caller because the example really is a long-lived process rather than a
+// Lambda handler. Keys are "<relative path>:<line>", so each entry justifies
+// one exact launch; the guard fails if a key stops matching a real launch.
+var examplesDetachedWorkAllowlist = launchAllowlist{
+	"examples/multi-tenant/cmd/local/main.go:116": "local dev HTTP server, not a Lambda handler: main starts ListenAndServe in this goroutine and then blocks on SIGINT/SIGTERM before a graceful shutdown, so the server never outlives the process that owns it",
 }
-
-// goLaunch matches a Go `go` statement that runs a function on a new goroutine:
-// `go worker(i)`, `go s.worker(i)`, `go r.run()`, `go func() { ... }()`. The
-// pattern requires a call, so prose in a raw string (for example "go mod tidy")
-// and the `//go:build` / `//go:embed` directives never match.
-var goLaunch = regexp.MustCompile(`^\s*go\s+(?:func|[A-Za-z_][A-Za-z0-9_.]*)\s*\(`)
 
 // TestExamples_NoDetachedWorkInLambdaEntrypoints fails when an example starts
 // work that can outlive the invocation that started it. The blog example
 // deploys only as Lambda functions and the payment example only as Lambda
-// handlers, so neither may fork a goroutine; the local CLI is allowlisted.
+// handlers, so neither may fork a goroutine; the local dev server is the sole
+// reviewed exception. Launches are found with go/ast, so the `; go f()` form
+// and any other placement is caught rather than only a line-initial `go`.
 func TestExamples_NoDetachedWorkInLambdaEntrypoints(t *testing.T) {
-	root := examplesRepoRoot(t)
-	examplesDir := filepath.Join(root, "examples")
+	root := detachedWorkRepoRoot(t)
+	reportAllowlist(t, examplesDetachedWorkAllowlist)
 
 	scanned := 0
-	seenAllowlisted := make(map[string]bool, len(examplesDetachedWorkAllowlist))
+	scannedKeys := map[string]bool{}
 	var problems []string
 
-	walkErr := filepath.WalkDir(examplesDir, func(path string, entry os.DirEntry, err error) error {
+	include := func(rel string) bool {
+		return strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go")
+	}
+	walkDetachedWorkSources(t, root, []string{"examples"}, include, func(abs, rel string) error {
+		src, err := os.ReadFile(abs)
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", ".venv", "build", "cdk.out", "dist", "node_modules", "vendor":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
 		scanned++
-
-		if _, allowed := examplesDetachedWorkAllowlist[rel]; allowed {
-			seenAllowlisted[rel] = true
+		sites, err := scanGoSource(token.NewFileSet(), rel, src)
+		if err != nil {
+			t.Errorf("parse %s: %v", rel, err)
 			return nil
 		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		for i, line := range strings.Split(string(content), "\n") {
-			if goLaunch.MatchString(line) {
-				problems = append(problems, fmt.Sprintf("%s:%d: %s", rel, i+1, strings.TrimSpace(line)))
+		for _, site := range sites {
+			key := launchKey(rel, site.Line)
+			scannedKeys[key] = true
+			if examplesDetachedWorkAllowlist.allowlisted(rel, site.Line) {
+				continue
 			}
+			problems = append(problems, describeLaunch(site))
 		}
 		return nil
 	})
-	if walkErr != nil {
-		t.Fatalf("scan examples: %v", walkErr)
-	}
 
 	if scanned == 0 {
 		t.Fatal("guard is vacuous: no example Go files were scanned")
 	}
-	for rel := range examplesDetachedWorkAllowlist {
-		if !seenAllowlisted[rel] {
-			t.Errorf("allowlist entry %q matches no scanned example file; remove it or fix the path", rel)
-		}
-	}
+	examplesDetachedWorkAllowlist.checkAllowlistCoverage(t, scannedKeys)
 	if len(problems) > 0 {
 		sort.Strings(problems)
 		t.Fatalf(
 			"examples must not start work that can outlive a Lambda invocation.\n"+
-				"Deliver it on the invocation path instead, or add the file to examplesDetachedWorkAllowlist with a justification:\n%s",
+				"Deliver it on the invocation path instead, or add the exact line to examplesDetachedWorkAllowlist with a justification:\n%s",
 			strings.Join(problems, "\n"),
 		)
 	}
 }
 
-// TestExamplesDetachedWorkDetectorIsNotVacuous proves the detector above is not
-// vacuous: it must flag real goroutine launches and must not flag Go directives,
-// comments, prose, or a filename.
+// TestExamplesDetachedWorkDetectorIsNotVacuous proves the AST detector is not
+// vacuous: it must find real launches — including the same-line `; go f()` form
+// that a line-anchored regex misses — it must recognise a WaitGroup join and a
+// channel-drain join, it must refuse to call a launch joined when the Wait runs
+// before it, and it must not invent launches out of directives, comments,
+// prose, or string literals.
 func TestExamplesDetachedWorkDetectorIsNotVacuous(t *testing.T) {
-	launches := []string{
-		"go worker(i)",
-		"\tgo s.worker(i)",
-		"    go r.run()",
-		"go func() {",
-		"go send(ctx, notification)",
-	}
-	for _, line := range launches {
-		if !goLaunch.MatchString(line) {
-			t.Errorf("detector missed a goroutine launch: %q", line)
-		}
-	}
+	const src = `//go:build linux && amd64
+//go:embed demo.yml
 
-	ignored := []string{
-		"//go:build linux && amd64",
-		"//go:embed dms/demo.yml",
-		"// go worker(i) is deliberately not used here",
-		"go mod tidy",
-		"worker.go(1)",
-	}
-	for _, line := range ignored {
-		if goLaunch.MatchString(line) {
-			t.Errorf("detector false-positive on %q", line)
-		}
+package sample
+
+import "sync"
+
+const note = "go worker(i) is deliberately absent"
+
+func joinedDirect() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+	}()
+	wg.Wait()
+}
+
+func joinedChannel() {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+	}()
+	<-done
+}
+
+func waitBeforeLaunch() {
+	var wg sync.WaitGroup
+	wg.Wait()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+	}()
+}
+
+func sameLine() {
+	ready := true
+	if ready {
+		_ = ready; go worker()
 	}
 }
 
-// examplesRepoRoot resolves the repository root from this test file's location,
-// independent of the working directory `go test` happens to use.
-func examplesRepoRoot(t *testing.T) string {
-	t.Helper()
+func methodValue() {
+	go s.worker(2)
+}
+`
+	sites, err := scanGoSource(token.NewFileSet(), "sample.go", []byte(src))
+	if err != nil {
+		t.Fatalf("parse sample: %v", err)
+	}
 
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot resolve this test file's path")
+	byText := map[string]bool{}
+	for _, site := range sites {
+		byText[site.Text] = site.Joined
 	}
-	root := filepath.Dir(filepath.Dir(file))
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Fatalf("resolved repo root %q has no go.mod: %v", root, err)
+
+	// Nothing that is not a goroutine launch may be reported: the build and
+	// embed directives, the comment-like prose, and the string literal above
+	// must all be invisible to the detector.
+	wantLaunches := []string{
+		"go func() {",
+		"_ = ready; go worker()",
+		"go s.worker(2)",
 	}
-	return root
+	for _, text := range wantLaunches {
+		if _, ok := byText[text]; !ok {
+			t.Errorf("detector missed the launch %q; found %v", text, launchTexts(sites))
+		}
+	}
+
+	if len(sites) != 5 {
+		t.Errorf("detector found %d launches, want 5: %v", len(sites), launchTexts(sites))
+	}
+	if strings.Contains(strings.Join(launchTexts(sites), "|"), "go worker(i)") {
+		t.Error("detector matched a string literal as a goroutine launch")
+	}
+
+	// Same-line form must be recognised as a launch and as unjoined.
+	if joined, ok := byText["_ = ready; go worker()"]; !ok || joined {
+		t.Errorf("same-line `; go worker()`: found=%v joined=%v, want found=true joined=false", ok, joined)
+	}
+	if joined, ok := byText["go s.worker(2)"]; !ok || joined {
+		t.Errorf("`go s.worker(2)`: found=%v joined=%v, want found=true joined=false", ok, joined)
+	}
+
+	// Two of the three `go func() {` launches are joined (WaitGroup, channel
+	// drain) and one is not (Wait ran before the launch). Count them by join
+	// evidence so the ordering rule is pinned.
+	joined := 0
+	for _, site := range sites {
+		if site.Text == "go func() {" && site.Joined {
+			joined++
+		}
+	}
+	if joined != 2 {
+		t.Errorf("recognised %d joined `go func() {` launches, want 2 (WaitGroup + channel drain)", joined)
+	}
+}
+
+// launchTexts lists the source text of every detected launch, for diagnostics.
+func launchTexts(sites []goLaunchSite) []string {
+	out := make([]string, 0, len(sites))
+	for _, site := range sites {
+		out = append(out, site.Text)
+	}
+	return out
 }
