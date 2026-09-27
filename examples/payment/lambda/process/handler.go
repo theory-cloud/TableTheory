@@ -192,7 +192,7 @@ func (h *Handler) processPayment(ctx context.Context, merchantID string, req *Pr
 		return nil, fmt.Errorf("failed to process payment: %w", err)
 	}
 
-	// Send webhook notification asynchronously
+	// Send the webhook notification for this payment.
 	webhookJob := &utils.WebhookJob{
 		MerchantID: merchantID,
 		EventType:  "payment.succeeded",

@@ -160,7 +160,7 @@ POST /payments/export?start_date=2024-01-01&end_date=2024-01-31&format=csv
 {
   "export_id": "export-merchant123-1234567890",
   "status": "pending",
-  "message": "Export job created. You will receive a notification when complete.",
+  "message": "Export job recorded. Nothing in this example processes export jobs, so no notification will be sent and the job stays pending.",
   "check_url": "/exports/export-merchant123-1234567890"
 }
 ```
@@ -173,9 +173,9 @@ writes `ResultURL` back to the record. Adding that consumer is a separate,
 explicitly deployed piece of work that the example does not include; until it
 exists, a job simply stays `pending`.
 
-The `message` in the response above records intent, not a promise kept by this
-example: no notification is sent when a job "completes", because completing a
-job is the part that is out of scope.
+The `message` in the response above states exactly what this example does: the
+job is recorded, nothing processes it, and no notification is sent. It is not a
+promise the example keeps somewhere else.
 
 ## Integration Points
 
