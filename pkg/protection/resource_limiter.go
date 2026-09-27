@@ -193,10 +193,21 @@ func (rp *ResourceProtector) SecureBodyReader(r *http.Request) ([]byte, error) {
 	case <-done:
 		return bodyBytes, err
 	case <-ctx.Done():
+		// Unblock the reader before returning: closing the body makes ReadAll
+		// return, and done is then awaited so the reader goroutine cannot
+		// outlive this call. Lambda freezes the execution environment as soon
+		// as the handler returns, so a reader left mid-read would be frozen
+		// and could resume against an invocation that is already over.
+		closeErr := body.Close()
+		<-done
 		atomic.AddInt64(&rp.stats.RejectedRequests, 1)
+		detail := "Request timeout exceeded"
+		if closeErr != nil {
+			detail = fmt.Sprintf("Request timeout exceeded (failed to close request body: %v)", closeErr)
+		}
 		return nil, &ProtectionError{
 			Type:   "RequestTimeout",
-			Detail: "Request timeout exceeded",
+			Detail: detail,
 		}
 	}
 }
