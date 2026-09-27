@@ -14,14 +14,6 @@ import (
 // no TypeScript source we ship needs an exception.
 var typescriptDetachedWorkAllowlist = launchAllowlist{}
 
-// typescriptScanExclusions are sources left out of the TypeScript scan, each
-// with a reason a reviewer can check. An exclusion removes a file from the scan
-// entirely, so the bar is that the file cannot carry work past an invocation at
-// all — not that its findings would be inconvenient.
-var typescriptScanExclusions = map[string]string{
-	"scripts/verify-generated-ts-key-contract.ts": "Node CLI verifier run by scripts/verify-generated-ts-key-contract.sh through tsx. It has no package.json above it, so tsx compiles it as CommonJS, where top-level await is impossible (esbuild: `Top-level await is currently not supported with the \"cjs\" output format`) and `main().catch(...)` is the only entrypoint form that is expressible. Its module top level is the whole process: it runs to completion on a CI runner and nothing it leaves pending can outlive an invocation, because there is no invocation — the process exits when the event loop empties. It is not Lambda code, and it declares no timers, no microtask scheduling, and no other detached work.",
-}
-
 // tsFinding is one fire-and-forget construct found in a TypeScript source.
 type tsFinding struct {
 	Text string
@@ -252,20 +244,17 @@ func hasAssignmentOperator(s string) bool {
 
 // TestTypeScript_NoDetachedWork fails when a TypeScript or JavaScript source we
 // ship (ts/src, ts/examples, examples) or run (scripts, contract-test runners)
-// launches work that is neither awaited nor returned.
+// launches work that is neither awaited nor returned. Every path in those
+// surfaces is scanned; there is no exclusion.
 func TestTypeScript_NoDetachedWork(t *testing.T) {
 	root := detachedWorkRepoRoot(t)
 	reportAllowlist(t, typescriptDetachedWorkAllowlist)
-	reportTypeScriptExclusions(t)
 
 	scanned := 0
 	scannedKeys := map[string]bool{}
 	var problems []string
 
 	include := func(rel string) bool {
-		if _, excluded := typescriptScanExclusions[rel]; excluded {
-			return false
-		}
 		if !hasTypeScriptSuffix(rel) {
 			return false
 		}
@@ -314,24 +303,6 @@ func hasTypeScriptSuffix(rel string) bool {
 		}
 	}
 	return false
-}
-
-// reportTypeScriptExclusions logs every excluded path with its justification so
-// the PR body can quote the complete set.
-func reportTypeScriptExclusions(t *testing.T) {
-	t.Helper()
-	if len(typescriptScanExclusions) == 0 {
-		t.Log("TypeScript scan exclusions: (none)")
-		return
-	}
-	paths := make([]string, 0, len(typescriptScanExclusions))
-	for path := range typescriptScanExclusions {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	for _, path := range paths {
-		t.Logf("TypeScript scan exclusion: %s — %s", path, typescriptScanExclusions[path])
-	}
 }
 
 // describeTSFinding renders a TypeScript finding for a reviewer.
