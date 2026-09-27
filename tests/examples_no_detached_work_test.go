@@ -13,7 +13,7 @@ import (
 // Lambda handler. Keys are "<relative path>:<line>", so each entry justifies
 // one exact launch; the guard fails if a key stops matching a real launch.
 var examplesDetachedWorkAllowlist = launchAllowlist{
-	"examples/multi-tenant/cmd/local/main.go:116": "local dev HTTP server, not a Lambda handler: main starts ListenAndServe in this goroutine and then blocks on SIGINT/SIGTERM before a graceful shutdown, so the server never outlives the process that owns it",
+	"examples/multi-tenant/cmd/local/main.go:69": "local dev HTTP server, not a Lambda handler: main starts ListenAndServe in this goroutine and then blocks on SIGINT/SIGTERM before a graceful shutdown, so the server never outlives the process that owns it",
 }
 
 // TestExamples_NoDetachedWorkInLambdaEntrypoints fails when an example starts

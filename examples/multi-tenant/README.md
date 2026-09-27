@@ -258,6 +258,24 @@ AUDIT_RETENTION_DAYS: 90
 DEFAULT_RATE_LIMIT: 1000
 ```
 
+### Lambda Entrypoint
+
+One binary, `cmd/lambda`, serves every function the SAM template declares. The
+`FUNCTION_TYPE` environment variable selects which handler an invocation runs:
+
+| `FUNCTION_TYPE` | Role |
+| --- | --- |
+| `organization`, `user`, `project`, `resource`, `apikey` | API Gateway proxy handlers, routed through the same table the local server uses (`handlers.NewRouter`, shared with `cmd/local`) |
+| `jwt_authorizer`, `apikey_authorizer` | API Gateway custom authorizers |
+
+`billing` and `audit_cleanup` are declared in the template but are not
+implemented by this example, so invoking them returns an explicit error rather
+than pretending to succeed. Audit entries already expire through the model's
+DynamoDB TTL, and monthly billing is outside the example's scope.
+
+Build the entrypoint with `make build`, which produces `bin/bootstrap` and zips
+it to `bin/deployment.zip`.
+
 ### AWS SAM Deployment
 
 ```bash
