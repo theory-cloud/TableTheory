@@ -78,8 +78,6 @@ Parallel fan-out is allowed only when it is fully joined. `Query.ScanAllSegments
 
 `LambdaDB.OptimizeForColdStart()` follows this rule. It keeps its signature and performs only synchronous, local model-metadata work. It deliberately does not pre-warm the connection with a DynamoDB API call: earlier releases issued `ListTables` from a detached goroutine with a 100 ms timeout, which needed `dynamodb:ListTables` on top of the item permissions a handler actually uses, and which could be frozen before it ever completed. If your policies grant `dynamodb:ListTables` only for that old pre-warm, you can remove the grant. Connection reuse across warm invocations still comes from constructing the client once at module scope.
 
-`MultiAccountDB` follows the same rule: it refreshes expired partner sessions synchronously on the `Partner()` path rather than from a background ticker.
-
 ## Model shape
 
 A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag vocabulary alongside matching `json:` tags:

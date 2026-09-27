@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-import tabletheory_py.runtime as runtime
+from tabletheory_py import runtime
 from tabletheory_py.mocks import FakeDynamoDBClient
 from tabletheory_py.model import ModelDefinition, theorydb_field
 from tabletheory_py.runtime import (
