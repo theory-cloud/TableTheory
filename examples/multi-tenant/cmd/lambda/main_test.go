@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -76,11 +79,11 @@ func TestDispatch_JWTAuthorizerDeniesMissingToken(t *testing.T) {
 }
 
 func TestDispatch_RejectsUnimplementedFunctionType(t *testing.T) {
-	t.Setenv("FUNCTION_TYPE", "billing")
+	t.Setenv("FUNCTION_TYPE", "not_a_declared_function")
 
 	_, err := dispatch(context.Background(), json.RawMessage(`{}`))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "billing")
+	assert.Contains(t, err.Error(), "not_a_declared_function")
 }
 
 func TestHTTPRequest_MapsEventToRequest(t *testing.T) {
@@ -128,4 +131,82 @@ func TestAuthorizeAPIKey_DeniesWithoutKey(t *testing.T) {
 		MethodArn: "arn:aws:execute-api:us-east-1:123456789012:api/dev/GET/organizations",
 	})
 	require.Error(t, err)
+}
+
+// TestDispatch_RequestAuthorizerEventsAllowAndDeny drives the authorizers with
+// the event the template actually configures. Both authorizers declare
+// FunctionPayloadType: REQUEST, so API Gateway sends the REQUEST payload (path,
+// method, headers) and never a TOKEN payload; this test uses that shape, with
+// the method ARN of a route that inherits DefaultAuthorizer: JWTAuthorizer.
+func TestDispatch_RequestAuthorizerEventsAllowAndDeny(t *testing.T) {
+	t.Setenv("FUNCTION_TYPE", "jwt_authorizer")
+
+	// A default-authorized route: no Auth override in the template, so it runs
+	// through JWTAuthorizer.
+	const methodARN = "arn:aws:execute-api:us-east-1:123456789012:api/dev/GET/organizations/org%23demo/users"
+
+	allowed, err := dispatch(context.Background(), requestAuthorizerEvent(t, methodARN, map[string]string{
+		"Authorization": "Bearer user123:orgabc",
+	}))
+	require.NoError(t, err)
+
+	var response events.APIGatewayCustomAuthorizerResponse
+	require.NoError(t, json.Unmarshal(allowed, &response))
+	require.Len(t, response.PolicyDocument.Statement, 1)
+	assert.Equal(t, "Allow", response.PolicyDocument.Statement[0].Effect)
+	assert.Equal(t, []string{methodARN}, response.PolicyDocument.Statement[0].Resource)
+	assert.Equal(t, "user#user123", response.PrincipalID)
+	assert.Equal(t, "org#orgabc", response.Context["org_id"])
+
+	denied := []struct {
+		name    string
+		headers map[string]string
+	}{
+		{"no authorization header at all", nil},
+		{"empty token after the scheme", map[string]string{"Authorization": "Bearer "}},
+		{"token with an empty tenant", map[string]string{"Authorization": "Bearer user123:"}},
+	}
+	for _, tc := range denied {
+		_, err := dispatch(context.Background(), requestAuthorizerEvent(t, methodARN, tc.headers))
+		require.Errorf(t, err, "%s: a request without a usable token must be denied", tc.name)
+		assert.Contains(t, err.Error(), "Unauthorized", "%s", tc.name)
+	}
+}
+
+// requestAuthorizerEvent builds the REQUEST-type authorizer event the template
+// produces, including the fields a real invocation carries.
+func requestAuthorizerEvent(t *testing.T, methodARN string, headers map[string]string) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(events.APIGatewayCustomAuthorizerRequestTypeRequest{
+		Type:                  "REQUEST",
+		MethodArn:             methodARN,
+		Resource:              "/organizations/org%23demo/users",
+		Path:                  "/organizations/org%23demo/users",
+		HTTPMethod:            "GET",
+		Headers:               headers,
+		QueryStringParameters: map[string]string{"limit": "10"},
+	})
+	require.NoError(t, err)
+	return raw
+}
+
+// TestTemplate_DeclaresWhatTheEntrypointServes pins the deployment template to
+// the entrypoint and to the removals this example makes: the authorizers must
+// be REQUEST authorizers (the event shape dispatch decodes), the runtime must
+// be the provided one the Makefile builds for, and the functions this example
+// does not implement must not be declared at all.
+func TestTemplate_DeclaresWhatTheEntrypointServes(t *testing.T) {
+	template, err := os.ReadFile(filepath.Join("..", "..", "deployment", "template.yaml"))
+	require.NoError(t, err)
+	text := string(template)
+
+	assert.Contains(t, text, "Runtime: provided.al2023")
+	assert.NotContains(t, text, "go1.x", "go1.x is retired and ignores a bootstrap handler")
+	assert.Equal(t, 2, strings.Count(text, "FunctionPayloadType: REQUEST"),
+		"both authorizers must declare the REQUEST payload type the entrypoint decodes")
+	assert.NotContains(t, text, "StripeSecretKey")
+	assert.NotContains(t, text, "BillingFunction")
+	assert.NotContains(t, text, "AuditCleanupFunction")
+	assert.NotContains(t, text, "audit_cleanup")
+	assert.NotContains(t, text, "FUNCTION_TYPE: billing")
 }
