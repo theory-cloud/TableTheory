@@ -287,9 +287,7 @@ func funcName(decl ast.Node) string {
 // The analysis deliberately stops at the launch boundary: it never descends
 // into the launched function when hunting for the owner's Add/Wait/receive
 // signals, so a WaitGroup or channel that only exists inside the goroutine — or
-// a Wait that runs before the launch — cannot masquerade as a join. That is why
-// MemoryMonitor.Start in pkg/protection (which calls mm.wg.Wait() *before*
-// mm.wg.Add(1) and launches the next monitor) is not recognized as joined.
+// a Wait that runs before the launch — cannot masquerade as a join.
 func goLaunchJoined(fset *token.FileSet, owner *ast.BlockStmt, launchPos token.Pos, launched *ast.BlockStmt) (bool, string) {
 	goOffset := fset.Position(launchPos).Offset
 

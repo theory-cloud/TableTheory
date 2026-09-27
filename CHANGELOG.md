@@ -27,6 +27,13 @@
   set-tagged slices write as `NULL`, and unsupported set element types fail at write time. Legacy shape-driven reads
   remain supported, but filters/conditions over mixed old/new data may need migration. Semver decision: this persisted
   shape convergence is release-major material and must not ship as a patch/minor.
+* **go:** replace the ticker-driven memory monitor with on-demand sampling. `MemoryMonitor.Start`,
+  `MemoryMonitor.Stop`, `ResourceProtector.StartMemoryMonitoring`, `ResourceProtector.StopMemoryMonitoring`, and
+  `ResourceLimits.MemoryCheckInterval` are removed, and `MemoryMonitor.Sample`,
+  `ResourceProtector.SampleMemory`, and `ResourceProtector.SetMemoryAlertCallback` replace them. A caller samples
+  inside the request whose memory it wants recorded; no goroutine or timer is started, so nothing a sample starts can
+  outlive the invocation that asked for it. The removed API had no consumers in this repository, and TypeScript and
+  Python never had a counterpart.
 
 ### Features
 

@@ -7,13 +7,13 @@ import (
 	"testing"
 )
 
-// libraryDetachedWorkAllowlist lists library launches that are genuinely
-// long-lived and therefore bypass the join recognizer. Keys are
-// "<relative path>:<line>"; the guard fails when a key stops matching a real
-// launch. Every entry is reported in the PR body.
-var libraryDetachedWorkAllowlist = launchAllowlist{
-	"pkg/protection/resource_limiter.go:312": "intentional long-lived monitor: MemoryMonitor.Start launches monitorLoop, which runs until Stop() closes stopChan; it is not joined before Start returns, so a caller that never calls StopMemoryMonitoring before its Lambda handler returns would leave it frozen mid-flight. It is allowlisted rather than removed because it is an opt-in, explicitly lifecycle-managed background service (Start/Stop) that no library code path starts on its own — NewResourceProtector does not call Start.",
-}
+// libraryDetachedWorkAllowlist lists library launches that are permitted to run
+// detached. It is intentionally empty: no goroutine a library function starts
+// may outlive the invocation that started it, and no library launch has a
+// justified exception. Keys are "<relative path>:<line>"; the guard fails when
+// a key stops matching a real launch, and every entry would be reported in the
+// PR body.
+var libraryDetachedWorkAllowlist = launchAllowlist{}
 
 // TestLibrary_NoDetachedWorkInGoSources fails when a library goroutine is not
 // provably joined before the function that launched it returns. This is the
