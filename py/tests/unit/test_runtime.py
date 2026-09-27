@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -205,6 +207,44 @@ def test_scan_all_segments_joins_its_worker_threads() -> None:
 
     # The parallel segment workers are joined before the call returns, so no
     # thread outlives the invocation that started it.
+    assert _non_main_threads() == []
+
+
+class _SegmentErrorClient(FakeDynamoDBClient):
+    """Fails segment 0 and holds every other segment open for a moment.
+
+    That window is exactly where an unjoined parallel scan would return while
+    its remaining segment workers were still running.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.segment_zero_failed = threading.Event()
+        self.finished: list[int | None] = []
+
+    def scan(self, **kwargs: Any) -> dict[str, Any]:
+        segment = kwargs.get("Segment")
+        if segment == 0:
+            self.segment_zero_failed.set()
+            raise RuntimeError("segment scan failed")
+        assert self.segment_zero_failed.wait(timeout=5)
+        time.sleep(0.05)
+        self.finished.append(segment)
+        return {"Items": [], "Count": 0, "ScannedCount": 0}
+
+
+def test_scan_all_segments_joins_its_worker_threads_on_segment_error() -> None:
+    model = ModelDefinition.from_dataclass(RuntimeItem, table_name="runtime_items")
+    client = _SegmentErrorClient()
+    table: Table[RuntimeItem] = Table(model, client=client)
+
+    with pytest.raises(RuntimeError, match="segment scan failed"):
+        table.scan_all_segments(total_segments=3, max_workers=3)
+
+    # The first segment error must not let the call return while the other
+    # segment workers are still running, and the exception the caller sees must
+    # be the original segment failure rather than a secondary error.
+    assert sorted(client.finished) == [1, 2]
     assert _non_main_threads() == []
 
 
