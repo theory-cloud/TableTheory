@@ -2,7 +2,7 @@
 
 ## Overview
 This document describes the implementation of the Payment Example's three main features:
-1. **Webhook Notification System** - Async webhook delivery with retry logic
+1. **Webhook Notification System** - Synchronous webhook delivery with retry logic
 2. **JWT Authentication** - Token validation and merchant ID extraction  
 3. **Export Lambda Integration** - Async export job processing
 
@@ -16,25 +16,22 @@ This document describes the implementation of the Payment Example's three main f
 #### Key Components:
 
 1. **WebhookSender** - Main webhook delivery service
-   - Manages worker pool for async processing
-   - Queues webhooks for delivery
-   - Handles graceful shutdown
+   - Delivers on the caller's goroutine: it owns no worker pool and no queue,
+     because Lambda freezes the execution environment the moment the handler
+     returns
+   - Bounded by the caller's context and the sender's internal timeout
 
 2. **Webhook Delivery Features**:
-   - Exponential backoff retry (up to 5 attempts)
+   - Exponential backoff retry (up to 5 attempts, all inside the invocation)
    - HMAC-SHA256 signature generation
    - Webhook status tracking in DynamoDB
    - TTL-based expiration (24 hours)
    - Support for multiple webhook endpoints
 
-3. **RetryWorker** - Opt-in background worker for failed webhooks
-   - Polls for failed webhooks periodically
-   - Retries delivery with saved state
-   - Updates webhook status
-   - Explicit `Start()`/`Stop()` for a long-lived process only. Never start it
-     inside a Lambda handler: the execution environment is frozen when the
-     handler returns. In Lambda, re-drive failed webhooks from a queue or a
-     scheduled invocation.
+Failed webhooks are re-driven from a queue or a scheduled invocation, not from an
+in-process worker: this example deploys only as Lambda functions
+(`lambda/process`, `lambda/query`, `lambda/reconcile`), so nothing keeps running
+after a handler returns to own one.
 
 ### Usage Example:
 
@@ -257,9 +254,8 @@ AWS_REGION=us-east-1
 ## Performance Considerations
 
 1. **Webhook Delivery**:
-   - Configurable worker pool size
-   - Non-blocking sends
-   - Queue size limits to prevent OOM
+   - Synchronous, bounded by the caller's context and the sender's timeout
+   - Retries happen inside the invocation that triggered them
 
 2. **Export Processing**:
    - Async job queue pattern

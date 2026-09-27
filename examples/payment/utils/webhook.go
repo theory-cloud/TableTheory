@@ -7,13 +7,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v3"
 	"github.com/theory-cloud/tabletheory/v3/examples/payment"
 	"github.com/theory-cloud/tabletheory/v3/pkg/core"
 )
@@ -206,89 +204,4 @@ func (w *WebhookSender) generateSignature(payload []byte, secret string, timesta
 	h.Write([]byte(signaturePayload))
 
 	return fmt.Sprintf("sha256=%x", h.Sum(nil))
-}
-
-// RetryWorker processes failed webhooks from the retry queue. It is an explicit
-// opt-in background loop for a long-lived process (its Start is always paired
-// with a Stop on the same goroutine) and must never be started inside a Lambda
-// handler: the execution environment is frozen the moment the handler returns,
-// so the loop would be frozen mid-flight and could resume against a completed
-// invocation. In Lambda, re-drive failed webhooks from a queue or a scheduled
-// invocation instead.
-type RetryWorker struct {
-	db            *tabletheory.DB
-	webhookSender *WebhookSender
-	stop          chan struct{}
-	interval      time.Duration
-}
-
-// NewRetryWorker creates a new retry worker
-func NewRetryWorker(db *tabletheory.DB, sender *WebhookSender, interval time.Duration) *RetryWorker {
-	return &RetryWorker{
-		db:            db,
-		webhookSender: sender,
-		interval:      interval,
-		stop:          make(chan struct{}),
-	}
-}
-
-// Start begins processing the retry queue
-func (r *RetryWorker) Start() {
-	go r.run()
-}
-
-// Stop gracefully shuts down the retry worker
-func (r *RetryWorker) Stop() {
-	close(r.stop)
-}
-
-// run processes the retry queue
-func (r *RetryWorker) run() {
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			r.processRetries()
-		case <-r.stop:
-			return
-		}
-	}
-}
-
-// processRetries finds and retries failed webhooks
-func (r *RetryWorker) processRetries() {
-	var webhooks []*payment.Webhook
-
-	// Find webhooks ready for retry
-	err := r.db.Model(&payment.Webhook{}).
-		Index("gsi-retry").
-		Where("NextRetry", "<=", time.Now()).
-		Where("Status", "=", payment.WebhookStatusFailed).
-		Limit(100).
-		All(&webhooks)
-
-	if err != nil {
-		fmt.Printf("Failed to query retry webhooks: %v\n", err)
-		return
-	}
-
-	// Process each webhook
-	for _, webhook := range webhooks {
-		// Get merchant secret
-		var merchant payment.Merchant
-		err := r.db.Model(&payment.Merchant{}).
-			Where("ID", "=", webhook.MerchantID).
-			First(&merchant)
-
-		if err != nil {
-			continue
-		}
-
-		// Retry delivery
-		if err := r.webhookSender.deliverWebhook(context.Background(), webhook, merchant.WebhookSecret); err != nil {
-			log.Printf("failed to redeliver webhook %s: %v", webhook.ID, err)
-		}
-	}
 }
