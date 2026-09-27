@@ -22,13 +22,11 @@ import (
 
 // MultiAccountDB manages DynamoDB connections across multiple AWS accounts
 type MultiAccountDB struct {
-	baseDB        *LambdaDB
-	accounts      map[string]AccountConfig
-	cache         *sync.Map
-	refreshTicker *time.Ticker
-	refreshStop   chan struct{}
-	baseConfig    aws.Config
-	mu            sync.RWMutex
+	baseDB     *LambdaDB
+	accounts   map[string]AccountConfig
+	cache      *sync.Map
+	baseConfig aws.Config
+	mu         sync.RWMutex
 }
 
 // AccountConfig holds configuration for a partner account
@@ -40,7 +38,12 @@ type AccountConfig struct {
 	SessionDuration time.Duration
 }
 
-// NewMultiAccount creates a multi-account aware DB
+// NewMultiAccount creates a multi-account aware DB.
+//
+// NewMultiAccount starts no background work. Partner sessions are created and
+// refreshed synchronously on the Partner() call path, inside the invocation
+// that needs them, because Lambda freezes the execution environment when the
+// handler returns.
 func NewMultiAccount(accounts map[string]AccountConfig) (*MultiAccountDB, error) {
 	baseDB, err := NewLambdaOptimized()
 	if err != nil {
@@ -53,18 +56,12 @@ func NewMultiAccount(accounts map[string]AccountConfig) (*MultiAccountDB, error)
 		return nil, fmt.Errorf("failed to load base AWS config: %w", err)
 	}
 
-	mdb := &MultiAccountDB{
-		baseDB:      baseDB,
-		accounts:    accounts,
-		cache:       &sync.Map{},
-		baseConfig:  baseConfig,
-		refreshStop: make(chan struct{}),
-	}
-
-	// Start credential refresh routine
-	mdb.startCredentialRefresh()
-
-	return mdb, nil
+	return &MultiAccountDB{
+		baseDB:     baseDB,
+		accounts:   accounts,
+		cache:      &sync.Map{},
+		baseConfig: baseConfig,
+	}, nil
 }
 
 // Partner returns a DB instance for the specified partner account
@@ -73,6 +70,12 @@ func (mdb *MultiAccountDB) Partner(partnerID string) (*LambdaDB, error) {
 	if partnerID == "" {
 		return mdb.baseDB, nil
 	}
+
+	// Refresh cached partner sessions that have passed their renewal deadline.
+	// This runs synchronously inside the calling invocation: Lambda freezes the
+	// execution environment when the handler returns, so the refresh may not be
+	// deferred to a background goroutine or ticker.
+	mdb.refreshExpiredCredentials()
 
 	// Check cache first
 	if cached, ok := mdb.cache.Load(partnerID); ok {
@@ -196,26 +199,18 @@ func (mdb *MultiAccountDB) createPartnerDB(partnerID string, account AccountConf
 	return lambdaDB, nil
 }
 
-// startCredentialRefresh starts a background routine to refresh credentials
-func (mdb *MultiAccountDB) startCredentialRefresh() {
-	mdb.refreshTicker = time.NewTicker(5 * time.Minute)
-
-	go func() {
-		for {
-			select {
-			case <-mdb.refreshTicker.C:
-				mdb.refreshExpiredCredentials()
-			case <-mdb.refreshStop:
-				return
-			}
-		}
-	}()
-}
-
-// refreshExpiredCredentials checks and refreshes expired credentials
+// refreshExpiredCredentials synchronously refreshes the cached partner sessions
+// that have passed their renewal deadline, and returns only once every refresh
+// it started has finished.
+//
+// It uses the same expiry predicate as the Partner() cache lookup, so a refresh
+// happens at most once per session lifetime: a successful refresh stores a new
+// cache entry with a renewed deadline. A prior implementation ran this on a
+// five-minute background ticker, which is not viable in Lambda: the execution
+// environment is frozen when the handler returns, so the ticker and any refresh
+// it triggered could be frozen mid-flight and resume against an invocation that
+// had already completed.
 func (mdb *MultiAccountDB) refreshExpiredCredentials() {
-	now := time.Now()
-
 	mdb.cache.Range(func(key, value any) bool {
 		partnerID, ok := key.(string)
 		if !ok {
@@ -227,35 +222,28 @@ func (mdb *MultiAccountDB) refreshExpiredCredentials() {
 			return true
 		}
 
-		// Check if credentials are about to expire
-		if now.After(entry.expiry.Add(-10 * time.Minute)) {
-			// Refresh in background
-			go func() {
-				_, err := mdb.createPartnerDB(partnerID, entry.accountCfg)
-				if err != nil {
-					// SECURITY: Log without exposing sensitive credential details
-					// Generate operation ID for correlation
-					opID := generateOperationID()
+		// Check if credentials have reached their renewal deadline
+		if entry.isExpired() {
+			if _, err := mdb.createPartnerDB(partnerID, entry.accountCfg); err != nil {
+				// SECURITY: Log without exposing sensitive credential details
+				// Generate operation ID for correlation
+				opID := generateOperationID()
 
-					// Log detailed error internally for debugging (sanitized)
-					log.Printf("Credential refresh failed: operation_id=%s partner_id=%s",
-						opID, sanitizePartnerID(partnerID))
+				// Log detailed error internally for debugging (sanitized)
+				log.Printf("Credential refresh failed: operation_id=%s partner_id=%s",
+					opID, sanitizePartnerID(partnerID))
 
-					// Don't expose internal error details in logs
-				}
-			}()
+				// Don't expose internal error details in logs
+			}
 		}
 
 		return true
 	})
 }
 
-// Close stops the refresh routine and cleans up
+// Close releases the base connection. It starts no background work, so there is
+// nothing else to stop.
 func (mdb *MultiAccountDB) Close() error {
-	if mdb.refreshTicker != nil {
-		mdb.refreshTicker.Stop()
-	}
-	close(mdb.refreshStop)
 	return mdb.baseDB.Close()
 }
 
@@ -263,11 +251,9 @@ func (mdb *MultiAccountDB) Close() error {
 func (mdb *MultiAccountDB) WithContext(ctx context.Context) *MultiAccountDB {
 	// Create new MultiAccountDB without copying sync.Map
 	newMDB := &MultiAccountDB{
-		baseDB:        mdb.baseDB.WithLambdaTimeout(ctx),
-		accounts:      mdb.accounts,
-		baseConfig:    mdb.baseConfig,
-		refreshTicker: mdb.refreshTicker,
-		refreshStop:   mdb.refreshStop,
+		baseDB:     mdb.baseDB.WithLambdaTimeout(ctx),
+		accounts:   mdb.accounts,
+		baseConfig: mdb.baseConfig,
 	}
 	// Share the same cache pointer
 	newMDB.cache = mdb.cache
