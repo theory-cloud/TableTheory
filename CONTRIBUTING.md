@@ -175,6 +175,13 @@ review path before release creation.
   permissions beyond the operations the handler already performs.
 - `internal/theorydb/goroutine_leak_test.go` enforces the goroutine half of this rule for the Go Lambda init path; the
   TypeScript and Python unit suites assert the runtime equivalents.
+- A parallel fan-out must join every worker before it returns — on success, on the first error, and on context
+  cancellation. Returning on the first failure while the other workers keep running is the bug this rule exists to
+  prevent; `pkg/query`'s fan-out tests cover the segment-scan and parallel-batch paths, and a timeout path that hands
+  work to a helper goroutine must unblock and join that helper (`pkg/protection`).
+- Example Lambda handlers under `examples/` follow the same rule as library code: deliver synchronously within the
+  invocation, bounded by a timeout, or hand the work to a durable queue or stream. Never launch a goroutine, promise,
+  or thread from a handler and let it outlive the invocation.
 
 ### Commit messages
 
@@ -189,7 +196,9 @@ review path before release creation.
 - Use DynamoDB Local for integration and contract tests; do not point CI at a real AWS account.
 - For cross-runtime behavior, update or add contract scenarios and verify Go, TypeScript, and Python together.
 - Any change to a Lambda init or handler path must keep its goroutine-leak check green
-  (`internal/theorydb/goroutine_leak_test.go`, plus the TypeScript and Python runtime suites).
+  (`internal/theorydb/goroutine_leak_test.go`, plus the TypeScript and Python runtime suites), and any change to a
+  parallel fan-out must keep its all-paths join tests green (`pkg/query/parallel_fanout_join_test.go`, plus the
+  TypeScript and Python scan tests).
 - Do not skip or weaken a rubric gate to make a PR pass.
 
 ## Documentation

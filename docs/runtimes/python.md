@@ -146,7 +146,7 @@ The Python runtime follows the same invariant as Go and TypeScript: **no init or
 
 `tabletheory_py/runtime.py` therefore exposes no cold-start pre-warm. It offers `is_lambda_environment()`, `create_lambda_boto3_config()`, `get_lambda_boto3_client()` (synchronous client construction with a module-level cache), `check_lambda_timeout()`, and `with_lambda_timeout()`.
 
-The one place the runtimes use real concurrency is `Table.scan_all_segments()`, which fans out over a `ThreadPoolExecutor`. It joins every worker before returning, so no thread outlives the call.
+The one place this runtime uses real concurrency is `Table.scan_all_segments()`, which fans out over a `ThreadPoolExecutor`. It has no early-return path: the `with` block's `__exit__` calls `shutdown(wait=True)`, so when a segment raises, the call still waits for the segments that are already running before the exception propagates. The caller sees the original segment failure, and no thread outlives the call. `tests/unit/test_runtime.py` covers both the success path and the segment-error path.
 
 ## Where to go next
 

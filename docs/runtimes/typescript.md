@@ -158,6 +158,8 @@ The TypeScript runtime follows the same invariant as Go and Python: **no init or
 - `isLambdaEnvironment()`, `createLambdaDynamoDBClient()`, and `getLambdaDynamoDBClient()` — synchronous client construction with keep-alive agents, reused across warm invocations
 - `createLambdaTimeoutSignal()` and `withLambdaTimeout()` — a per-invocation abort signal. The watchdog timer is `unref()`-ed, so it never holds the event loop open, and `cleanup()` clears it
 
+Parallel fan-out is allowed only when it is fully joined. `Query.scanAllSegments()` runs one worker per segment through `mapConcurrent`, which waits for every worker to settle before it rejects: a failing segment aborts the remaining scans, and the original failure is re-thrown only after the other workers have finished, so no segment work outlives the call. `ts/test/unit/query-builder.test.ts` covers that error path.
+
 ## Where to go next
 
 - [Getting Started](https://tabletheory.theorycloud.ai/getting-started/) — full walkthrough

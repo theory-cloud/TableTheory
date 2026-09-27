@@ -201,15 +201,30 @@ func (mdb *MultiAccountDB) createPartnerDB(partnerID string, account AccountConf
 
 // refreshExpiredCredentials synchronously refreshes the cached partner sessions
 // that have passed their renewal deadline, and returns only once every refresh
-// it started has finished.
+// it started has finished. It runs on the invocation path from Partner(), not on
+// a background ticker: Lambda freezes the execution environment when the handler
+// returns, so a ticker and any refresh it triggered could be frozen mid-flight
+// and resume against an invocation that had already completed.
 //
-// It uses the same expiry predicate as the Partner() cache lookup, so a refresh
-// happens at most once per session lifetime: a successful refresh stores a new
-// cache entry with a renewed deadline. A prior implementation ran this on a
-// five-minute background ticker, which is not viable in Lambda: the execution
-// environment is frozen when the handler returns, so the ticker and any refresh
-// it triggered could be frozen mid-flight and resume against an invocation that
-// had already completed.
+// It uses the same expiry predicate as the Partner() cache lookup
+// (cacheEntry.isExpired), so a session this sweep renews is skipped by later
+// sweeps while it stays fresh.
+//
+// It is not exactly-once, and an earlier revision of this comment was wrong to
+// claim "at most once per session lifetime":
+//
+//   - Under concurrency, two Partner() calls can both observe the same expired
+//     entry and both refresh it, because there is no per-partner single-flight
+//     here. A correct one would have to own the whole cache-fill path for a
+//     partner (including Partner()'s own createPartnerDB call after this sweep)
+//     with a lock shared by the WithContext-derived instances that share the
+//     cache, which is a larger change than this sweep can carry alone.
+//   - A failed refresh leaves the old, expired entry in the cache, so the next
+//     call retries it. That retry is the recovery path, not a defect.
+//
+// Both cases are benign: a refresh is idempotent (a successful one stores an
+// equivalent session with a renewed deadline), and the sweep is best-effort
+// cleanup rather than a correctness guarantee.
 func (mdb *MultiAccountDB) refreshExpiredCredentials() {
 	mdb.cache.Range(func(key, value any) bool {
 		partnerID, ok := key.(string)

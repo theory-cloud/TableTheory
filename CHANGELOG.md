@@ -48,6 +48,15 @@
   model-metadata work: the removed pre-warm issued `ListTables`, which needed IAM permissions beyond item access and
   was therefore pure waste for consumers that grant only item operations. `MultiAccountDB` refreshes expired partner
   sessions synchronously on the `Partner()` path instead of from a five-minute background ticker.
+* **go:** join every worker of a parallel fan-out before returning. `Query.ScanAllSegments` returned on the first
+  segment error while the other segment goroutines were still running, and `pkg/protection.SecureBodyReader` returned a
+  timeout while its request-body reader was still blocked. Both now stop the remaining work and wait for it on every
+  path, so nothing outlives the call that started it.
+* **ts:** `mapConcurrent` — the helper behind `Query.scanAllSegments` — now waits for every worker to settle before it
+  rejects, aborts the remaining segment scans, and re-throws the original failure instead of one of the abort-induced
+  ones.
+* **examples:** the payment Lambda webhook and the blog comment notifications are delivered synchronously inside the
+  invocation (bounded by a timeout) instead of from a detached goroutine that Lambda could freeze mid-flight.
 * **transaction:** refresh library-owned `updated_at` values on Go and TypeScript model-shaped transactional updates,
   matching Python and each runtime's non-transactional update behavior
 * **ts:** reject `createdAt` and version fields from model-shaped transactional update selections, and validate
