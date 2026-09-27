@@ -49,8 +49,10 @@ func NewCommentHandler() (*CommentHandler, error) {
 	db.Model(&models.Comment{})
 	db.Model(&models.Post{})
 
-	// Initialize notification service
-	notificationService := services.NewNotificationService(5)
+	// Initialize notification service. It starts nothing and owns no queue: the
+	// blog deploys only as Lambda functions, so every notification is delivered
+	// synchronously inside the invocation that requests it.
+	notificationService := services.NewNotificationService()
 
 	// Configure email provider
 	emailConfig := services.EmailConfig{
@@ -305,7 +307,7 @@ func (h *CommentHandler) createComment(ctx context.Context, postID string, reque
 			// The delivery is bounded and its failure must not fail the request.
 			notifyCtx, cancelNotify := context.WithTimeout(ctx, notificationTimeout)
 			defer cancelNotify()
-			if err := h.notificationService.SendCommentModerationNotificationSync(notifyCtx, comment, &post); err != nil {
+			if err := h.notificationService.SendCommentModerationNotification(notifyCtx, comment, &post); err != nil {
 				fmt.Printf("Failed to send moderation notification: %v\n", err)
 			}
 		}
@@ -398,7 +400,7 @@ func (h *CommentHandler) moderateComment(ctx context.Context, request events.API
 			// Deliver synchronously inside this invocation; see createComment.
 			notifyCtx, cancelNotify := context.WithTimeout(ctx, notificationTimeout)
 			defer cancelNotify()
-			if err := h.notificationService.SendCommentApprovalNotificationSync(notifyCtx, &comment, &post); err != nil {
+			if err := h.notificationService.SendCommentApprovalNotification(notifyCtx, &comment, &post); err != nil {
 				fmt.Printf("Failed to send approval notification: %v\n", err)
 			}
 		}
