@@ -7,28 +7,42 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v3"
 	"github.com/theory-cloud/tabletheory/v3/examples/payment"
 	"github.com/theory-cloud/tabletheory/v3/pkg/core"
 )
 
-// WebhookSender handles async webhook deliveries
+// WebhookSender delivers webhooks synchronously inside the calling invocation.
+// It starts no goroutine and owns no queue: Lambda freezes the execution
+// environment as soon as the handler returns, so a delivery parked on an
+// in-process channel would be frozen with it. Durable hand-off belongs in a
+// queue or stream that outlives the invocation on purpose, not in process memory.
 type WebhookSender struct {
 	db       core.ExtendedDB
-	ctx      context.Context
 	client   *http.Client
-	workers  chan struct{}
-	queue    chan *WebhookJob
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	retryMax int
+	sendWait time.Duration
+}
+
+// NewWebhookSender creates a new webhook sender
+func NewWebhookSender(db core.ExtendedDB) *WebhookSender {
+	return &WebhookSender{
+		db:       db,
+		client:   &http.Client{Timeout: 30 * time.Second},
+		sendWait: 10 * time.Second,
+	}
+}
+
+// SendSync delivers a webhook synchronously and returns only after the delivery
+// attempt has finished. ctx bounds the whole attempt, and no work is left
+// running when SendSync returns.
+func (w *WebhookSender) SendSync(ctx context.Context, job *WebhookJob) error {
+	ctx, cancel := context.WithTimeout(ctx, w.sendWait)
+	defer cancel()
+	return w.processWebhook(ctx, job)
 }
 
 // WebhookJob represents a webhook to be sent
@@ -47,60 +61,8 @@ type WebhookPayload struct {
 	EventType string    `json:"event_type"`
 }
 
-// NewWebhookSender creates a new webhook sender
-func NewWebhookSender(db core.ExtendedDB, workers int) *WebhookSender {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	sender := &WebhookSender{
-		db:       db,
-		client:   &http.Client{Timeout: 30 * time.Second},
-		workers:  make(chan struct{}, workers),
-		retryMax: 3,
-		queue:    make(chan *WebhookJob, 1000),
-		ctx:      ctx,
-		cancel:   cancel,
-	}
-
-	// Start workers
-	for i := 0; i < workers; i++ {
-		sender.wg.Add(1)
-		go sender.worker()
-	}
-
-	return sender
-}
-
-// Send queues a webhook for delivery
-func (w *WebhookSender) Send(job *WebhookJob) error {
-	select {
-	case w.queue <- job:
-		return nil
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("webhook queue full")
-	}
-}
-
-// Stop gracefully shuts down the webhook sender
-func (w *WebhookSender) Stop() {
-	close(w.queue)
-	w.cancel()
-	w.wg.Wait()
-}
-
-// worker processes webhook jobs
-func (w *WebhookSender) worker() {
-	defer w.wg.Done()
-
-	for job := range w.queue {
-		if err := w.processWebhook(job); err != nil {
-			// Log error (in production, use proper logging)
-			fmt.Printf("Failed to process webhook: %v\n", err)
-		}
-	}
-}
-
 // processWebhook handles the actual webhook delivery
-func (w *WebhookSender) processWebhook(job *WebhookJob) error {
+func (w *WebhookSender) processWebhook(ctx context.Context, job *WebhookJob) error {
 	// Get merchant details
 	var merchant payment.Merchant
 	err := w.db.Model(&payment.Merchant{}).
@@ -135,11 +97,11 @@ func (w *WebhookSender) processWebhook(job *WebhookJob) error {
 	}
 
 	// Attempt delivery with retries
-	return w.deliverWebhook(webhook, merchant.WebhookSecret)
+	return w.deliverWebhook(ctx, webhook, merchant.WebhookSecret)
 }
 
 // deliverWebhook attempts to deliver a webhook with exponential backoff
-func (w *WebhookSender) deliverWebhook(webhook *payment.Webhook, secret string) error {
+func (w *WebhookSender) deliverWebhook(ctx context.Context, webhook *payment.Webhook, secret string) error {
 	maxAttempts := 5
 	baseDelay := 1 * time.Second
 
@@ -162,7 +124,7 @@ func (w *WebhookSender) deliverWebhook(webhook *payment.Webhook, secret string) 
 		}
 
 		// Create request
-		req, err := http.NewRequestWithContext(w.ctx, "POST", webhook.URL, bytes.NewReader(payloadBytes))
+		req, err := http.NewRequestWithContext(ctx, "POST", webhook.URL, bytes.NewReader(payloadBytes))
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
 		}
@@ -223,8 +185,8 @@ func (w *WebhookSender) deliverWebhook(webhook *payment.Webhook, secret string) 
 			select {
 			case <-time.After(delay):
 				// Continue to next attempt
-			case <-w.ctx.Done():
-				return fmt.Errorf("webhook delivery cancelled")
+			case <-ctx.Done():
+				return fmt.Errorf("webhook delivery canceled: %w", ctx.Err())
 			}
 		}
 	}
@@ -242,83 +204,4 @@ func (w *WebhookSender) generateSignature(payload []byte, secret string, timesta
 	h.Write([]byte(signaturePayload))
 
 	return fmt.Sprintf("sha256=%x", h.Sum(nil))
-}
-
-// RetryWorker processes failed webhooks from the retry queue
-type RetryWorker struct {
-	db            *tabletheory.DB
-	webhookSender *WebhookSender
-	stop          chan struct{}
-	interval      time.Duration
-}
-
-// NewRetryWorker creates a new retry worker
-func NewRetryWorker(db *tabletheory.DB, sender *WebhookSender, interval time.Duration) *RetryWorker {
-	return &RetryWorker{
-		db:            db,
-		webhookSender: sender,
-		interval:      interval,
-		stop:          make(chan struct{}),
-	}
-}
-
-// Start begins processing the retry queue
-func (r *RetryWorker) Start() {
-	go r.run()
-}
-
-// Stop gracefully shuts down the retry worker
-func (r *RetryWorker) Stop() {
-	close(r.stop)
-}
-
-// run processes the retry queue
-func (r *RetryWorker) run() {
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			r.processRetries()
-		case <-r.stop:
-			return
-		}
-	}
-}
-
-// processRetries finds and retries failed webhooks
-func (r *RetryWorker) processRetries() {
-	var webhooks []*payment.Webhook
-
-	// Find webhooks ready for retry
-	err := r.db.Model(&payment.Webhook{}).
-		Index("gsi-retry").
-		Where("NextRetry", "<=", time.Now()).
-		Where("Status", "=", payment.WebhookStatusFailed).
-		Limit(100).
-		All(&webhooks)
-
-	if err != nil {
-		fmt.Printf("Failed to query retry webhooks: %v\n", err)
-		return
-	}
-
-	// Process each webhook
-	for _, webhook := range webhooks {
-		// Get merchant secret
-		var merchant payment.Merchant
-		err := r.db.Model(&payment.Merchant{}).
-			Where("ID", "=", webhook.MerchantID).
-			First(&merchant)
-
-		if err != nil {
-			continue
-		}
-
-		// Retry delivery
-		if err := r.webhookSender.deliverWebhook(webhook, merchant.WebhookSecret); err != nil {
-			log.Printf("failed to redeliver webhook %s: %v", webhook.ID, err)
-		}
-	}
 }

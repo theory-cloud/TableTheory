@@ -2,7 +2,7 @@
 
 ## Overview
 This document describes the implementation of the Payment Example's three main features:
-1. **Webhook Notification System** - Async webhook delivery with retry logic
+1. **Webhook Notification System** - Synchronous webhook delivery with retry logic
 2. **JWT Authentication** - Token validation and merchant ID extraction  
 3. **Export Lambda Integration** - Async export job processing
 
@@ -16,30 +16,33 @@ This document describes the implementation of the Payment Example's three main f
 #### Key Components:
 
 1. **WebhookSender** - Main webhook delivery service
-   - Manages worker pool for async processing
-   - Queues webhooks for delivery
-   - Handles graceful shutdown
+   - Delivers on the caller's goroutine: it owns no worker pool and no queue,
+     because Lambda freezes the execution environment the moment the handler
+     returns
+   - Bounded by the caller's context and the sender's internal timeout
 
 2. **Webhook Delivery Features**:
-   - Exponential backoff retry (up to 5 attempts)
+   - Exponential backoff retry (up to 5 attempts, all inside the invocation)
    - HMAC-SHA256 signature generation
    - Webhook status tracking in DynamoDB
    - TTL-based expiration (24 hours)
    - Support for multiple webhook endpoints
 
-3. **RetryWorker** - Background worker for failed webhooks
-   - Polls for failed webhooks periodically
-   - Retries delivery with saved state
-   - Updates webhook status
+Failed webhooks are re-driven from a queue or a scheduled invocation, not from an
+in-process worker: this example deploys only as Lambda functions
+(`lambda/process`, `lambda/query`, `lambda/reconcile`), so nothing keeps running
+after a handler returns to own one.
 
 ### Usage Example:
 
 ```go
-// Initialize webhook sender
-webhookSender := utils.NewWebhookSender(db, 5) // 5 workers
-defer webhookSender.Stop()
+// Initialize webhook sender. It starts no goroutine.
+webhookSender := utils.NewWebhookSender(db)
 
-// Send webhook notification
+// Deliver a webhook synchronously inside the calling invocation. Lambda freezes
+// the execution environment when the handler returns, so a delivery launched in
+// a goroutine would be frozen mid-flight. The call is bounded by ctx and by the
+// sender's internal timeout.
 job := &utils.WebhookJob{
     MerchantID: "merchant-123",
     EventType:  "payment.succeeded",
@@ -47,9 +50,8 @@ job := &utils.WebhookJob{
     Data:       paymentData,
 }
 
-// Non-blocking send
-if err := webhookSender.Send(job); err != nil {
-    log.Printf("Failed to queue webhook: %v", err)
+if err := webhookSender.SendSync(ctx, job); err != nil {
+    log.Printf("Failed to deliver webhook: %v", err)
 }
 ```
 
@@ -180,18 +182,18 @@ for _, job := range jobs {
 
 ### Process Handler Updates:
 ```go
-// Added webhook sender initialization
-webhookSender := utils.NewWebhookSender(db, 5)
+// Added webhook sender initialization: starts no goroutine
+webhookSender := utils.NewWebhookSender(db)
 
 // Added JWT validator
 jwtValidator := utils.NewSimpleJWTValidator(...)
 
-// Integrated webhook sending after payment success
-go func() {
-    if err := h.webhookSender.Send(webhookJob); err != nil {
-        fmt.Printf("Failed to queue webhook: %v\n", err)
-    }
-}()
+// Integrated webhook delivery after payment success, synchronously inside the
+// invocation and bounded by ctx. It must not be detached: work launched in a
+// goroutine here would be frozen when the handler returns.
+if err := h.webhookSender.SendSync(ctx, webhookJob); err != nil {
+    fmt.Printf("Failed to deliver webhook: %v\n", err)
+}
 ```
 
 ### Query Handler Updates:
@@ -252,9 +254,8 @@ AWS_REGION=us-east-1
 ## Performance Considerations
 
 1. **Webhook Delivery**:
-   - Configurable worker pool size
-   - Non-blocking sends
-   - Queue size limits to prevent OOM
+   - Synchronous, bounded by the caller's context and the sender's timeout
+   - Retries happen inside the invocation that triggered them
 
 2. **Export Processing**:
    - Async job queue pattern

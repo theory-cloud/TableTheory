@@ -149,6 +149,17 @@ for count-only access patterns.
 - `cd ts && npm run test:integration` — integration tests with DynamoDB Local
 - Exercised against shared contract scenarios via [`contract-tests/runners/`](https://github.com/theory-cloud/tabletheory/tree/main/contract-tests/runners) on every commit
 
+## Lambda and background work
+
+The TypeScript runtime follows the same invariant as Go and Python: **no init or handler path leaves work running after it returns.** Lambda freezes the execution environment as soon as the handler returns, so a promise, timer, or socket left pending from one invocation must not be assumed to complete.
+
+`ts/src/lambda.ts` therefore exposes no cold-start pre-warm. It offers:
+
+- `isLambdaEnvironment()`, `createLambdaDynamoDBClient()`, and `getLambdaDynamoDBClient()` — synchronous client construction with keep-alive agents, reused across warm invocations
+- `createLambdaTimeoutSignal()` and `withLambdaTimeout()` — a per-invocation abort signal. The watchdog timer is `unref()`-ed, so it never holds the event loop open, and `cleanup()` clears it
+
+Parallel fan-out is allowed only when it is fully joined. `Query.scanAllSegments()` runs one worker per segment through `mapConcurrent`, which waits for every worker to settle before it rejects: a failing segment aborts the remaining scans, and the original failure is re-thrown only after the other workers have finished, so no segment work outlives the call. `ts/test/unit/query-builder.test.ts` covers that error path.
+
 ## Where to go next
 
 - [Getting Started](https://tabletheory.theorycloud.ai/getting-started/) — full walkthrough

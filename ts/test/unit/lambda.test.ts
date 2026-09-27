@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { getActiveResourcesInfo } from 'node:process';
 
+import * as lambdaModule from '../../src/lambda.js';
 import {
   DEFAULT_LAMBDA_TIMEOUT_BUFFER_MS,
   createLambdaTimeoutSignal,
@@ -102,4 +104,53 @@ void test('withLambdaTimeout returns a derived TheorydbClient', async () => {
   assert.equal(sendOptions[0]?.abortSignal instanceof AbortSignal, true);
   assert.equal(sendOptions[0]?.abortSignal?.aborted, true);
   cleanup();
+});
+
+function countActiveTimeouts(): number {
+  return getActiveResourcesInfo().filter((kind) => kind === 'Timeout').length;
+}
+
+void test('createLambdaTimeoutSignal does not keep the invocation open', () => {
+  // The watchdog timer is per-invocation. It must not hold the event loop open:
+  // Lambda freezes the execution environment as soon as the handler returns, so
+  // a live handle here would mean work outliving the invocation that started it.
+  const before = countActiveTimeouts();
+
+  const { cleanup } = createLambdaTimeoutSignal({
+    getRemainingTimeInMillis: () => 60_000,
+  });
+  assert.equal(
+    countActiveTimeouts(),
+    before,
+    'the timeout watchdog must be unref-ed so it cannot outlive the invocation',
+  );
+
+  cleanup();
+  assert.equal(countActiveTimeouts(), before);
+});
+
+void test('lambda helpers expose no cold-start pre-warm', () => {
+  // TableTheory's Lambda surface is synchronous: there is deliberately no
+  // pre-warm that runs detached from the init that started it. Adding one here
+  // would need the same treatment as Go's removed pre-warm, so this test fails
+  // on purpose to force that review.
+  const preWarmName = /pre[-_]?warm|warm[-_]?up|cold[-_]?start|optimi[sz]e/i;
+  const offenders = Object.keys(lambdaModule).filter((name) =>
+    preWarmName.test(name),
+  );
+  assert.deepEqual(offenders, []);
+});
+
+void test('getLambdaDynamoDBClient starts no detached work', () => {
+  const before = countActiveTimeouts();
+
+  const first = getLambdaDynamoDBClient({ region: 'us-east-1' });
+  const second = getLambdaDynamoDBClient({ region: 'us-east-1' });
+
+  assert.equal(
+    first,
+    second,
+    'client construction must stay synchronous and cached',
+  );
+  assert.equal(countActiveTimeouts(), before);
 });

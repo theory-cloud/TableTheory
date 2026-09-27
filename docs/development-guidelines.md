@@ -95,6 +95,16 @@ db.Model(&Item{}).
     First(&item)
 ```
 
+## Lambda and Concurrency
+
+No work may outlive the invocation or init that started it. Lambda freezes the execution environment as soon as the handler returns, so a goroutine (Go), timer or promise (TypeScript), or thread or future (Python) started from an init path or a handler is not guaranteed to run: it can be frozen mid-flight and later resume against an invocation that has already completed.
+
+- **Keep init synchronous.** Every TableTheory init path finishes its work before it returns. `LambdaInit`, `OptimizeForColdStart`, `NewLambdaOptimized`, and `NewMultiAccount` start no background work.
+- **No init-time network probe.** A cold-start pre-warm only pays off when it completes, and it needs IAM permissions beyond the operations the handler already performs. The removed `OptimizeForColdStart` pre-warm issued `ListTables`; do not reintroduce an equivalent call.
+- **Keep the leak checks green.** `internal/theorydb/goroutine_leak_test.go` fails if a Lambda init path leaves a goroutine behind, and the TypeScript and Python runtime suites assert the equivalents. Extend them when you add an init path.
+- **Joined parallelism is fine; abandoned parallelism is not.** A fan-out may run concurrently only if every worker has finished before the call returns, on every path: success, first error, and caller cancellation. `pkg/query` joins its segment, batch-get, and batch-update workers on all three paths (`TestScanAllSegments_JoinsWorkersOnSegmentError`, `TestScanAllSegments_JoinsWorkersOnContextCancel`, `TestBatchGetParallelJoinsWorkersOnChunkError`, `TestBatchUpdateParallelJoinsWorkersOnBatchError`), the TypeScript runtime's `mapConcurrent` waits for every worker before it rejects, and Python's `Table.scan_all_segments` already joined on every path through its `ThreadPoolExecutor` context manager and now has an error-path test. `Query.ScanAllSegments` used to return on the first segment error while the remaining segment goroutines were still running; that is the shape of bug this rule exists to prevent.
+- **Bounded fan-in counts too.** A timeout path that hands work to a helper goroutine must unblock that helper and wait for it before returning. `pkg/protection.SecureBodyReader` closes the request body and joins its reader on the timeout path (`TestSecureBodyReaderTimeoutJoinsReaderGoroutine`).
+
 ## Contribution Workflow
 
 1.  **Fork & Branch:** Create a feature branch.
