@@ -32,6 +32,10 @@ type commentNode struct {
 	Children []*commentNode `json:"children,omitempty"`
 }
 
+// notificationTimeout bounds the synchronous notification delivery a handler
+// performs, so a slow provider cannot hold the invocation open indefinitely.
+const notificationTimeout = 5 * time.Second
+
 // NewCommentHandler creates a new comment handler
 func NewCommentHandler() (*CommentHandler, error) {
 	db, err := tabletheory.New(tabletheory.Config{
@@ -295,13 +299,15 @@ func (h *CommentHandler) createComment(ctx context.Context, postID string, reque
 			Where("ID", "=", postID).
 			First(&post)
 		if err == nil {
-			// Send notification asynchronously
-			go func() {
-				if err := h.notificationService.SendCommentModerationNotification(comment, &post); err != nil {
-					// Log error but don't fail the request
-					fmt.Printf("Failed to send moderation notification: %v\n", err)
-				}
-			}()
+			// Deliver synchronously inside this invocation. Lambda freezes the
+			// execution environment the moment the handler returns, so a
+			// notification goroutine launched here would be frozen mid-flight.
+			// The delivery is bounded and its failure must not fail the request.
+			notifyCtx, cancelNotify := context.WithTimeout(ctx, notificationTimeout)
+			defer cancelNotify()
+			if err := h.notificationService.SendCommentModerationNotificationSync(notifyCtx, comment, &post); err != nil {
+				fmt.Printf("Failed to send moderation notification: %v\n", err)
+			}
 		}
 	}
 
@@ -389,13 +395,12 @@ func (h *CommentHandler) moderateComment(ctx context.Context, request events.API
 			Where("ID", "=", comment.PostID).
 			First(&post)
 		if err == nil {
-			// Send notification asynchronously
-			go func() {
-				if err := h.notificationService.SendCommentApprovalNotification(&comment, &post); err != nil {
-					// Log error but don't fail the request
-					fmt.Printf("Failed to send approval notification: %v\n", err)
-				}
-			}()
+			// Deliver synchronously inside this invocation; see createComment.
+			notifyCtx, cancelNotify := context.WithTimeout(ctx, notificationTimeout)
+			defer cancelNotify()
+			if err := h.notificationService.SendCommentApprovalNotificationSync(notifyCtx, &comment, &post); err != nil {
+				fmt.Printf("Failed to send approval notification: %v\n", err)
+			}
 		}
 	}
 

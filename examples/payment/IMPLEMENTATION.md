@@ -27,19 +27,25 @@ This document describes the implementation of the Payment Example's three main f
    - TTL-based expiration (24 hours)
    - Support for multiple webhook endpoints
 
-3. **RetryWorker** - Background worker for failed webhooks
+3. **RetryWorker** - Opt-in background worker for failed webhooks
    - Polls for failed webhooks periodically
    - Retries delivery with saved state
    - Updates webhook status
+   - Explicit `Start()`/`Stop()` for a long-lived process only. Never start it
+     inside a Lambda handler: the execution environment is frozen when the
+     handler returns. In Lambda, re-drive failed webhooks from a queue or a
+     scheduled invocation.
 
 ### Usage Example:
 
 ```go
-// Initialize webhook sender
-webhookSender := utils.NewWebhookSender(db, 5) // 5 workers
-defer webhookSender.Stop()
+// Initialize webhook sender. It starts no goroutine.
+webhookSender := utils.NewWebhookSender(db)
 
-// Send webhook notification
+// Deliver a webhook synchronously inside the calling invocation. Lambda freezes
+// the execution environment when the handler returns, so a delivery launched in
+// a goroutine would be frozen mid-flight. The call is bounded by ctx and by the
+// sender's internal timeout.
 job := &utils.WebhookJob{
     MerchantID: "merchant-123",
     EventType:  "payment.succeeded",
@@ -47,9 +53,8 @@ job := &utils.WebhookJob{
     Data:       paymentData,
 }
 
-// Non-blocking send
-if err := webhookSender.Send(job); err != nil {
-    log.Printf("Failed to queue webhook: %v", err)
+if err := webhookSender.SendSync(ctx, job); err != nil {
+    log.Printf("Failed to deliver webhook: %v", err)
 }
 ```
 
@@ -180,18 +185,18 @@ for _, job := range jobs {
 
 ### Process Handler Updates:
 ```go
-// Added webhook sender initialization
-webhookSender := utils.NewWebhookSender(db, 5)
+// Added webhook sender initialization: starts no goroutine
+webhookSender := utils.NewWebhookSender(db)
 
 // Added JWT validator
 jwtValidator := utils.NewSimpleJWTValidator(...)
 
-// Integrated webhook sending after payment success
-go func() {
-    if err := h.webhookSender.Send(webhookJob); err != nil {
-        fmt.Printf("Failed to queue webhook: %v\n", err)
-    }
-}()
+// Integrated webhook delivery after payment success, synchronously inside the
+// invocation and bounded by ctx. It must not be detached: work launched in a
+// goroutine here would be frozen when the handler returns.
+if err := h.webhookSender.SendSync(ctx, webhookJob); err != nil {
+    fmt.Printf("Failed to deliver webhook: %v\n", err)
+}
 ```
 
 ### Query Handler Updates:

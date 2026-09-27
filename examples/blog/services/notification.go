@@ -69,10 +69,14 @@ type NotificationService struct {
 	providers   []NotificationProvider
 	wg          sync.WaitGroup
 	workers     int
+	startOnce   sync.Once
 	providersMu sync.RWMutex
 }
 
-// NewNotificationService creates a new notification service
+// NewNotificationService creates a new notification service. It starts no
+// goroutine: the queue workers are started lazily by the first asynchronous Send,
+// so a caller that only uses SendSync (a Lambda handler must) leaves no worker
+// running after it returns.
 func NewNotificationService(workers int) *NotificationService {
 	if workers <= 0 {
 		workers = 5
@@ -80,18 +84,13 @@ func NewNotificationService(workers int) *NotificationService {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	service := &NotificationService{
+	return &NotificationService{
 		providers: make([]NotificationProvider, 0),
 		queue:     make(chan *Notification, 1000),
 		workers:   workers,
 		ctx:       ctx,
 		cancel:    cancel,
 	}
-
-	// Start workers
-	service.startWorkers()
-
-	return service
 }
 
 // RegisterProvider registers a notification provider
@@ -102,9 +101,22 @@ func (s *NotificationService) RegisterProvider(provider NotificationProvider) {
 	log.Printf("Registered notification provider: %s", provider.Name())
 }
 
-// SendCommentModerationNotification sends a notification to moderators about a new comment
+// SendCommentModerationNotification queues a notification to moderators about a
+// new comment. It needs a long-lived process to drain the queue; a Lambda
+// handler must use SendCommentModerationNotificationSync instead.
 func (s *NotificationService) SendCommentModerationNotification(comment *models.Comment, post *models.Post) error {
-	notification := &Notification{
+	return s.Send(s.buildModerationNotification(comment, post))
+}
+
+// SendCommentModerationNotificationSync delivers the moderation notification
+// synchronously and returns only once the delivery attempt has finished. ctx
+// bounds the attempt, and no work is left running when it returns.
+func (s *NotificationService) SendCommentModerationNotificationSync(ctx context.Context, comment *models.Comment, post *models.Post) error {
+	return s.SendSync(ctx, s.buildModerationNotification(comment, post))
+}
+
+func (s *NotificationService) buildModerationNotification(comment *models.Comment, post *models.Post) *Notification {
+	return &Notification{
 		ID:   fmt.Sprintf("mod-%s-%d", comment.ID, time.Now().Unix()),
 		Type: NotificationTypeCommentModeration,
 		Recipient: NotificationRecipient{
@@ -124,13 +136,23 @@ func (s *NotificationService) SendCommentModerationNotification(comment *models.
 		Status:    NotificationStatusPending,
 		CreatedAt: time.Now(),
 	}
-
-	return s.Send(notification)
 }
 
-// SendCommentApprovalNotification sends a notification to the comment author when approved
+// SendCommentApprovalNotification queues a notification to the comment author
+// when approved. A Lambda handler must use
+// SendCommentApprovalNotificationSync instead.
 func (s *NotificationService) SendCommentApprovalNotification(comment *models.Comment, post *models.Post) error {
-	notification := &Notification{
+	return s.Send(s.buildApprovalNotification(comment, post))
+}
+
+// SendCommentApprovalNotificationSync delivers the approval notification
+// synchronously and returns only once the delivery attempt has finished.
+func (s *NotificationService) SendCommentApprovalNotificationSync(ctx context.Context, comment *models.Comment, post *models.Post) error {
+	return s.SendSync(ctx, s.buildApprovalNotification(comment, post))
+}
+
+func (s *NotificationService) buildApprovalNotification(comment *models.Comment, post *models.Post) *Notification {
+	return &Notification{
 		ID:   fmt.Sprintf("apr-%s-%d", comment.ID, time.Now().Unix()),
 		Type: NotificationTypeCommentApproval,
 		Recipient: NotificationRecipient{
@@ -148,12 +170,13 @@ func (s *NotificationService) SendCommentApprovalNotification(comment *models.Co
 		Status:    NotificationStatusPending,
 		CreatedAt: time.Now(),
 	}
-
-	return s.Send(notification)
 }
 
-// Send adds a notification to the queue for async processing
+// Send adds a notification to the queue for async processing. The queue workers
+// start on the first call, so a SendSync-only caller starts none.
 func (s *NotificationService) Send(notification *Notification) error {
+	s.startOnce.Do(func() { s.startWorkers() })
+
 	select {
 	case s.queue <- notification:
 		return nil

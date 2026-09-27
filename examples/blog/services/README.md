@@ -2,12 +2,13 @@
 
 ## Overview
 
-The notification service provides a flexible and extensible system for sending notifications in the blog application. It supports multiple notification providers and handles async processing with retry logic.
+The notification service provides a flexible and extensible system for sending notifications in the blog application. It supports multiple notification providers, synchronous in-invocation delivery, and (opt-in, for a long-lived process) async processing with retry logic.
 
 ## Features
 
 - **Multiple Providers**: Support for email, webhook, and custom notification providers
-- **Async Processing**: Non-blocking notification sending with background workers
+- **Synchronous Delivery**: `SendSync` and the `*Sync` variants deliver inside the calling invocation, which is what a Lambda handler must use
+- **Opt-in Async Processing**: Non-blocking notification sending with background workers. The workers start on the first async `Send` and must never be used from a Lambda handler, because the execution environment is frozen when the handler returns
 - **Retry Logic**: Automatic retry with exponential backoff for failed notifications
 - **Provider Interface**: Easy to extend with new notification providers
 - **Test Mode**: Built-in test mode for development and testing
@@ -59,10 +60,16 @@ notificationService.RegisterProvider(webhookProvider)
 ### Send Notifications
 
 ```go
-// Send comment moderation notification
+// From a Lambda handler, deliver synchronously inside the invocation. The call is
+// bounded by ctx, and nothing is left running when it returns.
+err := notificationService.SendCommentModerationNotificationSync(ctx, comment, post)
+
+err := notificationService.SendCommentApprovalNotificationSync(ctx, comment, post)
+
+// From a long-lived process, queue for the background workers that the first
+// async Send starts.
 err := notificationService.SendCommentModerationNotification(comment, post)
 
-// Send comment approval notification
 err := notificationService.SendCommentApprovalNotification(comment, post)
 
 // Send custom notification
