@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
 
+import tabletheory_py.runtime as runtime
 from tabletheory_py.mocks import FakeDynamoDBClient
 from tabletheory_py.model import ModelDefinition, theorydb_field
 from tabletheory_py.runtime import (
@@ -167,3 +170,48 @@ def test_table_with_lambda_timeout_preserves_table_state_and_guards_calls() -> N
     with pytest.raises(TimeoutError, match="lambda timeout imminent"):
         wrapped.get("A", "1")
     assert len(client.calls) == 1
+
+
+def _non_main_threads() -> list[str]:
+    return [t.name for t in threading.enumerate() if t is not threading.main_thread()]
+
+
+def test_runtime_helpers_leave_no_background_threads() -> None:
+    # The Python runtime is synchronous. Lambda freezes the execution environment
+    # when the handler returns, so a helper must not leave a thread running after
+    # it returns.
+    assert _non_main_threads() == []
+
+    _reset_lambda_clients_for_tests()
+    try:
+        get_lambda_boto3_client("dynamodb", region="us-east-1", config=create_lambda_boto3_config())
+        get_lambda_boto3_client("kms", region="us-east-1")
+        assert _non_main_threads() == []
+    finally:
+        _reset_lambda_clients_for_tests()
+
+
+def test_scan_all_segments_joins_its_worker_threads() -> None:
+    model = ModelDefinition.from_dataclass(RuntimeItem, table_name="runtime_items")
+    client = FakeDynamoDBClient()
+    table: Table[RuntimeItem] = Table(model, client=client)
+
+    empty_page = {"Items": [], "Count": 0, "ScannedCount": 0}
+    for _ in range(2):
+        client.expect("scan", response=empty_page)
+
+    assert table.scan_all_segments(total_segments=2, max_workers=2) == []
+    client.assert_no_pending()
+
+    # The parallel segment workers are joined before the call returns, so no
+    # thread outlives the invocation that started it.
+    assert _non_main_threads() == []
+
+
+def test_runtime_exposes_no_cold_start_prewarm() -> None:
+    # TableTheory's Python Lambda surface deliberately has no pre-warm that runs
+    # detached from the init that started it. A new one must be reviewed against
+    # the same invariant as Go's removed pre-warm, so this test fails on purpose.
+    pattern = re.compile(r"pre_?warm|warm_?up|cold_?start|optimi[sz]e", re.IGNORECASE)
+    offenders = sorted(name for name in dir(runtime) if pattern.search(name))
+    assert offenders == []
