@@ -179,6 +179,38 @@ func addOutsideLaunchListBypass() {
 	wg.Wait()
 }
 
+func deferredJoinValid() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Wait()
+	go func() {
+		defer wg.Done()
+	}()
+}
+
+func deferredJoinAfterReturnBypass(cond bool) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+	}()
+	if cond {
+		return
+	}
+	defer wg.Wait()
+}
+
+func conditionalDeferBypass(cond bool) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+	}()
+	if cond {
+		defer wg.Wait()
+	}
+}
+
 func namedFunctionLaunch() {
 	go doWork()
 }
@@ -193,16 +225,19 @@ func doWork() {}
 		"errgroupJoin":        true,
 		"channelDrainJoin":    true,
 		"closeSignalJoin":     true,
+		"deferredJoinValid":   true,
 		// Bypasses that must be reported as unjoined.
-		"earlyReturnBypass":            false,
-		"conditionalWaitBypass":        false,
-		"uncalledClosureWaitBypass":    false,
-		"multiSendSingleReceiveBypass": false,
-		"bufferedReceiveBypass":        false,
-		"closeThenWorkBypass":          false,
-		"gotoBypass":                   false,
-		"addOutsideLaunchListBypass":   false,
-		"namedFunctionLaunch":          false,
+		"earlyReturnBypass":             false,
+		"conditionalWaitBypass":         false,
+		"uncalledClosureWaitBypass":     false,
+		"multiSendSingleReceiveBypass":  false,
+		"bufferedReceiveBypass":         false,
+		"closeThenWorkBypass":           false,
+		"gotoBypass":                    false,
+		"addOutsideLaunchListBypass":    false,
+		"deferredJoinAfterReturnBypass": false,
+		"conditionalDeferBypass":        false,
+		"namedFunctionLaunch":           false,
 	}
 
 	found := scanSample(t, src)

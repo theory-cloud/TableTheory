@@ -541,11 +541,16 @@ func launchList(all []*stmtList, launchPos token.Pos) (*stmtList, int) {
 }
 
 // joinDominates reports whether every path from the statement after the launch
-// to a return of the owning function executes the join described by isJoin.
+// to a return of the owning function executes the join described by isJoin. A
+// `defer <join>` registered before the launch counts too: it runs whenever the
+// function returns, so it covers every return path the launch can reach.
 func joinDominates(all []*stmtList, launchPos token.Pos, isJoin func(ast.Node) bool) bool {
 	list, idx := launchList(all, launchPos)
 	if list == nil {
 		return false
+	}
+	if deferredJoinBeforeLaunch(list, idx, isJoin) {
+		return true
 	}
 	flow := listFlow(list.stmts, idx+1, list.ownerBody, isJoin)
 	for flow == flowContinues && list.parent != nil {
@@ -554,6 +559,51 @@ func joinDominates(all []*stmtList, launchPos token.Pos, isJoin func(ast.Node) b
 		list = parent
 	}
 	return flow == flowJoined
+}
+
+// deferredJoinBefore reports whether an unconditional `defer <join>` was
+// registered before the launch described by launchPos reaches it. It exists for
+// the join evidence wording; joinDominates already accepts the shape.
+func deferredJoinBefore(all []*stmtList, launchPos token.Pos, isJoin func(ast.Node) bool) bool {
+	list, idx := launchList(all, launchPos)
+	if list == nil {
+		return false
+	}
+	return deferredJoinBeforeLaunch(list, idx, isJoin)
+}
+
+// deferredJoinBeforeLaunch reports whether an unconditional `defer <join>`
+// executes before the launch on every path that reaches it: the defer sits in
+// the launch's own statement list ahead of the launch, or in an enclosing list
+// ahead of the statement that leads down to the launch. Registered that way it
+// runs before any return the launch can reach, so it covers every return path.
+//
+// A defer the walk cannot place that way — one behind a branch, or one
+// registered after a possible return — is not a join, and a defer not reached
+// on every path leaves the launch reported as unjoined.
+func deferredJoinBeforeLaunch(list *stmtList, idx int, isJoin func(ast.Node) bool) bool {
+	for list != nil {
+		for i := 0; i < idx; i++ {
+			if isDeferredJoin(list.stmts[i], isJoin) {
+				return true
+			}
+		}
+		list = list.parent
+		if list != nil {
+			idx = list.parentIdx
+		}
+	}
+	return false
+}
+
+// isDeferredJoin reports whether stmt is a `defer <join>` whose deferred call is
+// the join itself, executed unconditionally.
+func isDeferredJoin(stmt ast.Stmt, isJoin func(ast.Node) bool) bool {
+	deferStmt, ok := stmt.(*ast.DeferStmt)
+	if !ok {
+		return false
+	}
+	return executesJoinUnconditionally(deferStmt.Call, isJoin)
 }
 
 // listFlow classifies statements[i:] of one statement list.
@@ -583,6 +633,13 @@ func statementFlow(stmt ast.Stmt, isJoin func(ast.Node) bool) (joined, escaped b
 	switch s := stmt.(type) {
 	case *ast.ReturnStmt:
 		return false, true
+	case *ast.DeferStmt:
+		// Reaching an unconditional `defer <join>` joins the work: the join runs
+		// whenever the function returns, so every later return path covers it.
+		if executesJoinUnconditionally(s.Call, isJoin) {
+			return true, false
+		}
+		return false, false
 	case *ast.BranchStmt:
 		// break/continue without a label stay inside the enclosing loop or
 		// clause and reach the join afterwards. A labeled branch, or a goto,
@@ -847,7 +904,9 @@ func intSubset(sub, super []int) bool {
 //
 //  1. sync.WaitGroup — an Add on the group runs unconditionally in the same
 //     statement list before the launch, the launched function calls Done on it,
-//     and a Wait on the same group dominates every return path.
+//     and a Wait on the same group dominates every return path. A `defer
+//     wg.Wait()` registered after the Add and before any return dominates too,
+//     because it runs whenever the function returns.
 //  2. A channel the launched function closes after its last send: the channel
 //     is unbuffered and declared before the launch, the goroutine's only
 //     operations on it are sends followed by a deferred or final close (and
@@ -858,9 +917,9 @@ func intSubset(sub, super []int) bool {
 //
 // Everything else — a named function launch (whose body is not visible here), a
 // Wait inside a conditional or a never-called closure, a launch with a return
-// before the Wait, a channel whose sends outnumber the receives, a sent-on but
-// unbuffered channel never drained — is reported as unjoined rather than
-// assumed joined.
+// before the Wait, a deferred Wait registered after a possible return, a channel
+// whose sends outnumber the receives, a sent-on but unbuffered channel never
+// drained — is reported as unjoined rather than assumed joined.
 func goLaunchJoined(owner *ast.BlockStmt, launchPos token.Pos, launched *ast.BlockStmt) (bool, string) {
 	if owner == nil {
 		return false, ""
@@ -892,12 +951,17 @@ func waitGroupJoined(lists []*stmtList, launchPos token.Pos, launched *ast.Block
 	if !bodyCallsMethod(launched, name, "Done") {
 		return false, ""
 	}
-	if !joinDominates(lists, launchPos, func(n ast.Node) bool {
+	isWait := func(n ast.Node) bool {
 		return isMethodCall(n, name, "Wait")
-	}) {
+	}
+	if !joinDominates(lists, launchPos, isWait) {
 		return false, ""
 	}
-	return true, fmt.Sprintf("WaitGroup %s: Add runs before the launch, the goroutine calls Done, and a Wait on %s runs on every return path after it", name, name)
+	join := fmt.Sprintf("a Wait on %s runs on every return path after it", name)
+	if deferredJoinBefore(lists, launchPos, isWait) {
+		join = fmt.Sprintf("`defer %s.Wait()` is registered before the launch, so the join runs whenever the function returns", name)
+	}
+	return true, fmt.Sprintf("WaitGroup %s: Add runs before the launch, the goroutine calls Done, and %s", name, join)
 }
 
 // addBeforeLaunch returns the name of a WaitGroup whose Add runs
@@ -1063,19 +1127,25 @@ func bodySendsOn(body *ast.BlockStmt, name string) bool {
 }
 
 // errgroupLaunchJoined reports whether an errgroup-style launch is joined: a
-// Wait on the same group runs on every return path after the launch. errgroup's
+// Wait on the same group runs on every return path after the launch, whether it
+// is an ordinary Wait or a deferred one registered before the launch. errgroup's
 // Wait is the only join it offers, and it joins every launch on that group.
 func errgroupLaunchJoined(owner *ast.BlockStmt, launchPos token.Pos, recv string) (bool, string) {
 	if owner == nil || recv == "" {
 		return false, ""
 	}
 	lists := buildStmtLists(owner)
-	if !joinDominates(lists, launchPos, func(n ast.Node) bool {
+	isWait := func(n ast.Node) bool {
 		return isMethodCall(n, recv, "Wait")
-	}) {
+	}
+	if !joinDominates(lists, launchPos, isWait) {
 		return false, ""
 	}
-	return true, fmt.Sprintf("errgroup %s: a Wait on the group runs on every return path after the launch", recv)
+	join := fmt.Sprintf("a Wait on %s runs on every return path after the launch", recv)
+	if deferredJoinBefore(lists, launchPos, isWait) {
+		join = fmt.Sprintf("`defer %s.Wait()` is registered before the launch, so the join runs whenever the function returns", recv)
+	}
+	return true, fmt.Sprintf("errgroup %s: %s", recv, join)
 }
 
 // bodyCallsMethod reports whether body calls <name>.<method>(...).
