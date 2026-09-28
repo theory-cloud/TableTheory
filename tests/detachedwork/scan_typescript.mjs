@@ -22,7 +22,8 @@
  * break/continue targets, and exception transfers into catch/finally clauses.
  * `return` and an unhandled `throw` are exits; a nested function is an opaque
  * statement, so its `return` is not this function's exit and its `await` is not
- * this function's join.
+ * this function's join. A source the parser rejects is a scan error, not a
+ * recovery-parsed tree.
  *
  * A launch is accepted only when no path from its statement to an exit avoids
  * every join statement, where a join statement is one that executes the join
@@ -714,6 +715,18 @@ function scriptKindFor(fileName) {
 
 function scanFile(fileName, source) {
   const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, scriptKindFor(fileName));
+  // A source file created on its own carries the diagnostics the parser
+  // recorded; the compiler API exposes no program-free getSyntacticDiagnostics,
+  // and building a Program would pull in a default lib and report diagnostics
+  // that have nothing to do with this source. A rejected source is a scan
+  // failure rather than a silently recovery-parsed tree.
+  const diagnostics = file.parseDiagnostics ?? [];
+  if (diagnostics.length > 0) {
+    const first = diagnostics[0];
+    const message = ts.flattenDiagnosticMessageText(first.messageText, ' ');
+    const at = file.getLineAndCharacterOfPosition(first.start ?? 0);
+    return { path: fileName, findings: [], error: `SyntaxError: ${message} (line ${at.line + 1})` };
+  }
   const managed = managedHandleNames(file);
   const asyncNames = asyncFunctionNames(file);
   const lines = source.split('\n');
