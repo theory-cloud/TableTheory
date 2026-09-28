@@ -131,6 +131,23 @@ var pythonDetectorFlagged = []struct{ name, src, rule string }{
 	// A try whose handler can skip the join, or whose body joins only at its end.
 	{"join at the end of a try body with a handler", "def run():\n    t = threading.Thread(target=work)\n    t.start()\n    try:\n        work()\n        t.join()\n    except Exception:\n        pass\n", "thread-start"},
 	{"non-exhaustive handler before the join", "def run():\n    t = threading.Thread(target=work)\n    t.start()\n    try:\n        work()\n    except ValueError:\n        pass\n    t.join()\n", "thread-start"},
+	// An attribute or a container element belongs to the instance or container,
+	// not to the frame that assigned it: a sibling method that starts it is
+	// reported even though the binding lives in another method. The join proof
+	// stays in the starting function, so a start with no dominating join there
+	// is a leak however the target was bound.
+	{"thread held on self, started in a sibling method", "class W:\n    def __init__(self):\n        self.worker = threading.Thread(target=work)\n    def go(self):\n        self.worker.start()\n", "thread-start"},
+	{"container element started in a sibling method", "class W:\n    def __init__(self):\n        self.pool = {}\n        self.pool[\"a\"] = threading.Thread(target=work)\n    def go(self):\n        self.pool[\"a\"].start()\n", "thread-start"},
+	{"attribute bound in one function and started in another", "mod = object()\n\ndef setup():\n    mod.worker = threading.Thread(target=work)\n\ndef go():\n    mod.worker.start()\n", "thread-start"},
+	// A walrus binding names a target like any other assignment.
+	{"one-line walrus thread start", "def run():\n    (t := threading.Thread(target=work)).start()\n", "thread-start"},
+	{"two-line walrus thread start", "def run():\n    (t := threading.Thread(target=work))\n    t.start()\n", "thread-start"},
+	// A constructor expression in a default argument or a decorator runs where
+	// the `def`/`class` statement does, outside every body the join proof has.
+	{"daemon thread in a default argument", "def g(t=threading.Thread(target=work, daemon=True)):\n    pass\n", "daemon-thread"},
+	{"thread started in a default argument", "def g(x=threading.Thread(target=work).start()):\n    pass\n", "thread-start"},
+	{"task created in a decorator", "def deco(x):\n    return x\n\n@deco(asyncio.create_task(work()))\ndef g():\n    pass\n", "asyncio-task"},
+	{"thread in a class base", "class W(threading.Thread(target=work, daemon=True)):\n    pass\n", "daemon-thread"},
 }
 
 // pythonDetectorClean are the shapes the Python detector must accept. They are
@@ -166,6 +183,16 @@ var pythonDetectorClean = []struct{ name, src string }{
 	{"task awaited in both try and except", "async def run():\n    task = asyncio.create_task(work())\n    try:\n        work()\n    except Exception:\n        await task\n    else:\n        await task\n"},
 	{"alias join", "def run():\n    t = threading.Thread(target=work)\n    u = t\n    u.start()\n    u.join()\n"},
 	{"offload alias awaited", "async def run():\n    r = asyncio.to_thread(f)\n    alias = r\n    await alias\n"},
+	// The join proof stays in the function that starts the work: a sibling
+	// method that starts a target its constructor stored, and joins it there, is
+	// accepted.
+	{"sibling method starts and joins the thread its constructor stored", "class W:\n    def __init__(self):\n        self.worker = threading.Thread(target=work)\n    def go(self):\n        self.worker.start()\n        self.worker.join()\n"},
+	{"sibling method starts and joins the container element", "class W:\n    def __init__(self):\n        self.pool = {}\n        self.pool[\"a\"] = threading.Thread(target=work)\n    def go(self):\n        self.pool[\"a\"].start()\n        self.pool[\"a\"].join()\n"},
+	{"walrus thread joined", "def run():\n    (t := threading.Thread(target=work)).start()\n    t.join()\n"},
+	{"attribute joined without a start", "class W:\n    def __init__(self):\n        self.worker = threading.Thread(target=work)\n    def go(self):\n        self.worker.join()\n"},
+	// A plain name is scoped to the function that binds it, so a name in another
+	// function is not assumed to be the same object.
+	{"plain name bound in one function and started in another", "def a():\n    t = threading.Thread(target=work)\n\ndef b():\n    t.start()\n"},
 }
 
 // TestPythonDetachedWorkDetectorIsNotVacuous proves the Python detector fires on

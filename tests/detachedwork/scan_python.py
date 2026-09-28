@@ -37,11 +37,24 @@ Recognized launches: `Thread`/`Timer`/`Process` `.start()`, `create_task` /
 `ensure_future`, `asyncio.to_thread` / `run_in_executor`, `ThreadPoolExecutor`
 `.submit(` outside a `with` block, a thread built inside a comprehension, and a
 daemon thread (either `daemon=True` on the constructor or a later
-`x.daemon = True`). Targets are tracked by name, attribute, and container
-element, with simple `u = t` aliases resolved. A task or offload is joined by
-`await target` (or `await asyncio.gather`/`wait` over it); a thread by
-`target.join()`; `task.cancel()` is not a join, because cancellation is
-cooperative and the task can still be running when the caller returns.
+`x.daemon = True`). A constructor expression in a default argument or a
+decorator is evaluated where the `def`/`class` statement sits, so it becomes its
+own one-statement scope and a launch there is reported.
+
+Targets are tracked by name, attribute (`self.worker`), container element
+(`pool["a"]`), and walrus binding (`(t := Thread(...))`), with simple `u = t`
+aliases resolved. A plain name is tracked inside the scope that binds it. An
+attribute or a container element is tracked across the whole file, because the
+target belongs to the instance or container rather than to the frame that
+assigned it: `self.worker` assigned in `__init__` and started in a sibling
+method names the same target. The join proof stays per function, though — a
+launch is reported unless a join in its own function dominates it, so such a
+start with no dominating join in the method that starts it is still reported.
+
+A task or offload is joined by `await target` (or `await asyncio.gather`/`wait`
+over it); a thread by `target.join()`; `task.cancel()` is not a join, because
+cancellation is cooperative and the task can still be running when the caller
+returns.
 
 Deliberately conservative, and documented as such in
 docs/development-guidelines.md:
@@ -57,6 +70,14 @@ docs/development-guidelines.md:
     the guard recognizes.
   * `await`ing the same target twice, or awaiting it in one branch and the other
     branch exiting, is reported; both branches must join.
+  * An attribute or container element is tracked file-wide, so a scope that
+    rebinds the same attribute to something else does not un-track it: a later
+    `.start()` on that name is still reported. The broader tracking errs toward
+    reporting.
+  * A constructor expression in a default argument, a decorator, or a class base
+    is always reported, because no function's joins can dominate it: the
+    expression runs when the `def`/`class` statement executes, outside every body
+    the guard proves dominance on.
 """
 
 from __future__ import annotations
@@ -139,6 +160,17 @@ def key_of(expr: ast.AST) -> str:
         return ""
 
 
+def receiver_key(expr: ast.AST) -> str:
+    """The key a `.start()`/`.join()` receiver names.
+
+    `(t := Thread(...)).start()` names the same target as `t.start()`, so the
+    walrus wrapper is unwrapped before the key is built.
+    """
+    if isinstance(expr, ast.NamedExpr):
+        return key_of(expr.target)
+    return key_of(expr)
+
+
 def call_short(call: ast.AST) -> str | None:
     if not isinstance(call, ast.Call):
         return None
@@ -169,6 +201,17 @@ def is_executor_ctor(expr: ast.AST) -> bool:
         return False
     name = dotted(expr.func)
     return name is not None and name.split(".")[-1].endswith("Executor")
+
+
+def construct_kind(value: ast.AST, thread_names: set[str]) -> str | None:
+    """The launch kind a constructor expression creates, or None."""
+    if is_thread_ctor(value, thread_names):
+        return "thread"
+    if is_task_ctor(value):
+        return "task"
+    if is_offload_ctor(value):
+        return "offload"
+    return None
 
 
 def thread_names_from_imports(tree: ast.Module) -> set[str]:
@@ -389,7 +432,7 @@ def make_join_predicate(kind: str, target: str, canon: Callable[[str], str]):
             func = node.func
             if not isinstance(func, ast.Attribute) or func.attr != "join":
                 return False
-            return canon(key_of(func.value)) == target
+            return canon(receiver_key(func.value)) == target
 
         return predicate
 
@@ -481,9 +524,14 @@ def direct_assign_target(stmt: ast.stmt | None, call: ast.AST) -> str:
 
 
 def collect_bindings(
-    stmts: list[ast.stmt], thread_names: set[str]
+    stmts: list[ast.stmt], thread_names: set[str], seed: dict[str, str] | None = None
 ) -> tuple[dict[str, str], Callable[[str], str]]:
-    """Map key -> kind ('thread' | 'task' | 'offload') with `u = t` aliases."""
+    """Map key -> kind ('thread' | 'task' | 'offload') with `u = t` aliases.
+
+    `seed` carries the file-wide attribute and container-element bindings from
+    `collect_container_bindings`; every binding this scope makes itself, of any
+    form, is layered on top.
+    """
     pairs: list[tuple[ast.AST, ast.AST]] = []
     for node in iter_scope(stmts):
         if isinstance(node, ast.Assign):
@@ -491,8 +539,10 @@ def collect_bindings(
                 pairs.append((tgt, node.value))
         elif isinstance(node, ast.AnnAssign) and node.value is not None:
             pairs.append((node.target, node.value))
+        elif isinstance(node, ast.NamedExpr):
+            pairs.append((node.target, node.value))
 
-    kinds: dict[str, str] = {}
+    kinds: dict[str, str] = dict(seed) if seed else {}
     alias: dict[str, str] = {}
 
     def resolve(k: str) -> str:
@@ -503,12 +553,9 @@ def collect_bindings(
         return k
 
     for tgt, value in pairs:
-        if is_thread_ctor(value, thread_names):
-            kinds[key_of(tgt)] = "thread"
-        elif is_task_ctor(value):
-            kinds[key_of(tgt)] = "task"
-        elif is_offload_ctor(value):
-            kinds[key_of(tgt)] = "offload"
+        kind = construct_kind(value, thread_names)
+        if kind is not None:
+            kinds[key_of(tgt)] = kind
 
     for _ in range(32):
         changed = False
@@ -530,6 +577,68 @@ def collect_bindings(
     return kinds, resolve
 
 
+def collect_container_bindings(tree: ast.Module, thread_names: set[str]) -> dict[str, str]:
+    """Constructor bindings held on an attribute or a container element, file-wide.
+
+    `self.worker = Thread(...)` in one method and `self.pool["a"] = Thread(...)`
+    in another name targets an unrelated scope can start: the attribute belongs
+    to the instance and the element to the container, not to the frame that
+    assigned them. Plain names are not collected here, because a name bound in
+    one function is not necessarily the same object in another.
+    """
+    kinds: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+        kind = construct_kind(value, thread_names)
+        if kind is None:
+            continue
+        for tgt in targets:
+            if isinstance(tgt, (ast.Attribute, ast.Subscript)):
+                kinds[key_of(tgt)] = kind
+    return kinds
+
+
+def constructor_expression_scopes(tree: ast.Module) -> list[list[ast.stmt]]:
+    """One-statement scopes for the expressions a `def`/`class` statement evaluates.
+
+    A default argument, a decorator, and a class base are evaluated where the
+    statement sits, not inside the body that follows it, so no function scope
+    owns them and `iter_scope` never reaches them. Each position becomes its own
+    scope with a single synthetic expression statement, so the launch rules run
+    on it and nothing in it can be proven joined.
+    """
+    scopes: list[list[ast.stmt]] = []
+    for node in ast.walk(tree):
+        positions: list[ast.AST] = []
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            positions.extend(node.decorator_list)
+            positions.extend(node.args.defaults)
+            positions.extend(d for d in node.args.kw_defaults if d is not None)
+        elif isinstance(node, ast.ClassDef):
+            positions.extend(node.decorator_list)
+            positions.extend(node.bases)
+            positions.extend(kw.value for kw in node.keywords)
+        else:
+            continue
+        if not positions:
+            continue
+        stmts: list[ast.stmt] = []
+        for position in positions:
+            synthetic = ast.Expr(value=position)
+            ast.copy_location(synthetic, position)
+            position.parent = synthetic
+            stmts.append(synthetic)
+        scopes.append(stmts)
+    return scopes
+
+
 # ---------------------------------------------------------------------------
 # Scope analysis
 # ---------------------------------------------------------------------------
@@ -541,8 +650,14 @@ def source_line(lines: list[str], lineno: int) -> str:
     return ""
 
 
-def analyze_scope(graph: Graph, body: list[ast.stmt], thread_names: set[str], lines: list[str]):
-    kinds, canon = collect_bindings(body, thread_names)
+def analyze_scope(
+    graph: Graph,
+    body: list[ast.stmt],
+    thread_names: set[str],
+    lines: list[str],
+    seed: dict[str, str] | None = None,
+):
+    kinds, canon = collect_bindings(body, thread_names, seed)
     scope_nodes = list(iter_scope(body))
     statements = [n for n in scope_nodes if isinstance(n, ast.stmt)]
     calls = [n for n in scope_nodes if isinstance(n, ast.Call)]
@@ -599,7 +714,7 @@ def analyze_scope(graph: Graph, body: list[ast.stmt], thread_names: set[str], li
                 # never be joined.
                 report(call.lineno, "thread-start")
                 continue
-            target = canon(key_of(receiver))
+            target = canon(receiver_key(receiver))
             if kinds.get(target) != "thread":
                 continue
             if not launch_joined(enclosing_stmt(call), "thread", target):
@@ -660,13 +775,21 @@ def scan_file(path: str, source: str) -> dict[str, Any]:
     attach_parents(tree)
     lines = source.splitlines()
     thread_names = thread_names_from_imports(tree)
+    seed = collect_container_bindings(tree, thread_names)
     findings: list[dict[str, Any]] = []
-    for body in scopes_of(tree):
+    for body in scopes_of(tree) + constructor_expression_scopes(tree):
         graph = Graph()
         graph.seq(body, graph.exit, Ctx(graph.exit, graph.exit))
-        findings.extend(analyze_scope(graph, body, thread_names, lines))
-    findings.sort(key=lambda f: (f["line"], f["rule"]))
-    return {"path": path, "findings": findings, "error": None}
+        findings.extend(analyze_scope(graph, body, thread_names, lines, seed))
+    out: list[dict[str, Any]] = []
+    seen_findings: set[tuple[int, str]] = set()
+    for finding in sorted(findings, key=lambda f: (f["line"], f["rule"])):
+        key = (finding["line"], finding["rule"])
+        if key in seen_findings:
+            continue
+        seen_findings.add(key)
+        out.append(finding)
+    return {"path": path, "findings": out, "error": None}
 
 
 def main() -> int:
