@@ -11,6 +11,8 @@ command -v npm >/dev/null 2>&1 || {
   exit 1
 }
 
+source scripts/lib/retry.sh
+
 allowlist_file="gov-infra/planning/theorydb-supply-chain-allowlist.txt"
 visible_policy_file="gov-infra/planning/theorydb-visible-npm-audit-findings.json"
 
@@ -20,7 +22,11 @@ run_npm_audit() {
   report="$(mktemp)"
 
   # Audit lockfiles directly so results don't depend on stale local node_modules.
-  if npm --prefix "${prefix}" audit --package-lock-only --audit-level=low --json >"${report}"; then
+  # The registry query is a single network call with no retry of its own, so a
+  # transient registry 5xx would otherwise fail the gate. Retrying is bounded,
+  # and a real finding still falls through to the allowlist path below.
+  if theorydb_retry_bounded 3 5 "npm-audit(${prefix})" -- \
+    npm --prefix "${prefix}" audit --package-lock-only --audit-level=low --json >"${report}"; then
     echo "npm-audit: PASS (${prefix})"
     rm -f "${report}"
     return 0
