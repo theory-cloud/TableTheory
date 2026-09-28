@@ -76,7 +76,7 @@ Multi-language scope:
 | ID | Points | Requirement | How to verify |
 | --- | ---: | --- | --- |
 | COM-1 | 1 | All language builds compile and versions align (Go modules + TypeScript build + Python build + shared repo version) | `bash scripts/verify-builds.sh` |
-| COM-2 | 1 | CI toolchain aligns to repo expectations (Go + Node + pinned tool versions) | `bash scripts/verify-ci-toolchain.sh` |
+| COM-2 | 1 | CI toolchain aligns to repo expectations (Go + Node + pinned tool versions, SHA-pinned actions, `npm ci --ignore-scripts`, trigger parity) | `bash scripts/verify-ci-toolchain.sh && bash scripts/test-ci-toolchain-policy.sh` |
 | COM-3 | 1 | Planning docs exist and are versioned | `bash scripts/verify-planning-docs.sh` |
 | COM-4 | 1 | Lint configuration is schema-valid for golangci-lint v2 | `golangci-lint config verify -c .golangci-v2.yml` |
 | COM-5 | 1 | Coverage gate configuration is not diluted (default threshold ≥ 90% across Go/TypeScript/Python) | `bash scripts/verify-coverage.sh --check-threshold-config` |

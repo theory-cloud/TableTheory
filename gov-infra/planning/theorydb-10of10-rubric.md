@@ -52,7 +52,7 @@ Enforcement rule (anti-drift):
 | ID | Points | Requirement | How to verify |
 | --- | ---: | --- | --- |
 | COM-1 | 1 | Builds compile and versions align (Go + TypeScript + Python; includes lockfile installs) | `bash scripts/verify-builds.sh` |
-| COM-2 | 1 | Toolchain pins align to repo (Go/Node/Python + pinned tool versions) | `bash scripts/verify-ci-toolchain.sh` |
+| COM-2 | 1 | Toolchain pins align to repo (Go/Node/Python + pinned tool versions, SHA-pinned actions, `npm ci --ignore-scripts`, R-F1 trigger parity) | `bash scripts/verify-ci-toolchain.sh && bash scripts/test-ci-toolchain-policy.sh` |
 | COM-3 | 1 | Planning docs exist and are versioned | `bash scripts/verify-planning-docs.sh` |
 | COM-4 | 1 | Lint config schema-valid (no silent skip) | `golangci-lint config verify -c .golangci-v2.yml` |
 | COM-5 | 1 | Coverage threshold not diluted (≥ 90%) | `bash scripts/verify-coverage.sh --check-threshold-config` |

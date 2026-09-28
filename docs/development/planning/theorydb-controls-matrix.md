@@ -27,7 +27,7 @@ Threat ID note:
 | Consistency | — | CON-2 | Enforce static analysis | Run linters across implementations | `bash scripts/verify-lint.sh` | CI logs |
 | Consistency | THR-7 | CON-3 | Public API contract parity | Contract tests/verifiers ensure exported helpers match canonical TableTheory tag/metadata semantics | `bash scripts/verify-public-api-contracts.sh` | CI logs |
 | Completeness | THR-6 | COM-1 | No “mystery meat” modules | All language builds compile (Go modules + TypeScript build) | `bash scripts/verify-builds.sh` | CI logs |
-| Completeness | THR-6 | COM-2 | No toolchain drift | CI Go version aligned to `go.mod` toolchain; Node version pinned for TS | `bash scripts/verify-ci-toolchain.sh` | CI logs |
+| Completeness | THR-6 | COM-2 | No toolchain drift | CI Go version aligned to `go.mod` toolchain; Node version pinned for TS; actions pinned by commit SHA; `npm ci --ignore-scripts`; R-F1 trigger parity | `bash scripts/verify-ci-toolchain.sh && bash scripts/test-ci-toolchain-policy.sh` | CI logs |
 | Completeness | THR-6 | COM-3 | Planning artifacts exist | Controls matrix + rubric + roadmap + evidence plan + threat model exist | `bash scripts/verify-planning-docs.sh` | Planning docs |
 | Completeness | THR-6 | COM-4 | Lint config is not “green by drift” | golangci-lint config schema is valid | `golangci-lint config verify -c .golangci-v2.yml` | CI logs |
 | Completeness | THR-6 | COM-5 | Coverage gate is not diluted | Coverage threshold is enforced at default | `bash scripts/verify-coverage.sh --check-threshold-config` | CI logs |
