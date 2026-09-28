@@ -26,6 +26,28 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # `make unit-cover` runs `go test ./...`, which includes the detached-work
+      # guard in ./tests. That guard shells out to
+      # tests/detachedwork/scan_typescript.mjs (needs node plus the TypeScript
+      # compiler from ts/node_modules) and tests/detachedwork/scan_python.py
+      # (needs python3), and it fails closed when either toolchain is missing.
+      # Provision both here, pinned like the rest of CI, from the lockfile with
+      # install scripts disabled.
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - name: Install TypeScript scanner toolchain (pinned)
+        run: npm --prefix ts ci --ignore-scripts
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
       - name: Run offline unit coverage
         run: make unit-cover
 
