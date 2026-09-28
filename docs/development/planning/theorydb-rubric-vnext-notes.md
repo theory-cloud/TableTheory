@@ -60,6 +60,12 @@ Current `scripts/verify-ci-toolchain.sh` checks for `go-version-file: go.mod` an
 assert that the **recommended rubric surface** is actually executed in CI. Consider a separate script (and rubric item)
 that validates the expected workflow/commands exist.
 
+**Adopted 2026-09-28 (COM-2, governance-conformance wave):** `scripts/verify-ci-toolchain.sh` now also rejects
+unpinned action references (commit SHA required; container actions need an image digest), rejects any `npm ci` without
+`--ignore-scripts` across workflows and gate scripts, and enforces R-F1 trigger parity (a job that runs on a push to
+`staging`, or on a promotion pull request targeting `premain`/`main`, must also be exercised on pull requests to
+`staging`). `scripts/test-ci-toolchain-policy.sh` proves each guard rejects a violation and accepts conforming input.
+
 ---
 
 ## Candidates discovered during security-critical review (catch earlier)

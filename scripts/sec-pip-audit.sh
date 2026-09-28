@@ -24,8 +24,15 @@ uv --directory py export \
   --no-hashes \
   --output-file "${requirements_file}" >/dev/null
 
-# Fail on any known vulnerability (no green-by-severity).
-uv tool run --from pip-audit==2.10.0 pip-audit \
+source scripts/lib/retry.sh
+
+# Fail on any known vulnerability (no green-by-severity). pip-audit resolves
+# every pinned requirement against pypi.org, which intermittently returns 5xx
+# (observed 2026-09-28: a pypi 503 failed a gating SEC-2 run). Absorb that
+# bounded transient window with backoff; a sustained outage or a real finding
+# still fails the gate after the retries.
+theorydb_retry_bounded 3 5 "pip-audit" -- \
+  uv tool run --from pip-audit==2.10.0 pip-audit \
   --requirement "${requirements_file}"
 
 echo "pip-audit: PASS"

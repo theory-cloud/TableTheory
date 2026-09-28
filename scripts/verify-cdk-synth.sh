@@ -33,7 +33,7 @@ log_file="$(mktemp)"
 cleanup() { rm -f "${log_file}"; }
 trap cleanup EXIT
 
-if ! npm --prefix "${app_dir}" ci >"${log_file}" 2>&1; then
+if ! npm --prefix "${app_dir}" ci --ignore-scripts >"${log_file}" 2>&1; then
   cat "${log_file}"
   echo "cdk-synth: FAIL (npm ci)"
   exit 1

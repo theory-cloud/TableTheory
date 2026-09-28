@@ -132,7 +132,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: dummy
           DYNAMODB_ENDPOINT: http://localhost:8000
         run: |
-          npm --prefix ts ci
+          npm --prefix ts ci --ignore-scripts
           npm --prefix ts run check
           npm --prefix ts run test:integration
 

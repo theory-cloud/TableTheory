@@ -134,7 +134,7 @@ jobs:
           python3 scripts/prepare-release-package-versions.py --tag-name "${TAG_NAME}"
 
           pushd ts
-          npm ci
+          npm ci --ignore-scripts
           npm run build
           npm pack --pack-destination ../release-assets
           popd
