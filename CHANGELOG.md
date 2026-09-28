@@ -8,8 +8,8 @@
   unselected zero-valued `omitempty` fields remain unchanged, while explicitly selected empty `omitempty` fields remove
   the persisted DynamoDB attribute. TypeScript already had this behavior; Go and Python previously stored empty values.
   Existing items remain readable, but consumers relying on empty attributes remaining present must remove `omitempty` or
-  use an explicit low-level `SET`. The Go module moves to `github.com/theory-cloud/tabletheory/v3`; Go consumers must
-  update module requirements and imports. DMS `M` values use carrier-size emptiness, so non-empty maps, objects, Go
+  use an explicit low-level `SET`. The Go module path is `github.com/theory-cloud/tabletheory/v3`; the module-path move
+  this release announces is recorded below. DMS `M` values use carrier-size emptiness, so non-empty maps, objects, Go
   structs, and Python dataclasses remain present even when every contained value is empty. Arrays/lists use length
   semantics, including fixed-length Go arrays, which serialize as `L` on both Create and Update. Go's no-argument
   `Update()` retains sparse zero-value selection so unselected structs and arrays cannot overwrite persisted data.
@@ -19,6 +19,9 @@
   transaction writes now use the same top-level `omitempty` predicate, and transactional explicit-empty updates emit
   `REMOVE`. Legacy `gsi:Name:pk` / `gsi:Name:sk` tags remain excluded from updates under exact token parsing. See
   `docs/migration/v3.md`.
+* **go:** the Go module path moves to `github.com/theory-cloud/tabletheory/v4` with this major release; Go consumers must
+  update module requirements and imports. The path change is staged separately from this change set and is not applied
+  here.
 * **go:** align `ConsistentRead()` on GSI queries with the cross-runtime contract by returning
   `ErrInvalidOperator` instead of silently dropping the flag, including when the Go query optimizer auto-selects a GSI
   from key conditions. Semver decision: this parity repair is release-major material and must not ship as a patch/minor.
@@ -27,6 +30,14 @@
   set-tagged slices write as `NULL`, and unsupported set element types fail at write time. Legacy shape-driven reads
   remain supported, but filters/conditions over mixed old/new data may need migration. Semver decision: this persisted
   shape convergence is release-major material and must not ship as a patch/minor.
+* **go:** replace the ticker-driven memory monitor with on-demand sampling. `MemoryMonitor.Start`,
+  `MemoryMonitor.Stop`, `ResourceProtector.StartMemoryMonitoring`, `ResourceProtector.StopMemoryMonitoring`, and
+  `ResourceLimits.MemoryCheckInterval` are removed, and `MemoryMonitor.Sample`,
+  `ResourceProtector.SampleMemory`, and `ResourceProtector.SetMemoryAlertCallback` replace them. A caller samples
+  inside the request whose memory it wants recorded; no goroutine or timer is started, so nothing a sample starts can
+  outlive the invocation that asked for it. The removed API had no consumers in this repository, and TypeScript and
+  Python never had a counterpart. Semver decision: this removed-API change is release-major material and must not ship
+  as a patch/minor.
 
 ### Features
 

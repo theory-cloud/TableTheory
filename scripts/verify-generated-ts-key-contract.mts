@@ -23,10 +23,17 @@ interface GoFixtureRow {
   go: string;
 }
 
-main().catch((err: unknown) => {
+// This file runs as an ES module (`.mts`), so its entrypoint is awaited here
+// rather than left floating: `main` settles before anything else happens, and a
+// failure stops the process with the error printed. tsx compiles a `.ts` file
+// in this tree as CommonJS (there is no package.json above scripts/), where a
+// top-level await cannot be expressed at all.
+try {
+  await main();
+} catch (err: unknown) {
   console.error(err);
   process.exit(1);
-});
+}
 
 async function main(): Promise<void> {
   const [, , artifactArg, goMatrixArg] = process.argv;

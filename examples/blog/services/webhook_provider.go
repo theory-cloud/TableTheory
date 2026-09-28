@@ -92,12 +92,22 @@ func (p *WebhookProvider) Send(ctx context.Context, notification *Notification) 
 		signature = p.generateSignature(jsonPayload)
 	}
 
-	// Send webhook with retries
+	// Send webhook with retries. Every wait between attempts is bounded by ctx,
+	// so the caller's deadline governs the whole call: a notify deadline that
+	// expires mid-retry cuts the backoff short instead of sleeping through it.
 	var lastErr error
 	for attempt := 0; attempt < p.config.RetryAttempts; attempt++ {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("webhook send canceled: %w", ctxErr)
+		}
+
 		if attempt > 0 {
-			// Exponential backoff
-			time.Sleep(time.Duration(attempt) * time.Second)
+			// Exponential backoff, interruptible by ctx.
+			select {
+			case <-time.After(time.Duration(attempt) * time.Second):
+			case <-ctx.Done():
+				return fmt.Errorf("webhook send canceled during backoff: %w", ctx.Err())
+			}
 		}
 
 		err = p.sendWebhook(ctx, webhookURL, jsonPayload, signature)

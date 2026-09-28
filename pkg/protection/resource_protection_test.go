@@ -24,7 +24,6 @@ func TestResourceLimitsDefaults(t *testing.T) {
 	assert.Equal(t, 10, defaults.MaxConcurrentBatch)
 	assert.Equal(t, float64(100), defaults.BatchRateLimit)
 	assert.Equal(t, int64(500), defaults.MaxMemoryMB)
-	assert.Equal(t, 5*time.Second, defaults.MemoryCheckInterval)
 	assert.Equal(t, 0.9, defaults.MemoryPanicThreshold)
 	assert.Equal(t, float64(1000), defaults.RequestsPerSecond)
 	assert.Equal(t, 50, defaults.BurstSize)
@@ -314,56 +313,59 @@ func TestBatchLimiter(t *testing.T) {
 	})
 }
 
-// TestMemoryMonitoring tests memory usage monitoring
-func TestMemoryMonitoring(t *testing.T) {
-	config := ResourceLimits{
-		MaxMemoryMB:          100, // Low limit for testing
-		MemoryCheckInterval:  50 * time.Millisecond,
-		MemoryPanicThreshold: 0.1, // Very low threshold for testing
-	}
+// TestResourceProtectorSamplesMemoryOnDemand verifies the memory sampler is
+// synchronous. A sample records memory usage and invokes the alert callback on
+// the calling goroutine, inside the call, so it cannot outlive the request that
+// asked for it; there is no monitor goroutine to start or stop.
+func TestResourceProtectorSamplesMemoryOnDemand(t *testing.T) {
+	config := DefaultResourceLimits()
+	config.MaxMemoryMB = 1            // Low limit so any real usage crosses it.
+	config.MemoryPanicThreshold = 0.0 // Alert on every sample.
+
 	protector := NewResourceProtector(config)
 
-	t.Run("MonitorsMemoryUsage", func(t *testing.T) {
-		alerts := make(chan MemoryAlert, 1)
-		alertCallback := func(alert MemoryAlert) {
-			select {
-			case alerts <- alert:
-			default:
-			}
-		}
-
-		protector.StartMemoryMonitoring(alertCallback)
-		defer protector.StopMemoryMonitoring()
-
-		// Wait for monitoring to detect current memory usage
-		time.Sleep(100 * time.Millisecond)
-
-		stats := protector.GetStats()
-		assert.GreaterOrEqual(t, stats.CurrentMemoryMB, int64(0), "Memory usage should be non-negative")
-
-		// Should trigger alert due to low threshold
-		select {
-		case alert := <-alerts:
-			assert.Equal(t, "MemoryThresholdExceeded", alert.Type)
-			assert.Greater(t, alert.UsagePercent, 0.0)
-			assert.NotEmpty(t, alert.Severity)
-		case <-time.After(200 * time.Millisecond):
-			// Alert might not trigger if actual memory usage is very low
-			t.Log("No memory alert triggered - actual memory usage might be below threshold")
-		}
+	alerts := make(chan MemoryAlert, 1)
+	protector.SetMemoryAlertCallback(func(alert MemoryAlert) {
+		alerts <- alert
 	})
 
-	t.Run("StopsMonitoring", func(t *testing.T) {
-		protector.StartMemoryMonitoring(nil)
-		assert.Equal(t, int32(1), atomic.LoadInt32(&protector.memoryMonitor.running))
+	// Make sure the heap is non-trivially allocated so the sample sees real use.
+	buf := make([]byte, 10*1024*1024)
+	for i := range buf {
+		buf[i] = byte(i)
+	}
 
-		protector.StopMemoryMonitoring()
+	protector.SampleMemory()
 
-		// Give monitor loop time to exit
-		time.Sleep(10 * time.Millisecond)
+	// The callback ran on this goroutine, so the alert is already buffered by
+	// the time SampleMemory returns.
+	select {
+	case alert := <-alerts:
+		assert.Equal(t, "MemoryThresholdExceeded", alert.Type)
+		assert.Greater(t, alert.UsagePercent, 0.0)
+		assert.NotEmpty(t, alert.Severity)
+	default:
+		t.Fatal("SampleMemory must invoke the alert callback before returning")
+	}
 
-		assert.Equal(t, int32(0), atomic.LoadInt32(&protector.memoryMonitor.running))
-	})
+	stats := protector.GetStats()
+	assert.GreaterOrEqual(t, stats.CurrentMemoryMB, int64(0))
+	assert.GreaterOrEqual(t, stats.PeakMemoryMB, stats.CurrentMemoryMB)
+	assert.Equal(t, int64(1), stats.MemoryAlerts)
+}
+
+// TestResourceProtectorSampleWithoutAlertCallback verifies sampling is safe
+// with no callback installed and leaves the alert counter alone when usage is
+// below the threshold.
+func TestResourceProtectorSampleWithoutAlertCallback(t *testing.T) {
+	config := DefaultResourceLimits()
+	config.MemoryPanicThreshold = 1.1 // Unreachable, so no alert can fire.
+
+	protector := NewResourceProtector(config)
+	protector.SetMemoryAlertCallback(nil)
+	protector.SampleMemory()
+
+	assert.Equal(t, int64(0), protector.GetStats().MemoryAlerts)
 }
 
 func TestMemoryMonitor_determineSeverity_COV6(t *testing.T) {
@@ -375,7 +377,7 @@ func TestMemoryMonitor_determineSeverity_COV6(t *testing.T) {
 	assert.Equal(t, "LOW", mm.determineSeverity(0.10))
 }
 
-func TestMemoryMonitor_checkMemory_TriggersAlertAndGC_COV6(t *testing.T) {
+func TestMemoryMonitor_SampleTriggersAlertAndGC_COV6(t *testing.T) {
 	config := DefaultResourceLimits()
 	config.MaxMemoryMB = 1
 	config.MemoryPanicThreshold = 0.0
@@ -398,7 +400,7 @@ func TestMemoryMonitor_checkMemory_TriggersAlertAndGC_COV6(t *testing.T) {
 	}
 	protector.memoryMonitor.mu.Unlock()
 
-	protector.memoryMonitor.checkMemory()
+	protector.memoryMonitor.Sample()
 
 	stats := protector.GetStats()
 	assert.Greater(t, stats.MemoryAlerts, int64(0))

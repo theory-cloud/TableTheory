@@ -4,7 +4,7 @@
 This document describes the implementation of the Payment Example's three main features:
 1. **Webhook Notification System** - Synchronous webhook delivery with retry logic
 2. **JWT Authentication** - Token validation and merchant ID extraction  
-3. **Export Lambda Integration** - Async export job processing
+3. **Export Job Records** - Export requests are recorded as jobs; processing is out of scope for this example
 
 ## Feature 1: Webhook Notification System
 
@@ -16,9 +16,9 @@ This document describes the implementation of the Payment Example's three main f
 #### Key Components:
 
 1. **WebhookSender** - Main webhook delivery service
-   - Delivers on the caller's goroutine: it owns no worker pool and no queue,
-     because Lambda freezes the execution environment the moment the handler
-     returns
+   - Delivers on the caller's goroutine: delivery is the caller's own work,
+     with no queue behind it, because Lambda freezes the execution environment
+     the moment the handler returns
    - Bounded by the caller's context and the sender's internal timeout
 
 2. **Webhook Delivery Features**:
@@ -28,10 +28,10 @@ This document describes the implementation of the Payment Example's three main f
    - TTL-based expiration (24 hours)
    - Support for multiple webhook endpoints
 
-Failed webhooks are re-driven from a queue or a scheduled invocation, not from an
-in-process worker: this example deploys only as Lambda functions
-(`lambda/process`, `lambda/query`, `lambda/reconcile`), so nothing keeps running
-after a handler returns to own one.
+Failed webhooks are re-driven from a queue or a scheduled invocation, never from
+anything left running inside the invocation: this example deploys only as Lambda
+functions (`lambda/process`, `lambda/query`, `lambda/reconcile`), so nothing
+survives a handler's return to carry the retry.
 
 ### Usage Example:
 
@@ -115,7 +115,7 @@ merchantID, err := utils.ValidateAndExtractMerchantID(
 }
 ```
 
-## Feature 3: Export Job Queue
+## Feature 3: Export Job Records
 
 ### Implementation Details
 
@@ -138,10 +138,17 @@ merchantID, err := utils.ValidateAndExtractMerchantID(
    ```
 
 2. **Export Flow**:
-   - API creates job record in DynamoDB
-   - Returns job ID immediately (async)
-   - Separate worker processes pending jobs
-   - Updates job with result URL when complete
+   - The API creates an `ExportJob` record in DynamoDB with status `pending`
+   - It returns the job ID and a status URL immediately
+   - That is the whole flow this example implements: the job is recorded and
+     nothing consumes it
+
+   Processing is out of scope here. A `pending` job stays `pending` until a
+   separately deployed consumer reads it; this repository ships no such
+   consumer, so no code turns a job into a result. Everything the future
+   consumer needs is written into the record — merchant, query parameters,
+   requested format, and an `ExpiresAt` TTL — but finishing the job is left
+   to the reader.
 
 ### Usage Example:
 
@@ -153,30 +160,22 @@ POST /payments/export?start_date=2024-01-01&end_date=2024-01-31&format=csv
 {
   "export_id": "export-merchant123-1234567890",
   "status": "pending",
-  "message": "Export job created. You will receive a notification when complete.",
+  "message": "Export job recorded. Nothing in this example processes export jobs, so no notification will be sent and the job stays pending.",
   "check_url": "/exports/export-merchant123-1234567890"
 }
 ```
 
-### Worker Implementation (Separate Process):
-```go
-// Poll for pending jobs
-var jobs []*ExportJob
-db.Model(&ExportJob{}).
-    Index("gsi-status").
-    Where("Status", "=", "pending").
-    Limit(10).
-    All(&jobs)
+### Export Processing Is Out of Scope
 
-// Process each job
-for _, job := range jobs {
-    // 1. Execute query
-    // 2. Generate CSV/JSON
-    // 3. Upload to S3
-    // 4. Update job with result URL
-    // 5. Send webhook notification
-}
-```
+This example records the job and stops there. Nothing in this repository reads
+pending `ExportJob` items, generates the CSV/JSON artifact, uploads it, or
+writes `ResultURL` back to the record. Adding that consumer is a separate,
+explicitly deployed piece of work that the example does not include; until it
+exists, a job simply stays `pending`.
+
+The `message` in the response above states exactly what this example does: the
+job is recorded, nothing processes it, and no notification is sent. It is not a
+promise the example keeps somewhere else.
 
 ## Integration Points
 
@@ -246,10 +245,10 @@ AWS_REGION=us-east-1
    - Use HTTPS endpoints only
    - Implement request timeouts
 
-3. **Export Security**:
-   - Pre-signed S3 URLs with expiration
-   - Merchant-scoped exports only
-   - Audit trail for all exports
+3. **Export Security** (guidance for the consumer that is not yet shipped):
+   - Serve results only through pre-signed, expiring URLs
+   - Scope every export to the requesting merchant
+   - Keep an audit trail for export requests
 
 ## Performance Considerations
 
@@ -257,10 +256,10 @@ AWS_REGION=us-east-1
    - Synchronous, bounded by the caller's context and the sender's timeout
    - Retries happen inside the invocation that triggered them
 
-2. **Export Processing**:
-   - Async job queue pattern
-   - Pagination for large datasets
-   - S3 multipart uploads for large files
+2. **Export Job Recording**:
+   - One DynamoDB write per export request, on the invocation path
+   - Merchant-scoped records with a TTL for cleanup
+   - The record stores the query parameters and format the consumer will need
 
 ## Next Steps
 
