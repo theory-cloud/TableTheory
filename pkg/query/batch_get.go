@@ -9,9 +9,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/expr"
-	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/internal/expr"
+	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 )
 
 // BatchGet retrieves multiple items by their primary keys using default options.

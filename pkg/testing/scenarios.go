@@ -3,7 +3,7 @@ package testing
 import (
 	"github.com/stretchr/testify/mock"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 )
 
 func mustUpdateBuilder(v any) core.UpdateBuilder {

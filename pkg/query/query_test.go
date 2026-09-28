@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
-	"github.com/theory-cloud/tabletheory/v3/pkg/query"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	"github.com/theory-cloud/tabletheory/v4/pkg/query"
 )
 
 // Mock types for testing

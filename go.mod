@@ -1,4 +1,4 @@
-module github.com/theory-cloud/tabletheory/v3
+module github.com/theory-cloud/tabletheory/v4
 
 go 1.26
 

@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 )
 
 func validDeployAuthorityItem() map[string]any {

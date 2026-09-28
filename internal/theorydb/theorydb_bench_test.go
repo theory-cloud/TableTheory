@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/marshal"
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
-	"github.com/theory-cloud/tabletheory/v3/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
+	"github.com/theory-cloud/tabletheory/v4/pkg/marshal"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
 )
 
 // Test model for benchmarking

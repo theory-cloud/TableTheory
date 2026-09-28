@@ -7,11 +7,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/expr"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
-	queryPkg "github.com/theory-cloud/tabletheory/v3/pkg/query"
-	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
+	"github.com/theory-cloud/tabletheory/v4/internal/expr"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	queryPkg "github.com/theory-cloud/tabletheory/v4/pkg/query"
+	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
 )
 
 type noopQueryExecutor struct{}

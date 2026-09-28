@@ -6,10 +6,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	"github.com/theory-cloud/tabletheory/v3/pkg/mocks"
-	"github.com/theory-cloud/tabletheory/v3/pkg/session"
-	theorydbtesting "github.com/theory-cloud/tabletheory/v3/pkg/testing"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/mocks"
+	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	theorydbtesting "github.com/theory-cloud/tabletheory/v4/pkg/testing"
 )
 
 func TestMockDBFactory_CreateDB(t *testing.T) {

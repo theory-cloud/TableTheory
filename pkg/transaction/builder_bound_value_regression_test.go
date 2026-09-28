@@ -6,9 +6,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
-	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
 )
 
 // THE-2833: DynamoDB ExpressionAttributeValues are bound parameters, never
