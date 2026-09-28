@@ -102,7 +102,7 @@ if workflow_trigger_block push | grep -q .; then
 fi
 
 # Ensure the workflow uses the repo toolchain pin.
-if grep -Eq '^[[:space:]]*uses:[[:space:]]*actions/setup-go@' "${wf}"; then
+if grep -Eq '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/setup-go@' "${wf}"; then
   grep -Ev '^[[:space:]]*#' "${wf}" | grep -q 'go-version-file: go.mod' || {
     echo "ci-rubric: ${wf}: setup-go must use go-version-file: go.mod"
     failures=$((failures + 1))
@@ -119,7 +119,7 @@ grep -Eq 'run:\s*make rubric' "${wf}" || {
 }
 
 # Rubric includes TypeScript checks; require Node setup (pinned).
-if grep -Eq '^[[:space:]]*uses:[[:space:]]*actions/setup-node@' "${wf}"; then
+if grep -Eq '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/setup-node@' "${wf}"; then
   grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq 'node-version:[[:space:]]*["'"'"']?24(\\.x)?["'"'"']?' || {
     echo "ci-rubric: ${wf}: setup-node must pin node-version: 24"
     failures=$((failures + 1))
@@ -145,7 +145,7 @@ grep -Fq 'npm --prefix ts run test:integration' "${wf}" || {
 }
 
 # Rubric includes Python checks; require Python setup (pinned).
-if grep -Eq '^[[:space:]]*uses:[[:space:]]*actions/setup-python@' "${wf}"; then
+if grep -Eq '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/setup-python@' "${wf}"; then
   grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq 'python-version:[[:space:]]*"?3[.]14([.]x)?"?' || {
     echo "ci-rubric: ${wf}: setup-python must pin python-version: 3.14"
     failures=$((failures + 1))
@@ -266,6 +266,28 @@ if [[ ! -f "${ts_wf}" ]]; then
 elif ! grep -Eq 'node-version:[[:space:]]*\[[[:space:]]*"22"[[:space:]]*,[[:space:]]*"24"[[:space:]]*\][[:space:]]*(#.*)?$' "${ts_wf}"; then
   echo "ci-rubric: ${ts_wf}: Node matrix must be exactly [\"22\", \"24\"]"
   failures=$((failures + 1))
+fi
+
+# The COM-2 toolchain verifier carries the governance guards added for the
+# conformance wave (action pinning, lockfile-install hygiene, R-F1 trigger
+# parity). Each guard name must stay both defined and called, so deleting a call
+# cannot silently retire a guard while the verifier still reports clean.
+toolchain_verifier="scripts/verify-ci-toolchain.sh"
+if [[ ! -f "${toolchain_verifier}" ]]; then
+  echo "ci-rubric: FAIL (missing ${toolchain_verifier})"
+  failures=$((failures + 1))
+else
+  for guard in check_action_pins check_npm_ci_across_repo check_trigger_parity; do
+    occurrences="$(grep -c -F -- "${guard}" "${toolchain_verifier}" || true)"
+    if [[ "${occurrences}" -lt 2 ]]; then
+      echo "ci-rubric: ${toolchain_verifier}: guard ${guard} must stay defined and called"
+      failures=$((failures + 1))
+    fi
+  done
+  grep -Fq -- '--ignore-scripts' "${toolchain_verifier}" || {
+    echo "ci-rubric: ${toolchain_verifier}: must reject npm ci without --ignore-scripts"
+    failures=$((failures + 1))
+  }
 fi
 
 if [[ "${failures}" -ne 0 ]]; then
