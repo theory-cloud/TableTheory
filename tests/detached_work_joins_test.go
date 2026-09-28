@@ -188,6 +188,32 @@ func deferredJoinValid() {
 	}()
 }
 
+func gotoOverDeferBypass() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	goto Work
+	defer wg.Wait()
+Work:
+	go func() {
+		defer wg.Done()
+	}()
+}
+
+func labeledBranchBeforeDefer() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+Loop:
+	for i := 0; i < 2; i++ {
+		if i == 1 {
+			break Loop
+		}
+	}
+	defer wg.Wait()
+	go func() {
+		defer wg.Done()
+	}()
+}
+
 func deferredJoinAfterReturnBypass(cond bool) {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -238,6 +264,13 @@ func doWork() {}
 		"deferredJoinAfterReturnBypass": false,
 		"conditionalDeferBypass":        false,
 		"namedFunctionLaunch":           false,
+		// A goto or labeled branch ahead of the launch disqualifies the deferred
+		// join pre-check: control can reach the launch without registering the
+		// defer. The second case is the conservative side of that rule — the
+		// defer does run there, but the guard refuses to rely on a prefix it
+		// cannot follow.
+		"gotoOverDeferBypass":      false,
+		"labeledBranchBeforeDefer": false,
 	}
 
 	found := scanSample(t, src)

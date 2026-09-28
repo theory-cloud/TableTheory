@@ -581,9 +581,18 @@ func deferredJoinBefore(all []*stmtList, launchPos token.Pos, isJoin func(ast.No
 // A defer the walk cannot place that way — one behind a branch, or one
 // registered after a possible return — is not a join, and a defer not reached
 // on every path leaves the launch reported as unjoined.
+//
+// A `goto` or a labeled `break`/`continue` anywhere ahead of the launch
+// disqualifies the pre-check. Such a branch can jump past the registration and
+// land on the launch, so the defer's presence in the prefix no longer proves it
+// ran; the launch then falls through to the forward flow walk, which reports it
+// unless a join dominates from the launch onward.
 func deferredJoinBeforeLaunch(list *stmtList, idx int, isJoin func(ast.Node) bool) bool {
 	for list != nil {
 		for i := 0; i < idx; i++ {
+			if hasBranchStmt(list.stmts[i]) {
+				return false
+			}
 			if isDeferredJoin(list.stmts[i], isJoin) {
 				return true
 			}
@@ -594,6 +603,26 @@ func deferredJoinBeforeLaunch(list *stmtList, idx int, isJoin func(ast.Node) boo
 		}
 	}
 	return false
+}
+
+// hasBranchStmt reports whether stmt contains a `goto` or a labeled
+// break/continue. Any of them can transfer control to a label that the prefix
+// scan cannot follow, so a defer reached through the prefix is not proven to
+// have run.
+func hasBranchStmt(stmt ast.Stmt) bool {
+	found := false
+	ast.Inspect(stmt, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		branch, ok := n.(*ast.BranchStmt)
+		if ok && (branch.Tok == token.GOTO || branch.Label != nil) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // isDeferredJoin reports whether stmt is a `defer <join>` whose deferred call is
@@ -834,62 +863,6 @@ func executesJoinUnconditionally(node ast.Node, isJoin func(ast.Node) bool) bool
 		return true
 	})
 	return found
-}
-
-// ---------------------------------------------------------------------------
-// Shared line-based stack helpers
-// ---------------------------------------------------------------------------
-//
-// The Python and TypeScript detectors read their block structure from text —
-// indentation for Python, braces for TypeScript — because neither language
-// offers a parser to this Go test. Both walks compare the block a launch sits
-// in with the block a join sits in, and both need the same three comparisons:
-// whether one opener stack is a prefix of another (still inside the owner),
-// whether two stacks are the same (an exit that belongs to the owner), and
-// whether every opener of one stack appears in another (the join is not deeper
-// than the launch).
-
-// intStackPrefix reports whether inner is a prefix of outer.
-func intStackPrefix(inner, outer []int) bool {
-	if len(inner) > len(outer) {
-		return false
-	}
-	for i := range inner {
-		if inner[i] != outer[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// intStackEqual reports whether two opener stacks hold the same lines.
-func intStackEqual(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// intSubset reports whether every element of sub also appears in super.
-func intSubset(sub, super []int) bool {
-	for _, v := range sub {
-		found := false
-		for _, s := range super {
-			if v == s {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
 }
 
 // ---------------------------------------------------------------------------
