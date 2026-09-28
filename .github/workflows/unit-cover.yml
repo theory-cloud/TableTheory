@@ -4,8 +4,11 @@ on:
   push:
     branches: [ "staging", "premain", "main" ]
   pull_request:
-    # Staging PRs run Go unit coverage through Quality Gates to avoid duplicate suites.
-    branches: [ "premain", "main" ]
+    # `staging` is listed because the `staging` push run of this job is the gate
+    # the `staging` -> `premain` promotion depends on: while staging PRs skipped
+    # it, PR #622 merged green and its own merge commit then failed this job on
+    # the push to staging and on the staging -> premain promotion PR #623.
+    branches: [ "staging", "premain", "main" ]
     paths-ignore:
       - ".release-please-manifest.json"
       - "CHANGELOG.md"
