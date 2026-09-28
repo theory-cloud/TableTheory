@@ -43,8 +43,9 @@
  * dropped `.then`/`.catch`/`.finally` chain; a dropped call to a function this
  * file declares `async`; a promise bound to a name, member, or element and not
  * joined on every path (including `this.x =`, a rebinding `p = ...`, and a
- * container element `jobs["a"] = ...`); and an `Array.from(...)`/`.map(...)`
- * given an async callback.
+ * container element `jobs["a"] = ...`); an `Array.from(...)`/`.map(...)` given
+ * an async callback; and a class property initializer or `static { ... }` block,
+ * which run while the instance or the class is built.
  *
  * Deliberately conservative, and documented as such in
  * docs/development-guidelines.md:
@@ -57,6 +58,10 @@
  *     producer is not inferred without types.
  *   * `switch` cases are modeled without fallthrough, so each case body is
  *     treated as ending the switch.
+ *   * A class property initializer is reported whenever it launches, because the
+ *     initializer itself cannot await: an `await` in a later method is not
+ *     modeled as that initializer's join. A timer held in a field and cleared
+ *     elsewhere in the class is reported for the same reason.
  *   * A dropped promise whose producer is only known from types (not syntax) is
  *     left to @typescript-eslint/no-floating-promises inside ts/**.
  */
@@ -474,13 +479,24 @@ function dominates(node, joins) {
 // ---------------------------------------------------------------------------
 
 function collectScopes(file) {
-  const scopes = [{ root: file, stmts: file.statements }];
+  const scopes = [{ root: file, stmts: file.statements, initializer: null }];
   walkAll(file, (node) => {
     if (node === file) {
       return;
     }
     if (isFunctionLike(node) && node.body && ts.isBlock(node.body)) {
-      scopes.push({ root: node, stmts: node.body.statements });
+      scopes.push({ root: node, stmts: node.body.statements, initializer: null });
+      return;
+    }
+    if (node.kind === ts.SyntaxKind.ClassStaticBlockDeclaration && node.body) {
+      scopes.push({ root: node, stmts: node.body.statements, initializer: null });
+      return;
+    }
+    // A field initializer runs while the instance (or the class) is being
+    // built, so it is a launch position in its own right; nothing inside it can
+    // await, so no join in it can dominate a launch it makes.
+    if (ts.isPropertyDeclaration(node) && node.initializer) {
+      scopes.push({ root: node, stmts: [], initializer: node.initializer });
     }
   });
   return scopes;
@@ -597,7 +613,8 @@ function asyncFunctionNames(file) {
 // Scope analysis
 // ---------------------------------------------------------------------------
 
-function analyzeScope(file, stmts, managed, asyncNames, lines) {
+function analyzeScope(file, scope, managed, asyncNames, lines) {
+  const stmts = scope.stmts;
   const graph = new Graph();
   graph.seq(stmts, graph.exit, new Ctx(graph.exit, graph.exit, null, null, false));
   const nodes = collectInScope(stmts);
@@ -664,6 +681,13 @@ function analyzeScope(file, stmts, managed, asyncNames, lines) {
     }
   }
 
+  if (scope.initializer) {
+    const rule = promiseRule(file, scope.initializer, managed, asyncNames);
+    if (rule) {
+      record(scope.initializer, rule);
+    }
+  }
+
   return findings;
 }
 
@@ -695,7 +719,7 @@ function scanFile(fileName, source) {
   const lines = source.split('\n');
   const findings = [];
   for (const scope of collectScopes(file)) {
-    for (const f of analyzeScope(file, scope.stmts, managed, asyncNames, lines)) {
+    for (const f of analyzeScope(file, scope, managed, asyncNames, lines)) {
       findings.push({ line: f.line, rule: f.rule, text: sourceLine(lines, f.line) });
     }
   }
