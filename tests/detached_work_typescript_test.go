@@ -1,7 +1,10 @@
 package tests
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -130,6 +133,20 @@ var typescriptDetectorFlagged = []struct{ name, src, rule string }{
 	// A try whose handler can skip the join, or whose body joins only at its end.
 	{"join at the end of a try body with a handler", "async function run() {\n  const p = load(id).then((u) => render(u));\n  try {\n    work();\n    await p;\n  } catch (e) {\n    log(e);\n  }\n}", "floating-then"},
 	{"rebound async call not awaited", "async function run() {\n  let p: Promise<void>;\n  p = flushAsync();\n}\nasync function flushAsync(): Promise<void> {\n  await work();\n}", "discarded-async-call"},
+	// A class property initializer and a `static { ... }` block run while the
+	// instance or the class is built, and neither is a function that can await a
+	// join in its own body, so a launch there is reported.
+	{"class field timer", "class C {\n  timer = setTimeout(() => flush(), 1000);\n}", "floating-setTimeout"},
+	{"static field timer", "class C {\n  static timer = setInterval(poll, 5000);\n}", "floating-setInterval"},
+	{"class field promise initializer", "class C {\n  pending = load(id).then((u) => render(u));\n}", "floating-then"},
+	{"class field async iife", "class C {\n  run = (async () => {\n    await work();\n  })();\n}", "detached-async-iife"},
+	{"class field discarded async call", "async function syncUser(id: string): Promise<void> {\n  await write(id);\n}\nclass C {\n  v = syncUser(\"u1\");\n}", "discarded-async-call"},
+	{"static block timer", "class C {\n  static {\n    setTimeout(() => flush(), 1000);\n  }\n}", "floating-setTimeout"},
+	{"static block bound promise", "class C {\n  static {\n    const p = load(id).then((u) => render(u));\n  }\n}", "floating-then"},
+	// A labeled break leaves its labeled statement and a labeled continue
+	// re-enters it; neither leaves the function, so a launch after the loop is
+	// still reported when no join reaches it.
+	{"labeled break leaves no join behind", "async function run() {\n  const p = load(id).then((u) => render(u));\n  outer: for (const x of xs) {\n    break outer;\n  }\n}", "floating-then"},
 }
 
 // typescriptDetectorClean are the shapes the TypeScript detector must accept.
@@ -160,6 +177,16 @@ var typescriptDetectorClean = []struct{ name, src string }{
 	{"rebound promise awaited", "async function run() {\n  let p;\n  p = load(id).then((u) => render(u));\n  await p;\n}"},
 	{"container-held promise awaited", "async function run() {\n  const jobs: Record<string, Promise<void>> = {};\n  jobs[\"a\"] = load(id).then((u) => render(u));\n  await jobs[\"a\"];\n}"},
 	{"bind and await on one line", "async function run() {\n  const p = load(id).then((u) => render(u)); await p;\n}"},
+	// A class property whose initializer only produces or holds a value without
+	// launching is accepted, and so is a static block that manages its timer.
+	{"class field without a launch", "class C {\n  pending: Promise<void> | null = null;\n  async start() {\n    this.pending = load(id).then((u) => render(u));\n    await this.pending;\n  }\n}"},
+	{"class field promise resolved inline", "class C {\n  ready: Promise<void> = Promise.resolve();\n}"},
+	{"static block managed timer", "class C {\n  static {\n    const timer = setTimeout(() => flush(), 1000);\n    clearTimeout(timer);\n  }\n}"},
+	{"static block unrefs its timer", "class C {\n  static {\n    const timer = setInterval(poll, 5000);\n    timer.unref?.();\n  }\n}"},
+	// A labeled exit is loop control, not a function exit: a launch before the
+	// loop is joined by an await the labeled branch still reaches.
+	{"labeled break is not a function exit", "async function run() {\n  const p = load(id).then((u) => render(u));\n  outer: for (const x of xs) {\n    break outer;\n  }\n  await p;\n}"},
+	{"labeled continue is not a function exit", "async function run() {\n  const p = load(id).then((u) => render(u));\n  outer: for (const x of xs) {\n    for (const y of ys) {\n      continue outer;\n    }\n  }\n  await p;\n}"},
 }
 
 // TestTypeScriptDetachedWorkDetectorIsNotVacuous proves the TypeScript detector
@@ -213,4 +240,40 @@ func containsRule(findings []tsFinding, rule string) bool {
 		}
 	}
 	return false
+}
+
+// TestTypeScriptDetectorRejectsUnparsableSource proves a source the TypeScript
+// parser rejects fails the scan instead of being scanned as a recovery-parsed
+// tree, so a syntax-broken file cannot silently drop out of the guard. It drives
+// the helper directly, because scanTypeScriptBatch treats a reported error as a
+// test failure of its own.
+func TestTypeScriptDetectorRejectsUnparsableSource(t *testing.T) {
+	sources := []astSource{{Path: "broken.ts", Source: "class {{{\n"}}
+	payload, err := json.Marshal(astRequest{Files: sources})
+	if err != nil {
+		t.Fatalf("encode scanner request: %v", err)
+	}
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Fatalf("detached-work guard needs %q on PATH to parse sources: %v", "node", err)
+	}
+	script := scannerScript(t, "tests/detachedwork/scan_typescript.mjs")
+	//nolint:gosec // G204: the interpreter is a fixed toolchain literal and the script is resolved from the repository root.
+	command := exec.CommandContext(t.Context(), "node", script)
+	command.Stdin = bytes.NewReader(payload)
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		t.Fatalf("detached-work scanner node failed: %v\nstderr: %s", err, stderr.String())
+	}
+	var response astResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode scanner response: %v\nstdout: %s", err, stdout.String())
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("scanner returned %d results for %d sources", len(response.Results), len(sources))
+	}
+	if response.Results[0].Error == "" {
+		t.Fatalf("scan of a source the parser rejects reported no error: %+v", response.Results[0])
+	}
 }
