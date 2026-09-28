@@ -98,13 +98,13 @@ type ResourceStats struct {
 type MemoryMonitor struct {
 	alertCallback func(MemoryAlert)
 	stats         *ResourceStats
-	limits        ResourceLimits
 	// readMemStats and forceGC are the runtime hooks Sample uses. Production
 	// wires the real runtime functions; tests substitute deterministic hooks so
 	// threshold behavior does not depend on GC timing or on how many whole MiB
 	// happen to be live when a sample is taken.
 	readMemStats func(*runtime.MemStats)
 	forceGC      func()
+	limits       ResourceLimits
 	mu           sync.RWMutex
 }
 
