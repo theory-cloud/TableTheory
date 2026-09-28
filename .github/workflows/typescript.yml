@@ -4,8 +4,14 @@ on:
   push:
     branches: ["staging", "premain", "main"]
   pull_request:
-    # Staging PRs run TypeScript through Quality Gates to avoid duplicate suites.
-    branches: ["premain", "main"]
+    # `staging` is listed because the push-to-`staging` run of this job is a
+    # gate the `staging` -> `premain` promotion depends on. While staging PRs
+    # skipped it, a PR could merge green and its own merge commit then fail
+    # this job on the push to `staging` and on the promotion PR (#623). Quality
+    # Gates also covers the TypeScript surface on staging PRs, so this
+    # duplicates suite time deliberately: no promotion may fail on a gate the
+    # PR never ran.
+    branches: ["staging", "premain", "main"]
     paths-ignore:
       - ".release-please-manifest.json"
       - "CHANGELOG.md"
@@ -43,7 +49,7 @@ jobs:
           cache-dependency-path: ts/package-lock.json
 
       - name: Install dependencies
-        run: npm --prefix ts ci
+        run: npm --prefix ts ci --ignore-scripts
 
       - name: Format check
         run: npm --prefix ts run format:check
