@@ -14,7 +14,7 @@
 //
 // Import the mocks package in your test files:
 //
-//	import "github.com/theory-cloud/tabletheory/v3/pkg/mocks"
+//	import "github.com/theory-cloud/tabletheory/v4/pkg/mocks"
 //
 // # Basic Usage
 //

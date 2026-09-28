@@ -4,9 +4,9 @@
 package main
 
 import (
-	"github.com/theory-cloud/tabletheory/v3"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	"github.com/theory-cloud/tabletheory/v3/pkg/query"
+	"github.com/theory-cloud/tabletheory/v4"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/query"
 )
 
 type User struct {

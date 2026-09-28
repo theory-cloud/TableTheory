@@ -3,7 +3,7 @@ package mocks
 import (
 	"github.com/stretchr/testify/mock"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 )
 
 // MockUpdateBuilder is a mock implementation of the core.UpdateBuilder interface.

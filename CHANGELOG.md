@@ -8,8 +8,9 @@
   unselected zero-valued `omitempty` fields remain unchanged, while explicitly selected empty `omitempty` fields remove
   the persisted DynamoDB attribute. TypeScript already had this behavior; Go and Python previously stored empty values.
   Existing items remain readable, but consumers relying on empty attributes remaining present must remove `omitempty` or
-  use an explicit low-level `SET`. The Go module moves to `github.com/theory-cloud/tabletheory/v3`; Go consumers must
-  update module requirements and imports. DMS `M` values use carrier-size emptiness, so non-empty maps, objects, Go
+  use an explicit low-level `SET`. The Go module path is now `github.com/theory-cloud/tabletheory/v4`; the path move and
+  its consumer migration are recorded below and in `docs/migration/v4.md`. DMS `M` values use carrier-size emptiness, so
+  non-empty maps, objects, Go
   structs, and Python dataclasses remain present even when every contained value is empty. Arrays/lists use length
   semantics, including fixed-length Go arrays, which serialize as `L` on both Create and Update. Go's no-argument
   `Update()` retains sparse zero-value selection so unselected structs and arrays cannot overwrite persisted data.
@@ -19,6 +20,10 @@
   transaction writes now use the same top-level `omitempty` predicate, and transactional explicit-empty updates emit
   `REMOVE`. Legacy `gsi:Name:pk` / `gsi:Name:sk` tags remain excluded from updates under exact token parsing. See
   `docs/migration/v3.md`.
+* **go:** the Go module path moves to `github.com/theory-cloud/tabletheory/v4` with this major release. Go consumers must
+  change their module requirement and every TableTheory import from `github.com/theory-cloud/tabletheory/v3` to
+  `github.com/theory-cloud/tabletheory/v4`, then run `go get github.com/theory-cloud/tabletheory/v4@v4.0.0` and
+  `go mod tidy`; see `docs/migration/v4.md`.
 * **go:** align `ConsistentRead()` on GSI queries with the cross-runtime contract by returning
   `ErrInvalidOperator` instead of silently dropping the flag, including when the Go query optimizer auto-selects a GSI
   from key conditions. Semver decision: this parity repair is release-major material and must not ship as a patch/minor.
@@ -27,6 +32,14 @@
   set-tagged slices write as `NULL`, and unsupported set element types fail at write time. Legacy shape-driven reads
   remain supported, but filters/conditions over mixed old/new data may need migration. Semver decision: this persisted
   shape convergence is release-major material and must not ship as a patch/minor.
+* **go:** replace the ticker-driven memory monitor with on-demand sampling. `MemoryMonitor.Start`,
+  `MemoryMonitor.Stop`, `ResourceProtector.StartMemoryMonitoring`, `ResourceProtector.StopMemoryMonitoring`, and
+  `ResourceLimits.MemoryCheckInterval` are removed, and `MemoryMonitor.Sample`,
+  `ResourceProtector.SampleMemory`, and `ResourceProtector.SetMemoryAlertCallback` replace them. A caller samples
+  inside the request whose memory it wants recorded; no goroutine or timer is started, so nothing a sample starts can
+  outlive the invocation that asked for it. The removed API had no consumers in this repository, and TypeScript and
+  Python never had a counterpart. Semver decision: this removed-API change is release-major material and must not ship
+  as a patch/minor.
 
 ### Features
 
@@ -41,6 +54,22 @@
 
 ### Bug Fixes
 
+* **go:** remove the detached cold-start pre-warm and the multi-account credential-refresh ticker, so no TableTheory
+  init path leaves work running after it returns. Lambda freezes the execution environment as soon as the handler
+  returns, so a pre-warm started in a goroutine could be frozen mid-flight and resume against an invocation that had
+  already completed. `OptimizeForColdStart` keeps its signature and now performs only synchronous, local
+  model-metadata work: the removed pre-warm issued `ListTables`, which needed IAM permissions beyond item access and
+  was therefore pure waste for consumers that grant only item operations. `MultiAccountDB` refreshes expired partner
+  sessions synchronously on the `Partner()` path instead of from a five-minute background ticker.
+* **go:** join every worker of a parallel fan-out before returning. `Query.ScanAllSegments` returned on the first
+  segment error while the other segment goroutines were still running, and `pkg/protection.SecureBodyReader` returned a
+  timeout while its request-body reader was still blocked. Both now stop the remaining work and wait for it on every
+  path, so nothing outlives the call that started it.
+* **ts:** `mapConcurrent` — the helper behind `Query.scanAllSegments` — now waits for every worker to settle before it
+  rejects, aborts the remaining segment scans, and re-throws the original failure instead of one of the abort-induced
+  ones.
+* **examples:** the payment Lambda webhook and the blog comment notifications are delivered synchronously inside the
+  invocation (bounded by a timeout) instead of from a detached goroutine that Lambda could freeze mid-flight.
 * **transaction:** refresh library-owned `updated_at` values on Go and TypeScript model-shaped transactional updates,
   matching Python and each runtime's non-transactional update behavior
 * **ts:** reject `createdAt` and version fields from model-shaped transactional update selections, and validate
@@ -62,6 +91,58 @@
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
+
+## [4.0.0-rc](https://github.com/theory-cloud/TableTheory/compare/v3.1.0...v4.0.0-rc) (2026-09-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **module:** the Go module path is now github.com/theory-cloud/tabletheory/v4. Go consumers must change their module requirement and every TableTheory import from github.com/theory-cloud/tabletheory/v3 to github.com/theory-cloud/tabletheory/v4, then run `go get github.com/theory-cloud/tabletheory/v4@v4.0.0` and `go mod tidy`. See docs/migration/v4.md.
+* **examples:** the template no longer declares BillingFunction, AuditCleanupFunction, or the StripeSecretKey parameter, and deploys on provided.al2023. A deployment that supplied StripeSecretKey must drop it.
+* **protection:** MemoryMonitor.Start, MemoryMonitor.Stop, ResourceProtector.StartMemoryMonitoring, ResourceProtector.StopMemoryMonitoring, and ResourceLimits.MemoryCheckInterval are removed and replaced by MemoryMonitor.Sample, ResourceProtector.SampleMemory, and ResourceProtector.SetMemoryAlertCallback.
+
+### Features
+
+* **ci:** guard action pinning, lockfile installs and trigger parity ([b7395f3](https://github.com/theory-cloud/TableTheory/commit/b7395f309dde5f7495a715a2b8a42a57a5aa62d0))
+* detached-work guard parity and [#621](https://github.com/theory-cloud/TableTheory/issues/621) review follow-ups ([3088552](https://github.com/theory-cloud/TableTheory/commit/30885522e1eae4b801e104cdca5e6218b8bec529))
+* **gov:** enforce report validity and materialization fidelity ([250b1fc](https://github.com/theory-cloud/TableTheory/commit/250b1fceb2da0e1c2bb49db852db43e9146c46ba))
+* **multi-tenant:** add the Lambda entrypoint the template declares ([e9f86c6](https://github.com/theory-cloud/TableTheory/commit/e9f86c6bf204753232494cdffec7fc8013fc426a))
+
+
+### Bug Fixes
+
+* **blog:** bound webhook retry backoff by ctx ([efb58e1](https://github.com/theory-cloud/TableTheory/commit/efb58e1e9dd9b252ce97246e073f55e02134408f))
+* **ci:** conform CI to software_repo_gov_infra (R-F1/R-G2/R-G3/R-G5) ([f019a83](https://github.com/theory-cloud/TableTheory/commit/f019a8362637049e6296aaea51b9d05ab21a86cf))
+* **ci:** disable install scripts for lockfile installs ([10f0671](https://github.com/theory-cloud/TableTheory/commit/10f0671d94f24c85f6956eaa37ce8186cfdcdc0b))
+* **ci:** exercise promotion-path jobs on staging pull requests ([3997c91](https://github.com/theory-cloud/TableTheory/commit/3997c91f9f7a806ec84fe059004b94657398aa0e))
+* **ci:** provision the detached-work guard toolchain in unit-cover ([d6a9924](https://github.com/theory-cloud/TableTheory/commit/d6a9924a0ce3f0598e46a887c2856894fccc4159))
+* **ci:** provision the pinned scanner toolchain for unit-cover ([995382c](https://github.com/theory-cloud/TableTheory/commit/995382c7bac4e6033183e5822b67dc1286f0b92f))
+* **ci:** retry transient upstream failures in dependency scans ([9533889](https://github.com/theory-cloud/TableTheory/commit/953388900808a4464557868432a2da92cbc53735))
+* **ci:** run unit-cover on pull requests targeting staging ([e7d1e51](https://github.com/theory-cloud/TableTheory/commit/e7d1e51a2ef5ad989cf15bab576a8ced176f9b13))
+* **deps:** bump the pinned GitHub Actions group ([b682a5c](https://github.com/theory-cloud/TableTheory/commit/b682a5caba72b0fa323afe2ded234ccd88d4c44e))
+* **deps:** consolidate the open Dependabot Go module groups ([cf06314](https://github.com/theory-cloud/TableTheory/commit/cf063146052aa1a53082ca859a7e037356e85576))
+* **deps:** fold the open Dependabot updates into one release-eligible PR ([a086ff0](https://github.com/theory-cloud/TableTheory/commit/a086ff0ce4b1439d8385c78a3f1632c9b4475211))
+* **examples:** delete the blog notification async path ([f1a6184](https://github.com/theory-cloud/TableTheory/commit/f1a61843a8f8c05c5fc7f7b9a074b53e7f790d28))
+* **examples:** keep Lambda work inside the invocation ([f771685](https://github.com/theory-cloud/TableTheory/commit/f77168599592a780e0cb1b946a1bad15100f8bfe))
+* **examples:** make the multi-tenant template deployable and honest ([b6ed7f7](https://github.com/theory-cloud/TableTheory/commit/b6ed7f756d46aa8fdb97d0ae22490ef5bf5ddbdb))
+* **examples:** remove the payment example's retry worker ([459bf91](https://github.com/theory-cloud/TableTheory/commit/459bf919d26f2048461842ba0a7585e185d4c75f))
+* **gov:** cover every materialized surface with a gitignore rule ([d4e44ee](https://github.com/theory-cloud/TableTheory/commit/d4e44eed71dccdcac8d3fbe23b14737bb6aa2094))
+* **guard:** fail the TypeScript scan on a source the parser rejects ([5546368](https://github.com/theory-cloud/TableTheory/commit/554636819dc5dc8bbbcbddd8b9279eb20ce0ec64))
+* **guard:** parse a TypeScript labeled break as loop control ([3dbf164](https://github.com/theory-cloud/TableTheory/commit/3dbf164eff8e860ca351a9fb6170d6545cb97957))
+* **guard:** recognize detached work beyond one Python function scope ([a832731](https://github.com/theory-cloud/TableTheory/commit/a83273100c882a062f6be408da447b069162b759))
+* **guard:** scan TypeScript class field initializers and static blocks ([37da70f](https://github.com/theory-cloud/TableTheory/commit/37da70f221e4d80a51d31dd2776b2e99cd2e0408))
+* **lambda:** no work may outlive a Lambda invocation (remove the detached cold-start pre-warm) ([5784b5a](https://github.com/theory-cloud/TableTheory/commit/5784b5a2f54901cbef91eee2c7939b9f188fe96a))
+* **lambda:** refresh multi-account sessions on the invocation path ([3673e7b](https://github.com/theory-cloud/TableTheory/commit/3673e7beb051a77632a1a46537bde19f69c45112))
+* **lambda:** remove the detached cold-start pre-warm ([71a0aa1](https://github.com/theory-cloud/TableTheory/commit/71a0aa1022cb1e5075b078f0ba4cd5c45ec1ead4))
+* **module:** adopt the /v4 Go module path ([467d73d](https://github.com/theory-cloud/TableTheory/commit/467d73d0a405c2879d72eb0e072898680e77fc9f))
+* **payment:** state what the export endpoint actually does ([124fa10](https://github.com/theory-cloud/TableTheory/commit/124fa10464e6ebc8141f8e243237593c1097a45f))
+* **protection:** join the request-body reader on timeout ([d6da564](https://github.com/theory-cloud/TableTheory/commit/d6da56488d5727594cabf6ddc932e57faa53754c))
+* **protection:** keep MemoryMonitor fields fieldalignment-clean ([97ad004](https://github.com/theory-cloud/TableTheory/commit/97ad004c4d68e202cceeb98e6f6910f7b2c151a5))
+* **protection:** sample memory on demand instead of a ticker goroutine ([02b0386](https://github.com/theory-cloud/TableTheory/commit/02b038648106f20742c17fc2ee0d2f475db42fe7))
+* **py:** import the runtime module with a single style ([f4cb663](https://github.com/theory-cloud/TableTheory/commit/f4cb6634b8c5fbe0fa2c2936021a4216afaab2bf))
+* **query:** join every fan-out worker on all paths ([2c58ee2](https://github.com/theory-cloud/TableTheory/commit/2c58ee22401730656e86e890fb0886c374ab92b3))
+* **test:** make the memory monitor threshold tests deterministic ([3e6358c](https://github.com/theory-cloud/TableTheory/commit/3e6358c959c55c811b10ff5bcb14f81c77529e2e))
+* **test:** make the memory monitor threshold tests deterministic ([2bc8a6e](https://github.com/theory-cloud/TableTheory/commit/2bc8a6e4fd9c4bd17d5ab34a92fb687ba2a180aa))
 
 ## [3.1.0](https://github.com/theory-cloud/TableTheory/compare/v3.1.0-rc...v3.1.0) (2026-09-23)
 

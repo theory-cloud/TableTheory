@@ -5,17 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/expr"
-	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v3/pkg/marshal"
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v4/internal/expr"
+	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v4/pkg/marshal"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
 )
 
 func (q *Query) First(dest any) error {
@@ -607,7 +608,15 @@ func (q *Query) ParallelScan(segment int32, totalSegments int32) core.Query {
 	return q
 }
 
-// ScanAllSegments performs a parallel scan across all segments and combines results
+// ScanAllSegments performs a parallel scan across all segments and combines results.
+//
+// Every segment worker is joined before this method returns: on success, on the
+// first segment error, and when the caller's context is canceled. A failure
+// cancels the shared segment context so the remaining segments stop early, and
+// the results channel is then drained until every worker has reported. Lambda
+// freezes the execution environment as soon as the handler returns, so a segment
+// worker left running past this call would be frozen mid-flight and could resume
+// against an invocation that is already over.
 func (q *Query) ScanAllSegments(dest any, totalSegments int32) error {
 	if err := q.checkBuilderError(); err != nil {
 		return err
@@ -619,6 +628,18 @@ func (q *Query) ScanAllSegments(dest any, totalSegments int32) error {
 	}
 	sliceType := destValue.Elem().Type()
 
+	// Segment scans share q.executor and read the context set on it, so the
+	// cancellable context below is what stops the remaining segments once one
+	// has failed.
+	baseCtx := q.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	segmentCtx, cancelSegments := context.WithCancel(baseCtx)
+	defer cancelSegments()
+	q.setExecutorContext(segmentCtx)
+	defer q.setExecutorContext(baseCtx)
+
 	// Create a channel to collect results from each segment
 	type segmentResult struct {
 		err   error
@@ -626,10 +647,13 @@ func (q *Query) ScanAllSegments(dest any, totalSegments int32) error {
 	}
 
 	results := make(chan segmentResult, totalSegments)
+	var workers sync.WaitGroup
 
 	// Launch goroutines for each segment
 	for i := int32(0); i < totalSegments; i++ {
+		workers.Add(1)
 		go func(segment int32) {
+			defer workers.Done()
 			// Create a new query for this segment
 			segmentQuery := &Query{
 				builderErr:     q.builderErr,
@@ -644,7 +668,7 @@ func (q *Query) ScanAllSegments(dest any, totalSegments int32) error {
 				orderBy:        q.orderBy,
 				exclusive:      q.exclusive,
 				consistentRead: q.consistentRead,
-				ctx:            q.ctx,
+				ctx:            segmentCtx,
 				metadata:       q.metadata,
 				rawMetadata:    q.rawMetadata,
 				converter:      q.converter,
@@ -677,14 +701,27 @@ func (q *Query) ScanAllSegments(dest any, totalSegments int32) error {
 		}(i)
 	}
 
-	// Collect results from all segments
-	var allItems []any
+	// Collect results from every segment, even after the first error, so that no
+	// worker is abandoned still running.
+	var (
+		allItems []any
+		firstErr error
+	)
 	for i := int32(0); i < totalSegments; i++ {
 		result := <-results
 		if result.err != nil {
-			return result.err
+			if firstErr == nil {
+				firstErr = result.err
+				cancelSegments()
+			}
+			continue
 		}
 		allItems = append(allItems, result.items...)
+	}
+	workers.Wait()
+
+	if firstErr != nil {
+		return firstErr
 	}
 
 	// Combine all results into the destination slice

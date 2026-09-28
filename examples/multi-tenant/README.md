@@ -2,7 +2,7 @@
 
 ## Overview
 
-This example demonstrates how to build a scalable multi-tenant SaaS platform using TableTheory with AWS Lambda. It showcases enterprise-grade patterns for tenant isolation, resource management, and billing in a serverless architecture.
+This example demonstrates how to build a scalable multi-tenant SaaS platform using TableTheory with AWS Lambda. It showcases enterprise-grade patterns for tenant isolation, resource management, and audit logging in a serverless architecture.
 
 ## Key Features
 
@@ -10,7 +10,6 @@ This example demonstrates how to build a scalable multi-tenant SaaS platform usi
 - **User Management**: Cross-organization users with role-based access
 - **Project Management**: Resource allocation and team collaboration
 - **Usage Tracking**: Real-time resource consumption monitoring
-- **Billing Integration**: Usage-based billing with Stripe
 - **Audit Logging**: Compliance-ready audit trails with TTL
 - **API Key Management**: Secure programmatic access
 
@@ -61,7 +60,6 @@ PK: org#123#resource#abc    SK: 2024-01-15T10:00:00Z
 - Go toolchain `go1.26.5`
 - AWS CLI configured
 - Docker (for local DynamoDB)
-- Stripe account (for billing)
 
 ### Local Development
 
@@ -252,11 +250,24 @@ Query Parameters:
 
 ```yaml
 DYNAMODB_TABLE: saas-platform
-STRIPE_SECRET_KEY: sk_live_xxx
 JWT_SECRET: your-secret-key
 AUDIT_RETENTION_DAYS: 90
 DEFAULT_RATE_LIMIT: 1000
 ```
+
+### Lambda Entrypoint
+
+One binary, `cmd/lambda`, serves every function the SAM template declares. The
+`FUNCTION_TYPE` environment variable selects which handler an invocation runs:
+
+| `FUNCTION_TYPE` | Role |
+| --- | --- |
+| `organization`, `user`, `project`, `resource`, `apikey` | API Gateway proxy handlers, routed through the same table the local server uses (`handlers.NewRouter`, shared with `cmd/local`) |
+| `jwt_authorizer`, `apikey_authorizer` | API Gateway custom authorizers, declared as REQUEST authorizers so each receives the path, method, and headers it checks |
+
+Build the entrypoint with `make build`, which produces `bin/bootstrap` and zips
+it to `bin/deployment.zip`. The template deploys that binary on the
+`provided.al2023` runtime with the `bootstrap` handler.
 
 ### AWS SAM Deployment
 

@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/keycontract"
+	"github.com/theory-cloud/tabletheory/v4/pkg/keycontract"
 )
 
 func main() {

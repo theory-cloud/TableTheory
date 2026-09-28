@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v4/pkg/naming"
 )
 
 func TestBuildVisibleFieldPlanIncludesPromotedFields(t *testing.T) {

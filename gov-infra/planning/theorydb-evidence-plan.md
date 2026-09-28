@@ -36,7 +36,7 @@ Every rubric ID maps to exactly one verifier and one primary evidence location.
 | CON-2 | Lint output | `gov-infra/evidence/CON-2-output.log` | `bash scripts/verify-lint.sh` |
 | CON-3 | Contract verification output | `gov-infra/evidence/CON-3-output.log` | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-dms-first-workflow.sh`, `bash scripts/verify-generated-models.sh --check`, `bash scripts/verify-empty-predicate-call-sites.sh` |
 | COM-1 | Builds + version alignment output | `gov-infra/evidence/COM-1-output.log` | `bash scripts/verify-typescript-deps.sh`, `bash scripts/verify-python-deps.sh`, `bash scripts/verify-builds.sh` |
-| COM-2 | Toolchain pin verification | `gov-infra/evidence/COM-2-output.log` | `bash scripts/verify-ci-toolchain.sh` |
+| COM-2 | Toolchain pin, action pin, lockfile-install and trigger-parity verification | `gov-infra/evidence/COM-2-output.log` | `bash scripts/verify-ci-toolchain.sh && bash scripts/test-ci-toolchain-policy.sh` |
 | COM-3 | Planning docs presence | `gov-infra/evidence/COM-3-output.log` | `bash scripts/verify-planning-docs.sh` |
 | COM-4 | Lint config validation | `gov-infra/evidence/COM-4-output.log` | `golangci-lint config verify -c .golangci-v2.yml` |
 | COM-5 | Coverage threshold check | `gov-infra/evidence/COM-5-output.log` | `bash scripts/verify-coverage.sh --check-threshold-config` |

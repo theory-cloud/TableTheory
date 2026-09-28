@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 
-	"github.com/theory-cloud/tabletheory/v3"
-	payment "github.com/theory-cloud/tabletheory/v3/examples/payment"
-	"github.com/theory-cloud/tabletheory/v3/examples/payment/utils"
-	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v4"
+	payment "github.com/theory-cloud/tabletheory/v4/examples/payment"
+	"github.com/theory-cloud/tabletheory/v4/examples/payment/utils"
+	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 )
 
 // QueryRequest represents the query parameters
@@ -304,19 +304,15 @@ func (h *QueryHandler) exportPayments(_ context.Context, merchantID string, req 
 		return errorResponse(http.StatusInternalServerError, "Failed to create export job"), nil
 	}
 
-	// In a real implementation, a separate worker process would:
-	// 1. Poll for pending export jobs
-	// 2. Execute the query
-	// 3. Generate the CSV/JSON file
-	// 4. Upload to S3
-	// 5. Update the job with the result URL
-	// 6. Send notification to the user
+	// The record is the whole flow this example implements: nothing consumes
+	// pending export jobs, generates the artifact, uploads it, or notifies
+	// anyone. IMPLEMENTATION.md states the same scope.
 
 	// Return immediate response
 	response := map[string]any{
 		"export_id": exportJob.ID,
 		"status":    exportJob.Status,
-		"message":   "Export job created. You will receive a notification when complete.",
+		"message":   "Export job recorded. Nothing in this example processes export jobs, so no notification will be sent and the job stays pending.",
 		"check_url": fmt.Sprintf("/exports/%s", exportJob.ID),
 	}
 

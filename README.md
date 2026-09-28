@@ -56,7 +56,7 @@ TableTheory is distributed exclusively through immutable **[GitHub Releases](htt
 
 | Runtime | Install |
 |---|---|
-| **Go** | `go get github.com/theory-cloud/tabletheory/v3@vX.Y.Z` |
+| **Go** | `go get github.com/theory-cloud/tabletheory/v4@vX.Y.Z` |
 | **TypeScript** | install the `npm pack` release asset — see [TypeScript getting started](https://tabletheory.theorycloud.ai/runtimes/typescript/) |
 | **Python** | install the wheel/sdist release asset — see [Python getting started](https://tabletheory.theorycloud.ai/runtimes/python/) |
 

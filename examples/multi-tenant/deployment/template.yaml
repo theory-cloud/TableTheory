@@ -5,7 +5,8 @@ Description: Multi-tenant SaaS Platform using TableTheory
 Globals:
   Function:
     Timeout: 30
-    Runtime: go1.x
+    # The Makefile builds cmd/lambda to bin/bootstrap for the provided runtime.
+    Runtime: provided.al2023
     Environment:
       Variables:
         DYNAMODB_TABLE: !Ref DynamoDBTable
@@ -21,11 +22,6 @@ Parameters:
     Type: String
     NoEcho: true
     Description: Secret key for JWT token signing
-  
-  StripeSecretKey:
-    Type: String
-    NoEcho: true
-    Description: Stripe secret key for billing integration
 
 Resources:
   # DynamoDB Table
@@ -94,12 +90,14 @@ Resources:
         Authorizers:
           JWTAuthorizer:
             FunctionArn: !GetAtt AuthorizerFunction.Arn
+            FunctionPayloadType: REQUEST
             Identity:
               Headers:
                 - Authorization
               ReauthorizeEvery: 300
           ApiKeyAuthorizer:
             FunctionArn: !GetAtt ApiKeyAuthorizerFunction.Arn
+            FunctionPayloadType: REQUEST
             Identity:
               Headers:
                 - X-API-Key
@@ -338,46 +336,6 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DynamoDBTable
-
-  # Billing Function (runs monthly)
-  BillingFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: ../cmd/lambda/
-      Handler: bootstrap
-      Timeout: 300
-      Environment:
-        Variables:
-          FUNCTION_TYPE: billing
-          STRIPE_SECRET_KEY: !Ref StripeSecretKey
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref DynamoDBTable
-      Events:
-        MonthlyBilling:
-          Type: Schedule
-          Properties:
-            Schedule: cron(0 2 1 * ? *)  # Run at 2 AM on the 1st of each month
-            Description: Generate monthly usage reports and process billing
-
-  # Audit Log Cleanup Function
-  AuditCleanupFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: ../cmd/lambda/
-      Handler: bootstrap
-      Environment:
-        Variables:
-          FUNCTION_TYPE: audit_cleanup
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref DynamoDBTable
-      Events:
-        DailyCleanup:
-          Type: Schedule
-          Properties:
-            Schedule: rate(1 day)
-            Description: Clean up expired audit logs
 
 Outputs:
   ApiUrl:

@@ -13,10 +13,10 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v3"
-	payment "github.com/theory-cloud/tabletheory/v3/examples/payment"
-	"github.com/theory-cloud/tabletheory/v3/examples/payment/utils"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4"
+	payment "github.com/theory-cloud/tabletheory/v4/examples/payment"
+	"github.com/theory-cloud/tabletheory/v4/examples/payment/utils"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 )
 
 // ProcessPaymentRequest represents the payment request payload
@@ -59,8 +59,9 @@ func NewHandler() (*Handler, error) {
 	// Initialize idempotency middleware
 	idempotency := utils.NewIdempotencyMiddleware(db, 24*time.Hour)
 
-	// Initialize webhook sender with 5 workers
-	webhookSender := utils.NewWebhookSender(db, 5)
+	// Initialize the webhook sender. It starts no goroutine: deliveries run
+	// synchronously on the invocation path.
+	webhookSender := utils.NewWebhookSender(db)
 
 	// Initialize JWT validator
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -191,7 +192,7 @@ func (h *Handler) processPayment(ctx context.Context, merchantID string, req *Pr
 		return nil, fmt.Errorf("failed to process payment: %w", err)
 	}
 
-	// Send webhook notification asynchronously
+	// Send the webhook notification for this payment.
 	webhookJob := &utils.WebhookJob{
 		MerchantID: merchantID,
 		EventType:  "payment.succeeded",
@@ -199,13 +200,16 @@ func (h *Handler) processPayment(ctx context.Context, merchantID string, req *Pr
 		Data:       paymentRecord,
 	}
 
-	// Queue webhook for async delivery (non-blocking)
-	go func() {
-		if err := h.webhookSender.Send(webhookJob); err != nil {
-			// Log error but don't fail the payment
-			fmt.Printf("Failed to queue webhook: %v\n", err)
-		}
-	}()
+	// Deliver the webhook synchronously inside this invocation. Lambda freezes
+	// the execution environment the moment the handler returns, so a delivery
+	// launched in a goroutine here would be frozen mid-flight and could resume
+	// against an invocation that is already over. SendSync is bounded by ctx and
+	// a short internal timeout, and its failure must not fail the payment: the
+	// payment is already committed and the webhook record is persisted with a
+	// retry schedule.
+	if err := h.webhookSender.SendSync(ctx, webhookJob); err != nil {
+		fmt.Printf("Failed to deliver webhook: %v\n", err)
+	}
 
 	return paymentRecord, nil
 }
@@ -283,9 +287,6 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to initialize handler: %v", err))
 	}
-
-	// Ensure webhook sender is stopped gracefully
-	defer handler.webhookSender.Stop()
 
 	lambda.Start(handler.HandleRequest)
 }

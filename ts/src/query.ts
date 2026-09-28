@@ -1031,6 +1031,16 @@ export class ScanBuilder<
     };
 
     const segments = Array.from({ length: totalSegments }, (_, i) => i);
+    // A failing segment aborts the remaining scans, and mapConcurrent still
+    // joins every segment worker before this call returns.
+    const scanAbort = new AbortController();
+    const inheritedSignal = this.sendOptions?.abortSignal;
+    const sendOptions: SendOptions = {
+      ...this.sendOptions,
+      abortSignal: inheritedSignal
+        ? AbortSignal.any([inheritedSignal, scanAbort.signal])
+        : scanAbort.signal,
+    };
     const results = await mapConcurrent(
       segments,
       concurrency,
@@ -1046,7 +1056,7 @@ export class ScanBuilder<
               TotalSegments: totalSegments,
               ExclusiveStartKey: start,
             }),
-            this.sendOptions,
+            sendOptions,
           );
 
           const rawItems = resp.Items ?? [];
@@ -1070,6 +1080,7 @@ export class ScanBuilder<
         }
         return items;
       },
+      () => scanAbort.abort(),
     );
 
     const out: TItem[] = [];

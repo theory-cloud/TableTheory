@@ -11,14 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/rs/cors"
-
-	"github.com/theory-cloud/tabletheory/v3"
-	"github.com/theory-cloud/tabletheory/v3/examples/multi-tenant/handlers"
-	"github.com/theory-cloud/tabletheory/v3/examples/multi-tenant/models"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	"github.com/theory-cloud/tabletheory/v4"
+	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/handlers"
+	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/session"
 )
 
 func main() {
@@ -40,54 +38,9 @@ func main() {
 		}
 	}
 
-	// Initialize handlers
-	orgHandler := handlers.NewOrganizationHandler(db)
-	userHandler := handlers.NewUserHandler(db)
-	projectHandler := handlers.NewProjectHandler(db)
-	resourceHandler := handlers.NewResourceHandler(db)
-	apiKeyHandler := handlers.NewAPIKeyHandler(db)
-
-	// Setup routes
-	r := mux.NewRouter()
-
-	// Health check
-	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	}).Methods("GET")
-
-	// Organization routes
-	r.HandleFunc("/organizations", orgHandler.CreateOrganization).Methods("POST")
-	r.HandleFunc("/organizations", orgHandler.ListOrganizations).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}", orgHandler.GetOrganization).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/settings", orgHandler.UpdateOrganizationSettings).Methods("PUT")
-
-	// User routes
-	r.HandleFunc("/organizations/{org_id}/invitations", userHandler.InviteUser).Methods("POST")
-	r.HandleFunc("/invitations/accept", userHandler.AcceptInvitation).Methods("POST")
-	r.HandleFunc("/organizations/{org_id}/users", userHandler.ListUsers).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/users/{user_id}", userHandler.GetUser).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/users/{user_id}", userHandler.UpdateUser).Methods("PUT")
-	r.HandleFunc("/organizations/{org_id}/users/{user_id}", userHandler.DeleteUser).Methods("DELETE")
-
-	// Project routes
-	r.HandleFunc("/organizations/{org_id}/projects", projectHandler.CreateProject).Methods("POST")
-	r.HandleFunc("/organizations/{org_id}/projects", projectHandler.ListProjects).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/projects/{project_id}", projectHandler.GetProject).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/projects/{project_id}", projectHandler.UpdateProject).Methods("PUT")
-	r.HandleFunc("/organizations/{org_id}/projects/{project_id}", projectHandler.DeleteProject).Methods("DELETE")
-
-	// Resource tracking routes
-	r.HandleFunc("/organizations/{org_id}/resources", resourceHandler.RecordUsage).Methods("POST")
-	r.HandleFunc("/organizations/{org_id}/usage", resourceHandler.GetUsageReport).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/projects/{project_id}/usage", resourceHandler.GetProjectUsage).Methods("GET")
-
-	// API key routes
-	r.HandleFunc("/organizations/{org_id}/api-keys", apiKeyHandler.CreateAPIKey).Methods("POST")
-	r.HandleFunc("/organizations/{org_id}/api-keys", apiKeyHandler.ListAPIKeys).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/api-keys/{key_id}", apiKeyHandler.GetAPIKey).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/api-keys/{key_id}", apiKeyHandler.UpdateAPIKey).Methods("PUT")
-	r.HandleFunc("/organizations/{org_id}/api-keys/{key_id}", apiKeyHandler.DeleteAPIKey).Methods("DELETE")
+	// Serve the example's single route table, shared with the Lambda entrypoint
+	// (cmd/lambda) so local and deployed routing cannot drift apart.
+	r := handlers.NewRouter(db)
 
 	// Apply middleware
 	r.Use(loggingMiddleware)

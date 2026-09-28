@@ -9,14 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/examples/blog/models"
+	"github.com/theory-cloud/tabletheory/v4/examples/blog/models"
 )
 
-// MockProvider is a mock notification provider for testing
+// MockProvider is a mock notification provider for testing. Delivery is
+// synchronous on the caller's goroutine, so it needs no locking.
 type MockProvider struct {
 	name              string
 	sentNotifications []*Notification
 	shouldFail        bool
+	failFirst         int
+	calls             int
 }
 
 func NewMockProvider(name string) *MockProvider {
@@ -27,7 +30,8 @@ func NewMockProvider(name string) *MockProvider {
 }
 
 func (m *MockProvider) Send(ctx context.Context, notification *Notification) error {
-	if m.shouldFail {
+	m.calls++
+	if m.shouldFail || m.calls <= m.failFirst {
 		return fmt.Errorf("mock provider error")
 	}
 	m.sentNotifications = append(m.sentNotifications, notification)
@@ -43,15 +47,11 @@ func (m *MockProvider) Name() string {
 }
 
 func TestNotificationService_SendCommentModerationNotification(t *testing.T) {
-	// Create notification service
-	service := NewNotificationService(1)
-	defer service.Shutdown()
+	service := NewNotificationService()
 
-	// Add mock provider
 	mockProvider := NewMockProvider("mock")
 	service.RegisterProvider(mockProvider)
 
-	// Create test data
 	comment := &models.Comment{
 		ID:          "test-comment-1",
 		PostID:      "test-post-1",
@@ -69,32 +69,25 @@ func TestNotificationService_SendCommentModerationNotification(t *testing.T) {
 		Slug:  "test-blog-post",
 	}
 
-	// Send notification
-	err := service.SendCommentModerationNotification(comment, post)
+	// Delivery is synchronous: when this returns, the notification has been sent.
+	err := service.SendCommentModerationNotification(context.Background(), comment, post)
 	require.NoError(t, err)
 
-	// Wait for async processing
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify notification was sent
 	assert.Len(t, mockProvider.sentNotifications, 1)
 	sent := mockProvider.sentNotifications[0]
 	assert.Equal(t, NotificationTypeCommentModeration, sent.Type)
+	assert.Equal(t, NotificationStatusSent, sent.Status)
 	assert.Contains(t, sent.Subject, "Test Blog Post")
 	assert.Contains(t, sent.Content, "John Doe")
 	assert.Contains(t, sent.Content, "test comment")
 }
 
 func TestNotificationService_SendCommentApprovalNotification(t *testing.T) {
-	// Create notification service
-	service := NewNotificationService(1)
-	defer service.Shutdown()
+	service := NewNotificationService()
 
-	// Add mock provider
 	mockProvider := NewMockProvider("mock")
 	service.RegisterProvider(mockProvider)
 
-	// Create test data
 	comment := &models.Comment{
 		ID:          "test-comment-2",
 		PostID:      "test-post-2",
@@ -111,14 +104,9 @@ func TestNotificationService_SendCommentApprovalNotification(t *testing.T) {
 		Slug:  "another-test-post",
 	}
 
-	// Send notification
-	err := service.SendCommentApprovalNotification(comment, post)
+	err := service.SendCommentApprovalNotification(context.Background(), comment, post)
 	require.NoError(t, err)
 
-	// Wait for async processing
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify notification was sent
 	assert.Len(t, mockProvider.sentNotifications, 1)
 	sent := mockProvider.sentNotifications[0]
 	assert.Equal(t, NotificationTypeCommentApproval, sent.Type)
@@ -127,63 +115,75 @@ func TestNotificationService_SendCommentApprovalNotification(t *testing.T) {
 	assert.Contains(t, sent.Subject, "approved")
 }
 
-func TestNotificationService_RetryLogic(t *testing.T) {
-	// Create notification service
-	service := NewNotificationService(1)
-	defer service.Shutdown()
+func TestNotificationService_RetriesUntilSuccess(t *testing.T) {
+	service := NewNotificationService()
 
-	// Add mock provider that fails initially
+	// The provider fails its first attempt and succeeds on the retry.
 	mockProvider := NewMockProvider("mock")
-	mockProvider.shouldFail = true
+	mockProvider.failFirst = 1
 	service.RegisterProvider(mockProvider)
 
-	// Create test notification
 	notification := &Notification{
-		ID:   "test-notification",
-		Type: NotificationTypeCommentModeration,
-		Recipient: NotificationRecipient{
-			Email: "test@example.com",
-		},
+		ID:        "test-notification",
+		Type:      NotificationTypeCommentModeration,
+		Recipient: NotificationRecipient{Email: "test@example.com"},
 		Subject:   "Test Subject",
 		Content:   "Test Content",
 		Status:    NotificationStatusPending,
 		CreatedAt: time.Now(),
 	}
 
-	// Send notification
-	err := service.Send(notification)
-	require.NoError(t, err) // Send to queue should succeed
-
-	// Wait for processing and retries
-	time.Sleep(5 * time.Second)
-
-	// Verify retry attempts were made
-	// The notification should have failed after max retries
+	err := service.Send(context.Background(), notification)
+	require.NoError(t, err)
+	assert.Equal(t, 2, mockProvider.calls)
+	assert.Equal(t, 2, notification.Attempts)
+	assert.Equal(t, NotificationStatusSent, notification.Status)
+	assert.Len(t, mockProvider.sentNotifications, 1)
 }
 
-func TestNotificationService_QueueOverflow(t *testing.T) {
-	// Create notification service with small queue
-	service := &NotificationService{
-		providers: make([]NotificationProvider, 0),
-		queue:     make(chan *Notification, 2), // Small queue
-		workers:   0,                           // No workers
-		ctx:       context.Background(),
+func TestNotificationService_RetryIsBoundedByContext(t *testing.T) {
+	service := NewNotificationService()
+
+	mockProvider := NewMockProvider("mock")
+	mockProvider.shouldFail = true
+	service.RegisterProvider(mockProvider)
+
+	notification := &Notification{
+		ID:        "test-notification",
+		Type:      NotificationTypeCommentModeration,
+		Recipient: NotificationRecipient{Email: "test@example.com"},
+		CreatedAt: time.Now(),
 	}
 
-	// Fill the queue
-	for i := 0; i < 2; i++ {
-		err := service.Send(&Notification{ID: fmt.Sprintf("notif-%d", i)})
-		require.NoError(t, err)
+	// The backoff wait must be interruptible: a short deadline returns quickly
+	// instead of sleeping through every attempt.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := service.Send(ctx, notification)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, NotificationStatusFailed, notification.Status)
+	assert.Less(t, mockProvider.calls, sendAttempts)
+}
+
+func TestNotificationService_NoProviderIsNotRetried(t *testing.T) {
+	service := NewNotificationService()
+
+	notification := &Notification{
+		ID:        "test-notification",
+		Type:      NotificationTypeCommentModeration,
+		CreatedAt: time.Now(),
 	}
 
-	// Try to send one more - should fail
-	err := service.Send(&Notification{ID: "overflow"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "queue is full")
+	err := service.Send(context.Background(), notification)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errNoProvider)
+	assert.Equal(t, 1, notification.Attempts)
+	assert.Equal(t, NotificationStatusFailed, notification.Status)
 }
 
 func TestEmailProvider_TestMode(t *testing.T) {
-	// Create email provider in test mode
 	config := EmailConfig{
 		TestMode:  true,
 		FromEmail: "test@example.com",
@@ -191,7 +191,6 @@ func TestEmailProvider_TestMode(t *testing.T) {
 	}
 	provider := NewEmailProvider(config)
 
-	// Create notification
 	notification := &Notification{
 		Recipient: NotificationRecipient{
 			Email: "recipient@example.com",
@@ -201,13 +200,11 @@ func TestEmailProvider_TestMode(t *testing.T) {
 		Content: "This is a test email",
 	}
 
-	// Send should succeed in test mode
 	err := provider.Send(context.Background(), notification)
 	assert.NoError(t, err)
 }
 
 func TestWebhookProvider_TestMode(t *testing.T) {
-	// Create webhook provider in test mode
 	config := WebhookConfig{
 		TestMode:          true,
 		DefaultWebhookURL: "https://example.com/webhook",
@@ -215,7 +212,6 @@ func TestWebhookProvider_TestMode(t *testing.T) {
 	}
 	provider := NewWebhookProvider(config)
 
-	// Create notification
 	notification := &Notification{
 		ID:   "test-webhook",
 		Type: NotificationTypeCommentModeration,
@@ -225,7 +221,6 @@ func TestWebhookProvider_TestMode(t *testing.T) {
 		},
 	}
 
-	// Send should succeed in test mode
 	err := provider.Send(context.Background(), notification)
 	assert.NoError(t, err)
 }

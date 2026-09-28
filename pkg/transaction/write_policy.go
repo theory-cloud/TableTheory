@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
 )
 
 func rejectWriteOnceMutation(metadata *model.Metadata, operation string) error {

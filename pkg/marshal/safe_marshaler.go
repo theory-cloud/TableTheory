@@ -11,13 +11,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/anonymous"
-	"github.com/theory-cloud/tabletheory/v3/internal/expr"
-	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
-	"github.com/theory-cloud/tabletheory/v3/pkg/naming"
-	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
+	"github.com/theory-cloud/tabletheory/v4/internal/anonymous"
+	"github.com/theory-cloud/tabletheory/v4/internal/expr"
+	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	"github.com/theory-cloud/tabletheory/v4/pkg/naming"
+	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
 )
 
 // SafeMarshaler provides memory-safe marshaling implementation without unsafe operations

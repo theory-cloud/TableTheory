@@ -26,6 +26,13 @@ fi
 export PATH="${GO_BIN_DIR}:${PATH}"
 
 bash gov-infra/verifiers/gov-verify-rubric.sh
+
+# R-G1: the report the verifier just wrote must be a well-formed
+# gov_rubric_report.v1 document. The self-test proves the validator is not
+# vacuous (it rejects known mutations) before the real report is validated.
+python3 scripts/verify-gov-rubric-report.py --self-test
+python3 scripts/verify-gov-rubric-report.py gov-infra/evidence/gov-rubric-report.json
+
 bash ./scripts/verify-theorycloud-tabletheory-subtree.sh
 
 # Preserve legacy success line for scripts that grep for it.

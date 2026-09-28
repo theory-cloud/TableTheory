@@ -13,11 +13,11 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v3"
-	"github.com/theory-cloud/tabletheory/v3/examples/blog/models"
-	"github.com/theory-cloud/tabletheory/v3/examples/blog/services"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v4"
+	"github.com/theory-cloud/tabletheory/v4/examples/blog/models"
+	"github.com/theory-cloud/tabletheory/v4/examples/blog/services"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 )
 
 // CommentHandler handles blog comment operations
@@ -32,6 +32,10 @@ type commentNode struct {
 	Children []*commentNode `json:"children,omitempty"`
 }
 
+// notificationTimeout bounds the synchronous notification delivery a handler
+// performs, so a slow provider cannot hold the invocation open indefinitely.
+const notificationTimeout = 5 * time.Second
+
 // NewCommentHandler creates a new comment handler
 func NewCommentHandler() (*CommentHandler, error) {
 	db, err := tabletheory.New(tabletheory.Config{
@@ -45,8 +49,10 @@ func NewCommentHandler() (*CommentHandler, error) {
 	db.Model(&models.Comment{})
 	db.Model(&models.Post{})
 
-	// Initialize notification service
-	notificationService := services.NewNotificationService(5)
+	// Initialize notification service. It starts nothing and owns no queue: the
+	// blog deploys only as Lambda functions, so every notification is delivered
+	// synchronously inside the invocation that requests it.
+	notificationService := services.NewNotificationService()
 
 	// Configure email provider
 	emailConfig := services.EmailConfig{
@@ -295,13 +301,15 @@ func (h *CommentHandler) createComment(ctx context.Context, postID string, reque
 			Where("ID", "=", postID).
 			First(&post)
 		if err == nil {
-			// Send notification asynchronously
-			go func() {
-				if err := h.notificationService.SendCommentModerationNotification(comment, &post); err != nil {
-					// Log error but don't fail the request
-					fmt.Printf("Failed to send moderation notification: %v\n", err)
-				}
-			}()
+			// Deliver synchronously inside this invocation. Lambda freezes the
+			// execution environment the moment the handler returns, so a
+			// notification goroutine launched here would be frozen mid-flight.
+			// The delivery is bounded and its failure must not fail the request.
+			notifyCtx, cancelNotify := context.WithTimeout(ctx, notificationTimeout)
+			defer cancelNotify()
+			if err := h.notificationService.SendCommentModerationNotification(notifyCtx, comment, &post); err != nil {
+				fmt.Printf("Failed to send moderation notification: %v\n", err)
+			}
 		}
 	}
 
@@ -389,13 +397,12 @@ func (h *CommentHandler) moderateComment(ctx context.Context, request events.API
 			Where("ID", "=", comment.PostID).
 			First(&post)
 		if err == nil {
-			// Send notification asynchronously
-			go func() {
-				if err := h.notificationService.SendCommentApprovalNotification(&comment, &post); err != nil {
-					// Log error but don't fail the request
-					fmt.Printf("Failed to send approval notification: %v\n", err)
-				}
-			}()
+			// Deliver synchronously inside this invocation; see createComment.
+			notifyCtx, cancelNotify := context.WithTimeout(ctx, notificationTimeout)
+			defer cancelNotify()
+			if err := h.notificationService.SendCommentApprovalNotification(notifyCtx, &comment, &post); err != nil {
+				fmt.Printf("Failed to send approval notification: %v\n", err)
+			}
 		}
 	}
 

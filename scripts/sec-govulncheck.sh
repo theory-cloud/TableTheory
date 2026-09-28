@@ -12,9 +12,16 @@ if [[ -z "${mods}" ]]; then
   exit 1
 fi
 
+source scripts/lib/retry.sh
+
 while IFS= read -r mod; do
   dir="$(dirname "${mod}")"
   echo "==> govulncheck: ${dir}"
-  (cd "${dir}" && govulncheck ./...)
+  # govulncheck queries vuln.go.dev on every run and has no retry of its own;
+  # absorb a bounded transient window and keep failing closed afterwards.
+  (
+    cd "${dir}"
+    theorydb_retry_bounded 3 5 "govulncheck(${dir})" -- govulncheck ./...
+  )
 done <<< "${mods}"
 

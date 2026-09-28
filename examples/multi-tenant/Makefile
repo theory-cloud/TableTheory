@@ -56,7 +56,8 @@ clean:
 	go clean
 	rm -rf bin/
 
-# Build for deployment
+# Build for deployment. bin/bootstrap is the file the SAM template's
+# provided.al2023 runtime runs through the "bootstrap" handler.
 build:
 	GOOS=linux GOARCH=amd64 go build -o bin/bootstrap cmd/lambda/main.go
 	cd bin && zip deployment.zip bootstrap

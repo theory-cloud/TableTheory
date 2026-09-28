@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
 )
 
 func TestOmitEmptyPredicate_CoversFixedArrays_COV6(t *testing.T) {

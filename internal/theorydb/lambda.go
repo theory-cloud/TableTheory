@@ -4,7 +4,6 @@ package theorydb
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"reflect"
@@ -19,9 +18,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	"github.com/theory-cloud/tabletheory/v3/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v3/pkg/types"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
 )
 
 var (
@@ -59,6 +58,10 @@ var (
 //    - Pre-register all models in init()
 //    - Use LambdaInit() helper
 //    - Consider increasing Lambda memory for faster CPU
+//
+// Every TableTheory init path is synchronous. Lambda freezes the execution
+// environment when the handler returns, so TableTheory starts no goroutine and
+// leaves no background work running after init or after an operation returns.
 //
 // 5. Monitoring:
 //    - Use GetMemoryStats() to track memory usage
@@ -315,35 +318,28 @@ func (ldb *LambdaDB) OptimizeForMemory() {
 	}
 }
 
-// OptimizeForColdStart reduces Lambda cold start time
+// OptimizeForColdStart reduces Lambda cold start time using only synchronous,
+// local work.
+//
+// Lambda freezes the execution environment as soon as the handler returns, so
+// work started in a goroutine during init is not guaranteed to run: it may be
+// frozen mid-flight, and any network call it made is billed to an invocation
+// that has already completed. This method therefore starts no goroutines and
+// makes no network calls. Everything it does finishes before it returns, inside
+// the init or invocation that called it.
+//
+// It deliberately does not pre-warm the DynamoDB connection with an API call. A
+// connection pre-warm only has value when the call succeeds, which requires IAM
+// permissions beyond item access (the previous implementation issued
+// ListTables) and adds that round trip to every cold start. Model metadata is
+// still pre-compiled locally, which needs no extra IAM and no network.
 func (ldb *LambdaDB) OptimizeForColdStart() {
-	// Pre-warm the connection pool
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("theorydb: lambda pre-warm encountered panic: %v", r)
-			}
-		}()
+	if ldb == nil || ldb.db == nil {
+		return
+	}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-
-		// Perform a lightweight operation to establish connection
-		client, err := ldb.db.session.Client()
-		if err != nil {
-			// Connection pre-warming failed, but we continue normally
-			return
-		}
-
-		_, err = client.ListTables(ctx, &dynamodb.ListTablesInput{
-			Limit: aws.Int32(1),
-		})
-		if err != nil {
-			return
-		}
-	}()
-
-	// Pre-compile common expressions if using a query builder
+	// Pre-compile common expressions if using a query builder. This is local
+	// reflection and metadata work with no network or IAM requirement.
 	if ldb.isLambda {
 		// Initialize expression builder cache
 		_ = ldb.Model(struct{}{})
@@ -433,8 +429,13 @@ func GetRemainingTimeMillis(ctx context.Context) int64 {
 	return remaining.Milliseconds()
 }
 
-// LambdaInit should be called in the init() function of your Lambda handler
-// It performs one-time initialization to reduce cold start latency
+// LambdaInit should be called in the init() function of your Lambda handler.
+// It performs one-time initialization to reduce cold start latency.
+//
+// LambdaInit is synchronous and starts no background work: every step it runs
+// completes before it returns, so nothing is left running once the execution
+// environment is frozen. It requires no IAM permissions beyond the ones your
+// handler's DynamoDB operations already need.
 func LambdaInit(models ...any) (*LambdaDB, error) {
 	// Create Lambda-optimized DB
 	db, err := NewLambdaOptimized()

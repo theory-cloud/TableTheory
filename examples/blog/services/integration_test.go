@@ -9,16 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/examples/blog/models"
+	"github.com/theory-cloud/tabletheory/v4/examples/blog/models"
 )
 
 func TestNotificationIntegration(t *testing.T) {
 	// This test verifies that the notification service integrates correctly
-	// with the comment handler's use cases
+	// with the comment handler's use cases. Delivery is synchronous, so each
+	// call returns only after the notification has been handled.
 
-	// Create notification service
-	service := NewNotificationService(2)
-	defer service.Shutdown()
+	service := NewNotificationService()
 
 	// Add email provider in test mode
 	emailConfig := EmailConfig{
@@ -49,26 +48,20 @@ func TestNotificationIntegration(t *testing.T) {
 	}
 
 	t.Run("Moderation Notification", func(t *testing.T) {
-		err := service.SendCommentModerationNotification(comment, post)
+		err := service.SendCommentModerationNotification(context.Background(), comment, post)
 		require.NoError(t, err)
-
-		// Wait for async processing
-		time.Sleep(200 * time.Millisecond)
 	})
 
 	t.Run("Approval Notification", func(t *testing.T) {
 		// Change status to approved
 		comment.Status = models.CommentStatusApproved
 
-		err := service.SendCommentApprovalNotification(comment, post)
+		err := service.SendCommentApprovalNotification(context.Background(), comment, post)
 		require.NoError(t, err)
-
-		// Wait for async processing
-		time.Sleep(200 * time.Millisecond)
 	})
 
 	t.Run("Multiple Notifications", func(t *testing.T) {
-		// Send multiple notifications rapidly
+		// Send multiple notifications in sequence
 		for i := 0; i < 10; i++ {
 			testComment := &models.Comment{
 				ID:          fmt.Sprintf("comment-%d", i),
@@ -80,20 +73,16 @@ func TestNotificationIntegration(t *testing.T) {
 				CreatedAt:   time.Now(),
 			}
 
-			err := service.SendCommentModerationNotification(testComment, post)
+			err := service.SendCommentModerationNotification(context.Background(), testComment, post)
 			assert.NoError(t, err)
 		}
-
-		// Wait for all to process
-		time.Sleep(500 * time.Millisecond)
 	})
 }
 
 func TestNotificationProviderSelection(t *testing.T) {
 	// Test that the correct provider is selected based on notification type
 
-	service := NewNotificationService(1)
-	defer service.Shutdown()
+	service := NewNotificationService()
 
 	// Add email provider
 	emailProvider := NewEmailProvider(EmailConfig{TestMode: true})
@@ -117,8 +106,7 @@ func TestNotificationProviderSelection(t *testing.T) {
 			Content: "Test content",
 		}
 
-		ctx := context.Background()
-		err := service.SendSync(ctx, notification)
+		err := service.Send(context.Background(), notification)
 		assert.NoError(t, err)
 	})
 
@@ -134,8 +122,7 @@ func TestNotificationProviderSelection(t *testing.T) {
 			},
 		}
 
-		ctx := context.Background()
-		err := service.SendSync(ctx, notification)
+		err := service.Send(context.Background(), notification)
 		assert.NoError(t, err)
 	})
 }

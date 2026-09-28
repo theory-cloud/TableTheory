@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"github.com/theory-cloud/tabletheory/v3/examples/multi-tenant/models"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	derrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	derrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 )
 
 // OrganizationHandler handles organization-related requests

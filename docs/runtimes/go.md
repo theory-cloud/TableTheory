@@ -5,7 +5,7 @@ description: TableTheory for Go — installation, Lambda init, and the canonical
 
 # Go runtime
 
-TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory/v3`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
+TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory/v4`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
 
 The Go runtime is a peer implementation of the shared contract — not a
 reference implementation that TypeScript and Python port. Contract parity is
@@ -16,7 +16,7 @@ established by the shared scenarios, not by treating one runtime as canonical.
 TableTheory is distributed exclusively through immutable [GitHub Releases](https://github.com/theory-cloud/tabletheory/releases). Pin to a specific release tag:
 
 ```bash
-go get github.com/theory-cloud/tabletheory/v3@vX.Y.Z
+go get github.com/theory-cloud/tabletheory/v4@vX.Y.Z
 ```
 
 Never depend on a moving `latest`.
@@ -32,7 +32,7 @@ import (
     "log"
 
     "github.com/aws/aws-lambda-go/lambda"
-    "github.com/theory-cloud/tabletheory/v3"
+    "github.com/theory-cloud/tabletheory/v4"
 )
 
 type Note struct {
@@ -65,6 +65,18 @@ func main() { lambda.Start(handler) }
 > Construct the client at module init, not inside the handler. Lambda reuses module-scope state across warm invocations; rebuilding the client per request burns ~50 ms each cold start.
 
 `tabletheory.LambdaInit(models ...any) (*LambdaDB, error)` exists as the lower-level variant if you want to register specific model types explicitly at cold start. Most consumers should prefer `NewLambdaOptimized()` and use `db.Model(&Foo{})` per request.
+
+### No background work
+
+**Invariant:** no TableTheory init or handler path leaves work running after it returns. Every step is synchronous and joined to the call that started it.
+
+Lambda freezes the execution environment as soon as the handler returns. A goroutine started during init is not guaranteed to run: it can be frozen mid-flight and later resume against an invocation that has already completed, and any network call it made is billed to an invocation that is already over. TableTheory therefore starts no goroutine that outlives its init or its operation.
+
+Parallel fan-out is allowed only when it is fully joined. `Query.ScanAllSegments` cancels the remaining segments as soon as one fails and then waits for every segment worker before it returns the first error; the parallel `BatchGet` and batch-update paths already waited for their workers on the same paths. Nothing in `pkg/query` returns while one of its workers is still running, on success, on error, or when the caller's context is cancelled. The exception-shaped piece is the request-body guard: `pkg/protection.SecureBodyReader` closes the body and joins its reader on the timeout path instead of returning while the read is still blocked.
+
+`MultiAccountDB` follows the same rule: it refreshes expired partner sessions synchronously on the `Partner()` path rather than from a background ticker. That sweep is best-effort — it is not single-flighted, so concurrent calls may refresh the same partner twice, and a failed refresh leaves the expired entry in place to be retried — but it never leaves a refresh running past the call that started it.
+
+`LambdaDB.OptimizeForColdStart()` follows this rule. It keeps its signature and performs only synchronous, local model-metadata work. It deliberately does not pre-warm the connection with a DynamoDB API call: earlier releases issued `ListTables` from a detached goroutine with a 100 ms timeout, which needed `dynamodb:ListTables` on top of the item permissions a handler actually uses, and which could be frozen before it ever completed. If your policies grant `dynamodb:ListTables` only for that old pre-warm, you can remove the grant. Connection reuse across warm invocations still comes from constructing the client once at module scope.
 
 ## Model shape
 
