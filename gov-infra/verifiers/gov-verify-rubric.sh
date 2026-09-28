@@ -587,13 +587,27 @@ check_maintainability_roadmap() {
 }
 
 check_branch_profile_consistency() {
+  # R-G5 materialization fidelity.
+  #
+  # Every TheoryCloud-materialized surface must be (a) covered by a committed
+  # .gitignore rule and (b) untracked. Presence on disk is deliberately NOT
+  # required: a CI checkout carries no host materialization, so tracked-file
+  # presence would be the wrong proof. `.kimi-code/` was previously covered only
+  # by a host-local .git/info/exclude, which does not travel to CI or a clone.
   local failures=0
 
   local materialized_surface
   for materialized_surface in \
+    "AGENTS.md" \
+    "GEMINI.md" \
+    ".mcp.json" \
+    ".agents/" \
+    ".claude/" \
+    ".codex/" \
+    ".kimi-code/" \
+    ".theorymcp/" \
     ".codex/steward.md" \
-    ".codex/theorymcp/" \
-    ".theorymcp/"; do
+    ".codex/theorymcp/"; do
     if git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${materialized_surface}" >/dev/null 2>&1; then
       echo "FAIL: TheoryCloud materialization must not be tracked: ${materialized_surface}"
       failures=$((failures + 1))
@@ -604,11 +618,64 @@ check_branch_profile_consistency() {
     fi
   done
 
+  # Install markers: where a materialization exists on disk its marker must
+  # claim the routed agent and the served software_repo_gov_infra profile. The
+  # served manifest checksums are host-side, so this pins the local claim rather
+  # than re-fetching the namespace.
+  local marker marker_dir
+  for marker_dir in ".agents" ".claude" ".codex"; do
+    marker="${marker_dir}/.theory-install.json"
+    [[ -f "${REPO_ROOT}/${marker}" ]] || continue
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "BLOCKED: python3 required to validate ${marker}" >&2
+      return 2
+    fi
+    if ! python3 - "${REPO_ROOT}/${marker}" <<'PY'
+import json
+import pathlib
+import sys
+
+EXPECTED_AGENT = "tabletheory"
+EXPECTED_PROFILE = "software_repo_gov_infra"
+
+path = pathlib.Path(sys.argv[1])
+try:
+    marker = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"unreadable install marker: {exc}")
+
+problems = []
+if marker.get("agent_id") != EXPECTED_AGENT:
+    problems.append(f"agent_id={marker.get('agent_id')!r}, expected {EXPECTED_AGENT!r}")
+if marker.get("profile_version") != EXPECTED_PROFILE:
+    problems.append(
+        f"profile_version={marker.get('profile_version')!r}, expected {EXPECTED_PROFILE!r}"
+    )
+published = marker.get("published_version")
+if not isinstance(published, int) or isinstance(published, bool) or published < 1:
+    problems.append(f"published_version={published!r}, expected a positive integer")
+for key in ("snapshot_checksum", "bundle_checksum"):
+    value = marker.get(key)
+    if not isinstance(value, str) or not value.startswith("sha256:") or len(value) != 71:
+        problems.append(f"{key}={value!r}, expected a sha256:<64 hex> digest")
+
+if problems:
+    for problem in problems:
+        print(f"{path.name}: {problem}")
+    raise SystemExit(1)
+print(f"{path.name}: ok")
+PY
+    then
+      echo "FAIL: ${marker} does not claim the routed agent and the served software_repo_gov_infra profile"
+      failures=$((failures + 1))
+    fi
+  done
+
   if [[ "${failures}" -ne 0 ]]; then
     return 1
   fi
 
-  echo "Branch/profile consistency: PASS (TheoryCloud materialization hygiene)"
+  echo "Branch/profile consistency: PASS (TheoryCloud materialization hygiene, install markers validated)"
   return 0
 }
 
@@ -720,7 +787,7 @@ CMD_LINT="bash scripts/verify-lint.sh"
 CMD_CONTRACT="bash scripts/verify-public-api-contracts.sh && bash scripts/verify-dms-first-workflow.sh && bash scripts/verify-generated-models.sh --check && bash scripts/verify-empty-predicate-call-sites.sh"
 
 CMD_BUILDS="bash scripts/verify-typescript-deps.sh && bash scripts/verify-python-deps.sh && bash scripts/verify-builds.sh"
-CMD_TOOLCHAIN="bash scripts/verify-ci-toolchain.sh"
+CMD_TOOLCHAIN="bash scripts/verify-ci-toolchain.sh && bash scripts/test-ci-toolchain-policy.sh"
 CMD_PLANNING_DOCS="bash scripts/verify-planning-docs.sh"
 CMD_LINT_CONFIG="golangci-lint config verify -c .golangci-v2.yml"
 CMD_COV_THRESHOLD="bash scripts/verify-coverage.sh --check-threshold-config"
