@@ -19,7 +19,7 @@ TableTheory has three independently implemented SDKs that share one contract. In
 
 ### Go runtime
 
-The root module is `github.com/theory-cloud/tabletheory/v3`.
+The root module is `github.com/theory-cloud/tabletheory/v4`.
 
 ```bash
 # Use the pinned Go toolchain from go.mod.
