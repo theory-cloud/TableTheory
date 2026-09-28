@@ -18,9 +18,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
-	queryPkg "github.com/theory-cloud/tabletheory/v3/pkg/query"
-	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	queryPkg "github.com/theory-cloud/tabletheory/v4/pkg/query"
+	"github.com/theory-cloud/tabletheory/v4/pkg/session"
 )
 
 type cov4RootItem struct {

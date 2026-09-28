@@ -9,8 +9,8 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v3"
-	customerrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v4"
+	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 )
 
 type BaseObject struct {

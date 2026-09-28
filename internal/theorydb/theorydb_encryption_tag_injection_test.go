@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/mocks"
-	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	"github.com/theory-cloud/tabletheory/v4/pkg/mocks"
+	"github.com/theory-cloud/tabletheory/v4/pkg/session"
 )
 
 type encryptedTagInjectionModel struct {

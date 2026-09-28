@@ -11,6 +11,8 @@ TheoryCloud TableTheory subtree. This page is the Go migration guide.
 
 ## Version-specific notices
 
+- [v4 migration](./migration/v4.md) — the Go module path move to
+  `github.com/theory-cloud/tabletheory/v4` and the v4 breaking changes.
 - [v3.0.5 `Create()` migration](./migration/v3.0.5-create.md) — ordinary Go `Create()` is a strict conditional write;
   migrate only overwrite/upsert-flavored call sites to `CreateOrUpdate()`.
 - [v3 migration](./migration/v3.md) — DMS v0.2 and Go semantic import versioning.
@@ -81,8 +83,8 @@ import (
     "context"
     "log"
 
-    "github.com/theory-cloud/tabletheory/v3"
-    "github.com/theory-cloud/tabletheory/v3/pkg/session"
+    "github.com/theory-cloud/tabletheory/v4"
+    "github.com/theory-cloud/tabletheory/v4/pkg/session"
 )
 
 type User struct {

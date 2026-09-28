@@ -7,10 +7,10 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/expr"
-	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v4/internal/expr"
+	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
 )
 
 func (q *Query) marshalItem(item any) (map[string]types.AttributeValue, error) {

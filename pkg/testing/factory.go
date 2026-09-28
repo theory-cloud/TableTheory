@@ -5,9 +5,9 @@ package testing
 import (
 	"errors"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	"github.com/theory-cloud/tabletheory/v3/pkg/mocks"
-	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/mocks"
+	"github.com/theory-cloud/tabletheory/v4/pkg/session"
 )
 
 // DBFactory is an interface for creating TableTheory database instances.

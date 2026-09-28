@@ -7,11 +7,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/expr"
-	"github.com/theory-cloud/tabletheory/v3/internal/numutil"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v3/pkg/index"
+	"github.com/theory-cloud/tabletheory/v4/internal/expr"
+	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v4/pkg/index"
 )
 
 func (q *Query) selectBestIndex() (*core.IndexSchema, error) {

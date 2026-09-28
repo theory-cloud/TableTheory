@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	"github.com/theory-cloud/tabletheory/v3/pkg/mocks"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/mocks"
 )
 
 // User represents a user model

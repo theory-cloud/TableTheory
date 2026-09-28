@@ -6,10 +6,10 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/expr"
-	"github.com/theory-cloud/tabletheory/v3/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v3/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/internal/expr"
+	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 )
 
 func (q *Query) marshalItemTaggedFlat(modelValue reflect.Value) (map[string]types.AttributeValue, error) {

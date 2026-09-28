@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/rs/cors"
-	"github.com/theory-cloud/tabletheory/v3"
-	"github.com/theory-cloud/tabletheory/v3/examples/multi-tenant/handlers"
-	"github.com/theory-cloud/tabletheory/v3/examples/multi-tenant/models"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
-	"github.com/theory-cloud/tabletheory/v3/pkg/session"
+	"github.com/theory-cloud/tabletheory/v4"
+	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/handlers"
+	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/pkg/session"
 )
 
 func main() {
