@@ -84,10 +84,12 @@ func TestLambdaDB_RegistrationAndOptimizers_COV4(t *testing.T) {
 	require.GreaterOrEqual(t, stats.MemoryPercent, 0.0)
 
 	ldb.OptimizeForColdStart()
-	require.Eventually(t, func() bool {
-		reqs := httpClient.Requests()
-		return countRequestsByTarget(reqs, "DynamoDB_20120810.ListTables") > 0
-	}, 500*time.Millisecond, 10*time.Millisecond)
+	// Cold-start optimization stays inside the init call: it issues no DynamoDB
+	// request (the removed pre-warm used ListTables, which also needs IAM
+	// permissions beyond item access). The wait leaves room for a reinstated
+	// detached pre-warm to fail this assertion.
+	time.Sleep(50 * time.Millisecond)
+	require.Zero(t, countRequestsByTarget(httpClient.Requests(), "DynamoDB_20120810.ListTables"))
 }
 
 func TestLambdaInitAndMetricsString_COV4(t *testing.T) {

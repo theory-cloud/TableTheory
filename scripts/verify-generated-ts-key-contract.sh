@@ -106,5 +106,5 @@ for entry in "${fixtures[@]}"; do
   go run "${tmpdir}/emit-go-fixtures.go" "${fixture}" > "${go_matrix}"
 
   echo "generated-ts: helper parity ${artifact}"
-  npx --prefix ts tsx scripts/verify-generated-ts-key-contract.ts "${artifact}" "${go_matrix}"
+  npx --prefix ts tsx scripts/verify-generated-ts-key-contract.mts "${artifact}" "${go_matrix}"
 done

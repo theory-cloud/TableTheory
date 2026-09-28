@@ -11,7 +11,11 @@ From the repository root:
    - `bash gov-infra/verifiers/gov-verify-rubric.sh`
 2) Read the machine report:
    - `gov-infra/evidence/gov-rubric-report.json`
-3) Inspect evidence logs for each rubric ID:
+3) Validate the report against the `gov_rubric_report.v1` contract:
+   - `python3 scripts/verify-gov-rubric-report.py gov-infra/evidence/gov-rubric-report.json`
+   - `make rubric` runs this automatically right after the verifier, together with a self-test that proves the validator
+     is not vacuous.
+4) Inspect evidence logs for each rubric ID:
    - `gov-infra/evidence/*-output.log`
 
 Notes:

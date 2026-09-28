@@ -2,9 +2,9 @@
 
 ## Overview
 This document describes the implementation of the Payment Example's three main features:
-1. **Webhook Notification System** - Async webhook delivery with retry logic
+1. **Webhook Notification System** - Synchronous webhook delivery with retry logic
 2. **JWT Authentication** - Token validation and merchant ID extraction  
-3. **Export Lambda Integration** - Async export job processing
+3. **Export Job Records** - Export requests are recorded as jobs; processing is out of scope for this example
 
 ## Feature 1: Webhook Notification System
 
@@ -16,30 +16,33 @@ This document describes the implementation of the Payment Example's three main f
 #### Key Components:
 
 1. **WebhookSender** - Main webhook delivery service
-   - Manages worker pool for async processing
-   - Queues webhooks for delivery
-   - Handles graceful shutdown
+   - Delivers on the caller's goroutine: delivery is the caller's own work,
+     with no queue behind it, because Lambda freezes the execution environment
+     the moment the handler returns
+   - Bounded by the caller's context and the sender's internal timeout
 
 2. **Webhook Delivery Features**:
-   - Exponential backoff retry (up to 5 attempts)
+   - Exponential backoff retry (up to 5 attempts, all inside the invocation)
    - HMAC-SHA256 signature generation
    - Webhook status tracking in DynamoDB
    - TTL-based expiration (24 hours)
    - Support for multiple webhook endpoints
 
-3. **RetryWorker** - Background worker for failed webhooks
-   - Polls for failed webhooks periodically
-   - Retries delivery with saved state
-   - Updates webhook status
+Failed webhooks are re-driven from a queue or a scheduled invocation, never from
+anything left running inside the invocation: this example deploys only as Lambda
+functions (`lambda/process`, `lambda/query`, `lambda/reconcile`), so nothing
+survives a handler's return to carry the retry.
 
 ### Usage Example:
 
 ```go
-// Initialize webhook sender
-webhookSender := utils.NewWebhookSender(db, 5) // 5 workers
-defer webhookSender.Stop()
+// Initialize webhook sender. It starts no goroutine.
+webhookSender := utils.NewWebhookSender(db)
 
-// Send webhook notification
+// Deliver a webhook synchronously inside the calling invocation. Lambda freezes
+// the execution environment when the handler returns, so a delivery launched in
+// a goroutine would be frozen mid-flight. The call is bounded by ctx and by the
+// sender's internal timeout.
 job := &utils.WebhookJob{
     MerchantID: "merchant-123",
     EventType:  "payment.succeeded",
@@ -47,9 +50,8 @@ job := &utils.WebhookJob{
     Data:       paymentData,
 }
 
-// Non-blocking send
-if err := webhookSender.Send(job); err != nil {
-    log.Printf("Failed to queue webhook: %v", err)
+if err := webhookSender.SendSync(ctx, job); err != nil {
+    log.Printf("Failed to deliver webhook: %v", err)
 }
 ```
 
@@ -113,7 +115,7 @@ merchantID, err := utils.ValidateAndExtractMerchantID(
 }
 ```
 
-## Feature 3: Export Job Queue
+## Feature 3: Export Job Records
 
 ### Implementation Details
 
@@ -136,10 +138,17 @@ merchantID, err := utils.ValidateAndExtractMerchantID(
    ```
 
 2. **Export Flow**:
-   - API creates job record in DynamoDB
-   - Returns job ID immediately (async)
-   - Separate worker processes pending jobs
-   - Updates job with result URL when complete
+   - The API creates an `ExportJob` record in DynamoDB with status `pending`
+   - It returns the job ID and a status URL immediately
+   - That is the whole flow this example implements: the job is recorded and
+     nothing consumes it
+
+   Processing is out of scope here. A `pending` job stays `pending` until a
+   separately deployed consumer reads it; this repository ships no such
+   consumer, so no code turns a job into a result. Everything the future
+   consumer needs is written into the record — merchant, query parameters,
+   requested format, and an `ExpiresAt` TTL — but finishing the job is left
+   to the reader.
 
 ### Usage Example:
 
@@ -151,47 +160,39 @@ POST /payments/export?start_date=2024-01-01&end_date=2024-01-31&format=csv
 {
   "export_id": "export-merchant123-1234567890",
   "status": "pending",
-  "message": "Export job created. You will receive a notification when complete.",
+  "message": "Export job recorded. Nothing in this example processes export jobs, so no notification will be sent and the job stays pending.",
   "check_url": "/exports/export-merchant123-1234567890"
 }
 ```
 
-### Worker Implementation (Separate Process):
-```go
-// Poll for pending jobs
-var jobs []*ExportJob
-db.Model(&ExportJob{}).
-    Index("gsi-status").
-    Where("Status", "=", "pending").
-    Limit(10).
-    All(&jobs)
+### Export Processing Is Out of Scope
 
-// Process each job
-for _, job := range jobs {
-    // 1. Execute query
-    // 2. Generate CSV/JSON
-    // 3. Upload to S3
-    // 4. Update job with result URL
-    // 5. Send webhook notification
-}
-```
+This example records the job and stops there. Nothing in this repository reads
+pending `ExportJob` items, generates the CSV/JSON artifact, uploads it, or
+writes `ResultURL` back to the record. Adding that consumer is a separate,
+explicitly deployed piece of work that the example does not include; until it
+exists, a job simply stays `pending`.
+
+The `message` in the response above states exactly what this example does: the
+job is recorded, nothing processes it, and no notification is sent. It is not a
+promise the example keeps somewhere else.
 
 ## Integration Points
 
 ### Process Handler Updates:
 ```go
-// Added webhook sender initialization
-webhookSender := utils.NewWebhookSender(db, 5)
+// Added webhook sender initialization: starts no goroutine
+webhookSender := utils.NewWebhookSender(db)
 
 // Added JWT validator
 jwtValidator := utils.NewSimpleJWTValidator(...)
 
-// Integrated webhook sending after payment success
-go func() {
-    if err := h.webhookSender.Send(webhookJob); err != nil {
-        fmt.Printf("Failed to queue webhook: %v\n", err)
-    }
-}()
+// Integrated webhook delivery after payment success, synchronously inside the
+// invocation and bounded by ctx. It must not be detached: work launched in a
+// goroutine here would be frozen when the handler returns.
+if err := h.webhookSender.SendSync(ctx, webhookJob); err != nil {
+    fmt.Printf("Failed to deliver webhook: %v\n", err)
+}
 ```
 
 ### Query Handler Updates:
@@ -244,22 +245,21 @@ AWS_REGION=us-east-1
    - Use HTTPS endpoints only
    - Implement request timeouts
 
-3. **Export Security**:
-   - Pre-signed S3 URLs with expiration
-   - Merchant-scoped exports only
-   - Audit trail for all exports
+3. **Export Security** (guidance for the consumer that is not yet shipped):
+   - Serve results only through pre-signed, expiring URLs
+   - Scope every export to the requesting merchant
+   - Keep an audit trail for export requests
 
 ## Performance Considerations
 
 1. **Webhook Delivery**:
-   - Configurable worker pool size
-   - Non-blocking sends
-   - Queue size limits to prevent OOM
+   - Synchronous, bounded by the caller's context and the sender's timeout
+   - Retries happen inside the invocation that triggered them
 
-2. **Export Processing**:
-   - Async job queue pattern
-   - Pagination for large datasets
-   - S3 multipart uploads for large files
+2. **Export Job Recording**:
+   - One DynamoDB write per export request, on the invocation path
+   - Merchant-scoped records with a TTL for cleanup
+   - The record stores the query parameters and format the consumer will need
 
 ## Next Steps
 

@@ -63,7 +63,7 @@ Legend:
 | CON-2 | `bash scripts/verify-lint.sh` | Enforced | Enforced | Enforced | Go `golangci-lint`, TS `eslint`, Py `ruff` |
 | CON-3 | `bash scripts/verify-public-api-contracts.sh` | Enforced | Planned | Planned | Contract runner exists; API contract verifier is Go-only today |
 | COM-1 | `bash scripts/verify-builds.sh` | Enforced | Enforced | Enforced | Includes Go modules + TS build + Py mypy/build + version alignment |
-| COM-2 | `bash scripts/verify-ci-toolchain.sh` | Enforced | Enforced | Enforced | Enforces Go toolchain pin + Node 24 + Python 3.14 pins in workflows |
+| COM-2 | `bash scripts/verify-ci-toolchain.sh` | Enforced | Enforced | Enforced | Enforces Go toolchain pin + Node 24 + Python 3.14 pins, SHA-pinned actions, `npm ci --ignore-scripts`, and R-F1 trigger parity in workflows |
 | COM-3 | `bash scripts/verify-planning-docs.sh` | Enforced | Enforced | Enforced | Repo-wide |
 | COM-4 | `golangci-lint config verify -c .golangci-v2.yml` | Enforced | N/A | N/A | Go-only config validation |
 | COM-5 | `bash scripts/verify-coverage.sh --check-threshold-config` | Enforced | Enforced | Enforced | Ensures default thresholds stay >= 90% (raise-only) |

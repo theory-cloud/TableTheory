@@ -2,13 +2,14 @@
 
 ## Overview
 
-The notification service provides a flexible and extensible system for sending notifications in the blog application. It supports multiple notification providers and handles async processing with retry logic.
+The notification service provides a flexible and extensible system for sending notifications in the blog application. It supports multiple notification providers and delivers every notification synchronously, inside the invocation that requested it.
 
 ## Features
 
 - **Multiple Providers**: Support for email, webhook, and custom notification providers
-- **Async Processing**: Non-blocking notification sending with background workers
-- **Retry Logic**: Automatic retry with exponential backoff for failed notifications
+- **Synchronous Delivery**: `Send` and the `SendComment*Notification` helpers deliver on the caller's goroutine and return only once the delivery attempt has finished, which is what a Lambda handler must use: Lambda freezes the execution environment the moment the handler returns
+- **Context-Bounded**: The caller's context bounds the whole delivery, including the waits between retries, so a slow provider cannot outlive its invocation
+- **Retry Logic**: Bounded retry with an interruptible exponential backoff (3 attempts, 1 s doubling)
 - **Provider Interface**: Easy to extend with new notification providers
 - **Test Mode**: Built-in test mode for development and testing
 
@@ -20,18 +21,18 @@ NotificationService
 │   ├── EmailProvider
 │   ├── WebhookProvider
 │   └── (Custom Providers)
-├── Async Queue
-├── Worker Pool
-└── Retry Logic
+└── Bounded Retry Logic
 ```
+
+The service owns no queue and starts no goroutine. The blog example deploys only as Lambda functions (`deployment/sam-template.yaml` defines the posts and comments functions), so nothing keeps running after a handler returns to drain a queue: work handed to a background goroutine would be frozen mid-flight when the handler returns.
 
 ## Usage
 
 ### Initialize the Service
 
 ```go
-// Create notification service with 5 workers
-notificationService := services.NewNotificationService(5)
+// Create the notification service. It starts nothing.
+notificationService := services.NewNotificationService()
 
 // Configure email provider
 emailConfig := services.EmailConfig{
@@ -59,13 +60,13 @@ notificationService.RegisterProvider(webhookProvider)
 ### Send Notifications
 
 ```go
-// Send comment moderation notification
-err := notificationService.SendCommentModerationNotification(comment, post)
+// Deliver inside the invocation. The call is bounded by ctx, and nothing is
+// left running when it returns.
+err := notificationService.SendCommentModerationNotification(ctx, comment, post)
 
-// Send comment approval notification
-err := notificationService.SendCommentApprovalNotification(comment, post)
+err := notificationService.SendCommentApprovalNotification(ctx, comment, post)
 
-// Send custom notification
+// Send a custom notification
 notification := &Notification{
     Type: NotificationTypeCommentReply,
     Recipient: NotificationRecipient{
@@ -79,7 +80,7 @@ notification := &Notification{
         "reply_id":   "456",
     },
 }
-err := notificationService.Send(notification)
+err := notificationService.Send(ctx, notification)
 ```
 
 ### Environment Variables
@@ -139,6 +140,8 @@ func (p *SMSProvider) Name() string {
 }
 ```
 
+A provider's `Send` runs on the caller's goroutine, so it must return before the invocation ends and should honor the context it is given.
+
 ## Testing
 
 The service includes comprehensive tests and a mock provider for testing:
@@ -146,28 +149,29 @@ The service includes comprehensive tests and a mock provider for testing:
 ```go
 // Create mock provider for testing
 mockProvider := NewMockProvider("test")
+service := NewNotificationService()
 service.RegisterProvider(mockProvider)
 
 // Send notification
-err := service.SendCommentModerationNotification(comment, post)
+err := service.SendCommentModerationNotification(context.Background(), comment, post)
 
-// Verify notification was sent
+// Delivery already finished when Send returned
 assert.Len(t, mockProvider.sentNotifications, 1)
 ```
 
 ## Retry Logic
 
-Failed notifications are automatically retried with exponential backoff:
-- Maximum retries: 3
+A failed delivery is retried with an interruptible exponential backoff:
+- Maximum attempts: 3
 - Initial backoff: 1 second
 - Backoff multiplier: 2x
+- The wait is cut short by the caller's context, so the whole `Send` stays inside the invoking handler's deadline
 
 ## Performance Considerations
 
-- **Worker Pool Size**: Adjust based on expected notification volume
-- **Queue Size**: Default is 1000, increase for high-volume scenarios
-- **Timeout**: Configure provider timeouts appropriately
-- **Graceful Shutdown**: Call `Shutdown()` to process remaining notifications
+- **Timeout**: Pass a context with the deadline your invocation can afford
+- **Provider Timeouts**: Configure provider timeouts appropriately
+- **Failure Handling**: A delivery failure is returned to the caller; the blog handlers log it without failing the request
 
 ## Integration Status
 
@@ -176,7 +180,7 @@ Failed notifications are automatically retried with exponential backoff:
 - Comment approval notifications
 - Email provider implementation
 - Webhook provider implementation
-- Async processing with retry logic
+- Synchronous delivery with bounded retry logic
 - Comprehensive test coverage
 
 🚧 **TODO**:
@@ -185,4 +189,3 @@ Failed notifications are automatically retried with exponential backoff:
 - Push notification provider
 - Notification preferences per user
 - Notification templates
-- Batch notification sending 

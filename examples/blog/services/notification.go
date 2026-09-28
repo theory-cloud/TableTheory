@@ -2,9 +2,9 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/theory-cloud/tabletheory/v3/examples/blog/models"
@@ -61,50 +61,111 @@ type NotificationProvider interface {
 	Name() string
 }
 
-// NotificationService handles sending notifications
+// NotificationService delivers notifications synchronously on the caller's
+// goroutine. It owns no queue and starts no worker, because the blog deploys
+// only as Lambda functions (see deployment/sam-template.yaml): Lambda freezes
+// the execution environment the moment the handler returns, so a background
+// worker would be frozen mid-flight. Every delivery therefore happens inside the
+// invocation that requested it, bounded by the context that invocation passes.
 type NotificationService struct {
-	ctx         context.Context
-	queue       chan *Notification
-	cancel      context.CancelFunc
-	providers   []NotificationProvider
-	wg          sync.WaitGroup
-	workers     int
-	providersMu sync.RWMutex
+	providers []NotificationProvider
 }
 
-// NewNotificationService creates a new notification service
-func NewNotificationService(workers int) *NotificationService {
-	if workers <= 0 {
-		workers = 5
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	service := &NotificationService{
+// NewNotificationService creates a new notification service. It starts nothing
+// and owns no queue; providers are registered on the caller's goroutine.
+func NewNotificationService() *NotificationService {
+	return &NotificationService{
 		providers: make([]NotificationProvider, 0),
-		queue:     make(chan *Notification, 1000),
-		workers:   workers,
-		ctx:       ctx,
-		cancel:    cancel,
 	}
-
-	// Start workers
-	service.startWorkers()
-
-	return service
 }
 
 // RegisterProvider registers a notification provider
 func (s *NotificationService) RegisterProvider(provider NotificationProvider) {
-	s.providersMu.Lock()
-	defer s.providersMu.Unlock()
 	s.providers = append(s.providers, provider)
 	log.Printf("Registered notification provider: %s", provider.Name())
 }
 
-// SendCommentModerationNotification sends a notification to moderators about a new comment
-func (s *NotificationService) SendCommentModerationNotification(comment *models.Comment, post *models.Post) error {
-	notification := &Notification{
+const (
+	// sendAttempts is the total number of delivery attempts Send makes before
+	// giving up.
+	sendAttempts = 3
+	// sendBackoff is the wait before the second attempt; it doubles for each
+	// further attempt and is always interruptible by ctx.
+	sendBackoff = time.Second
+)
+
+// errNoProvider reports that no registered provider can handle the
+// notification. It is a configuration error, so Send does not retry it.
+var errNoProvider = errors.New("no notification provider can handle this notification")
+
+// Send delivers a notification synchronously and returns only once the delivery
+// attempt has finished. ctx bounds the whole call, including the waits between
+// retries; no work is left running when Send returns. Retries are bounded to
+// sendAttempts attempts with an interruptible exponential backoff.
+func (s *NotificationService) Send(ctx context.Context, notification *Notification) error {
+	backoff := sendBackoff
+
+	for attempt := 1; ; attempt++ {
+		notification.Attempts = attempt
+		notification.LastAttempt = time.Now()
+
+		err := s.deliver(ctx, notification)
+		if err == nil {
+			return nil
+		}
+
+		// The caller's deadline governs the whole call: stop retrying as soon as
+		// it is gone, and a missing provider cannot be fixed by retrying.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return s.fail(notification, ctxErr)
+		}
+		if errors.Is(err, errNoProvider) || attempt >= sendAttempts {
+			return s.fail(notification, err)
+		}
+
+		notification.Status = NotificationStatusRetrying
+		select {
+		case <-time.After(backoff):
+			backoff *= 2
+		case <-ctx.Done():
+			return s.fail(notification, ctx.Err())
+		}
+	}
+}
+
+// deliver hands the notification to the first registered provider that can
+// handle it, on the caller's goroutine.
+func (s *NotificationService) deliver(ctx context.Context, notification *Notification) error {
+	for _, provider := range s.providers {
+		if !provider.CanHandle(notification) {
+			continue
+		}
+		if err := provider.Send(ctx, notification); err != nil {
+			notification.Error = err.Error()
+			return err
+		}
+		notification.Status = NotificationStatusSent
+		notification.SentAt = time.Now()
+		return nil
+	}
+	return fmt.Errorf("%w: %s", errNoProvider, notification.Type)
+}
+
+// fail records a terminal delivery failure on the notification and returns err.
+func (s *NotificationService) fail(notification *Notification, err error) error {
+	notification.Status = NotificationStatusFailed
+	notification.Error = err.Error()
+	return err
+}
+
+// SendCommentModerationNotification delivers a notification to moderators about
+// a new comment, synchronously and bounded by ctx.
+func (s *NotificationService) SendCommentModerationNotification(ctx context.Context, comment *models.Comment, post *models.Post) error {
+	return s.Send(ctx, s.buildModerationNotification(comment, post))
+}
+
+func (s *NotificationService) buildModerationNotification(comment *models.Comment, post *models.Post) *Notification {
+	return &Notification{
 		ID:   fmt.Sprintf("mod-%s-%d", comment.ID, time.Now().Unix()),
 		Type: NotificationTypeCommentModeration,
 		Recipient: NotificationRecipient{
@@ -124,13 +185,16 @@ func (s *NotificationService) SendCommentModerationNotification(comment *models.
 		Status:    NotificationStatusPending,
 		CreatedAt: time.Now(),
 	}
-
-	return s.Send(notification)
 }
 
-// SendCommentApprovalNotification sends a notification to the comment author when approved
-func (s *NotificationService) SendCommentApprovalNotification(comment *models.Comment, post *models.Post) error {
-	notification := &Notification{
+// SendCommentApprovalNotification delivers a notification to the comment author
+// when the comment is approved, synchronously and bounded by ctx.
+func (s *NotificationService) SendCommentApprovalNotification(ctx context.Context, comment *models.Comment, post *models.Post) error {
+	return s.Send(ctx, s.buildApprovalNotification(comment, post))
+}
+
+func (s *NotificationService) buildApprovalNotification(comment *models.Comment, post *models.Post) *Notification {
+	return &Notification{
 		ID:   fmt.Sprintf("apr-%s-%d", comment.ID, time.Now().Unix()),
 		Type: NotificationTypeCommentApproval,
 		Recipient: NotificationRecipient{
@@ -148,106 +212,6 @@ func (s *NotificationService) SendCommentApprovalNotification(comment *models.Co
 		Status:    NotificationStatusPending,
 		CreatedAt: time.Now(),
 	}
-
-	return s.Send(notification)
-}
-
-// Send adds a notification to the queue for async processing
-func (s *NotificationService) Send(notification *Notification) error {
-	select {
-	case s.queue <- notification:
-		return nil
-	case <-s.ctx.Done():
-		return fmt.Errorf("notification service is shutting down")
-	default:
-		return fmt.Errorf("notification queue is full")
-	}
-}
-
-// SendSync sends a notification synchronously
-func (s *NotificationService) SendSync(ctx context.Context, notification *Notification) error {
-	s.providersMu.RLock()
-	defer s.providersMu.RUnlock()
-	for _, provider := range s.providers {
-		if provider.CanHandle(notification) {
-			if err := provider.Send(ctx, notification); err != nil {
-				notification.Status = NotificationStatusFailed
-				notification.Error = err.Error()
-				notification.LastAttempt = time.Now()
-				notification.Attempts++
-				return err
-			}
-			notification.Status = NotificationStatusSent
-			notification.SentAt = time.Now()
-			return nil
-		}
-	}
-	return fmt.Errorf("no provider available for notification type: %s", notification.Type)
-}
-
-// startWorkers starts the background workers
-func (s *NotificationService) startWorkers() {
-	for i := 0; i < s.workers; i++ {
-		s.wg.Add(1)
-		go s.worker(i)
-	}
-}
-
-// worker processes notifications from the queue
-func (s *NotificationService) worker(id int) {
-	defer s.wg.Done()
-
-	for {
-		select {
-		case notification, ok := <-s.queue:
-			if !ok {
-				// Channel closed
-				return
-			}
-			if notification == nil {
-				// Skip nil notifications
-				continue
-			}
-			s.processNotification(notification)
-		case <-s.ctx.Done():
-			return
-		}
-	}
-}
-
-// processNotification processes a single notification with retry logic
-func (s *NotificationService) processNotification(notification *Notification) {
-	maxRetries := 3
-	backoff := time.Second
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		notification.Attempts = attempt + 1
-		notification.LastAttempt = time.Now()
-
-		err := s.SendSync(context.Background(), notification)
-		if err == nil {
-			log.Printf("Successfully sent notification %s (attempt %d)", notification.ID, attempt+1)
-			return
-		}
-
-		log.Printf("Failed to send notification %s (attempt %d): %v", notification.ID, attempt+1, err)
-
-		if attempt < maxRetries-1 {
-			notification.Status = NotificationStatusRetrying
-			time.Sleep(backoff)
-			backoff *= 2 // Exponential backoff
-		}
-	}
-
-	notification.Status = NotificationStatusFailed
-	log.Printf("Failed to send notification %s after %d attempts", notification.ID, maxRetries)
-}
-
-// Shutdown gracefully shuts down the notification service
-func (s *NotificationService) Shutdown() {
-	s.cancel()
-	close(s.queue)
-	s.wg.Wait()
 }
 
 // Helper functions for building email content

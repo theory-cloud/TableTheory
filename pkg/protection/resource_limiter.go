@@ -24,10 +24,10 @@ type ResourceLimits struct {
 	MaxConcurrentBatch int     `json:"max_concurrent_batch" yaml:"max_concurrent_batch"`
 	BatchRateLimit     float64 `json:"batch_rate_limit" yaml:"batch_rate_limit"`
 
-	// Memory limits
-	MaxMemoryMB          int64         `json:"max_memory_mb" yaml:"max_memory_mb"`
-	MemoryCheckInterval  time.Duration `json:"memory_check_interval" yaml:"memory_check_interval"`
-	MemoryPanicThreshold float64       `json:"memory_panic_threshold" yaml:"memory_panic_threshold"`
+	// Memory limits. Memory is sampled on demand (see
+	// ResourceProtector.SampleMemory), so there is no check interval.
+	MaxMemoryMB          int64   `json:"max_memory_mb" yaml:"max_memory_mb"`
+	MemoryPanicThreshold float64 `json:"memory_panic_threshold" yaml:"memory_panic_threshold"`
 
 	// Rate limiting
 	RequestsPerSecond float64 `json:"requests_per_second" yaml:"requests_per_second"`
@@ -49,7 +49,6 @@ func DefaultResourceLimits() ResourceLimits {
 
 		// Memory limits
 		MaxMemoryMB:          500, // 500MB default
-		MemoryCheckInterval:  5 * time.Second,
 		MemoryPanicThreshold: 0.9, // 90% of max memory
 
 		// Rate limiting
@@ -87,16 +86,26 @@ type ResourceStats struct {
 	RejectedRequests   int64     `json:"rejected_requests"`
 }
 
-// MemoryMonitor monitors memory usage
+// MemoryMonitor samples memory usage on demand.
+//
+// It owns no goroutine and no timer: a caller invokes Sample (directly or
+// through ResourceProtector.SampleMemory) inside the work it wants measured —
+// normally a request or handler invocation. On-demand sampling is the only
+// shape that fits a Lambda execution environment, which is frozen the moment a
+// handler returns; a background sampling loop would either be frozen mid-flight
+// or, if started during module initialization, resume against an invocation
+// that is already over.
 type MemoryMonitor struct {
 	alertCallback func(MemoryAlert)
-	stopChan      chan struct{}
 	stats         *ResourceStats
-	limits        ResourceLimits
-	wg            sync.WaitGroup
-	mu            sync.RWMutex
-	stopOnce      sync.Once
-	running       int32
+	// readMemStats and forceGC are the runtime hooks Sample uses. Production
+	// wires the real runtime functions; tests substitute deterministic hooks so
+	// threshold behavior does not depend on GC timing or on how many whole MiB
+	// happen to be live when a sample is taken.
+	readMemStats func(*runtime.MemStats)
+	forceGC      func()
+	limits       ResourceLimits
+	mu           sync.RWMutex
 }
 
 // MemoryAlert represents a memory usage alert
@@ -126,11 +135,12 @@ func NewResourceProtector(config ResourceLimits) *ResourceProtector {
 		stats:            &ResourceStats{LastStatsUpdate: time.Now()},
 	}
 
-	// Initialize memory monitor
+	// Initialize the on-demand memory sampler. Constructing it starts nothing.
 	rp.memoryMonitor = &MemoryMonitor{
-		limits:   config,
-		stopChan: make(chan struct{}),
-		stats:    rp.stats,
+		limits:       config,
+		stats:        rp.stats,
+		readMemStats: runtime.ReadMemStats,
+		forceGC:      runtime.GC,
 	}
 
 	return rp
@@ -193,10 +203,21 @@ func (rp *ResourceProtector) SecureBodyReader(r *http.Request) ([]byte, error) {
 	case <-done:
 		return bodyBytes, err
 	case <-ctx.Done():
+		// Unblock the reader before returning: closing the body makes ReadAll
+		// return, and done is then awaited so the reader goroutine cannot
+		// outlive this call. Lambda freezes the execution environment as soon
+		// as the handler returns, so a reader left mid-read would be frozen
+		// and could resume against an invocation that is already over.
+		closeErr := body.Close()
+		<-done
 		atomic.AddInt64(&rp.stats.RejectedRequests, 1)
+		detail := "Request timeout exceeded"
+		if closeErr != nil {
+			detail = fmt.Sprintf("Request timeout exceeded (failed to close request body: %v)", closeErr)
+		}
 		return nil, &ProtectionError{
 			Type:   "RequestTimeout",
-			Detail: "Request timeout exceeded",
+			Detail: detail,
 		}
 	}
 }
@@ -267,83 +288,34 @@ func (bl *BatchLimiter) ReleaseBatch() {
 	<-bl.protector.batchSemaphore
 }
 
-// StartMemoryMonitoring starts memory monitoring
-func (rp *ResourceProtector) StartMemoryMonitoring(alertCallback func(MemoryAlert)) {
+// SetMemoryAlertCallback sets the callback invoked when a sample crosses the
+// configured memory threshold. The callback runs on whichever goroutine called
+// Sample; it is called synchronously, inside the work that requested the
+// sample, so it never outlives the invocation that triggered it.
+func (rp *ResourceProtector) SetMemoryAlertCallback(alertCallback func(MemoryAlert)) {
 	rp.memoryMonitor.mu.Lock()
+	defer rp.memoryMonitor.mu.Unlock()
 	rp.memoryMonitor.alertCallback = alertCallback
-	rp.memoryMonitor.mu.Unlock()
-	rp.memoryMonitor.Start()
 }
 
-// StopMemoryMonitoring stops memory monitoring
-func (rp *ResourceProtector) StopMemoryMonitoring() {
-	rp.memoryMonitor.Stop()
+// SampleMemory samples current memory usage on demand, updating the protector's
+// memory statistics and invoking the alert callback when the configured
+// threshold is crossed. It is synchronous: it returns only after the sample has
+// been recorded, and it starts nothing that could run after the caller returns.
+// Call it inside a request to have the request's memory use recorded; there is
+// no background sampler.
+func (rp *ResourceProtector) SampleMemory() {
+	rp.memoryMonitor.Sample()
 }
 
-// Start starts the memory monitor
-func (mm *MemoryMonitor) Start() {
-	mm.mu.Lock()
-	defer mm.mu.Unlock()
-
-	if atomic.LoadInt32(&mm.running) == 1 {
-		return
-	}
-
-	// Wait for any previous monitor goroutine to exit
-	mm.wg.Wait()
-
-	// Recreate channel and reset sync.Once for restart capability
-	mm.stopChan = make(chan struct{})
-	mm.stopOnce = sync.Once{}
-
-	atomic.StoreInt32(&mm.running, 1)
-	mm.wg.Add(1)
-	go mm.monitorLoop()
-}
-
-// Stop stops the memory monitor
-func (mm *MemoryMonitor) Stop() {
-	mm.mu.Lock()
-	defer mm.mu.Unlock()
-
-	if atomic.LoadInt32(&mm.running) == 0 {
-		return
-	}
-
-	atomic.StoreInt32(&mm.running, 0)
-
-	// Use sync.Once to ensure channel is only closed once
-	mm.stopOnce.Do(func() {
-		close(mm.stopChan)
-	})
-}
-
-// monitorLoop runs the memory monitoring loop
-func (mm *MemoryMonitor) monitorLoop() {
-	defer mm.wg.Done() // Signal completion when exiting
-
-	ticker := time.NewTicker(mm.limits.MemoryCheckInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			// Check if still running before processing
-			if atomic.LoadInt32(&mm.running) == 0 {
-				return
-			}
-
-			mm.checkMemory()
-		case <-mm.stopChan:
-			return
-		}
-	}
-}
-
-// checkMemory checks current memory usage
-func (mm *MemoryMonitor) checkMemory() {
+// Sample records current memory usage on demand: it reads the runtime's memory
+// statistics, updates the peak, and, when usage is at or above the configured
+// panic threshold, records an alert, invokes the alert callback, and forces a
+// garbage collection. It is the whole of this type's behavior: no goroutine and
+// no timer are involved.
+func (mm *MemoryMonitor) Sample() {
 	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
+	mm.readMemStats(&memStats)
 
 	currentMBu := memStats.Alloc / 1024 / 1024
 	currentMB := int64(currentMBu)
@@ -388,7 +360,7 @@ func (mm *MemoryMonitor) checkMemory() {
 
 		// Force garbage collection if memory usage is very high
 		if usagePercent >= 0.95 {
-			runtime.GC()
+			mm.forceGC()
 		}
 	}
 }

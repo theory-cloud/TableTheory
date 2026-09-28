@@ -6,6 +6,10 @@
 # TRIGGER POLICY:
 #   - push to `staging`: republish the integration docs line from the
 #     staging head, stamped with the latest published stable release.
+#   - pull request to `staging`: build (never deploy) the same site, so a docs
+#     change cannot merge green and then break the push-to-`staging`
+#     publication run (#623-class gap: a job that runs on push must also be
+#     exercised before merge). The `deploy` job stays push/dispatch-only.
 #   - `workflow_dispatch` with an explicit `tag` input: dispatched by
 #     release.yml immediately after it publishes a stable release, so the
 #     site deploys the just-published tag's docs stamped with that tag —
@@ -66,6 +70,8 @@ name: pages
 on:
   push:
     branches: [staging]
+  pull_request:
+    branches: [staging]
   # Explicit stable tag deploy (release.yml handoff) or manual re-deploy.
   workflow_dispatch:
     inputs:
@@ -93,8 +99,10 @@ jobs:
     permissions:
       contents: read
     # Pushes deploy from staging only (defense in depth behind the branch
-    # trigger); dispatches are ref-gated by the environment policy.
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/staging') || github.event_name == 'workflow_dispatch'
+    # trigger); dispatches are ref-gated by the environment policy; pull
+    # requests build the same tree without deploying (the `deploy` job below
+    # keeps its push/dispatch-only guard).
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/staging') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     steps:
       - name: Resolve deploy tag
         id: resolve
@@ -162,7 +170,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Ruby
-        uses: ruby/setup-ruby@bec3f19a76460dbe12f60def7d1a77585f07516c # v1.322.0
+        uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
         with:
           ruby-version: "3.3"
           # No bundler-cache: a cache writer in this workflow is exactly
@@ -244,7 +252,8 @@ jobs:
       contents: read
       pages: write
       id-token: write
-    # Same guard as the build job.
+    # Deploys publish only from a staging push or an explicit dispatch: a
+    # pull-request run builds the site but must never deploy it.
     if: (github.event_name == 'push' && github.ref == 'refs/heads/staging') || github.event_name == 'workflow_dispatch'
     environment:
       name: github-pages

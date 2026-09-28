@@ -220,8 +220,11 @@ func (h *PostHandler) getPostBySlug(ctx context.Context, request events.APIGatew
 		return errorResponse(http.StatusNotFound, "Post not found"), nil
 	}
 
-	// Increment view count atomically
-	go h.incrementViewCount(post.ID, getSessionID(request))
+	// Increment the view count inside this invocation. Lambda freezes the
+	// execution environment the moment the handler returns, so a view-count
+	// goroutine launched here would be frozen mid-flight and could resume
+	// against an invocation that is already over.
+	h.incrementViewCount(ctx, post.ID, getSessionID(request))
 
 	// Get author
 	var author models.Author
@@ -352,30 +355,31 @@ func (h *PostHandler) createPost(ctx context.Context, request events.APIGatewayP
 		}
 	}
 
-	// Update author and category post counts using atomic increments with UpdateBuilder
-	go func() {
-		// Update author post count atomically
-		if err := h.db.Model(&models.Author{
-			ID: authorID,
+	// Update author and category post counts using atomic increments with
+	// UpdateBuilder, synchronously: Lambda freezes the execution environment the
+	// moment the handler returns, so a goroutine launched here would be frozen
+	// mid-flight and could resume against an invocation that is already over.
+	db := h.db.WithContext(ctx)
+	if err := db.Model(&models.Author{
+		ID: authorID,
+	}).UpdateBuilder().
+		Increment("PostCount").
+		Set("UpdatedAt", time.Now()).
+		Execute(); err != nil {
+		fmt.Printf("Failed to update author post count: %v\n", err)
+	}
+
+	// Update category post count if category is specified
+	if req.CategoryID != "" {
+		if err := db.Model(&models.Category{
+			ID: req.CategoryID,
 		}).UpdateBuilder().
 			Increment("PostCount").
 			Set("UpdatedAt", time.Now()).
 			Execute(); err != nil {
-			fmt.Printf("Failed to update author post count: %v\n", err)
+			fmt.Printf("Failed to update category post count: %v\n", err)
 		}
-
-		// Update category post count if category is specified
-		if req.CategoryID != "" {
-			if err := h.db.Model(&models.Category{
-				ID: req.CategoryID,
-			}).UpdateBuilder().
-				Increment("PostCount").
-				Set("UpdatedAt", time.Now()).
-				Execute(); err != nil {
-				fmt.Printf("Failed to update category post count: %v\n", err)
-			}
-		}
-	}()
+	}
 
 	return successResponse(http.StatusCreated, post), nil
 }
@@ -606,11 +610,15 @@ func (h *PostHandler) deletePost(ctx context.Context, request events.APIGatewayP
 
 // Helper functions
 
-func (h *PostHandler) incrementViewCount(postID, sessionID string) {
+func (h *PostHandler) incrementViewCount(ctx context.Context, postID, sessionID string) {
+	// Bind the helper's DynamoDB calls to the invocation context so the work is
+	// bounded by the request and cannot continue past it.
+	db := h.db.WithContext(ctx)
+
 	// Track unique views using session
 	if sessionID != "" {
 		var session models.Session
-		err := h.db.Model(&models.Session{}).
+		err := db.Model(&models.Session{}).
 			Where("ID", "=", sessionID).
 			First(&session)
 
@@ -626,7 +634,7 @@ func (h *PostHandler) incrementViewCount(postID, sessionID string) {
 
 	// Get post to have required fields for UpdateBuilder
 	var post models.Post
-	if err := h.db.Model(&models.Post{}).
+	if err := db.Model(&models.Post{}).
 		Where("ID", "=", postID).
 		First(&post); err != nil {
 		fmt.Printf("Failed to get post %s: %v\n", postID, err)
@@ -634,7 +642,7 @@ func (h *PostHandler) incrementViewCount(postID, sessionID string) {
 	}
 
 	// Increment view count atomically using UpdateBuilder
-	if err := h.db.Model(&models.Post{
+	if err := db.Model(&models.Post{
 		ID:       postID,
 		AuthorID: post.AuthorID, // Required for composite key
 	}).UpdateBuilder().
@@ -652,19 +660,19 @@ func (h *PostHandler) incrementViewCount(postID, sessionID string) {
 		SessionID: sessionID,
 		TTL:       time.Now().Add(90 * 24 * time.Hour),
 	}
-	_ = h.db.Model(view).Create()
+	_ = db.Model(view).Create()
 
 	// Update session if exists
 	if sessionID != "" {
 		// Get the session again to have the latest data
 		var latestSession models.Session
-		if err := h.db.Model(&models.Session{}).
+		if err := db.Model(&models.Session{}).
 			Where("ID", "=", sessionID).
 			First(&latestSession); err == nil {
 			// Add the post to viewed list
 			latestSession.PostsViewed = append(latestSession.PostsViewed, postID)
 			// Update the session with the new posts viewed list
-			_ = h.db.Model(&models.Session{
+			_ = db.Model(&models.Session{
 				ID: sessionID,
 			}).UpdateBuilder().
 				Set("PostsViewed", latestSession.PostsViewed).

@@ -717,3 +717,62 @@ const User = defineModel({
   assert.equal(pages, 1);
   assert.equal(ddb.calls, 1);
 }
+
+{
+  // A failing segment must not abandon the remaining segment workers: the
+  // parallel scan joins every worker before it rejects, and it reports the
+  // original failure rather than an abort-induced secondary error.
+  const finished: number[] = [];
+  let resolveAllSegmentsSettled: () => void = () => {};
+  const allSegmentsSettled = new Promise<void>((resolve) => {
+    resolveAllSegmentsSettled = resolve;
+  });
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof ScanCommand) {
+      const segment = cmd.input.Segment;
+      if (segment === undefined) throw new Error('missing segment');
+      if (segment === 0) {
+        return Promise.reject(new Error('segment scan failed'));
+      }
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          finished.push(segment);
+          if (finished.length === 2) resolveAllSegmentsSettled();
+          resolve({ Items: [] });
+        }, 30);
+      });
+    }
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    User,
+  );
+
+  let rejection: unknown;
+  let finishedAtRejection: number[] = [];
+  try {
+    await client.scan('User').scanAllSegments(3, { concurrency: 3 });
+  } catch (error) {
+    rejection = error;
+    finishedAtRejection = [...finished];
+  }
+
+  // Let the remaining segment workers finish so the assertion below is about
+  // ordering, not about how quickly the rejection was observed.
+  await allSegmentsSettled;
+
+  assert.ok(
+    rejection instanceof Error,
+    'scanAllSegments must reject when a segment fails',
+  );
+  assert.equal(rejection.message, 'segment scan failed');
+  assert.deepEqual(
+    finishedAtRejection.sort((a, b) => a - b),
+    [1, 2],
+    'every segment worker must finish before scanAllSegments rejects',
+  );
+  assert.deepEqual(
+    [...finished].sort((a, b) => a - b),
+    [1, 2],
+  );
+}

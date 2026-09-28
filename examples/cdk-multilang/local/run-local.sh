@@ -41,7 +41,7 @@ fi
 
 if [[ ! -x "${REPO_ROOT}/ts/node_modules/.bin/tsx" ]]; then
   echo "==> installing TypeScript runtime dev deps"
-  npm --prefix "${REPO_ROOT}/ts" ci
+  npm --prefix "${REPO_ROOT}/ts" ci --ignore-scripts
 fi
 
 echo "==> starting throwaway DynamoDB Local on port ${PORT}"
