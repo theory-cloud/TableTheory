@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestResourceLimitsDefaults tests default resource limits
@@ -319,8 +321,8 @@ func TestBatchLimiter(t *testing.T) {
 // asked for it; there is no monitor goroutine to start or stop.
 func TestResourceProtectorSamplesMemoryOnDemand(t *testing.T) {
 	config := DefaultResourceLimits()
-	config.MaxMemoryMB = 1            // Low limit so any real usage crosses it.
-	config.MemoryPanicThreshold = 0.0 // Alert on every sample.
+	config.MaxMemoryMB = 1            // Low limit so the live buffer is well over it.
+	config.MemoryPanicThreshold = 0.9 // The alert must come from real usage, not a vacuous comparison.
 
 	protector := NewResourceProtector(config)
 
@@ -329,13 +331,19 @@ func TestResourceProtectorSamplesMemoryOnDemand(t *testing.T) {
 		alerts <- alert
 	})
 
-	// Make sure the heap is non-trivially allocated so the sample sees real use.
+	// Make the heap non-trivially allocated and keep it reachable across the
+	// sample. Without runtime.KeepAlive the compiler may treat buf as dead before
+	// the sample, letting a GC reclaim it so the whole-MiB reading collapses to
+	// zero and the assertions below race the collector. This case deliberately
+	// leaves the runtime hooks at their production values, so it exercises the
+	// real runtime.ReadMemStats path.
 	buf := make([]byte, 10*1024*1024)
 	for i := range buf {
 		buf[i] = byte(i)
 	}
 
 	protector.SampleMemory()
+	runtime.KeepAlive(buf)
 
 	// The callback ran on this goroutine, so the alert is already buffered by
 	// the time SampleMemory returns.
@@ -349,7 +357,8 @@ func TestResourceProtectorSamplesMemoryOnDemand(t *testing.T) {
 	}
 
 	stats := protector.GetStats()
-	assert.GreaterOrEqual(t, stats.CurrentMemoryMB, int64(0))
+	assert.GreaterOrEqual(t, stats.CurrentMemoryMB, int64(1),
+		"a live 10 MiB buffer against a 1 MiB limit must read as at least one whole MiB")
 	assert.GreaterOrEqual(t, stats.PeakMemoryMB, stats.CurrentMemoryMB)
 	assert.Equal(t, int64(1), stats.MemoryAlerts)
 }
@@ -377,43 +386,101 @@ func TestMemoryMonitor_determineSeverity_COV6(t *testing.T) {
 	assert.Equal(t, "LOW", mm.determineSeverity(0.10))
 }
 
+// TestMemoryMonitor_SampleTriggersAlertAndGC_COV6 pins Sample's whole contract
+// deterministically. Sample compares whole-MiB usage against the configured
+// thresholds, so every case here drives the reading through the readMemStats
+// hook and observes the forced collection through the forceGC hook. Written
+// against the real collector instead, the same assertions would pass or fail on
+// GC timing and on how many whole MiB happen to be live when the sample lands.
 func TestMemoryMonitor_SampleTriggersAlertAndGC_COV6(t *testing.T) {
-	config := DefaultResourceLimits()
-	config.MaxMemoryMB = 1
-	config.MemoryPanicThreshold = 0.0
+	// sampleWith drives one Sample from an injected reading of allocBytes against
+	// a 10 MiB limit, and returns the alerts and forced-GC count it observed.
+	sampleWith := func(t *testing.T, allocBytes uint64) (*ResourceProtector, []MemoryAlert, int) {
+		t.Helper()
 
-	protector := NewResourceProtector(config)
+		config := DefaultResourceLimits()
+		config.MaxMemoryMB = 10
+		config.MemoryPanicThreshold = 0.9
 
-	// Ensure the heap is non-trivially allocated so memory usage crosses the threshold.
-	buf := make([]byte, 10*1024*1024)
-	for i := range buf {
-		buf[i] = byte(i)
-	}
-
-	alerts := make(chan MemoryAlert, 1)
-	protector.memoryMonitor.mu.Lock()
-	protector.memoryMonitor.alertCallback = func(alert MemoryAlert) {
-		select {
-		case alerts <- alert:
-		default:
+		protector := NewResourceProtector(config)
+		protector.memoryMonitor.readMemStats = func(stats *runtime.MemStats) {
+			stats.Alloc = allocBytes
 		}
+
+		gcCalls := 0
+		protector.memoryMonitor.forceGC = func() { gcCalls++ }
+
+		var alerts []MemoryAlert
+		protector.SetMemoryAlertCallback(func(alert MemoryAlert) {
+			alerts = append(alerts, alert)
+		})
+
+		protector.SampleMemory()
+
+		return protector, alerts, gcCalls
 	}
-	protector.memoryMonitor.mu.Unlock()
 
-	protector.memoryMonitor.Sample()
+	t.Run("AboveTheLimitAlertsAndForcesGC", func(t *testing.T) {
+		protector, alerts, gcCalls := sampleWith(t, 20*1024*1024) // 200% of the limit
 
-	stats := protector.GetStats()
-	assert.Greater(t, stats.MemoryAlerts, int64(0))
-	assert.GreaterOrEqual(t, stats.CurrentMemoryMB, int64(0))
-
-	select {
-	case alert := <-alerts:
+		require.Len(t, alerts, 1)
+		alert := alerts[0]
 		assert.Equal(t, "MemoryThresholdExceeded", alert.Type)
-		assert.NotEmpty(t, alert.Severity)
-		assert.Greater(t, alert.UsagePercent, 0.0)
-	case <-time.After(2 * time.Second):
-		t.Fatalf("expected memory alert callback to run")
-	}
+		assert.Equal(t, int64(20), alert.CurrentMB)
+		assert.Equal(t, int64(10), alert.LimitMB)
+		assert.InDelta(t, 200.0, alert.UsagePercent, 0.0001)
+		assert.Equal(t, "CRITICAL", alert.Severity)
+
+		stats := protector.GetStats()
+		assert.Equal(t, int64(1), stats.MemoryAlerts)
+		assert.Equal(t, int64(20), stats.CurrentMemoryMB)
+		assert.Equal(t, int64(20), stats.PeakMemoryMB)
+		assert.Equal(t, 1, gcCalls, "usage at or above the GC trigger must force a collection")
+	})
+
+	t.Run("AtTheThresholdAlertsWithoutGC", func(t *testing.T) {
+		// 9 MiB against a 10 MiB limit is 90%: at the alert threshold, below the
+		// 95% GC trigger.
+		protector, alerts, gcCalls := sampleWith(t, 9*1024*1024)
+
+		require.Len(t, alerts, 1)
+		alert := alerts[0]
+		assert.Equal(t, int64(9), alert.CurrentMB)
+		assert.InDelta(t, 90.0, alert.UsagePercent, 0.0001)
+		assert.Equal(t, "HIGH", alert.Severity)
+
+		assert.Equal(t, int64(1), protector.GetStats().MemoryAlerts)
+		assert.Zero(t, gcCalls, "usage below the GC trigger must not force a collection")
+	})
+
+	t.Run("BelowTheLimitIsSilent", func(t *testing.T) {
+		protector, alerts, gcCalls := sampleWith(t, 4*1024*1024) // 40% of the limit
+
+		assert.Empty(t, alerts)
+		stats := protector.GetStats()
+		assert.Zero(t, stats.MemoryAlerts)
+		assert.Equal(t, int64(4), stats.CurrentMemoryMB)
+		assert.Equal(t, int64(4), stats.PeakMemoryMB)
+		assert.Zero(t, gcCalls)
+	})
+
+	t.Run("PeakKeepsTheHighWaterMark", func(t *testing.T) {
+		protector := NewResourceProtector(DefaultResourceLimits())
+		readings := []uint64{4 * 1024 * 1024, 20 * 1024 * 1024, 6 * 1024 * 1024}
+		next := 0
+		protector.memoryMonitor.readMemStats = func(stats *runtime.MemStats) {
+			stats.Alloc = readings[next]
+			next++
+		}
+
+		protector.SampleMemory()
+		protector.SampleMemory()
+		protector.SampleMemory()
+
+		stats := protector.GetStats()
+		assert.Equal(t, int64(6), stats.CurrentMemoryMB)
+		assert.Equal(t, int64(20), stats.PeakMemoryMB, "peak must keep the highest reading, not the latest")
+	})
 }
 
 // TestProtectionErrors tests protection error handling
