@@ -19,11 +19,12 @@
  * contains it. The source is parsed with the TypeScript compiler; each function
  * scope (the file's top level included) gets a control-flow graph whose nodes
  * are statements and whose edges are fallthrough, branches, loop back-edges,
- * break/continue targets, and exception transfers into catch/finally clauses.
- * `return` and an unhandled `throw` are exits; a nested function is an opaque
- * statement, so its `return` is not this function's exit and its `await` is not
- * this function's join. A source the parser rejects is a scan error, not a
- * recovery-parsed tree.
+ * break/continue targets (labelled ones included, which leave or re-enter the
+ * labeled statement rather than the function), and exception transfers into
+ * catch/finally clauses. `return` and an unhandled `throw` are exits; a nested
+ * function is an opaque statement, so its `return` is not this function's exit
+ * and its `await` is not this function's join. A source the parser rejects is a
+ * scan error, not a recovery-parsed tree.
  *
  * A launch is accepted only when no path from its statement to an exit avoids
  * every join statement, where a join statement is one that executes the join
@@ -225,12 +226,13 @@ class GNode {
 }
 
 class Ctx {
-  constructor(exit, exc, brk, cont, guarded) {
+  constructor(exit, exc, brk, cont, guarded, labels) {
     this.exit = exit;
     this.exc = exc;
     this.brk = brk;
     this.cont = cont;
     this.guarded = guarded;
+    this.labels = labels ?? new Map();
   }
 }
 
@@ -282,12 +284,14 @@ class Graph {
     }
     if (s.kind === ts.SyntaxKind.BreakStatement) {
       const n = this.node(s);
-      n.succ = dedupe([s.label ? ctx.exit : ctx.brk]);
+      const labelled = s.label ? ctx.labels.get(s.label.text) : null;
+      n.succ = dedupe([s.label ? (labelled ? labelled.brk : ctx.exit) : ctx.brk]);
       return n;
     }
     if (s.kind === ts.SyntaxKind.ContinueStatement) {
       const n = this.node(s);
-      n.succ = dedupe([s.label ? ctx.exit : ctx.cont]);
+      const labelled = s.label ? ctx.labels.get(s.label.text) : null;
+      n.succ = dedupe([s.label ? (labelled ? labelled.cont : ctx.exit) : ctx.cont]);
       return n;
     }
     if (s.kind === ts.SyntaxKind.Block) {
@@ -307,21 +311,21 @@ class Graph {
       s.kind === ts.SyntaxKind.ForOfStatement
     ) {
       const n = this.node(s);
-      const bodyCtx = new Ctx(ctx.exit, ctx.exc, k, n, ctx.guarded);
+      const bodyCtx = new Ctx(ctx.exit, ctx.exc, k, n, ctx.guarded, ctx.labels);
       const bodyE = this.stmt(s.statement, n, bodyCtx);
       n.succ = dedupe([bodyE, k]);
       return n;
     }
     if (s.kind === ts.SyntaxKind.DoStatement) {
       const n = this.node(s);
-      const bodyCtx = new Ctx(ctx.exit, ctx.exc, k, n, ctx.guarded);
+      const bodyCtx = new Ctx(ctx.exit, ctx.exc, k, n, ctx.guarded, ctx.labels);
       const bodyE = this.stmt(s.statement, n, bodyCtx);
       n.succ = dedupe([bodyE, k]);
       return bodyE;
     }
     if (s.kind === ts.SyntaxKind.SwitchStatement) {
       const n = this.node(s);
-      const brkCtx = new Ctx(ctx.exit, ctx.exc, k, ctx.cont, ctx.guarded);
+      const brkCtx = new Ctx(ctx.exit, ctx.exc, k, ctx.cont, ctx.guarded, ctx.labels);
       const entries = [];
       for (const clause of s.caseBlock.clauses) {
         entries.push(this.seq(clause.statements, k, brkCtx));
@@ -333,7 +337,14 @@ class Graph {
       return this.tryStmt(s, k, ctx);
     }
     if (s.kind === ts.SyntaxKind.LabeledStatement) {
-      return this.stmt(s.statement, k, ctx);
+      // A labeled break leaves the labeled statement and a labeled continue
+      // re-enters it; both are ordinary control flow, not a function exit.
+      const labelledCtx = new Ctx(ctx.exit, ctx.exc, ctx.brk, ctx.cont, ctx.guarded, new Map(ctx.labels));
+      const continueProxy = new GNode(null);
+      labelledCtx.labels.set(s.label.text, { brk: k, cont: continueProxy });
+      const innerEntry = this.stmt(s.statement, k, labelledCtx);
+      continueProxy.succ = [innerEntry];
+      return innerEntry;
     }
     if (s.kind === ts.SyntaxKind.FunctionDeclaration || s.kind === ts.SyntaxKind.ClassDeclaration) {
       const n = this.node(s);
@@ -362,7 +373,7 @@ class Graph {
       if (cache.has(cont)) {
         return cache.get(cont);
       }
-      const fctx = new Ctx(ctx.exit, ctx.exc, ctx.brk, ctx.cont, false);
+      const fctx = new Ctx(ctx.exit, ctx.exc, ctx.brk, ctx.cont, false, ctx.labels);
       const entry = this.seq(finalStmts, cont, fctx);
       cache.set(cont, entry);
       return entry;
@@ -370,10 +381,10 @@ class Graph {
     const normalAfter = fin(k);
     const catchEntry = s.catchClause ? this.node(null) : null;
     const tryExc = catchEntry ?? fin(ctx.exc);
-    const tctx = new Ctx(fin(ctx.exit), tryExc, fin(ctx.brk), fin(ctx.cont), true);
+    const tctx = new Ctx(fin(ctx.exit), tryExc, fin(ctx.brk), fin(ctx.cont), true, ctx.labels);
     const tryEntry = this.seq(s.tryBlock.statements, normalAfter, tctx);
     if (catchEntry) {
-      const cctx = new Ctx(fin(ctx.exit), fin(ctx.exc), fin(ctx.brk), fin(ctx.cont), false);
+      const cctx = new Ctx(fin(ctx.exit), fin(ctx.exc), fin(ctx.brk), fin(ctx.cont), false, ctx.labels);
       catchEntry.succ = dedupe([this.seq(s.catchClause.block.statements, normalAfter, cctx)]);
     }
     const n = this.node(s);
