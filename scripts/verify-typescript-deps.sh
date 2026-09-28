@@ -27,7 +27,9 @@ else
   exit 1
 fi
 
-npm --prefix ts ci
+# Lockfile install with lifecycle scripts disabled: a gate must not execute
+# dependency install scripts.
+npm --prefix ts ci --ignore-scripts
 
 echo "typescript-deps: ok"
 

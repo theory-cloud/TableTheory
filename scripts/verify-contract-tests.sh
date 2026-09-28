@@ -32,7 +32,7 @@ fi
 if [[ -f "contract-tests/runners/ts/package.json" ]]; then
   echo "contract-tests: ts"
   if [[ ! -d "contract-tests/runners/ts/node_modules" ]]; then
-    npm --prefix contract-tests/runners/ts ci
+    npm --prefix contract-tests/runners/ts ci --ignore-scripts
   fi
   npm --prefix contract-tests/runners/ts test
 fi
