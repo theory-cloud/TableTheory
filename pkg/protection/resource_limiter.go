@@ -99,7 +99,13 @@ type MemoryMonitor struct {
 	alertCallback func(MemoryAlert)
 	stats         *ResourceStats
 	limits        ResourceLimits
-	mu            sync.RWMutex
+	// readMemStats and forceGC are the runtime hooks Sample uses. Production
+	// wires the real runtime functions; tests substitute deterministic hooks so
+	// threshold behavior does not depend on GC timing or on how many whole MiB
+	// happen to be live when a sample is taken.
+	readMemStats func(*runtime.MemStats)
+	forceGC      func()
+	mu           sync.RWMutex
 }
 
 // MemoryAlert represents a memory usage alert
@@ -131,8 +137,10 @@ func NewResourceProtector(config ResourceLimits) *ResourceProtector {
 
 	// Initialize the on-demand memory sampler. Constructing it starts nothing.
 	rp.memoryMonitor = &MemoryMonitor{
-		limits: config,
-		stats:  rp.stats,
+		limits:       config,
+		stats:        rp.stats,
+		readMemStats: runtime.ReadMemStats,
+		forceGC:      runtime.GC,
 	}
 
 	return rp
@@ -307,7 +315,7 @@ func (rp *ResourceProtector) SampleMemory() {
 // no timer are involved.
 func (mm *MemoryMonitor) Sample() {
 	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
+	mm.readMemStats(&memStats)
 
 	currentMBu := memStats.Alloc / 1024 / 1024
 	currentMB := int64(currentMBu)
@@ -352,7 +360,7 @@ func (mm *MemoryMonitor) Sample() {
 
 		// Force garbage collection if memory usage is very high
 		if usagePercent >= 0.95 {
-			runtime.GC()
+			mm.forceGC()
 		}
 	}
 }
