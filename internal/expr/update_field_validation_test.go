@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/expr"
+	"github.com/theory-cloud/tabletheory/v4/internal/expr"
 )
 
 func TestUpdateExpression_FieldValidation(t *testing.T) {

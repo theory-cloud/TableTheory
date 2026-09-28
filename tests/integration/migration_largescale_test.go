@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/schema"
-	"github.com/theory-cloud/tabletheory/v3/tests"
+	"github.com/theory-cloud/tabletheory/v4/pkg/schema"
+	"github.com/theory-cloud/tabletheory/v4/tests"
 )
 
 // LargeDatasetV1 represents a model with large amounts of data

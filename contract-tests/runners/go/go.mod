@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.69.1
 	github.com/aws/aws-sdk-go-v2/service/kms v1.61.1
 	github.com/stretchr/testify v1.12.1
-	github.com/theory-cloud/tabletheory/v3 v3.0.0
+	github.com/theory-cloud/tabletheory/v4 v4.0.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -35,4 +35,4 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 )
 
-replace github.com/theory-cloud/tabletheory/v3 => ../../..
+replace github.com/theory-cloud/tabletheory/v4 => ../../..

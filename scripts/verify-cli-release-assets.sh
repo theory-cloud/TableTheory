@@ -19,7 +19,7 @@ cleanup() { rm -rf "$OUT"; }
 trap cleanup EXIT
 
 targets=(linux/amd64 linux/arm64 darwin/amd64 darwin/arm64)
-test_runtime_version="3.7.9"
+test_runtime_version="4.7.9"
 
 echo "==> cross-compiling tabletheory CLI matrix"
 for target in "${targets[@]}"; do
@@ -61,7 +61,7 @@ if [[ -x "$host_bin" ]]; then
   }
   scaffold="${OUT}/ldflags-scaffold"
   "$host_bin" init --lang go --dir "$scaffold" --module example.com/tabletheory-cli-ldflags >/dev/null
-  grep -q "github.com/theory-cloud/tabletheory/v3 v${test_runtime_version}" "${scaffold}/go.mod" || {
+  grep -q "github.com/theory-cloud/tabletheory/v4 v${test_runtime_version}" "${scaffold}/go.mod" || {
     echo "FAIL: release linker override did not pin v${test_runtime_version}" >&2
     cat "${scaffold}/go.mod" >&2
     exit 1

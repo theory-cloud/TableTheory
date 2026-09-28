@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v3/pkg/dms/internal/codegenfixture"
-	"github.com/theory-cloud/tabletheory/v3/pkg/model"
+	"github.com/theory-cloud/tabletheory/v4/pkg/dms/internal/codegenfixture"
+	"github.com/theory-cloud/tabletheory/v4/pkg/model"
 )
 
 func TestGenerateGoGoldenAndEquivalence(t *testing.T) {
@@ -342,9 +342,9 @@ func TestCodegenHelperEdges(t *testing.T) {
 	require.Equal(t, "int", pyType)
 	require.Empty(t, pyDefault)
 
-	std, thirdParty := partitionGoImports([]string{"time", "github.com/theory-cloud/tabletheory/v3/pkg/model"})
+	std, thirdParty := partitionGoImports([]string{"time", "github.com/theory-cloud/tabletheory/v4/pkg/model"})
 	require.Equal(t, []string{"time"}, std)
-	require.Equal(t, []string{"github.com/theory-cloud/tabletheory/v3/pkg/model"}, thirdParty)
+	require.Equal(t, []string{"github.com/theory-cloud/tabletheory/v4/pkg/model"}, thirdParty)
 
 	require.Equal(t, "'quote\\' newline\\n tab\\t slash\\\\'", tsString("quote' newline\n tab\t slash\\"))
 	require.Equal(t, "Field", uniqueGoFieldName("", map[string]int{}))

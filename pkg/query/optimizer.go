@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v3/internal/numutil"
+	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
 )
 
 // QueryOptimizer provides query optimization capabilities

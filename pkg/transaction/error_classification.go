@@ -3,7 +3,7 @@ package transaction
 import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	theorydbErrors "github.com/theory-cloud/tabletheory/v3/pkg/errors"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 )
 
 // classifyTransactionCancellationCode keeps the Transaction and Builder paths

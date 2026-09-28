@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v3/examples/payment"
-	"github.com/theory-cloud/tabletheory/v3/pkg/core"
+	"github.com/theory-cloud/tabletheory/v4/examples/payment"
+	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 )
 
 // WebhookSender delivers webhooks synchronously inside the calling invocation.
