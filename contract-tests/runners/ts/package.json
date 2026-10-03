@@ -24,10 +24,10 @@
     "fast-xml-parser": "5.7.3"
   },
   "devDependencies": {
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "yaml": "^2.9.1"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1136.0"
+    "@aws-sdk/client-dynamodb": "^3.1141.0"
   }
 }
