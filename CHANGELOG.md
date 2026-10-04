@@ -92,6 +92,17 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [4.0.1-rc](https://github.com/theory-cloud/TableTheory/compare/v4.0.0...v4.0.1-rc) (2026-10-04)
+
+
+### Bug Fixes
+
+* **py:** update urllib3 2.7.0 -&gt; 2.8.0 (PYSEC-2026-4175/4176/4177) ([0e8e69f](https://github.com/theory-cloud/TableTheory/commit/0e8e69fdf9a7ed9acb8965f47e4eb5de1d4c4c3b))
+* **security:** bump brace-expansion to 5.0.12 in ts dev tree ([f2aac4c](https://github.com/theory-cloud/TableTheory/commit/f2aac4ce7a9bb8fdf6a8e06d5e31f75ce6aeeb67))
+* **security:** clear the ts brace-expansion advisory and run the cooldown dependency wave ([1206474](https://github.com/theory-cloud/TableTheory/commit/1206474e344e22dc0ad9b415077650e99841302d))
+* **security:** govern the AWS-bundled brace-expansion SEC-2 exception ([1d34dca](https://github.com/theory-cloud/TableTheory/commit/1d34dcae730ee25fd6191dd3fdbd437bc2f1ae6e))
+* **security:** write one npm audit JSON per retry attempt ([80b0dd3](https://github.com/theory-cloud/TableTheory/commit/80b0dd31c96b34af16927b532db56d22d3c55cbf))
+
 ## [4.0.0](https://github.com/theory-cloud/TableTheory/compare/v4.0.0-rc...v4.0.0) (2026-09-28)
 
 Stable promotion of `v4.0.0-rc`.
