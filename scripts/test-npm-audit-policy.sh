@@ -181,6 +181,40 @@ if (versionAtLeast(bundledBrace?.version, '5.0.8')) {
     throw new Error('expected the current aws-cdk-lib bundled brace-expansion advisory to remain visibly documented');
   }
 }
+
+// Version-coherence guard for the operator-approved AWS-bundled exception.
+// The visible policy itself can only match project/package/advisory/node, so the
+// exact bundled version is enforced here: the exception is valid only while
+// aws-cdk-lib bundles brace-expansion 5.0.9. Any other bundled version re-opens
+// the review (a different still-vulnerable version fails, and a fixed version
+// fails until the exception is removed).
+const bundledBraceVersion = bundledBrace?.version;
+const BUNDLED_BRACE_CURRENT = '5.0.9';
+const BUNDLED_BRACE_FIXED = '5.0.12';
+const bundledExceptionAdvisories = [
+  'GHSA-q2hr-2g5m-vwhr',
+  'GHSA-qhr7-859c-m2p7',
+  'GHSA-6j4f-fj2g-mc7p',
+];
+const bundledExceptionEntries = (policy.findings ?? []).filter(
+  (finding) =>
+    finding.project === 'examples/cdk-multilang' &&
+    finding.package === 'brace-expansion' &&
+    finding.node === 'node_modules/aws-cdk-lib/node_modules/brace-expansion' &&
+    bundledExceptionAdvisories.includes(finding.advisory),
+);
+if (versionAtLeast(bundledBraceVersion, BUNDLED_BRACE_FIXED)) {
+  if (bundledExceptionEntries.length > 0) {
+    throw new Error('aws-cdk-lib now bundles fixed brace-expansion; remove the visible SEC-2 exception for examples/cdk-multilang');
+  }
+} else {
+  if (bundledBraceVersion !== BUNDLED_BRACE_CURRENT) {
+    throw new Error(`aws-cdk-lib bundled brace-expansion changed to ${bundledBraceVersion ?? 'missing'}; re-review the visible SEC-2 exception for examples/cdk-multilang`);
+  }
+  if (bundledExceptionEntries.length !== bundledExceptionAdvisories.length) {
+    throw new Error(`expected ${bundledExceptionAdvisories.length} visible SEC-2 exception(s) for the aws-cdk-lib bundled brace-expansion advisories, found ${bundledExceptionEntries.length}`);
+  }
+}
 NODE
 
 echo "npm-audit-policy-test: PASS"
