@@ -16,6 +16,14 @@ source scripts/lib/retry.sh
 allowlist_file="gov-infra/planning/theorydb-supply-chain-allowlist.txt"
 visible_policy_file="gov-infra/planning/theorydb-visible-npm-audit-findings.json"
 
+# Write exactly one audit JSON document per attempt. Redirecting the retry
+# helper's output instead would keep a single file descriptor open across
+# attempts, concatenating several JSON documents when a finding triggers a
+# retry and leaving the policy checker unable to parse the report.
+npm_audit_json() {
+  npm --prefix "$1" audit --package-lock-only --audit-level=low --json >"$2"
+}
+
 run_npm_audit() {
   local prefix="$1"
   local report
@@ -26,7 +34,7 @@ run_npm_audit() {
   # transient registry 5xx would otherwise fail the gate. Retrying is bounded,
   # and a real finding still falls through to the allowlist path below.
   if theorydb_retry_bounded 3 5 "npm-audit(${prefix})" -- \
-    npm --prefix "${prefix}" audit --package-lock-only --audit-level=low --json >"${report}"; then
+    npm_audit_json "${prefix}" "${report}"; then
     echo "npm-audit: PASS (${prefix})"
     rm -f "${report}"
     return 0

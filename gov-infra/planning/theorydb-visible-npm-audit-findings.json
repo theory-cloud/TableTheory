@@ -1,5 +1,42 @@
 {
   "$schema": "https://theory.cloud/tabletheory/schemas/visible-npm-audit-findings.schema.json",
   "purpose": "Findings listed here are intentionally visible in SEC-2 evidence and are not supply-chain allowlist suppressions.",
-  "findings": []
+  "findings": [
+    {
+      "project": "examples/cdk-multilang",
+      "package": "brace-expansion",
+      "advisory": "GHSA-q2hr-2g5m-vwhr",
+      "node": "node_modules/aws-cdk-lib/node_modules/brace-expansion",
+      "visibility": "visible",
+      "status": "upstream-bundled-pending-fix",
+      "reviewed_on": "2026-10-03",
+      "expires_on": "2026-11-02",
+      "remove_when": "Remove when aws-cdk-lib bundles brace-expansion >= 5.0.12 (the fixed version for all three advisories).",
+      "justification": "brace-expansion 5.0.9 is bundled in aws-cdk-lib in examples/cdk-multilang; AWS-published; npm overrides cannot replace a bundled dependency, so the finding is unfixable from this repo. Exception until aws-cdk-lib bundles a fixed version; operator ruling 2026-10-03. Pinned to 5.0.9 by scripts/test-npm-audit-policy.sh."
+    },
+    {
+      "project": "examples/cdk-multilang",
+      "package": "brace-expansion",
+      "advisory": "GHSA-qhr7-859c-m2p7",
+      "node": "node_modules/aws-cdk-lib/node_modules/brace-expansion",
+      "visibility": "visible",
+      "status": "upstream-bundled-pending-fix",
+      "reviewed_on": "2026-10-03",
+      "expires_on": "2026-11-02",
+      "remove_when": "Remove when aws-cdk-lib bundles brace-expansion >= 5.0.12 (the fixed version for all three advisories).",
+      "justification": "brace-expansion 5.0.9 is bundled in aws-cdk-lib in examples/cdk-multilang; AWS-published; npm overrides cannot replace a bundled dependency, so the finding is unfixable from this repo. Exception until aws-cdk-lib bundles a fixed version; operator ruling 2026-10-03. Pinned to 5.0.9 by scripts/test-npm-audit-policy.sh."
+    },
+    {
+      "project": "examples/cdk-multilang",
+      "package": "brace-expansion",
+      "advisory": "GHSA-6j4f-fj2g-mc7p",
+      "node": "node_modules/aws-cdk-lib/node_modules/brace-expansion",
+      "visibility": "visible",
+      "status": "upstream-bundled-pending-fix",
+      "reviewed_on": "2026-10-03",
+      "expires_on": "2026-11-02",
+      "remove_when": "Remove when aws-cdk-lib bundles brace-expansion >= 5.0.12 (the fixed version for all three advisories).",
+      "justification": "brace-expansion 5.0.9 is bundled in aws-cdk-lib in examples/cdk-multilang; AWS-published; npm overrides cannot replace a bundled dependency, so the finding is unfixable from this repo. Exception until aws-cdk-lib bundles a fixed version; operator ruling 2026-10-03. Pinned to 5.0.9 by scripts/test-npm-audit-policy.sh."
+    }
+  ]
 }
