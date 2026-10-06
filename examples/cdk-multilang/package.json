@@ -14,15 +14,15 @@
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "3.1136.0",
-    "@aws-sdk/client-kms": "3.1136.0",
-    "@aws-sdk/client-s3": "3.1136.0",
-    "aws-cdk-lib": "2.270.0",
+    "@aws-sdk/client-dynamodb": "3.1142.0",
+    "@aws-sdk/client-kms": "3.1142.0",
+    "@aws-sdk/client-s3": "3.1142.0",
+    "aws-cdk-lib": "2.271.0",
     "constructs": "10.8.1"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
-    "tsx": "4.23.13",
+    "tsx": "4.23.15",
     "typescript": "7.0.2"
   },
   "overrides": {
