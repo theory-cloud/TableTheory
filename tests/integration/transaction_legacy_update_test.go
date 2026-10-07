@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -11,12 +12,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
+	theorydberrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v4/pkg/model"
 	"github.com/theory-cloud/tabletheory/v4/pkg/query"
 	"github.com/theory-cloud/tabletheory/v4/pkg/session"
 	"github.com/theory-cloud/tabletheory/v4/pkg/transaction"
 	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
 )
+
+// legacyTransactionTableName is assigned a unique value per test run so two
+// concurrent runs of this test cannot share (and delete) one DynamoDB Local table.
+var legacyTransactionTableName string
 
 type legacyTransactionLifecycleRecord struct {
 	CreatedAt time.Time `theorydb:"created_at,attr:createdAt" json:"createdAt"`
@@ -28,7 +34,7 @@ type legacyTransactionLifecycleRecord struct {
 }
 
 func (legacyTransactionLifecycleRecord) TableName() string {
-	return "legacy_transaction_lifecycle_integration"
+	return legacyTransactionTableName
 }
 
 type legacyTransactionCreatedAtOnlyRecord struct {
@@ -38,10 +44,12 @@ type legacyTransactionCreatedAtOnlyRecord struct {
 }
 
 func (legacyTransactionCreatedAtOnlyRecord) TableName() string {
-	return (legacyTransactionLifecycleRecord{}).TableName()
+	return legacyTransactionTableName
 }
 
 func TestLegacyTransactionUpdateExecutesWithoutLifecycleOverlap(t *testing.T) {
+	legacyTransactionTableName = fmt.Sprintf("legacy_transaction_lifecycle_%d", time.Now().UnixNano())
+
 	testCtx := InitTestDB(t)
 	testCtx.CreateTableIfNotExists(t, &legacyTransactionLifecycleRecord{})
 	t.Cleanup(func() {
@@ -119,20 +127,23 @@ func TestLegacyTransactionUpdateExecutesWithoutLifecycleOverlap(t *testing.T) {
 	t.Run("created_at-only update errors before DynamoDB", func(t *testing.T) {
 		const pk = "USER#legacy-created-at-only"
 		seed(t, pk, 0)
+		seeded := load(t, pk)
 
 		tx := transaction.NewTransaction(sess, registry, pkgTypes.NewConverter())
 		err := tx.Update(&legacyTransactionCreatedAtOnlyRecord{
 			PK: pk,
 			SK: "PROFILE",
 		})
+		require.ErrorIs(t, err, theorydberrors.ErrNoUpdatableFields)
 		require.EqualError(t, err, "no non-key fields to update",
 			"the legacy surface must reject the empty update before queuing a DynamoDB request")
 
-		item := load(t, pk)
-		value, ok := item["value"].(*types.AttributeValueMemberS)
-		require.True(t, ok)
-		require.Equal(t, "original", value.Value,
-			"the rejected update must leave the DynamoDB Local item unchanged")
+		// The rejected update poisons the transaction, so Commit must submit
+		// nothing. Without this the comparison below could never observe a write.
+		require.ErrorIs(t, tx.Commit(), theorydberrors.ErrNoUpdatableFields)
+
+		require.Equal(t, seeded, load(t, pk),
+			"the rejected update must leave every attribute of the DynamoDB Local item unchanged")
 	})
 
 	t.Run("versioned update has no overlapping paths", func(t *testing.T) {
