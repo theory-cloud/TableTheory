@@ -120,9 +120,9 @@ func (tx *Transaction) Update(model any) (err error) {
 		return fmt.Errorf("failed to extract primary key: %w", err)
 	}
 
-	modelValue := reflect.ValueOf(model)
-	if modelValue.Kind() == reflect.Ptr {
-		modelValue = modelValue.Elem()
+	modelValue, err := modelStructValue(model)
+	if err != nil {
+		return err
 	}
 
 	setAssignments, expressionAttributeNames, expressionAttributeValues, err := tx.buildUpdateExpression(modelValue, metadata)
@@ -346,9 +346,9 @@ func (tx *Transaction) Delete(model any) (err error) {
 
 	// Handle version field for optimistic locking
 	if metadata.VersionField != nil {
-		modelValue := reflect.ValueOf(model)
-		if modelValue.Kind() == reflect.Ptr {
-			modelValue = modelValue.Elem()
+		modelValue, err := modelStructValue(model)
+		if err != nil {
+			return err
 		}
 		versionValue, err := fieldByIndexPath(modelValue, metadata.VersionField.IndexPath)
 		if err != nil {
@@ -543,9 +543,9 @@ func (tx *Transaction) marshalItem(model any, metadata *model.Metadata) (map[str
 func (tx *Transaction) marshalPlainItem(model any, metadata *model.Metadata) (map[string]types.AttributeValue, error) {
 	item := make(map[string]types.AttributeValue)
 
-	modelValue := reflect.ValueOf(model)
-	if modelValue.Kind() == reflect.Ptr {
-		modelValue = modelValue.Elem()
+	modelValue, err := modelStructValue(model)
+	if err != nil {
+		return nil, err
 	}
 
 	for fieldName, fieldMeta := range metadata.Fields {
@@ -622,9 +622,9 @@ func (tx *Transaction) encryptItemIfNeeded(metadata *model.Metadata, item map[st
 func (tx *Transaction) extractPrimaryKey(model any, metadata *model.Metadata) (map[string]types.AttributeValue, error) {
 	key := make(map[string]types.AttributeValue)
 
-	modelValue := reflect.ValueOf(model)
-	if modelValue.Kind() == reflect.Ptr {
-		modelValue = modelValue.Elem()
+	modelValue, err := modelStructValue(model)
+	if err != nil {
+		return nil, err
 	}
 
 	// Extract partition key
