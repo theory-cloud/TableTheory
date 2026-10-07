@@ -350,9 +350,12 @@ func (tx *Transaction) Delete(model any) (err error) {
 		if modelValue.Kind() == reflect.Ptr {
 			modelValue = modelValue.Elem()
 		}
-		versionValue := modelValue.FieldByIndex(metadata.VersionField.IndexPath)
+		versionValue, err := fieldByIndexPath(modelValue, metadata.VersionField.IndexPath)
+		if err != nil {
+			return fmt.Errorf("failed to read current version: %w", err)
+		}
 
-		if versionValue.IsValid() && !versionValue.IsZero() {
+		if !versionValue.IsZero() {
 			currentVersion, err := reflectutil.VersionNumber(versionValue)
 			if err != nil {
 				return fmt.Errorf("failed to read current version: %w", err)
@@ -546,7 +549,10 @@ func (tx *Transaction) marshalPlainItem(model any, metadata *model.Metadata) (ma
 	}
 
 	for fieldName, fieldMeta := range metadata.Fields {
-		fieldValue := modelValue.Field(fieldMeta.Index)
+		fieldValue, err := fieldByIndexPath(modelValue, fieldMeta.IndexPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read field %s: %w", fieldName, err)
+		}
 
 		// Apply the same DMS emptiness predicate used by query updates.
 		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
@@ -623,7 +629,10 @@ func (tx *Transaction) extractPrimaryKey(model any, metadata *model.Metadata) (m
 
 	// Extract partition key
 	pkField := metadata.PrimaryKey.PartitionKey
-	pkValue := modelValue.Field(pkField.Index)
+	pkValue, err := fieldByIndexPath(modelValue, pkField.IndexPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read partition key %s: %w", pkField.Name, err)
+	}
 	if pkValue.IsZero() {
 		return nil, fmt.Errorf("partition key %s is empty", pkField.Name)
 	}
@@ -637,7 +646,10 @@ func (tx *Transaction) extractPrimaryKey(model any, metadata *model.Metadata) (m
 	// Extract sort key if present
 	if metadata.PrimaryKey.SortKey != nil {
 		skField := metadata.PrimaryKey.SortKey
-		skValue := modelValue.Field(skField.Index)
+		skValue, err := fieldByIndexPath(modelValue, skField.IndexPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read sort key %s: %w", skField.Name, err)
+		}
 		if skValue.IsZero() {
 			return nil, fmt.Errorf("sort key %s is empty", skField.Name)
 		}

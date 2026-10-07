@@ -196,11 +196,19 @@ func buildTransactGetKey(metadata *model.Metadata, converter *pkgTypes.Converter
 		return keyFromValues(metadata, converter, key, nil, false)
 	}
 
-	pk := value.Field(metadata.PrimaryKey.PartitionKey.Index).Interface()
+	pkValue, err := fieldByIndexPath(value, metadata.PrimaryKey.PartitionKey.IndexPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read partition key: %w", err)
+	}
+	pk := pkValue.Interface()
 	var sk any
 	hasSK := false
 	if metadata.PrimaryKey.SortKey != nil {
-		sk = value.Field(metadata.PrimaryKey.SortKey.Index).Interface()
+		skValue, err := fieldByIndexPath(value, metadata.PrimaryKey.SortKey.IndexPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read sort key: %w", err)
+		}
+		sk = skValue.Interface()
 		hasSK = true
 	}
 	return keyFromValues(metadata, converter, pk, sk, hasSK)
