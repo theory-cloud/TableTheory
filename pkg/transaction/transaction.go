@@ -143,7 +143,7 @@ func (tx *Transaction) Update(model any) (err error) {
 
 	updateExpression := buildSetUpdateExpression(setAssignments)
 	if updateExpression == "" {
-		return fmt.Errorf("no non-key fields to update")
+		return errors.ErrNoUpdatableFields
 	}
 
 	if err := tx.encryptUpdateExpressionValues(metadata, updateExpression, expressionAttributeNames, expressionAttributeValues); err != nil {
