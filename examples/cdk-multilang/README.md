@@ -40,12 +40,26 @@ Additional endpoints:
 
 ## Dependency audit note
 
-As of the current dependency pin, `aws-cdk-lib@2.260.0` removes the previous bundled `fast-uri` high-severity audit finding. `npm audit` may still report a moderate `brace-expansion@5.0.5` finding bundled inside `aws-cdk-lib`; keep that visible rather than suppressing it, and refresh CDK again once AWS publishes a bundle with `brace-expansion >=5.0.6`.
+The current pin is `aws-cdk-lib@2.271.0`. `npm audit` reports three brace-expansion advisories (one medium, two high)
+against the copy `aws-cdk-lib` publishes bundled, `node_modules/aws-cdk-lib/node_modules/brace-expansion@5.0.9`. Because
+AWS publishes that dependency inside `aws-cdk-lib`, npm overrides cannot replace it and the finding is not fixable from
+this repo.
 
-SEC-2 records that advisory in `gov-infra/planning/theorydb-visible-npm-audit-findings.json`, not in the supply-chain
-suppression allowlist. The verifier therefore stays green only while the finding remains explicitly printed in SEC-2
-evidence as a visible upstream-bundled finding; if AWS CDK updates the bundled dependency, remove the visible policy entry
-instead of adding an allowlist suppression.
+SEC-2 therefore records all three advisories in `gov-infra/planning/theorydb-visible-npm-audit-findings.json` (reviewed
+2026-10-03, self-expiring 2026-11-02), never in the supply-chain suppression allowlist. The findings stay explicitly
+printed in SEC-2 evidence and are never described as allowlisted.
+
+`scripts/test-npm-audit-policy.sh` is the guard that keeps that state honest, and it fails in both directions:
+
+- While `aws-cdk-lib` bundles a vulnerable brace-expansion, the bundled version must still be exactly `5.0.9` and all
+  three visible entries must still be present. Removing the entries early, or moving to a different bundled version,
+  fails the guard and forces a re-review.
+- Once `aws-cdk-lib` bundles a fixed brace-expansion (`>= 5.0.12`), the visible entries must be removed rather than left
+  in place; keeping the retired exception fails the guard.
+
+The verifier is therefore green only while the exception is still required, and stops being green once it goes stale.
+When AWS publishes a fixed bundle, take the version bump and delete the visible policy entries — do not add an allowlist
+suppression.
 
 ## Smoke test
 
