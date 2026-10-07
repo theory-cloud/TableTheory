@@ -182,6 +182,14 @@ func buildTransactGetKey(metadata *model.Metadata, converter *pkgTypes.Converter
 		return keyFromValues(metadata, converter, pk, sk, true)
 	}
 
+	return transactGetKeyFromStruct(metadata, converter, key)
+}
+
+func transactGetKeyFromStruct(
+	metadata *model.Metadata,
+	converter *pkgTypes.Converter,
+	key any,
+) (map[string]types.AttributeValue, error) {
 	value := reflect.ValueOf(key)
 	if value.Kind() == reflect.Ptr {
 		if value.IsNil() {

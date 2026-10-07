@@ -17,8 +17,8 @@ import (
 // PromotedVersionBase carries the optimistic-lock version inside an embedded
 // struct, so the version field's metadata index path spans more than one element.
 type PromotedVersionBase struct {
-	Note    string `theorydb:"attr:note,omitempty" json:"note,omitempty"`
-	Version int    `theorydb:"version,attr:version" json:"version"`
+	Note    int `theorydb:"attr:note,omitempty" json:"note,omitempty"`
+	Version int `theorydb:"version,attr:version" json:"version"`
 }
 
 // promotedVersionRecord deliberately places a numeric field at the outer struct
@@ -26,9 +26,9 @@ type PromotedVersionBase struct {
 // positional read therefore silently returns Counter instead of Version.
 type promotedVersionRecord struct {
 	PromotedVersionBase
-	Counter int    `theorydb:"attr:counter" json:"counter"`
-	PK      string `theorydb:"pk,attr:PK" json:"PK"`
-	SK      string `theorydb:"sk,attr:SK" json:"SK"`
+	Counter int `theorydb:"attr:counter" json:"counter"`
+	ID      int `theorydb:"pk,attr:id" json:"id"`
+	Sort    int `theorydb:"sk,attr:sort" json:"sort"`
 }
 
 func newPromotedVersionTransaction(t *testing.T) *Transaction {
@@ -59,8 +59,8 @@ func TestTransaction_DeleteReadsPromotedVersionField(t *testing.T) {
 	require.NoError(t, tx.Delete(&promotedVersionRecord{
 		PromotedVersionBase: PromotedVersionBase{Version: 7},
 		Counter:             999,
-		PK:                  "USER#promoted-version",
-		SK:                  "PROFILE",
+		ID:                  1,
+		Sort:                2,
 	}))
 
 	require.Len(t, tx.writes, 1)
@@ -80,8 +80,8 @@ func TestTransaction_UpdateReadsPromotedVersionField(t *testing.T) {
 	require.NoError(t, tx.Update(&promotedVersionRecord{
 		PromotedVersionBase: PromotedVersionBase{Version: 7},
 		Counter:             999,
-		PK:                  "USER#promoted-version",
-		SK:                  "PROFILE",
+		ID:                  1,
+		Sort:                2,
 	}))
 
 	require.Len(t, tx.writes, 1)

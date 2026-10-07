@@ -20,8 +20,8 @@ type nilModelRecord struct {
 // reflect.
 func TestTransaction_NilModelReturnsTypedError(t *testing.T) {
 	operations := []struct {
-		name      string
 		operation func(tx *Transaction) error
+		name      string
 	}{
 		{name: "create", operation: func(tx *Transaction) error { return tx.Create(nil) }},
 		{name: "update", operation: func(tx *Transaction) error { return tx.Update(nil) }},
@@ -48,8 +48,8 @@ func TestTransaction_NilModelReturnsTypedError(t *testing.T) {
 
 func TestTransaction_TypedNilModelReturnsTypedError(t *testing.T) {
 	operations := []struct {
-		name      string
 		operation func(tx *Transaction) error
+		name      string
 	}{
 		{name: "create", operation: func(tx *Transaction) error { return tx.Create((*nilModelRecord)(nil)) }},
 		{name: "update", operation: func(tx *Transaction) error { return tx.Update((*nilModelRecord)(nil)) }},

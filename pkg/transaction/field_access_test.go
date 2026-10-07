@@ -20,15 +20,15 @@ import (
 // struct, so each field's index path is longer than one element. The outer struct
 // also holds one extra field, which is what a positional read would pick up.
 type PromotedFieldBase struct {
-	Note    string `theorydb:"attr:note" json:"note"`
-	Version int    `theorydb:"version,attr:version" json:"version"`
-	PK      string `theorydb:"pk,attr:PK" json:"PK"`
-	SK      string `theorydb:"sk,attr:SK" json:"SK"`
+	Note    int `theorydb:"attr:note" json:"note"`
+	Version int `theorydb:"version,attr:version" json:"version"`
+	ID      int `theorydb:"pk,attr:id" json:"id"`
+	Sort    int `theorydb:"sk,attr:sort" json:"sort"`
 }
 
 type promotedFieldRecord struct {
 	PromotedFieldBase
-	Value string `theorydb:"attr:value" json:"value"`
+	Value int `theorydb:"attr:value" json:"value"`
 }
 
 func newPromotedFieldRegistry(t *testing.T) *model.Registry {
@@ -54,12 +54,12 @@ func newPromotedFieldSession(t *testing.T) *session.Session {
 func newPromotedFieldRecord() *promotedFieldRecord {
 	return &promotedFieldRecord{
 		PromotedFieldBase: PromotedFieldBase{
-			Note:    "note-value",
+			Note:    42,
 			Version: 4,
-			PK:      "USER#promoted",
-			SK:      "PROFILE",
+			ID:      7,
+			Sort:    8,
 		},
-		Value: "value-value",
+		Value: 99,
 	}
 }
 
@@ -104,24 +104,27 @@ func TestFieldByIndexPath_ResolvesPromotedFields(t *testing.T) {
 
 	pkValue, err := fieldByIndexPath(value, metadata.PrimaryKey.PartitionKey.IndexPath)
 	require.NoError(t, err)
-	require.Equal(t, "USER#promoted", pkValue.Interface())
+	require.Equal(t, 7, pkValue.Interface())
+
+	versionValue, err := fieldByIndexPath(value, metadata.VersionField.IndexPath)
+	require.NoError(t, err)
+	require.Equal(t, 4, versionValue.Interface())
 }
 
 func TestTransaction_PromotedKeyFieldsResolveThroughIndexPath(t *testing.T) {
 	registry := newPromotedFieldRegistry(t)
 	tx := NewTransaction(newPromotedFieldSession(t), registry, pkgTypes.NewConverter())
-	record := newPromotedFieldRecord()
 
-	require.NoError(t, tx.Delete(record))
+	require.NoError(t, tx.Delete(newPromotedFieldRecord()))
 	require.Len(t, tx.writes, 1)
 
 	deleteItem := tx.writes[0].Delete
 	require.NotNil(t, deleteItem)
-	require.Equal(t, "USER#promoted", keyValueString(t, deleteItem.Key["PK"]),
+	require.Equal(t, "7", attributeValueString(t, deleteItem.Key["id"]),
 		"the delete key must read the promoted partition key, not the outer field at the same position")
-	require.Equal(t, "PROFILE", keyValueString(t, deleteItem.Key["SK"]))
+	require.Equal(t, "8", attributeValueString(t, deleteItem.Key["sort"]))
 	require.Equal(t, "#ver = :ver", aws.ToString(deleteItem.ConditionExpression))
-	require.Equal(t, "4", keyValueString(t, deleteItem.ExpressionAttributeValues[":ver"]))
+	require.Equal(t, "4", attributeValueString(t, deleteItem.ExpressionAttributeValues[":ver"]))
 }
 
 func TestTransaction_CreateMarshalsPromotedFields(t *testing.T) {
@@ -135,10 +138,10 @@ func TestTransaction_CreateMarshalsPromotedFields(t *testing.T) {
 
 	put := tx.writes[0].Put
 	require.NotNil(t, put)
-	require.Equal(t, "USER#promoted", keyValueString(t, put.Item["PK"]))
-	require.Equal(t, "PROFILE", keyValueString(t, put.Item["SK"]))
-	require.Equal(t, "note-value", keyValueString(t, put.Item["note"]))
-	require.Equal(t, "value-value", keyValueString(t, put.Item["value"]))
+	require.Equal(t, "7", attributeValueString(t, put.Item["id"]))
+	require.Equal(t, "8", attributeValueString(t, put.Item["sort"]))
+	require.Equal(t, "42", attributeValueString(t, put.Item["note"]))
+	require.Equal(t, "99", attributeValueString(t, put.Item["value"]))
 }
 
 func TestBuilder_PromotedFieldsResolveThroughIndexPath(t *testing.T) {
@@ -163,7 +166,7 @@ func TestBuilder_PromotedFieldsResolveThroughIndexPath(t *testing.T) {
 			nameRef = name
 		}
 		for value, av := range update.ExpressionAttributeValues {
-			require.Equal(t, "note-value", keyValueString(t, av))
+			require.Equal(t, "42", attributeValueString(t, av))
 			valueRef = value
 		}
 		require.Equal(t, "SET "+nameRef+" = "+valueRef, aws.ToString(update.UpdateExpression))
@@ -172,15 +175,15 @@ func TestBuilder_PromotedFieldsResolveThroughIndexPath(t *testing.T) {
 	t.Run("builder update keys", func(t *testing.T) {
 		builder := NewBuilder(&session.Session{}, registry, pkgTypes.NewConverter())
 		builder.UpdateWithBuilder(newPromotedFieldRecord(), func(ub core.UpdateBuilder) error {
-			ub.Set("Value", "updated")
+			ub.Set("Value", 100)
 			return nil
 		})
 
 		items, err := builder.materializeOperations()
 		require.NoError(t, err)
 		require.Len(t, items, 1)
-		require.Equal(t, "USER#promoted", keyValueString(t, items[0].Update.Key["PK"]))
-		require.Equal(t, "PROFILE", keyValueString(t, items[0].Update.Key["SK"]))
+		require.Equal(t, "7", attributeValueString(t, items[0].Update.Key["id"]))
+		require.Equal(t, "8", attributeValueString(t, items[0].Update.Key["sort"]))
 	})
 
 	t.Run("put", func(t *testing.T) {
@@ -190,12 +193,12 @@ func TestBuilder_PromotedFieldsResolveThroughIndexPath(t *testing.T) {
 		items, err := builder.materializeOperations()
 		require.NoError(t, err)
 		require.Len(t, items, 1)
-		require.Equal(t, "USER#promoted", keyValueString(t, items[0].Put.Item["PK"]))
-		require.Equal(t, "PROFILE", keyValueString(t, items[0].Put.Item["SK"]))
+		require.Equal(t, "7", attributeValueString(t, items[0].Put.Item["id"]))
+		require.Equal(t, "8", attributeValueString(t, items[0].Put.Item["sort"]))
 	})
 }
 
-func keyValueString(t *testing.T, av types.AttributeValue) string {
+func attributeValueString(t *testing.T, av types.AttributeValue) string {
 	t.Helper()
 
 	switch value := av.(type) {
