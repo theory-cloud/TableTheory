@@ -38,6 +38,9 @@ func (r *Registry) Register(model any) error {
 	defer r.mu.Unlock()
 
 	modelType := reflect.TypeOf(model)
+	if modelType == nil {
+		return fmt.Errorf("%w: model cannot be nil", errors.ErrInvalidModel)
+	}
 	if modelType.Kind() == reflect.Ptr {
 		modelType = modelType.Elem()
 	}
@@ -70,6 +73,9 @@ func (r *Registry) GetMetadata(model any) (*Metadata, error) {
 	defer r.mu.RUnlock()
 
 	modelType := reflect.TypeOf(model)
+	if modelType == nil {
+		return nil, fmt.Errorf("%w: model cannot be nil", errors.ErrInvalidModel)
+	}
 	if modelType.Kind() == reflect.Ptr {
 		modelType = modelType.Elem()
 	}
