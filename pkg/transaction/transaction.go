@@ -350,7 +350,7 @@ func (tx *Transaction) Delete(model any) (err error) {
 		if modelValue.Kind() == reflect.Ptr {
 			modelValue = modelValue.Elem()
 		}
-		versionValue := modelValue.Field(metadata.VersionField.Index)
+		versionValue := modelValue.FieldByIndex(metadata.VersionField.IndexPath)
 
 		if versionValue.IsValid() && !versionValue.IsZero() {
 			currentVersion, err := reflectutil.VersionNumber(versionValue)
