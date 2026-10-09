@@ -29,6 +29,11 @@ jobs:
           fetch-depth: 0
 
       - name: Verify staged PR is release-eligible
+        # PR-only eligibility: workflow_dispatch has no pull_request metadata,
+        # and `gh pr view` with an empty selector would infer an unrelated PR or
+        # exit. Gate the step to pull_request so manual dispatch reaches the
+        # documented full-rubric path.
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

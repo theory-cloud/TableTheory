@@ -53,7 +53,7 @@ To keep pinned GitHub Release wheel URLs current, copy this Renovate regex manag
     {
       "customType": "regex",
       "description": "Update TableTheory Python wheel GitHub Release asset URLs",
-      "managerFilePatterns": ["/(^|/)requirements.*\\.txt$/", "/(^|/)README\\.md$/", "/(^|/)docs/.+\\.md$/"],
+      "managerFilePatterns": ["/(^|/)README\\.md$/", "/(^|/)docs/.+\\.md$/"],
       "matchStrings": [
         "https://github\\.com/theory-cloud/[Tt]able[Tt]heory/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/tabletheory_py-(?<assetVersion>\\d+\\.\\d+\\.\\d+)-py3-none-any\\.whl"
       ],
@@ -70,25 +70,25 @@ To keep pinned GitHub Release wheel URLs current, copy this Renovate regex manag
 For combined TypeScript + Python automation, see the published
 [Consumer update automation](https://tabletheory.theorycloud.ai/guides/consumer-updates/) guide.
 
-### Option B: Install from the pip find-links index
+### Option B: Install the wheel from the pip find-links index
 
 The documentation site publishes a static pip find-links index generated from the Python wheel assets attached to
-TableTheory GitHub Releases:
+TableTheory GitHub Releases. TableTheory is **not** published to PyPI, so install the **top-level** `tabletheory-py`
+distribution from that index with the public indexes disabled, and resolve its dependencies separately from your own
+trusted index. A plain `pip install --find-links <index> tabletheory-py` leaves the public index enabled and lets an
+attacker-controlled higher version of `tabletheory-py` on PyPI be selected instead of the release wheel.
 
 ```bash
-# Latest stable version visible to pip.
-pip install --find-links https://tabletheory.theorycloud.ai/python/find-links/ tabletheory-py
-
-# Exact stable version selection.
-pip install --find-links https://tabletheory.theorycloud.ai/python/find-links/ "tabletheory-py==X.Y.Z"
+# Exact stable version, from this release-asset index only (public index disabled).
+pip install --no-index --find-links https://tabletheory.theorycloud.ai/python/find-links/ "tabletheory-py==X.Y.Z"
 
 # Exact release-candidate selection. Python versions use PEP 440 form.
-pip install --pre --find-links https://tabletheory.theorycloud.ai/python/find-links/ "tabletheory-py==X.Y.ZrcN"
+pip install --pre --no-index --find-links https://tabletheory.theorycloud.ai/python/find-links/ "tabletheory-py==X.Y.ZrcN"
 ```
 
-`--find-links` supplements your normal package indexes so `boto3` and other transitive dependencies still resolve from
-your configured Python index. If you also use `--no-index`, mirror those transitive dependencies alongside the
-TableTheory wheel.
+With `--no-index`, `tabletheory-py`'s dependencies (`boto3`, `urllib3`, and so on) are not resolved; install them from
+your own trusted index in the same environment, or mirror them alongside the wheel. Prefer Option A (the direct GitHub
+Release wheel URL) for a single command — it authenticates the source and needs no index configuration.
 
 ### Option C: Develop from source (this monorepo)
 

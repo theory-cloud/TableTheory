@@ -636,6 +636,124 @@ if [[ -f "py/pyproject.toml" ]]; then
   done
 fi
 
+# --- Release/publishing trust boundaries (TTSEC-M0-T2..T6) --------------------
+# These are grep/py assertions only. This verifier runs against the PR head in
+# release-hygiene, so it must never execute a PR-head script; behavioral
+# coverage for the same guards lives in the focused test scripts referenced
+# below and runs in the staging rubric (scripts/verify-rubric.sh).
+
+# TTSEC-M0-T2: same-repository head ownership + deterministic commit identity.
+if [[ -f "scripts/create-stable-release-pr.py" ]]; then
+  gen_t2="scripts/create-stable-release-pr.py"
+  require_fixed "deterministic_expected_tree" "${gen_t2}" \
+    "stable Release PR generator must derive a deterministic tree for a reused commit"
+  require_fixed "commit_signer_is_automation" "${gen_t2}" \
+    "stable Release PR generator must bind a reused commit to the expected automation signer"
+  require_fixed "is_same_repository_pr" "${gen_t2}" \
+    "stable Release PR generator must require same-repository head ownership for candidate PRs"
+  require_fixed "headRepositoryOwner" "${gen_t2}" \
+    "stable Release PR generator must request head repository ownership metadata"
+  require_fixed "isCrossRepository" "${gen_t2}" \
+    "stable Release PR generator must request cross-repository status"
+fi
+if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
+  post_t2="scripts/verify-main-release-pr-postcondition.sh"
+  require_fixed "isCrossRepository" "${post_t2}" \
+    "main Release PR postcondition must reject cross-repository release PRs"
+  require_fixed "headRepositoryOwner" "${post_t2}" \
+    "main Release PR postcondition must verify same-repository head ownership"
+fi
+require_file "scripts/test-release-pr-postcondition-policy.sh"
+require_file "scripts/test-release-pr-tool-policy.sh"
+
+# TTSEC-M0-T3: prerelease errexit + manual-dispatch gates.
+for wf in ".github/workflows/prerelease.yml" ".github/workflows/prerelease-pr.yml"; do
+  [[ -f "${wf}" ]] || continue
+  require_fixed "verify-branch-version-sync.sh &&" "${wf}" \
+    "${wf} must join the strict verifiers with && so either failure reaches the classifier"
+done
+if [[ -f ".github/workflows/quality-gates.yml" ]]; then
+  q_t3=".github/workflows/quality-gates.yml"
+  require_fixed "name: Verify staged PR is release-eligible" "${q_t3}" \
+    "quality-gates must keep the release-eligibility step"
+  if ! python3 - "${q_t3}" <<'PY'
+import sys
+from pathlib import Path
+
+lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+for i, line in enumerate(lines):
+    if line.strip() == "- name: Verify staged PR is release-eligible":
+        window = "\n".join(lines[i:i + 8])
+        raise SystemExit(0 if "if: github.event_name == 'pull_request'" in window else 1)
+raise SystemExit(1)
+PY
+  then
+    fail "quality-gates release-eligibility step must be gated to pull_request so workflow_dispatch reaches the rubric"
+  fi
+fi
+
+# TTSEC-M0-T4: pinned publish tooling installed before role assumption.
+if [[ -f ".github/workflows/theorycloud-tabletheory-publish.yml" ]]; then
+  pub_t4=".github/workflows/theorycloud-tabletheory-publish.yml"
+  require_fixed "scripts/requirements/theorycloud-publish.txt" "${pub_t4}" \
+    "publish workflow must install the hash-pinned tooling lock"
+  require_fixed "--require-hashes" "${pub_t4}" \
+    "publish workflow must verify dependency hashes"
+  if ! python3 - "${pub_t4}" <<'PY'
+import sys
+from pathlib import Path
+
+lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+
+
+def step_index(name):
+    for i, line in enumerate(lines):
+        if line.strip() == f"- name: {name}":
+            return i
+    raise SystemExit(1)
+
+
+if step_index("Install pinned publish tooling (before role assumption)") > step_index(
+    "Assume stage-scoped theorycloud publish role"
+):
+    raise SystemExit(1)
+if any("--upgrade pip" in line for line in lines):
+    raise SystemExit(1)
+PY
+  then
+    fail "publish tooling must install before role assumption and must not upgrade pip unpinned"
+  fi
+  require_file "scripts/requirements/theorycloud-publish.txt"
+fi
+require_fixed "invoke_status=\$?" "scripts/trigger_theorycloud_publish.sh" \
+  "publish trigger helper must capture awscurl's actual exit status"
+
+# TTSEC-M0-T6: branch-up-to-date freshness evidence + private staged manifests.
+policy_t6="docs/development/planning/theorydb-branch-release-policy.md"
+if [[ -f "${policy_t6}" ]]; then
+  require_fixed "Require branches to be up to date before merging" "${policy_t6}" \
+    "branch release policy must require the GitHub branch-up-to-date setting"
+fi
+if [[ -f "scripts/watch-release-cycle.sh" ]]; then
+  require_fixed "required_status_checks" "scripts/watch-release-cycle.sh" \
+    "watch-release-cycle must read branch-protection required status checks"
+  require_fixed "requires up-to-date (strict)" "scripts/watch-release-cycle.sh" \
+    "watch-release-cycle must report whether up-to-date (strict) checks are required"
+fi
+for staging_script in "scripts/stage_theorycloud_tabletheory_subtree.sh" "scripts/verify-theorycloud-tabletheory-subtree.sh"; do
+  [[ -f "${staging_script}" ]] || continue
+  require_fixed "parse_remote_identity" "${staging_script}" \
+    "${staging_script} must parse remote identity instead of prefix-stripping"
+  require_fixed "userinfo" "${staging_script}" \
+    "${staging_script} must reject/strip URL userinfo so credentials never enter the manifest"
+done
+if [[ -f "scripts/stage_theorycloud_tabletheory_subtree.sh" ]]; then
+  require_fixed "0o700" "scripts/stage_theorycloud_tabletheory_subtree.sh" \
+    "staging helper must create private directories"
+  require_fixed "0o600" "scripts/stage_theorycloud_tabletheory_subtree.sh" \
+    "staging helper must create a private manifest file"
+fi
+
 if [[ "${failures}" -ne 0 ]]; then
   echo "branch-release: FAIL (${failures} issue(s))"
   exit 1

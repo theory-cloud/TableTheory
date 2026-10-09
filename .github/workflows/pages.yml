@@ -178,8 +178,13 @@ jobs:
           # `bundle install` below is accepted instead.
           working-directory: docs
 
-      - name: Bundle install
+      - name: Bundle install (frozen, reviewed lock)
         working-directory: docs
+        env:
+          # Frozen/deployment mode: resolve exactly the reviewed docs/Gemfile.lock
+          # (committed, no longer ignored) and fail closed instead of pulling a
+          # newly published compatible gem into the deployed artifact.
+          BUNDLE_FROZEN: "true"
         run: |
           # setup-ruby without bundler-cache installs no Gemfile gems —
           # jekyll and the plugins must be installed explicitly or

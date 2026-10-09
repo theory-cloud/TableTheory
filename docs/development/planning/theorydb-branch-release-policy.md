@@ -103,6 +103,13 @@ Protect both `premain` and `main`:
   `Release Hygiene` check passes for the exact PR head and a final live-ref freshness check confirms the target branch is
   still the checked base.
 - Restrict force-pushes and deletions.
+- Require branches to be up to date before merging (GitHub's "Require branches to be up to date before merging" /
+  strict status checks) on `premain` and `main`. This is an **external repository setting**, not repository code: the
+  workflows can only compare live refs while they run, so no local script can atomically bind a later direct merge to the
+  base SHA it checked. When the target branch advances, the required setting invalidates the existing check and forces a
+  rerun, which closes the time-of-check/time-of-use window. `scripts/watch-release-cycle.sh` reports this setting as
+  read-only evidence (`gh api .../protection/required_status_checks`) and never mutates it; without admin read access the
+  watchpoint warns rather than claiming compliance.
 
 Protect `staging` with the full gov-infra rubric on PRs targeting `staging`. The full rubric may also run by
 `workflow_dispatch`, but it must not run on push or on PRs targeting `premain` or `main`. Merge a current `staging` PR

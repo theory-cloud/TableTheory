@@ -35,5 +35,12 @@ python3 scripts/verify-gov-rubric-report.py gov-infra/evidence/gov-rubric-report
 
 bash ./scripts/verify-theorycloud-tabletheory-subtree.sh
 
+# TTSEC-M0-T2..T6 focused policy tests (release/publishing trust boundaries).
+# These exercise hostile fixtures against the real guards, so they run in the
+# full rubric on staging PRs rather than only as existence checks.
+bash ./scripts/test-release-pr-postcondition-policy.sh
+bash ./scripts/test-theorycloud-publish-policy.sh
+bash ./scripts/test-consumer-dependency-policy.sh
+
 # Preserve legacy success line for scripts that grep for it.
 echo "rubric: PASS"

@@ -323,6 +323,26 @@ if [[ "${skip_github}" -eq 0 ]] && command -v gh >/dev/null 2>&1 && gh auth stat
     pass "no open main release PR advertises an RC version"
   fi
 
+  # TTSEC-M0-T6: read-only evidence for the required branch-up-to-date setting.
+  # This reports an external GitHub repository setting; it never mutates it and
+  # never pretends repository code can atomically bind a later direct merge to
+  # the checked base. Unreadable protection (no admin) degrades to a WARN.
+  for branch in premain main; do
+    protection_json="$(
+      gh api "repos/${github_repo}/branches/${branch}/protection/required_status_checks" 2>/dev/null || true
+    )"
+    if [[ -z "${protection_json}" ]]; then
+      warn "branch ${branch} required status checks are not readable (needs admin); verify 'Require branches to be up to date before merging' manually"
+      continue
+    fi
+    strict_value="$(release_cycle_json_string_value "${protection_json}" strict)"
+    if [[ "${strict_value}" == "true" ]]; then
+      pass "branch ${branch} requires up-to-date (strict) status checks before merge"
+    else
+      fail "branch ${branch} does not require up-to-date (strict) status checks; enable 'Require branches to be up to date before merging'"
+    fi
+  done
+
   if [[ "${main_pending_promotion}" -eq 1 ]]; then
     pending_prs="$(
       VERSION="${main_pending_version}" gh pr list \

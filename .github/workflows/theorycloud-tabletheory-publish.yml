@@ -86,19 +86,17 @@ jobs:
               ;;
           esac
 
-      - name: Assume stage-scoped theorycloud publish role
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          role-session-name: tabletheory-${{ github.ref_name }}-${{ github.run_id }}
-
-      - name: Install awscurl
+      - name: Install pinned publish tooling (before role assumption)
         run: |
           set -euo pipefail
 
-          python3 -m pip install --user --upgrade pip
-          python3 -m pip install --user awscurl
+          # Install exact, hash-verified tooling BEFORE any AWS role is assumed,
+          # so no mutable PyPI dependency (pip itself, awscurl, or a transitive
+          # dependency) can execute in the same job that later holds temporary
+          # role credentials. --only-binary=:all: forbids building an sdist with
+          # its own build backend.
+          python3 -m pip install --user --require-hashes --only-binary=:all: \
+            -r scripts/requirements/theorycloud-publish.txt
           printf '%s\n' "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - name: Verify staged TableTheory subtree contract
@@ -106,6 +104,13 @@ jobs:
           set -euo pipefail
 
           bash scripts/verify-theorycloud-tabletheory-subtree.sh "${THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR}"
+
+      - name: Assume stage-scoped theorycloud publish role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: tabletheory-${{ github.ref_name }}-${{ github.run_id }}
 
       - name: Sync TableTheory subtree into shared theorycloud source state
         run: |

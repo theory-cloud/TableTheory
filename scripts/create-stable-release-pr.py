@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 from pathlib import Path
 
@@ -246,6 +247,97 @@ def github_file_text(repo_root: Path, repo: str, path: str, ref: str) -> str:
     return base64.b64decode(parsed["content"]).decode("utf-8")
 
 
+def github_commit_snapshot(repo_root: Path, repo: str, sha: str) -> dict[str, object]:
+    commit_details = gh_api_json(repo_root, [f"repos/{repo}/commits/{sha}"])
+    assert commit_details is not None
+    return commit_details
+
+
+def commit_tree_sha(snapshot: dict[str, object]) -> str:
+    commit = snapshot.get("commit")
+    tree = commit.get("tree") if isinstance(commit, dict) else None
+    sha = tree.get("sha") if isinstance(tree, dict) else None
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        fail("GitHub commit snapshot did not include a tree SHA")
+    return sha
+
+
+def commit_changed_paths(snapshot: dict[str, object]) -> set[str]:
+    files = snapshot.get("files")
+    if not isinstance(files, list) or not files:
+        fail("GitHub commit snapshot did not include a changed-file list")
+    paths: set[str] = set()
+    for entry in files:
+        if not isinstance(entry, dict):
+            fail("GitHub commit snapshot contained a malformed file entry")
+        name = entry.get("filename")
+        if not isinstance(name, str) or not name:
+            fail("GitHub commit snapshot contained a file without a name")
+        paths.add(name)
+    return paths
+
+
+def commit_signer_is_automation(snapshot: dict[str, object]) -> bool:
+    # Cryptographic validity (verification.verified) alone does not identify the
+    # signer: any actor with push access can create a *personally* signed commit
+    # on the canonical generated branch. Bind the reused commit to the expected
+    # automation identity (a GitHub App/bot account) as well.
+    commit = snapshot.get("commit")
+    verification = commit.get("verification") if isinstance(commit, dict) else None
+    if not isinstance(verification, dict) or not verification.get("verified"):
+        return False
+    if str(verification.get("reason", "")) != "valid":
+        return False
+    committer = snapshot.get("committer")
+    if not isinstance(committer, dict):
+        return False
+    if committer.get("type") == "Bot":
+        return True
+    login = committer.get("login")
+    return isinstance(login, str) and login.endswith("[bot]")
+
+
+def deterministic_expected_tree(repo_root: Path, base_sha: str, files: dict[str, str]) -> str:
+    # Derive the exact tree GitHub's createCommitOnBranch would produce for this
+    # base and these file contents. The local checkout is pinned to base_sha, so
+    # this is a deterministic identity for the whole tree, not just the two
+    # expected files.
+    base_tree = run(["git", "rev-parse", f"{base_sha}^{{tree}}"], cwd=repo_root, capture=True).strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", base_tree):
+        fail(f"could not resolve the base tree for {base_sha}")
+
+    index_fd, index_path = tempfile.mkstemp(prefix="stable-release-pr-index-")
+    os.close(index_fd)
+    env = dict(os.environ)
+    env["GIT_INDEX_FILE"] = index_path
+    try:
+        run(["git", "read-tree", base_tree], cwd=repo_root, env=env)
+        for path, content in files.items():
+            blob = run(
+                ["git", "hash-object", "-w", "--stdin"],
+                cwd=repo_root,
+                env=env,
+                input_text=content,
+                capture=True,
+            ).strip()
+            if not re.fullmatch(r"[0-9a-f]{40}", blob):
+                fail(f"could not hash the expected blob for {path}")
+            run(
+                ["git", "update-index", "--add", "--cacheinfo", f"100644,{blob},{path}"],
+                cwd=repo_root,
+                env=env,
+            )
+        tree = run(["git", "write-tree"], cwd=repo_root, env=env, capture=True).strip()
+    finally:
+        try:
+            os.unlink(index_path)
+        except OSError:
+            pass
+    if not re.fullmatch(r"[0-9a-f]{40}", tree):
+        fail("could not compute a deterministic expected tree")
+    return tree
+
+
 def existing_signed_branch_match(
     repo_root: Path,
     repo: str,
@@ -257,18 +349,45 @@ def existing_signed_branch_match(
     if current is None:
         return None
 
-    verified, reason, parents = github_commit_verification(repo_root, repo, current)
-    if not verified:
-        print(f"stable-release-pr: replacing unsigned generated branch {head} ({current[:7]}: {reason})")
+    snapshot = github_commit_snapshot(repo_root, repo, current)
+
+    # Independent checks: (1) expected automation signer identity, (2) parent is
+    # the live base, (3) the commit changes exactly the expected files with the
+    # expected contents, and (4) the whole commit tree equals the tree derived
+    # deterministically from base_sha. verification.verified is necessary but is
+    # not treated as identity on its own.
+    if not commit_signer_is_automation(snapshot):
+        commit = snapshot.get("commit")
+        verification = commit.get("verification") if isinstance(commit, dict) else {}
+        reason = verification.get("reason", "unknown") if isinstance(verification, dict) else "unknown"
+        print(
+            f"stable-release-pr: replacing {head} because its head commit is not a GitHub-signed "
+            f"automation commit ({current[:7]}: {reason})"
+        )
         return None
+
+    parents = [parent.get("sha", "") for parent in snapshot.get("parents", []) if isinstance(parent, dict)]
     if parents != [base_sha]:
         print(f"stable-release-pr: replacing generated branch {head} because parent does not match live base")
+        return None
+
+    if commit_changed_paths(snapshot) != set(files.keys()):
+        print(f"stable-release-pr: replacing {head} because its commit does not change exactly the expected files")
         return None
 
     for path, expected in files.items():
         if github_file_text(repo_root, repo, path, head) != expected:
             print(f"stable-release-pr: replacing generated branch {head} because {path} is stale")
             return None
+
+    actual_tree = commit_tree_sha(snapshot)
+    expected_tree = deterministic_expected_tree(repo_root, base_sha, files)
+    if actual_tree != expected_tree:
+        print(
+            f"stable-release-pr: replacing {head} because its commit tree {actual_tree[:7]} "
+            f"!= deterministic tree {expected_tree[:7]}"
+        )
+        return None
 
     print(f"stable-release-pr: existing GitHub-signed commit {current[:7]} already normalizes {head}")
     return current
@@ -389,16 +508,56 @@ def ensure_pending_label(repo_root: Path, repo: str) -> None:
     )
 
 
+def pr_head_identity(pr: dict[str, object]) -> tuple[str | None, str | None]:
+    owner = pr.get("headRepositoryOwner")
+    meta = pr.get("headRepository")
+    login = owner.get("login") if isinstance(owner, dict) else None
+    name = meta.get("name") if isinstance(meta, dict) else None
+    return (login if isinstance(login, str) else None, name if isinstance(name, str) else None)
+
+
+def is_same_repository_pr(pr: dict[str, object], owner: str, name: str) -> bool:
+    # `gh pr list --head` returns cross-repository PRs too and cannot be
+    # owner-qualified, so a fork PR from a branch of the same name would be
+    # selected without this repository-ownership check.
+    if not isinstance(pr, dict) or pr.get("isCrossRepository"):
+        return False
+    head_owner, head_name = pr_head_identity(pr)
+    return head_owner == owner and head_name == name
+
+
 def upsert_pr(repo_root: Path, repo: str, base: str, head: str, title: str, body: str) -> None:
     ensure_pending_label(repo_root, repo)
+    expected_owner, expected_name = repo.split("/", 1)
     existing = run(
-        ["gh", "pr", "list", "--repo", repo, "--base", base, "--head", head, "--state", "open", "--json", "number"],
+        [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--base",
+            base,
+            "--head",
+            head,
+            "--state",
+            "open",
+            "--json",
+            "number,headRepository,headRepositoryOwner,isCrossRepository",
+        ],
         cwd=repo_root,
         capture=True,
     )
     prs = json.loads(existing)
-    if prs:
-        number = str(prs[0]["number"])
+    same_repo_prs = [pr for pr in prs if is_same_repository_pr(pr, expected_owner, expected_name)]
+    for pr in prs:
+        if pr not in same_repo_prs:
+            print(
+                f"stable-release-pr: ignoring cross-repository candidate PR "
+                f"#{pr.get('number')} whose head is not {repo}"
+            )
+    if same_repo_prs:
+        number = str(same_repo_prs[0]["number"])
         run(["gh", "pr", "edit", number, "--repo", repo, "--title", title, "--body", body], cwd=repo_root)
         run(["gh", "pr", "edit", number, "--repo", repo, "--add-label", PENDING_RELEASE_LABEL], cwd=repo_root)
         print(f"stable-release-pr: updated PR #{number} ({title})")
