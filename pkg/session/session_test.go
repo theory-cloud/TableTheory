@@ -7,9 +7,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 )
 
 // TestDefaultConfig tests the DefaultConfig function
@@ -420,5 +424,89 @@ func BenchmarkSessionGetters(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_ = sess.WithContext(ctx)
 		}
+	})
+}
+
+type sessionTestKMSClient struct{}
+
+func (sessionTestKMSClient) GenerateDataKey(context.Context, *kms.GenerateDataKeyInput, ...func(*kms.Options)) (*kms.GenerateDataKeyOutput, error) {
+	return nil, errors.New("unused")
+}
+
+func (sessionTestKMSClient) Decrypt(context.Context, *kms.DecryptInput, ...func(*kms.Options)) (*kms.DecryptOutput, error) {
+	return nil, errors.New("unused")
+}
+
+func TestNewSessionWithClientKMSConfiguration(t *testing.T) {
+	originalConfigLoad := configLoadFunc
+	t.Cleanup(func() { configLoadFunc = originalConfigLoad })
+
+	staticCreds := credentials.NewStaticCredentialsProvider("AKIATEST", "secret", "token")
+	newDynamoClient := func() *dynamodb.Client {
+		return dynamodb.NewFromConfig(aws.Config{Region: "us-east-1", Credentials: staticCreds})
+	}
+
+	t.Run("injected credentials are carried into the KMS AWS config", func(t *testing.T) {
+		var loaded bool
+		configLoadFunc = func(ctx context.Context, opts ...func(*config.LoadOptions) error) (aws.Config, error) {
+			loaded = true
+			return config.LoadDefaultConfig(ctx, opts...)
+		}
+
+		sess, err := NewSessionWithClient(&Config{
+			Region:              "us-east-1",
+			KMSKeyARN:           "arn:aws:kms:us-east-1:111111111111:key/test",
+			CredentialsProvider: staticCreds,
+		}, newDynamoClient())
+		require.NoError(t, err)
+		require.True(t, loaded, "KMS without an explicit client must load a credentialed AWS config")
+
+		creds, err := sess.AWSConfig().Credentials.Retrieve(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, "AKIATEST", creds.AccessKeyID)
+	})
+
+	t.Run("explicit KMS client keeps the minimal config and loads nothing", func(t *testing.T) {
+		var loaded bool
+		configLoadFunc = func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
+			loaded = true
+			return aws.Config{}, nil
+		}
+
+		sess, err := NewSessionWithClient(&Config{
+			Region:    "eu-west-1",
+			KMSKeyARN: "arn:aws:kms:eu-west-1:111111111111:key/test",
+			KMSClient: sessionTestKMSClient{},
+		}, newDynamoClient())
+		require.NoError(t, err)
+		require.False(t, loaded)
+		require.Equal(t, "eu-west-1", sess.AWSConfig().Region)
+	})
+
+	t.Run("KMS without any usable credential source fails early", func(t *testing.T) {
+		configLoadFunc = func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
+			t.Fatal("config load must not run when no KMS credential source is configured")
+			return aws.Config{}, nil
+		}
+
+		_, err := NewSessionWithClient(&Config{
+			Region:    "us-east-1",
+			KMSKeyARN: "arn:aws:kms:us-east-1:111111111111:key/test",
+		}, newDynamoClient())
+		require.Error(t, err)
+		require.True(t, errors.Is(err, customerrors.ErrEncryptionNotConfigured))
+	})
+
+	t.Run("no KMS key needs no AWS config load", func(t *testing.T) {
+		var loaded bool
+		configLoadFunc = func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error) {
+			loaded = true
+			return aws.Config{}, nil
+		}
+
+		sess, err := NewSessionWithClient(&Config{Region: "us-east-1"}, newDynamoClient())
+		require.NoError(t, err)
+		require.False(t, loaded)
+		require.Equal(t, "us-east-1", sess.AWSConfig().Region)
 	})
 }
