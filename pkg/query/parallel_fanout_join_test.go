@@ -195,7 +195,7 @@ func (e *scanJoinExecutor) ExecuteScan(input *core.CompiledQuery, dest any) erro
 
 func appendSegmentResult(dest any, segment int32) error {
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Pointer || destValue.Elem().Kind() != reflect.Slice {
 		return errors.New("dest must be pointer to slice")
 	}
 

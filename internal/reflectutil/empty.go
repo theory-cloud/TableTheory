@@ -36,7 +36,7 @@ func IsEmpty(v reflect.Value) bool {
 	case reflect.Float32, reflect.Float64:
 		return v.Float() == 0
 
-	case reflect.Interface, reflect.Ptr:
+	case reflect.Interface, reflect.Pointer:
 		return v.IsNil()
 
 	case reflect.Struct:
@@ -56,7 +56,7 @@ func IsSparseUpdateEmpty(v reflect.Value) bool {
 		return true
 	}
 
-	if v.Kind() == reflect.Interface || v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer {
 		return v.IsNil()
 	}
 

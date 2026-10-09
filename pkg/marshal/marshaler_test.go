@@ -70,7 +70,7 @@ type VersionedStruct struct {
 
 // Helper function to create field metadata
 func createFieldMetadata(structType reflect.Type, name, dbName string, typ reflect.Type, opts ...func(*model.FieldMetadata)) *model.FieldMetadata {
-	if structType.Kind() == reflect.Ptr {
+	if structType.Kind() == reflect.Pointer {
 		structType = structType.Elem()
 	}
 	if structType.Kind() != reflect.Struct {

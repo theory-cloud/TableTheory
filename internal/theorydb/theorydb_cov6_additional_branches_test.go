@@ -49,7 +49,7 @@ func TestDB_ContextHelpers_CopyMetadataCache_And_DefaultLambdaBuffer_COV6(t *tes
 	db.Model(&cov6SelectModel{})
 
 	typ := reflect.TypeOf(&cov6SelectModel{})
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 

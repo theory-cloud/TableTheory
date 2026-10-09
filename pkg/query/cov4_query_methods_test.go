@@ -61,7 +61,7 @@ func (e *cov4Executor) ExecuteScan(input *core.CompiledQuery, dest any) error {
 	e.mu.Unlock()
 
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Pointer || destValue.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("dest must be pointer to slice")
 	}
 

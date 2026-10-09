@@ -61,14 +61,14 @@ func prepareValueForConversion(v reflect.Value, _ ConvertOptions) (reflect.Value
 				return reflect.Value{}, av, true, err
 			}
 		}
-		if v.Kind() != reflect.Ptr {
+		if v.Kind() != reflect.Pointer {
 			if marshaler, ok := addressableMarshaler(v); ok {
 				av, err := marshaler.MarshalDynamoDBAttributeValue()
 				return reflect.Value{}, av, true, err
 			}
 		}
 
-		if v.Kind() != reflect.Interface && v.Kind() != reflect.Ptr {
+		if v.Kind() != reflect.Interface && v.Kind() != reflect.Pointer {
 			return v, nil, false, nil
 		}
 		if v.IsNil() {
@@ -79,7 +79,7 @@ func prepareValueForConversion(v reflect.Value, _ ConvertOptions) (reflect.Value
 }
 
 func addressableMarshaler(v reflect.Value) (Marshaler, bool) {
-	if !v.IsValid() || v.Kind() == reflect.Ptr {
+	if !v.IsValid() || v.Kind() == reflect.Pointer {
 		return nil, false
 	}
 
@@ -288,7 +288,7 @@ func shouldOmitEmptyField(fieldValue reflect.Value, theorydbTag string, jsonTag 
 // ConvertFromAttributeValue converts a DynamoDB AttributeValue to a Go value
 func ConvertFromAttributeValue(av types.AttributeValue, target any) error {
 	targetValue := reflect.ValueOf(target)
-	if targetValue.Kind() != reflect.Ptr || targetValue.IsNil() {
+	if targetValue.Kind() != reflect.Pointer || targetValue.IsNil() {
 		return fmt.Errorf("target must be a non-nil pointer")
 	}
 
@@ -305,7 +305,7 @@ func unmarshalAttributeValueWithConvention(av types.AttributeValue, v reflect.Va
 	if isEmptyInterfaceValue(v) {
 		return unmarshalIntoEmptyInterface(av, v)
 	}
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		return unmarshalIntoPointerWithConvention(av, v, inheritedConvention, inheritNaming)
 	}
 	return unmarshalAttributeValueNonPtrWithConvention(av, v, inheritedConvention, inheritNaming)

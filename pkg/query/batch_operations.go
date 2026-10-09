@@ -305,7 +305,7 @@ func (q *Query) executeUpdateBatch(batch []any, opts *BatchUpdateOptions, fields
 
 		// Update specified fields
 		itemValue := reflect.ValueOf(item)
-		if itemValue.Kind() == reflect.Ptr {
+		if itemValue.Kind() == reflect.Pointer {
 			itemValue = itemValue.Elem()
 		}
 
@@ -369,7 +369,7 @@ func (q *Query) extractKey(item any) (map[string]any, error) {
 	}
 
 	itemValue := reflect.ValueOf(item)
-	if itemValue.Kind() == reflect.Ptr {
+	if itemValue.Kind() == reflect.Pointer {
 		if itemValue.IsNil() {
 			return extractKeyFromPrimitive(primaryKey, item)
 		}
@@ -570,12 +570,14 @@ func (q *Query) BatchCreateWithResult(items any) (*BatchResult, error) {
 
 // QueryTimeout sets a timeout for the query execution
 func (q *Query) QueryTimeout(timeout time.Duration) core.Query {
-	// This would need to be integrated with context handling
+	// Release the previous derived context before replacing it so its timer
+	// does not outlive the query's use of it.
+	if q.cancel != nil {
+		q.cancel()
+	}
 	ctx, cancel := context.WithTimeout(q.ctx, timeout)
 	q.ctx = ctx
-	// Store cancel function for cleanup
-	// In a full implementation, this would be properly managed
-	_ = cancel
+	q.cancel = cancel
 	return q
 }
 

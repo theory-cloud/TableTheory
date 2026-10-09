@@ -115,7 +115,7 @@ func generate(args []string, stdout io.Writer, stderr io.Writer) error {
 	if err := os.MkdirAll(filepath.Dir(*outPath), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(*outPath, generated, 0o600)
+	return os.WriteFile(*outPath, generated, 0o600) // #nosec G703 -- CLI intentionally writes generated output to the user-provided -out path.
 }
 
 func contract(args []string, stdout io.Writer, stderr io.Writer) error {

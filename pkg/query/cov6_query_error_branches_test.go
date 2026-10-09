@@ -49,7 +49,7 @@ func (e *cov6CountExecutor) ExecuteScan(_ *core.CompiledQuery, dest any) error {
 
 func setStructFieldInt(dest any, name string, value int64) {
 	v := reflect.ValueOf(dest)
-	if v.Kind() != reflect.Ptr || v.IsNil() {
+	if v.Kind() != reflect.Pointer || v.IsNil() {
 		return
 	}
 	elem := v.Elem()
