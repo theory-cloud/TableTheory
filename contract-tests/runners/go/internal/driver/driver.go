@@ -986,7 +986,7 @@ func updateFieldNames(model string, values map[string]any) ([]string, error) {
 		return nil, err
 	}
 	typ := reflect.TypeOf(instance)
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 	resolved := make([]string, 0, len(fields))

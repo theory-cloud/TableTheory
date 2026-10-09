@@ -34,7 +34,7 @@ func (q *Query) marshalItemReflect(item any) (map[string]types.AttributeValue, e
 	}
 
 	modelValue := reflect.ValueOf(item)
-	if modelValue.Kind() == reflect.Ptr {
+	if modelValue.Kind() == reflect.Pointer {
 		if modelValue.IsNil() {
 			return nil, fmt.Errorf("item cannot be nil")
 		}
@@ -138,7 +138,7 @@ func (q *Query) marshalItemTagged(item any) (map[string]types.AttributeValue, er
 	if !modelValue.IsValid() {
 		return nil, fmt.Errorf("item must be a struct")
 	}
-	if modelValue.Kind() == reflect.Ptr {
+	if modelValue.Kind() == reflect.Pointer {
 		if modelValue.IsNil() {
 			return nil, fmt.Errorf("item must be a struct")
 		}
@@ -195,7 +195,7 @@ func (q *Query) updateTimestampsInModel() {
 	}
 
 	modelValue := reflect.ValueOf(q.model)
-	if modelValue.Kind() != reflect.Ptr || modelValue.IsNil() {
+	if modelValue.Kind() != reflect.Pointer || modelValue.IsNil() {
 		return
 	}
 	modelValue = modelValue.Elem()

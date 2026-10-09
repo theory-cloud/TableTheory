@@ -360,7 +360,7 @@ func (b *Builder) buildFieldUpdate(op transactOperation) (*types.Update, error) 
 	}
 
 	value := reflect.ValueOf(op.model)
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		value = value.Elem()
 	}
 
@@ -668,7 +668,7 @@ func (b *Builder) buildConditionCheck(op transactOperation) (*types.ConditionChe
 
 func (b *Builder) populateKeyConditions(q *query.Query, metadata *model.Metadata, model any) error {
 	value := reflect.ValueOf(model)
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		value = value.Elem()
 	}
 

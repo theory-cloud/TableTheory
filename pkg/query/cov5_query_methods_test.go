@@ -20,7 +20,7 @@ type cov5QueryExecutor struct {
 
 func appendZeroElementToSlice(dest any) {
 	rv := reflect.ValueOf(dest)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return
 	}
 	slice := rv.Elem()
@@ -29,7 +29,7 @@ func appendZeroElementToSlice(dest any) {
 	}
 
 	elemType := slice.Type().Elem()
-	if elemType.Kind() == reflect.Ptr {
+	if elemType.Kind() == reflect.Pointer {
 		slice.Set(reflect.Append(slice, reflect.New(elemType.Elem())))
 		return
 	}
@@ -42,7 +42,7 @@ func (e *cov5QueryExecutor) ExecuteQuery(input *core.CompiledQuery, dest any) er
 
 	rv := reflect.ValueOf(dest)
 	appendZeroElementToSlice(dest)
-	if rv.Kind() == reflect.Ptr && rv.Elem().Kind() == reflect.Struct {
+	if rv.Kind() == reflect.Pointer && rv.Elem().Kind() == reflect.Struct {
 		count := rv.Elem().FieldByName("Count")
 		if count.IsValid() && count.CanSet() && count.Kind() == reflect.Int64 {
 			count.SetInt(7)

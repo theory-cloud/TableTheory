@@ -222,7 +222,7 @@ func (m *SafeMarshaler) marshalValue(v reflect.Value, fieldMeta *safeFieldMarsha
 }
 
 func derefOptionalPointer(v reflect.Value) (reflect.Value, bool) {
-	if v.Kind() != reflect.Ptr {
+	if v.Kind() != reflect.Pointer {
 		return v, false
 	}
 	if v.IsNil() {

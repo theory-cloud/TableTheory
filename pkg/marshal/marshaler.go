@@ -90,7 +90,7 @@ func (m *Marshaler) ClearCache() {
 
 func derefStructValue(model any) (reflect.Value, error) {
 	v := reflect.ValueOf(model)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return reflect.Value{}, fmt.Errorf("cannot marshal nil pointer")
 		}
@@ -272,7 +272,7 @@ func (m *Marshaler) buildStructMarshaler(typ reflect.Type, metadata *model.Metad
 
 // buildMarshalFunc builds a type-specific marshal function
 func (m *Marshaler) buildMarshalFunc(typ reflect.Type, fieldMeta *model.FieldMetadata) func(unsafe.Pointer) (types.AttributeValue, error) {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		return m.buildPointerMarshalFunc(typ, fieldMeta)
 	}
 
@@ -629,7 +629,7 @@ func (m *Marshaler) marshalValue(v reflect.Value) (types.AttributeValue, error) 
 		return &types.AttributeValueMemberNULL{Value: true}, nil
 	}
 
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		return m.marshalPointerValue(v)
 	}
 

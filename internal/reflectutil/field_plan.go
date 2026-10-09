@@ -72,7 +72,7 @@ func resolveStructType(modelType reflect.Type) (reflect.Type, error) {
 		return nil, fmt.Errorf("model type cannot be nil")
 	}
 
-	for modelType.Kind() == reflect.Ptr {
+	for modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 

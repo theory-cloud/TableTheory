@@ -191,7 +191,7 @@ func transactGetKeyFromStruct(
 	key any,
 ) (map[string]types.AttributeValue, error) {
 	value := reflect.ValueOf(key)
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		if value.IsNil() {
 			return nil, fmt.Errorf("key pointer cannot be nil")
 		}

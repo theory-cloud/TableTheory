@@ -305,7 +305,7 @@ func (q *Query) executeUpdateBatch(batch []any, opts *BatchUpdateOptions, fields
 
 		// Update specified fields
 		itemValue := reflect.ValueOf(item)
-		if itemValue.Kind() == reflect.Ptr {
+		if itemValue.Kind() == reflect.Pointer {
 			itemValue = itemValue.Elem()
 		}
 
@@ -369,7 +369,7 @@ func (q *Query) extractKey(item any) (map[string]any, error) {
 	}
 
 	itemValue := reflect.ValueOf(item)
-	if itemValue.Kind() == reflect.Ptr {
+	if itemValue.Kind() == reflect.Pointer {
 		if itemValue.IsNil() {
 			return extractKeyFromPrimitive(primaryKey, item)
 		}

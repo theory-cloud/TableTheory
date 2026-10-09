@@ -115,7 +115,7 @@ func (q *Query) firstInternal(dest any) error {
 	}
 
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() {
+	if destValue.Kind() != reflect.Pointer || destValue.IsNil() {
 		return fmt.Errorf("destination must be a pointer")
 	}
 	if destValue.Elem().Kind() != reflect.Struct {
@@ -185,7 +185,7 @@ func (q *Query) firstWithRetry(dest any) error {
 
 func (q *Query) allInternal(dest any) error {
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Pointer || destValue.IsNil() || destValue.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("destination must be a pointer to slice")
 	}
 
@@ -206,7 +206,7 @@ func (q *Query) allWithRetry(dest any) error {
 	}
 
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Pointer || destValue.IsNil() || destValue.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("destination must be a pointer to slice")
 	}
 
@@ -303,7 +303,7 @@ func (q *Query) Update(fields ...string) error {
 
 func (q *Query) updateModelValue() (reflect.Value, error) {
 	modelValue := reflect.ValueOf(q.model)
-	if modelValue.Kind() == reflect.Ptr {
+	if modelValue.Kind() == reflect.Pointer {
 		if modelValue.IsNil() {
 			return reflect.Value{}, fmt.Errorf("model cannot be nil")
 		}
@@ -550,7 +550,7 @@ func (q *Query) Delete() error {
 	builder := q.newBuilder()
 	if q.rawMetadata != nil && q.rawMetadata.VersionField != nil && q.model != nil {
 		modelValue := reflect.ValueOf(q.model)
-		if modelValue.Kind() == reflect.Ptr && !modelValue.IsNil() {
+		if modelValue.Kind() == reflect.Pointer && !modelValue.IsNil() {
 			modelValue = modelValue.Elem()
 		}
 
@@ -623,7 +623,7 @@ func (q *Query) ScanAllSegments(dest any, totalSegments int32) error {
 	}
 	// Validate destination is a slice pointer
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Pointer || destValue.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("destination must be a pointer to slice")
 	}
 	sliceType := destValue.Elem().Type()

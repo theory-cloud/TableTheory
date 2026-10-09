@@ -71,7 +71,7 @@ func validateBatchGetDest(dest any) error {
 	if !destValue.IsValid() {
 		return errors.New("dest must be a pointer to slice")
 	}
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Pointer || destValue.Elem().Kind() != reflect.Slice {
 		return errors.New("dest must be a pointer to slice")
 	}
 	return nil
@@ -311,7 +311,7 @@ func isStructLike(value any) bool {
 	if !rv.IsValid() {
 		return false
 	}
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return false
 		}
@@ -591,7 +591,7 @@ func (q *Query) unmarshalItemsWithMetadata(items []map[string]types.AttributeVal
 	}
 
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Pointer || destValue.IsNil() || destValue.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("dest must be a pointer to slice")
 	}
 
@@ -601,7 +601,7 @@ func (q *Query) unmarshalItemsWithMetadata(items []map[string]types.AttributeVal
 
 	for i, item := range items {
 		var elem reflect.Value
-		if elemType.Kind() == reflect.Ptr {
+		if elemType.Kind() == reflect.Pointer {
 			elem = reflect.New(elemType.Elem())
 		} else {
 			elem = reflect.New(elemType)
@@ -611,7 +611,7 @@ func (q *Query) unmarshalItemsWithMetadata(items []map[string]types.AttributeVal
 			return fmt.Errorf("failed to unmarshal item %d: %w", i, err)
 		}
 
-		if elemType.Kind() == reflect.Ptr {
+		if elemType.Kind() == reflect.Pointer {
 			newSlice.Index(i).Set(elem)
 		} else {
 			newSlice.Index(i).Set(elem.Elem())
@@ -628,7 +628,7 @@ func (q *Query) unmarshalItemWithMetadata(item map[string]types.AttributeValue, 
 	}
 
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() {
+	if destValue.Kind() != reflect.Pointer || destValue.IsNil() {
 		return fmt.Errorf("destination must be a pointer")
 	}
 	destValue = destValue.Elem()

@@ -72,7 +72,7 @@ func taggedValueUsesExprMarshaler(value any) bool {
 	if !rv.IsValid() {
 		return false
 	}
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		return false
 	}
 

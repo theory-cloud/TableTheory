@@ -71,7 +71,7 @@ func resolveMarshalStructType(modelType reflect.Type) (reflect.Type, error) {
 		return nil, fmt.Errorf("model type cannot be nil")
 	}
 
-	for modelType.Kind() == reflect.Ptr {
+	for modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 
@@ -88,7 +88,7 @@ func isMarshalTerminalAnonymousEmbed(field reflect.StructField, converter any, h
 	}
 
 	fieldType := field.Type
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		if fieldType.Elem().Kind() != reflect.Struct {
 			return false
 		}
@@ -100,7 +100,7 @@ func isMarshalTerminalAnonymousEmbed(field reflect.StructField, converter any, h
 		if fieldType.Implements(marshalerInterfaceType) {
 			return true
 		}
-		if fieldType.Kind() != reflect.Ptr && reflect.PointerTo(fieldType).Implements(marshalerInterfaceType) {
+		if fieldType.Kind() != reflect.Pointer && reflect.PointerTo(fieldType).Implements(marshalerInterfaceType) {
 			return true
 		}
 	}
@@ -112,7 +112,7 @@ func isMarshalTerminalAnonymousEmbed(field reflect.StructField, converter any, h
 	if lookup.HasCustomConverter(fieldType) {
 		return true
 	}
-	if fieldType.Kind() != reflect.Ptr && lookup.HasCustomConverter(reflect.PointerTo(fieldType)) {
+	if fieldType.Kind() != reflect.Pointer && lookup.HasCustomConverter(reflect.PointerTo(fieldType)) {
 		return true
 	}
 	return false

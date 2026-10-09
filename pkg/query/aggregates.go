@@ -500,7 +500,7 @@ func compareHaving(aggValue float64, operator string, compareValue float64) bool
 func (q *Query) getAllItems() ([]any, error) {
 	// Create a slice type based on model
 	modelType := reflect.TypeOf(q.model)
-	if modelType.Kind() == reflect.Ptr {
+	if modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 	sliceType := reflect.SliceOf(modelType)
@@ -525,7 +525,7 @@ func (q *Query) getAllItems() ([]any, error) {
 // extractNumericValue extracts a numeric value from an item
 func extractNumericValue(item any, field string) (float64, error) {
 	v := reflect.ValueOf(item)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 
@@ -549,7 +549,7 @@ func extractNumericValue(item any, field string) (float64, error) {
 // extractFieldValue extracts any field value from an item
 func extractFieldValue(item any, field string) any {
 	v := reflect.ValueOf(item)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 

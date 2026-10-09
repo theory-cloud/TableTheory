@@ -185,7 +185,7 @@ func (ldb *LambdaDB) PreRegisterModels(models ...any) error {
 		}
 		// Cache the model type for fast lookup
 		modelType := reflect.TypeOf(model)
-		if modelType.Kind() == reflect.Ptr {
+		if modelType.Kind() == reflect.Pointer {
 			modelType = modelType.Elem()
 		}
 		ldb.modelCache.Store(modelType, true)
@@ -205,7 +205,7 @@ func (ldb *LambdaDB) RegisterTypeConverter(typ reflect.Type, converter pkgTypes.
 // IsModelRegistered checks if a model is already registered
 func (ldb *LambdaDB) IsModelRegistered(model any) bool {
 	modelType := reflect.TypeOf(model)
-	if modelType.Kind() == reflect.Ptr {
+	if modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 	_, ok := ldb.modelCache.Load(modelType)
