@@ -145,7 +145,11 @@ def test_stateful_dynamodb_client_admin_batches_scans_and_transactions() -> None
         ExpressionAttributeValues={":min": _av_n("10"), ":prefix": _av_s("t")},
         Limit=1,
     )
-    assert len(scanned["Items"]) == 1
+    # DynamoDB Limit bounds evaluated items, before the filter. The first
+    # evaluated item does not match, so Count is 0 with a continuation key.
+    assert scanned["Count"] == 0
+    assert scanned["Items"] == []
+    assert scanned["ScannedCount"] == 1
     assert scanned["LastEvaluatedKey"]
 
     counted = client.scan(TableName=table_name, Select="COUNT")
@@ -291,3 +295,78 @@ def test_stateful_fakedb_expression_helpers_cover_edge_branches() -> None:
     assert fakedb_module._table_description("pk_only", fakedb_module._TableState(sk=None))["KeySchema"] == [
         {"AttributeName": "PK", "KeyType": "HASH"}
     ]
+
+
+def _condition_table(client: StatefulDynamoDBClient, table_name: str) -> None:
+    client.create_table(
+        TableName=table_name,
+        KeySchema=[
+            {"AttributeName": "PK", "KeyType": "HASH"},
+            {"AttributeName": "SK", "KeyType": "RANGE"},
+        ],
+    )
+
+
+def test_stateful_fakedb_does_not_bypass_combined_write_once_conditions() -> None:
+    client = StatefulDynamoDBClient()
+    table_name = "notes_conditions"
+    _condition_table(client, table_name)
+    client.seed(table_name, _item("USER#1", "A", "one", "10"))
+
+    # The outer parens are not a matching pair for the whole string, so both
+    # clauses must still be enforced: the item exists, so the write-once clause
+    # fails and the put is rejected.
+    with pytest.raises(ClientError, match="ConditionalCheckFailedException"):
+        client.put_item(
+            TableName=table_name,
+            Item=_item("USER#1", "A", "hijacked", "99"),
+            ConditionExpression="(#missing = :expected) AND attribute_not_exists(#pk)",
+            ExpressionAttributeNames={"#missing": "missing", "#pk": "PK"},
+            ExpressionAttributeValues={":expected": _av_s("keep")},
+        )
+    assert client.items(table_name)[0]["name"] == _av_s("one")
+
+    # A genuinely matching outer pair and a satisfied clause still succeeds, and a
+    # plain compound condition over present attributes still succeeds.
+    client.put_item(
+        TableName=table_name,
+        Item=_item("USER#2", "A", "fresh", "5"),
+        ConditionExpression="(attribute_not_exists(#pk))",
+        ExpressionAttributeNames={"#pk": "PK"},
+    )
+    client.put_item(
+        TableName=table_name,
+        Item=_item("USER#3", "A", "next", "1"),
+        ConditionExpression="attribute_not_exists(#pk) OR #score < :cap",
+        ExpressionAttributeNames={"#pk": "PK", "#score": "score"},
+        ExpressionAttributeValues={":cap": _av_n("1")},
+    )
+    assert client.get_item(TableName=table_name, Key=_key("USER#2", "A"))["Item"]["name"] == _av_s("fresh")
+    assert client.get_item(TableName=table_name, Key=_key("USER#3", "A"))["Item"]["name"] == _av_s("next")
+
+
+def test_stateful_fakedb_count_and_limit_follow_dynamodb_semantics() -> None:
+    client = StatefulDynamoDBClient()
+    table_name = "notes_counts"
+    _condition_table(client, table_name)
+    client.seed(
+        table_name,
+        _item("USER#1", "A", "one", "10"),
+        _item("USER#1", "B", "two", "20"),
+        _item("USER#2", "A", "three", "30"),
+    )
+
+    # Count is matched, ScannedCount is evaluated.
+    filtered = client.scan(
+        TableName=table_name,
+        FilterExpression="#score >= :min",
+        ExpressionAttributeNames={"#score": "score"},
+        ExpressionAttributeValues={":min": _av_n("20")},
+    )
+    assert filtered["Count"] == 2
+    assert filtered["ScannedCount"] == 3
+
+    # Select=COUNT reports the matched count, not zero.
+    counted = client.scan(TableName=table_name, Select="COUNT")
+    assert counted["Count"] == 3
+    assert counted["ScannedCount"] == 3
