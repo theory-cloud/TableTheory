@@ -370,22 +370,16 @@ func TestManager_Release_ValidatesToken(t *testing.T) {
 }
 
 func TestExpiryUnix_RoundsUpNeverShorter(t *testing.T) {
-	cases := []struct {
-		name string
-		in   time.Time
-		want int64
-	}{
-		{"whole second is unchanged", time.Unix(1000, 0), 1000},
-		{"sub-second rounds up", time.Unix(1000, 1), 1001},
-		{"near-boundary fraction rounds up", time.Unix(1005, 999_999_999), 1006},
-		{"pre-epoch fraction rounds toward zero", time.Unix(-1, 500_000_000), 0},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, expiryUnix(tc.in))
+	check := func(name string, in time.Time, want int64) {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, want, expiryUnix(in))
 		})
 	}
+
+	check("whole second is unchanged", time.Unix(1000, 0), 1000)
+	check("sub-second rounds up", time.Unix(1000, 1), 1001)
+	check("near-boundary fraction rounds up", time.Unix(1005, 999_999_999), 1006)
+	check("pre-epoch fraction rounds toward zero", time.Unix(-1, 500_000_000), 0)
 }
 
 // TestExpiryUnix_NeverShortensRequestedDuration is the property the lease contract relies on: the

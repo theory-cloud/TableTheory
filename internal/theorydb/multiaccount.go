@@ -299,17 +299,15 @@ func (mdb *MultiAccountDB) WithContext(ctx context.Context) *MultiAccountDB {
 	return newMDB
 }
 
-// cacheEntry holds a cached DB connection with expiration
+// cacheEntry holds a cached DB connection with expiration. backoffUntil and
+// failures track a failed refresh so repeated Partner() calls do not repeat the
+// rebuild; a successful createPartnerDB stores a fresh entry with these zeroed.
 type cacheEntry struct {
-	db         *LambdaDB
-	expiry     time.Time
-	partnerID  string
-	accountCfg AccountConfig
-
-	// backoffUntil and failures track a failed refresh so repeated Partner()
-	// calls do not repeat the rebuild. A successful createPartnerDB stores a
-	// fresh entry with these zeroed.
+	db           *LambdaDB
+	expiry       time.Time
 	backoffUntil time.Time
+	partnerID    string
+	accountCfg   AccountConfig
 	failures     int
 }
 
