@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/v4/internal/encryption"
 	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
 	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v4/pkg/model"
@@ -272,7 +272,7 @@ func attributeValueToInterface(av types.AttributeValue) (interface{}, error) {
 	case *types.AttributeValueMemberSS:
 		return typed.Value, nil
 	case *types.AttributeValueMemberNS:
-		return attributeValueNumberSetToFloat64(typed.Value)
+		return numutil.ParseNumberSet(typed.Value)
 	case *types.AttributeValueMemberBS:
 		return typed.Value, nil
 	case *types.AttributeValueMemberB:
@@ -283,13 +283,7 @@ func attributeValueToInterface(av types.AttributeValue) (interface{}, error) {
 }
 
 func parseNumberToInterface(value string) (interface{}, error) {
-	if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return intVal, nil
-	}
-	if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
-		return floatVal, nil
-	}
-	return nil, fmt.Errorf("invalid number format: %s", value)
+	return numutil.ParseNumber(value)
 }
 
 func attributeValueListToInterface(values []types.AttributeValue) ([]interface{}, error) {
@@ -312,18 +306,6 @@ func attributeValueMapToInterface(values map[string]types.AttributeValue) (map[s
 			return nil, err
 		}
 		out[key] = converted
-	}
-	return out, nil
-}
-
-func attributeValueNumberSetToFloat64(values []string) ([]float64, error) {
-	out := make([]float64, len(values))
-	for i, numStr := range values {
-		f, err := strconv.ParseFloat(numStr, 64)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = f
 	}
 	return out, nil
 }

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -28,12 +29,25 @@ func TestFlatAnonymousEmbedEncoding_NilConverter(t *testing.T) {
 	require.False(t, converter.FlatAnonymousEmbedEncodingEnabled())
 }
 
-func TestAttributeValueNumberSetToFloat64(t *testing.T) {
-	values, err := attributeValueNumberSetToFloat64([]string{"1", "2.5", "-3"})
+func TestAttributeValueNumberSetPreservesExactValues(t *testing.T) {
+	got, err := attributeValueToAny(&types.AttributeValueMemberNS{Value: []string{"1", "2.5", "9007199254740993", "0.123456789012345678"}})
 	require.NoError(t, err)
-	require.Equal(t, []float64{1, 2.5, -3}, values)
+	require.Equal(t, []any{int64(1), 2.5, int64(9007199254740993), json.Number("0.123456789012345678")}, got)
 
-	_, err = attributeValueNumberSetToFloat64([]string{"bad"})
+	_, err = attributeValueToAny(&types.AttributeValueMemberNS{Value: []string{"bad"}})
+	require.Error(t, err)
+}
+
+func TestAttributeValueToAnyPreservesExactScalarNumber(t *testing.T) {
+	got, err := attributeValueToAny(&types.AttributeValueMemberN{Value: "9223372036854775809"})
+	require.NoError(t, err)
+	require.Equal(t, json.Number("9223372036854775809"), got)
+
+	inRange, err := attributeValueToAny(&types.AttributeValueMemberN{Value: "9223372036854775807"})
+	require.NoError(t, err)
+	require.Equal(t, int64(9223372036854775807), inRange)
+
+	_, err = attributeValueToAny(&types.AttributeValueMemberN{Value: "not-a-number"})
 	require.Error(t, err)
 }
 
@@ -53,13 +67,13 @@ func TestAttributeValueToAnyAndAnyFromAttributeValue(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "demo", out["name"])
 	require.Equal(t, []string{"a", "b"}, out["tags"])
-	require.Equal(t, []float64{1, 2.5}, out["nums"])
+	require.Equal(t, []any{int64(1), 2.5}, out["nums"])
 	require.Equal(t, []any{true, []byte("x")}, out["list"])
 
 	var target any
 	err = NewConverter().anyFromAttributeValue(&types.AttributeValueMemberNS{Value: []string{"4", "5.5"}}, reflect.ValueOf(&target).Elem())
 	require.NoError(t, err)
-	require.Equal(t, []float64{4, 5.5}, target)
+	require.Equal(t, []any{int64(4), 5.5}, target)
 
 	err = NewConverter().anyFromAttributeValue(&types.AttributeValueMemberNULL{Value: true}, reflect.ValueOf(&target).Elem())
 	require.NoError(t, err)

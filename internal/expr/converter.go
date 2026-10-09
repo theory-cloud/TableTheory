@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/v4/internal/anonymous"
+	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
 	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/v4/pkg/naming"
 )
@@ -95,6 +96,12 @@ func addressableMarshaler(v reflect.Value) (Marshaler, bool) {
 }
 
 func convertConcreteValueToAttributeValue(v reflect.Value, inheritedConvention naming.Convention, inheritNaming bool, opts ConvertOptions) (types.AttributeValue, error) {
+	if v.Type() == numutil.JSONNumberType {
+		// A string-preserving number decoded from a DynamoDB N value must be
+		// written back as N, not S, so a decode/rewrite round trip is lossless.
+		return &types.AttributeValueMemberN{Value: v.String()}, nil
+	}
+
 	switch v.Kind() {
 	case reflect.String:
 		return &types.AttributeValueMemberS{Value: v.String()}, nil
@@ -874,13 +881,7 @@ func attributeValueToInterface(av types.AttributeValue) (any, error) {
 }
 
 func parseNumberString(value string) (any, error) {
-	if i, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return i, nil
-	}
-	if f, err := strconv.ParseFloat(value, 64); err == nil {
-		return f, nil
-	}
-	return nil, fmt.Errorf("cannot parse number: %s", value)
+	return numutil.ParseNumber(value)
 }
 
 func attributeValueListToInterface(list []types.AttributeValue) ([]any, error) {
@@ -908,13 +909,5 @@ func attributeValueMapToInterface(m map[string]types.AttributeValue) (map[string
 }
 
 func attributeValueNumberSetToInterface(values []string) ([]any, error) {
-	nums := make([]any, len(values))
-	for i, value := range values {
-		num, err := parseNumberString(value)
-		if err != nil {
-			return nil, fmt.Errorf("cannot parse number in set: %s", value)
-		}
-		nums[i] = num
-	}
-	return nums, nil
+	return numutil.ParseNumberSet(values)
 }

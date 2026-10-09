@@ -14,6 +14,7 @@ import (
 	"github.com/theory-cloud/tabletheory/v4/internal/anonymous"
 	"github.com/theory-cloud/tabletheory/v4/internal/expr"
 	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
 	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/v4/pkg/model"
 	"github.com/theory-cloud/tabletheory/v4/pkg/naming"
@@ -262,6 +263,11 @@ func (m *SafeMarshaler) marshalTimeValue(v reflect.Value, fieldMeta *safeFieldMa
 }
 
 func (m *SafeMarshaler) marshalValueByKind(v reflect.Value, fieldMeta *safeFieldMarshaler) (types.AttributeValue, error) {
+	if v.Type() == numutil.JSONNumberType {
+		// Preserve a decoded exact number as N rather than S on rewrite.
+		return &types.AttributeValueMemberN{Value: v.String()}, nil
+	}
+
 	switch v.Kind() {
 	case reflect.String:
 		return &types.AttributeValueMemberS{Value: v.String()}, nil
