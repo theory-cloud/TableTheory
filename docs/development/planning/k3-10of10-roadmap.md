@@ -264,7 +264,7 @@ golangci-lint run --timeout=5m --config .golangci-v2.yml
   - `go mod verify`
   - `go test ./test/security -run TestPCIDSSRequirement3_2_2_Compliance`
 - Pin tool versions for determinism (replace `@latest` with explicit versions) once green; treat upgrades as explicit PRs.
-  - Current pins: `GOSEC_VERSION=v2.22.11`, `GOVULNCHECK_VERSION=v1.1.4`.
+  - Current pins: `GOSEC_VERSION=v2.29.1-0.20261005092323-d2b649ec0182`, `GOVULNCHECK_VERSION=v1.8.0`.
 
 **Suggested verification**
 ```bash
