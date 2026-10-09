@@ -21,45 +21,8 @@ jobs:
           path: trusted-release
           persist-credentials: false
 
-      - name: Verify release-hygiene bootstrap scope
-        if: github.event_name == 'pull_request' && github.base_ref == 'main' && startsWith(github.head_ref, 'fix/release-hygiene-main-bootstrap-') && github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-
-          mapfile -t changed_files < <(
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-              --jq '.[].filename'
-          )
-
-          if [[ "${#changed_files[@]}" -eq 0 ]]; then
-            echo "release-hygiene-bootstrap: FAIL (bootstrap PR has no changed files)" >&2
-            exit 1
-          fi
-
-          for changed_file in "${changed_files[@]}"; do
-            case "${changed_file}" in
-              .github/workflows/release-hygiene.yml|\
-              scripts/verify-release-lane-provenance.sh|\
-              scripts/verify-promotion-release-driver.sh|\
-              scripts/test-release-hygiene-policy.sh|\
-              scripts/verify-release-cycle-state.sh|\
-              scripts/verify-go-semantic-import-version.sh|\
-              scripts/verify-branch-release-supply-chain.sh)
-                ;;
-              *)
-                echo "release-hygiene-bootstrap: FAIL (unexpected bootstrap file ${changed_file})" >&2
-                exit 1
-                ;;
-            esac
-          done
-
-          echo "release-hygiene-bootstrap: PASS (${#changed_files[@]} file(s))"
-
       - name: Verify release-lane same-repository provenance
-        if: github.event_name == 'pull_request' && !(github.base_ref == 'main' && startsWith(github.head_ref, 'fix/release-hygiene-main-bootstrap-') && github.event.pull_request.head.repo.full_name == github.repository)
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_REF: ${{ github.base_ref }}
@@ -126,25 +89,15 @@ jobs:
         working-directory: pr
         env:
           BASE_REF: ${{ github.base_ref }}
-          HEAD_REF: ${{ github.head_ref }}
-          BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          EXPECTED_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
+          # Release-hygiene authority is the trusted base only. A branch prefix,
+          # comment, or marker-string scaffold must never turn contributor-run
+          # code into required-check authority, so the PR head is never used as a
+          # verifier source. When the trusted base cannot evaluate the proposal,
+          # fail closed instead of falling back to the PR head.
           trusted_root="../trusted-release"
-          verifier_root="${trusted_root}"
-          verifier_label="trusted-base"
-          protected_promotion=false
-
-          if [[ "${BASE_REPOSITORY}" == "${EXPECTED_REPOSITORY}" && "${HEAD_REPOSITORY}" == "${EXPECTED_REPOSITORY}" ]]; then
-            case "${BASE_REF}:${HEAD_REF}" in
-              premain:staging|main:premain)
-                protected_promotion=true
-                ;;
-            esac
-          fi
 
           add_v2_marker_reason() {
             local root="$1"
@@ -218,32 +171,18 @@ jobs:
           trusted_reasons=()
           collect_v2_marker_reasons "${trusted_root}" trusted_reasons
 
-          if [[ "${#trusted_reasons[@]}" -eq 0 ]]; then
-            echo "release-verifier-source: trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, and AGENTS.md materialization-aware verifier markers"
-          else
-            printf 'release-verifier-source: trusted base lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support (%s)\n' "$(IFS='; '; echo "${trusted_reasons[*]}")"
+          if [[ "${#trusted_reasons[@]}" -ne 0 ]]; then
+            printf 'release-verifier-source: FAIL (trusted base lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support: %s; land the verifier update on %s through the normal release lane before promoting)\n' \
+              "$(IFS='; '; echo "${trusted_reasons[*]}")" "${BASE_REF:-the base branch}" >&2
+            exit 1
           fi
 
-          if [[ "${protected_promotion}" == "true" && "${#trusted_reasons[@]}" -ne 0 ]]; then
-            head_reasons=()
-            collect_v2_marker_reasons "." head_reasons
-            if [[ "${#head_reasons[@]}" -ne 0 ]]; then
-              printf 'release-verifier-source: FAIL (protected PR head lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support: %s)\n' "$(IFS='; '; echo "${head_reasons[*]}")" >&2
-              exit 1
-            fi
-
-            verifier_root="."
-            verifier_label="protected-pr-head-v2"
-            echo "release-verifier-source: protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/release-as-supersession/materialization-aware verifier scripts after provenance"
-          else
-            echo "release-verifier-source: using trusted base verifier scripts"
-          fi
-
+          echo "release-verifier-source: trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, and AGENTS.md materialization-aware verifier markers"
           {
-            echo "root=${verifier_root}"
-            echo "label=${verifier_label}"
+            echo "root=${trusted_root}"
+            echo "label=trusted-base"
           } >> "${GITHUB_OUTPUT}"
-          echo "release-verifier-source: selected ${verifier_label} (${verifier_root})"
+          echo "release-verifier-source: selected trusted-base (${trusted_root})"
 
       - name: Verify human promotion release driver
         if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
