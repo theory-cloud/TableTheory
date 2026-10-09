@@ -58,7 +58,6 @@ To keep pinned GitHub Release asset URLs current, copy this Renovate regex manag
       "description": "Update TableTheory TypeScript GitHub Release asset URLs",
       "managerFilePatterns": [
         "/(^|/)package\\.json$/",
-        "/(^|/)package-lock\\.json$/",
         "/(^|/)README\\.md$/",
         "/(^|/)docs/.+\\.md$/"
       ],

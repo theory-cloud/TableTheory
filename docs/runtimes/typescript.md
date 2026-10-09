@@ -44,7 +44,7 @@ Copy this Renovate regex manager into the consuming repository's `renovate.json`
     {
       "customType": "regex",
       "description": "Update TableTheory TypeScript GitHub Release asset URLs",
-      "managerFilePatterns": ["/(^|/)package\\.json$/", "/(^|/)package-lock\\.json$/", "/(^|/)docs/.+\\.md$/"],
+      "managerFilePatterns": ["/(^|/)package\\.json$/", "/(^|/)docs/.+\\.md$/"],
       "matchStrings": [
         "https://github\\.com/theory-cloud/[Tt]able[Tt]heory/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/theory-cloud-tabletheory-ts-(?<assetVersion>\\d+\\.\\d+\\.\\d+)\\.tgz"
       ],

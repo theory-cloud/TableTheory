@@ -4,8 +4,9 @@
 The GitHub Pages workflow uses this script to build a static HTML page from
 published GitHub Release assets. Consumers can then run:
 
-    pip install --find-links https://tabletheory.theorycloud.ai/python/find-links/ \
-        tabletheory-py==X.Y.Z
+    pip install --no-index \
+        --find-links https://tabletheory.theorycloud.ai/python/find-links/ \
+        "tabletheory-py==X.Y.Z"
 
 The script also accepts a local releases JSON fixture so the index shape and pip
 resolution can be proven without mutating GitHub Pages or publishing releases.
@@ -170,8 +171,8 @@ def collect_wheels(releases: list[dict[str, Any]]) -> list[WheelLink]:
 
 
 def render_index(wheels: list[WheelLink], index_url: str) -> str:
-    usage = f"pip install --find-links {index_url} tabletheory-py==X.Y.Z"
-    latest = f"pip install --find-links {index_url} tabletheory-py"
+    exact = f'pip install --no-index --find-links {index_url} "tabletheory-py==X.Y.Z"'
+    prerelease = f'pip install --pre --no-index --find-links {index_url} "tabletheory-py==X.Y.ZrcN"'
     lines = [
         "<!doctype html>",
         '<html lang="en">',
@@ -182,8 +183,12 @@ def render_index(wheels: list[WheelLink], index_url: str) -> str:
         "<body>",
         "  <h1>TableTheory Python wheels</h1>",
         "  <p>This pip find-links index is generated from immutable TableTheory GitHub Release assets.</p>",
-        f"  <p>Install an exact version: <code>{html.escape(usage)}</code></p>",
-        f"  <p>Install the latest stable candidate visible to pip: <code>{html.escape(latest)}</code></p>",
+        "  <p>TableTheory is not published to PyPI. Install the top-level package from this index with the public "
+        "indexes disabled so a higher PyPI version cannot be selected:</p>",
+        f"  <p>Exact stable version: <code>{html.escape(exact)}</code></p>",
+        f"  <p>Release candidate (PEP 440): <code>{html.escape(prerelease)}</code></p>",
+        "  <p><code>--no-index</code> also disables dependency resolution: install <code>tabletheory-py</code>'s "
+        "dependencies from your own trusted index in the same environment.</p>",
         "  <ul>",
     ]
     for wheel in wheels:
