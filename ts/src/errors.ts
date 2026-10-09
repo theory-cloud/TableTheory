@@ -12,6 +12,7 @@ export type ErrorCode =
   | 'ErrEncryptionNotConfigured'
   | 'ErrInvalidEncryptedEnvelope'
   | 'ErrNumberPrecisionLoss'
+  | 'ErrMigrationEncryptionRequired'
   | 'ErrImmutableModelMutation'
   | 'ErrProtectedFieldMutation'
   | 'ErrRejectedDeployAuthorityEvidence';
