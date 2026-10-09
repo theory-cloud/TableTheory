@@ -8,6 +8,8 @@ import (
 	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 )
 
+const aggregateFunctionCount = "COUNT"
+
 // AggregateResult holds the result of an aggregate operation
 type AggregateResult struct {
 	Min     any
@@ -232,7 +234,7 @@ func (g *GroupByQuery) Count(alias string) *GroupByQuery {
 		return g
 	}
 	g.aggregates = append(g.aggregates, aggregateOp{
-		function: "COUNT",
+		function: aggregateFunctionCount,
 		field:    "*",
 		alias:    alias,
 	})
@@ -355,7 +357,7 @@ func (g *GroupByQuery) calculateAggregate(items []any, agg aggregateOp) *Aggrega
 	result := &AggregateResult{}
 
 	switch agg.function {
-	case "COUNT":
+	case aggregateFunctionCount:
 		result.Count = int64(len(items))
 	case "SUM":
 		sum, _ := sumAndCountNumeric(items, agg.field)

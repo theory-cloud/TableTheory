@@ -19,6 +19,8 @@ import (
 	"github.com/theory-cloud/tabletheory/v4/pkg/model"
 )
 
+const operationUpdateItem = "UpdateItem"
+
 func (q *Query) First(dest any) error {
 	if err := q.checkBuilderError(); err != nil {
 		return err
@@ -92,7 +94,7 @@ func (q *Query) Count() (int64, error) {
 		return 0, err
 	}
 
-	compiled.Select = "COUNT"
+	compiled.Select = aggregateFunctionCount
 	compiled.Limit = nil
 
 	var result struct {
@@ -286,7 +288,7 @@ func (q *Query) Update(fields ...string) error {
 	}
 
 	compiled := &core.CompiledQuery{
-		Operation:                 "UpdateItem",
+		Operation:                 operationUpdateItem,
 		TableName:                 q.metadata.TableName(),
 		UpdateExpression:          components.UpdateExpression,
 		ConditionExpression:       conditionExpr,

@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const statusKey = "status"
+
 // ResourceLimits defines configurable resource limits
 type ResourceLimits struct {
 	// HTTP request limits
@@ -433,20 +435,20 @@ func (rp *ResourceProtector) HealthCheck() map[string]any {
 	stats := rp.GetStats()
 
 	memoryCheck := map[string]any{
-		"status":        "ok",
+		statusKey:       "ok",
 		"current_mb":    stats.CurrentMemoryMB,
 		"limit_mb":      rp.config.MaxMemoryMB,
 		"usage_percent": float64(stats.CurrentMemoryMB) / float64(rp.config.MaxMemoryMB) * 100,
 	}
 	concurrencyCheck := map[string]any{
-		"status":              "ok",
+		statusKey:             "ok",
 		"concurrent_requests": stats.ConcurrentRequests,
 		"max_requests":        rp.config.MaxConcurrentReq,
 		"concurrent_batches":  stats.ConcurrentBatchOps,
 		"max_batches":         rp.config.MaxConcurrentBatch,
 	}
 	rateLimitingCheck := map[string]any{
-		"status":           "ok",
+		statusKey:          "ok",
 		"rate_limit_hits":  stats.RateLimitHits,
 		"requests_per_sec": rp.config.RequestsPerSecond,
 	}
@@ -457,7 +459,7 @@ func (rp *ResourceProtector) HealthCheck() map[string]any {
 	}
 
 	health := map[string]any{
-		"status":    "healthy",
+		statusKey:   "healthy",
 		"checks":    checks,
 		"timestamp": time.Now(),
 	}
@@ -465,13 +467,13 @@ func (rp *ResourceProtector) HealthCheck() map[string]any {
 	// Check for unhealthy conditions
 	memoryUsage := float64(stats.CurrentMemoryMB) / float64(rp.config.MaxMemoryMB)
 	if memoryUsage > 0.9 {
-		health["status"] = "degraded"
-		memoryCheck["status"] = "warning"
+		health[statusKey] = "degraded"
+		memoryCheck[statusKey] = "warning"
 	}
 
 	if stats.ConcurrentRequests >= int64(float64(rp.config.MaxConcurrentReq)*0.9) {
-		health["status"] = "degraded"
-		concurrencyCheck["status"] = "warning"
+		health[statusKey] = "degraded"
+		concurrencyCheck[statusKey] = "warning"
 	}
 
 	return health
