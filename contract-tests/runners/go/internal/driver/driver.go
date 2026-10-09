@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/v4"
 	"github.com/theory-cloud/tabletheory/v4/pkg/core"
@@ -250,10 +250,6 @@ func NewTheorydbDriver(options ...Options) (*TheorydbDriver, error) {
 		return nil, err
 	}
 
-	if err := db.RegisterTypeConverter(reflect.TypeOf(DecimalString("")), decimalStringConverter{}); err != nil {
-		return nil, err
-	}
-
 	return &TheorydbDriver{db: db, deterministicEncryption: deterministicEncryption}, nil
 }
 
@@ -276,10 +272,6 @@ func NewFakeTheorydbDriver(options ...Options) (*TheorydbDriver, *fakedb.Fake, e
 	fake := fakedb.New()
 	db, err := tabletheory.NewWithClient(cfg, fake)
 	if err != nil {
-		return nil, nil, err
-	}
-
-	if err := db.RegisterTypeConverter(reflect.TypeOf(DecimalString("")), decimalStringConverter{}); err != nil {
 		return nil, nil, err
 	}
 
@@ -1200,31 +1192,6 @@ func mutatesProtectedAttribute(fields []string, protectedAttributes []string) bo
 
 // ---- Contract model glue ----
 
-// decimalStringConverter stores exact DynamoDB N decimal strings for generated DecimalString fields.
-type decimalStringConverter struct{}
-
-func (decimalStringConverter) ToAttributeValue(value any) (ddbtypes.AttributeValue, error) {
-	decimal, ok := value.(DecimalString)
-	if !ok {
-		return nil, fmt.Errorf("expected DecimalString, got %T", value)
-	}
-	return &ddbtypes.AttributeValueMemberN{Value: string(decimal)}, nil
-}
-
-func (decimalStringConverter) FromAttributeValue(av ddbtypes.AttributeValue, target any) error {
-	number, ok := av.(*ddbtypes.AttributeValueMemberN)
-	if !ok {
-		return fmt.Errorf("expected DynamoDB N for DecimalString, got %T", av)
-	}
-	switch out := target.(type) {
-	case *DecimalString:
-		*out = DecimalString(number.Value)
-		return nil
-	default:
-		return fmt.Errorf("expected *DecimalString, got %T", target)
-	}
-}
-
 func userFromMap(item map[string]any) (*User, error) {
 	u := &User{}
 	if v, ok := item["PK"]; ok {
@@ -1341,10 +1308,10 @@ func numberPrecisionFromMap(item map[string]any) (*NumberPrecision, error) {
 		n.SK = fmt.Sprintf("%v", v)
 	}
 	if v, ok := item["largeInteger"]; ok {
-		n.LargeInteger = DecimalString(fmt.Sprintf("%v", v))
+		n.LargeInteger = json.Number(fmt.Sprintf("%v", v))
 	}
 	if v, ok := item["preciseDecimal"]; ok {
-		n.PreciseDecimal = DecimalString(fmt.Sprintf("%v", v))
+		n.PreciseDecimal = json.Number(fmt.Sprintf("%v", v))
 	}
 	return n, nil
 }
@@ -1575,8 +1542,8 @@ func normalizeNumberPrecision(n NumberPrecision) map[string]any {
 	return map[string]any{
 		"PK":             n.PK,
 		"SK":             n.SK,
-		"largeInteger":   string(n.LargeInteger),
-		"preciseDecimal": string(n.PreciseDecimal),
+		"largeInteger":   n.LargeInteger.String(),
+		"preciseDecimal": n.PreciseDecimal.String(),
 	}
 }
 

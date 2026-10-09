@@ -277,6 +277,16 @@ func (c *Converter) stringToValue(s string, target reflect.Value) error {
 
 // numberToValue converts number AttributeValue to various Go types
 func (c *Converter) numberToValue(n string, target reflect.Value) error {
+	if target.Type() == numutil.JSONNumberType {
+		// A generated exact-number field keeps the persisted decimal text and
+		// fails closed when the wire value is not a valid number.
+		if _, err := numutil.ParseNumber(n); err != nil {
+			return fmt.Errorf("invalid number: %w", err)
+		}
+		target.SetString(n)
+		return nil
+	}
+
 	switch target.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		i, err := strconv.ParseInt(n, 10, 64)
