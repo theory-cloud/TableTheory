@@ -328,6 +328,7 @@ type Fake struct{ ... }
 ### `github.com/theory-cloud/tabletheory/v4/pkg/schema`
 
 ```go
+var ErrMigrationEncryptionRequired = errors.New("schema migration encryption required")
 func TransformWithValidation(item map[string]types.AttributeValue, transform TransformFunc, ...) (map[string]types.AttributeValue, error)
 type AutoMigrateOption func(*AutoMigrateOptions)
     func WithBackupTable(tableName string) AutoMigrateOption

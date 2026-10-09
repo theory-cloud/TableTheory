@@ -179,6 +179,12 @@ class LeaseHeldError(ConditionFailedError)
 class LeaseNotOwnedError(ConditionFailedError)
 ```
 
+#### `MigrationEncryptionError`
+
+```python
+class MigrationEncryptionError(TheorydbPyError)
+```
+
 #### `NotFoundError`
 
 ```python
@@ -675,7 +681,7 @@ def add_field(name: str, value: Any) -> MigrationTransform
 #### `auto_migrate`
 
 ```python
-def auto_migrate(source_model: ModelDefinition[Any], *, client: Any | None=None, target_model: ModelDefinition[Any] | None=None, transform: MigrationTransform | None=None, backup_table: str | None=None, batch_size: int | None=None, data_copy: bool=False, sleep: Callable[[float], None]=time.sleep) -> None
+def auto_migrate(source_model: ModelDefinition[Any], *, client: Any | None=None, target_model: ModelDefinition[Any] | None=None, transform: MigrationTransform | None=None, backup_table: str | None=None, batch_size: int | None=None, data_copy: bool=False, kms_key_arn: str | None=None, kms_client: Any | None=None, rand_bytes: Callable[[int], bytes] | None=None, sleep: Callable[[float], None]=time.sleep) -> None
 ```
 
 #### `chain_transforms`

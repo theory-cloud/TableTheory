@@ -51,9 +51,24 @@
 * **py:** add a stateful DynamoDB testkit fake and top-level re-exports
 * add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
 * add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage
+* **go:** generate `encoding/json.Number` for DMS `decimal_string` attributes so generated decimal fields round-trip
+  DynamoDB `N` through the default marshal paths, with no registered converter
+* **ts:** add `AutoMigrateOptions.encryption` so `autoMigrate` can encrypt attributes a target model declares
+  encrypted, and add the `ErrMigrationEncryptionRequired` and `ErrNumberPrecisionLoss` error codes
+* **py:** add `kms_key_arn`, `kms_client`, and `rand_bytes` to `auto_migrate` and export `MigrationEncryptionError`
 
 ### Bug Fixes
 
+* **go:** refuse data-copying `AutoMigrateWithOptions` migrations that would write plaintext into a target
+  `theorydb:"encrypted"` field, before any table is created or any row is copied, and encrypt plaintext through the
+  configured session KMS key when one is present
+* **py:** bound derived-key numeric coercion to DynamoDB's exponent range before fixed-point expansion, so a tiny
+  input such as `1e100000000` can no longer expand toward an unbounded allocation
+* **ts:** aggregate exact-decimal-string `N` values numerically for `sum`/`average`/`min`/`max`/`group by` instead of
+  silently returning `0` or comparing lexicographically, and raise `ErrNumberPrecisionLoss` when a value cannot be
+  represented exactly
+* **ts:** retain and compare DMS attribute `format` in normalization, equivalence, and model-to-DMS so format-only
+  drift is no longer reported equivalent
 * **go:** remove the detached cold-start pre-warm and the multi-account credential-refresh ticker, so no TableTheory
   init path leaves work running after it returns. Lambda freezes the execution environment as soon as the handler
   returns, so a pre-warm started in a goroutine could be frozen mid-flight and resume against an invocation that had
