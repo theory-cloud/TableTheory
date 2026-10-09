@@ -16,6 +16,7 @@ import {
   sumField,
 } from '../../src/aggregates.js';
 import { TheorydbClient } from '../../src/client.js';
+import { TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
 
 class StubDdb {
@@ -152,4 +153,69 @@ const User = defineModel({
   assert.equal(items.length, 2);
   assert.deepEqual(items[0]?.version, '1');
   assert.deepEqual(items[1]?.version, '2');
+}
+
+{
+  const items = [{ a: '2' }, { a: '10' }];
+
+  assert.equal(minField(items, 'a'), '2');
+  assert.equal(maxField(items, 'a'), '10');
+  assert.equal(sumField(items, 'a'), 12);
+  assert.equal(averageField(items, 'a'), 6);
+
+  const agg = aggregateField(items, 'a');
+  assert.equal(agg.min, '2');
+  assert.equal(agg.max, '10');
+  assert.equal(agg.sum, 12);
+  assert.equal(agg.average, 6);
+}
+
+{
+  const items = [
+    { g: 'a', n: '2' },
+    { g: 'a', n: '10' },
+    { g: 'b', n: '1' },
+  ];
+
+  const results = await new GroupByQuery(async () => items, 'g')
+    .count('cnt')
+    .sum('n', 'sum')
+    .avg('n', 'avg')
+    .min('n', 'min')
+    .max('n', 'max')
+    .having('sum', '>', '11')
+    .having('sum', '=', 12)
+    .execute();
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.key, 'a');
+  assert.equal(results[0]?.count, 2);
+  assert.equal(results[0]?.aggregates.sum?.sum, 12);
+  assert.equal(results[0]?.aggregates.avg?.average, 6);
+  assert.equal(results[0]?.aggregates.min?.min, '2');
+  assert.equal(results[0]?.aggregates.max?.max, '10');
+}
+
+{
+  const items = [{ a: '9007199254740993' }, { a: '1' }];
+
+  assert.throws(
+    () => sumField(items, 'a'),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrNumberPrecisionLoss');
+      return true;
+    },
+  );
+  assert.throws(
+    () => averageField(items, 'a'),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrNumberPrecisionLoss');
+      return true;
+    },
+  );
+
+  assert.equal(minField(items, 'a'), '1');
+  assert.equal(maxField(items, 'a'), '9007199254740993');
 }

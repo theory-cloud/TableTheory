@@ -1,3 +1,5 @@
+import { TheorydbError } from './errors.js';
+
 /** Result of an in-memory client-side aggregation over an already materialized item array. */
 export interface AggregateResult {
   min?: unknown;
@@ -318,7 +320,7 @@ function evaluateHaving<T extends Record<string, unknown>>(
     const aggValue = aggregateValue(group, clause.aggregate);
     if (aggValue === undefined) return false;
 
-    const compareValue = toFloat(clause.value);
+    const compareValue = toExactNumber(clause.value);
     if (compareValue === undefined) return false;
 
     if (!compareHaving(aggValue, clause.operator, compareValue)) return false;
@@ -342,8 +344,8 @@ function aggregateValue<T extends Record<string, unknown>>(
 }
 
 function aggregateResultValue(result: AggregateResult): number | undefined {
-  if (result.min !== undefined) return toFloat(result.min);
-  if (result.max !== undefined) return toFloat(result.max);
+  if (result.min !== undefined) return toExactNumber(result.min);
+  if (result.max !== undefined) return toExactNumber(result.max);
   if (result.count !== 0) return result.count;
   if (result.sum !== 0) return result.sum;
   if (result.average !== 0) return result.average;
@@ -378,7 +380,7 @@ function extractNumericValue<T extends Record<string, unknown>>(
   field: string,
 ): number | undefined {
   const value = item[field];
-  return toFloat(value);
+  return toExactNumber(value);
 }
 
 function extractFieldValue<T extends Record<string, unknown>>(
@@ -391,12 +393,10 @@ function extractFieldValue<T extends Record<string, unknown>>(
 }
 
 function compareValues(a: unknown, b: unknown): number {
-  const aFloat = toFloat(a);
-  const bFloat = toFloat(b);
-  if (aFloat !== undefined && bFloat !== undefined) {
-    if (aFloat < bFloat) return -1;
-    if (aFloat > bFloat) return 1;
-    return 0;
+  const aNum = numericText(a);
+  const bNum = numericText(b);
+  if (aNum !== undefined && bNum !== undefined) {
+    return compareDecimalText(aNum, bNum);
   }
 
   if (typeof a === 'string' && typeof b === 'string') {
@@ -412,15 +412,111 @@ function compareValues(a: unknown, b: unknown): number {
   return 0;
 }
 
-function toFloat(value: unknown): number | undefined {
+function canonicalDecimalText(text: string): string | undefined {
+  const match = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text);
+  if (!match) return undefined;
+
+  const sign = match[1] === '-' ? '-' : '';
+  const intPart = match[2] ?? '';
+  const fracPart = match[3] ?? '';
+  const expText = match[4];
+  if (intPart.length === 0 && fracPart.length === 0) return undefined;
+
+  const digits = (intPart + fracPart).replace(/^0+/, '');
+  if (digits === '') return '0';
+
+  const scale = (expText === undefined ? 0 : Number(expText)) - fracPart.length;
+
+  let plain: string;
+  if (scale >= 0) {
+    plain = digits + '0'.repeat(scale);
+  } else {
+    const pointAt = digits.length + scale;
+    if (pointAt > 0) {
+      plain = digits.slice(0, pointAt) + '.' + digits.slice(pointAt);
+    } else {
+      plain = '0.' + '0'.repeat(-pointAt) + digits;
+    }
+  }
+
+  if (plain.includes('.')) {
+    plain = plain.replace(/0+$/, '');
+    if (plain.endsWith('.')) plain = plain.slice(0, -1);
+  }
+  if (plain === '' || plain === '0') return '0';
+  return sign + plain;
+}
+
+function numericText(value: unknown): string | undefined {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) return undefined;
-    return value;
+    return canonicalDecimalText(String(value));
   }
   if (typeof value === 'bigint') {
-    const converted = Number(value);
-    if (!Number.isFinite(converted)) return undefined;
-    return converted;
+    return canonicalDecimalText(value.toString());
+  }
+  if (typeof value === 'string') {
+    return canonicalDecimalText(value);
+  }
+  return undefined;
+}
+
+function compareDecimalText(a: string, b: string): number {
+  const aNeg = a.startsWith('-');
+  const bNeg = b.startsWith('-');
+  if (aNeg !== bNeg) return aNeg ? -1 : 1;
+
+  const aAbs = aNeg ? a.slice(1) : a;
+  const bAbs = bNeg ? b.slice(1) : b;
+  const cmp = compareAbsDecimalText(aAbs, bAbs);
+  return aNeg ? -cmp : cmp;
+}
+
+function compareAbsDecimalText(a: string, b: string): number {
+  const [aInt = '', aFrac = ''] = a.split('.');
+  const [bInt = '', bFrac = ''] = b.split('.');
+
+  if (aInt.length !== bInt.length) return aInt.length < bInt.length ? -1 : 1;
+  if (aInt !== bInt) return aInt < bInt ? -1 : 1;
+
+  const width = Math.max(aFrac.length, bFrac.length);
+  const aFracPadded = aFrac.padEnd(width, '0');
+  const bFracPadded = bFrac.padEnd(width, '0');
+  if (aFracPadded === bFracPadded) return 0;
+  return aFracPadded < bFracPadded ? -1 : 1;
+}
+
+function toExactNumber(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'bigint') {
+    if (
+      value < BigInt(Number.MIN_SAFE_INTEGER) ||
+      value > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      throw new TheorydbError(
+        'ErrNumberPrecisionLoss',
+        'aggregate value cannot be represented exactly: ' + String(value),
+      );
+    }
+    return Number(value);
+  }
+  if (typeof value === 'string') {
+    const canonical = canonicalDecimalText(value);
+    if (canonical === undefined) return undefined;
+
+    const parsed = Number(value);
+    if (
+      Number.isFinite(parsed) &&
+      canonicalDecimalText(String(parsed)) === canonical
+    ) {
+      return parsed;
+    }
+    throw new TheorydbError(
+      'ErrNumberPrecisionLoss',
+      'aggregate value cannot be represented exactly: ' + value,
+    );
   }
   return undefined;
 }
