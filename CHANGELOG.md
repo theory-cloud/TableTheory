@@ -65,10 +65,15 @@
 * **py:** bound derived-key numeric coercion to DynamoDB's exponent range before fixed-point expansion, so a tiny
   input such as `1e100000000` can no longer expand toward an unbounded allocation
 * **ts:** aggregate exact-decimal-string `N` values numerically: `sum`/`average`/`min`/`max`/`group by`/`having` no
-  longer silently return `0` or order lexicographically. `min`/`max`/`group by` order by exact decimal text;
-  `sum`/`average`/`having` accumulate exactly and return a number only when every value and the result is exactly
-  representable as an IEEE-754 double, otherwise raising `ErrNumberPrecisionLoss`; exponent notation outside DynamoDB's
-  `[-130, 125]` adjusted-exponent range is rejected before any fixed-point expansion
+  longer silently return `0` or order lexicographically. DynamoDB decimal strings are the exact domain: `min`/`max`/
+  `group by` order by exact decimal text, and `sum`/`average`/`having` return a number only when every value and the
+  result is exactly representable as an IEEE-754 double, otherwise raising `ErrNumberPrecisionLoss`; exponent notation
+  outside DynamoDB's `[-130, 125]` adjusted-exponent range is rejected before any fixed-point expansion. Already
+  materialized JavaScript numbers (`numberUnmarshalMode: 'number'`) are the lossy domain and keep the historical
+  JavaScript-number arithmetic and comparison instead of being re-parsed as exact decimal strings; inputs that mix
+  exact decimal strings with JavaScript numbers raise `ErrNumberPrecisionLoss` rather than coercing the string through
+  `Number`. Decimal parsing strips mantissa zeros with linear index scans so a long attacker-controlled mantissa cannot
+  drive quadratic regular-expression work
 * **ts:** retain and compare DMS attribute `format` in normalization, equivalence, and model-to-DMS so format-only
   drift is no longer reported equivalent
 * **go:** remove the detached cold-start pre-warm and the multi-account credential-refresh ticker, so no TableTheory
