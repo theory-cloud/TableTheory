@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/v4/internal/encryption"
+	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
 	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v4/pkg/model"
@@ -65,13 +66,14 @@ func TransactGet(
 	if err != nil {
 		return nil, err
 	}
-	return transactGetWithClient(ctx, client, sess, requests, metas, items)
+	return transactGetWithClient(ctx, client, sess, converter, requests, metas, items)
 }
 
 func transactGetWithClient(
 	ctx context.Context,
 	client dynamoTransactGetAPI,
 	sess *session.Session,
+	converter *pkgTypes.Converter,
 	requests []core.TransactGetRequest,
 	metas []*model.Metadata,
 	items []types.TransactGetItem,
@@ -81,7 +83,7 @@ func transactGetWithClient(
 		return nil, err
 	}
 
-	return collectTransactGetResults(ctx, sess, requests, metas, output.Responses)
+	return collectTransactGetResults(ctx, sess, converter, requests, metas, output.Responses)
 }
 
 func buildTransactGetItems(
@@ -132,6 +134,7 @@ func transactGetMetadata(registry *model.Registry, modelValue any, index int) (*
 func collectTransactGetResults(
 	ctx context.Context,
 	sess *session.Session,
+	converter *pkgTypes.Converter,
 	requests []core.TransactGetRequest,
 	metas []*model.Metadata,
 	responses []types.ItemResponse,
@@ -148,7 +151,7 @@ func collectTransactGetResults(
 			return nil, err
 		}
 		if requests[i].Dest != nil {
-			if err := query.UnmarshalItem(item, requests[i].Dest); err != nil {
+			if err := unmarshalTransactGetDest(item, requests[i].Dest, metas[i], converter); err != nil {
 				return nil, err
 			}
 		}
@@ -156,6 +159,57 @@ func collectTransactGetResults(
 	}
 
 	return results, nil
+}
+
+// unmarshalTransactGetDest populates a TransactGet destination using the same
+// metadata-aware path as Query reads so that registered custom converters run on
+// every field. Destinations the metadata path cannot describe (maps, or a nil
+// converter/metadata pair) fall back to the generic item unmarshaler so existing
+// behavior is preserved.
+func unmarshalTransactGetDest(
+	item map[string]types.AttributeValue,
+	dest any,
+	metadata *model.Metadata,
+	converter *pkgTypes.Converter,
+) error {
+	if metadata == nil || converter == nil {
+		return query.UnmarshalItem(item, dest)
+	}
+
+	destValue := reflect.ValueOf(dest)
+	if destValue.Kind() != reflect.Pointer || destValue.IsNil() {
+		return query.UnmarshalItem(item, dest)
+	}
+	structValue := destValue.Elem()
+	if structValue.Kind() != reflect.Struct {
+		return query.UnmarshalItem(item, dest)
+	}
+
+	for attrName, attrValue := range item {
+		fieldMeta, ok := metadata.FieldsByDBName[attrName]
+		if !ok || fieldMeta == nil {
+			continue
+		}
+		structField := structValue.FieldByIndex(fieldMeta.IndexPath)
+		if !structField.CanSet() {
+			continue
+		}
+
+		if fieldcodec.HasJSONTag(fieldMeta.Tags) {
+			if err := fieldcodec.UnmarshalJSONFieldValue(attrValue, structField, func() error {
+				return converter.FromAttributeValue(attrValue, structField.Addr().Interface())
+			}); err != nil {
+				return fmt.Errorf("transact get field %s: %w", fieldMeta.Name, err)
+			}
+			continue
+		}
+
+		if err := converter.FromAttributeValue(attrValue, structField.Addr().Interface()); err != nil {
+			return fmt.Errorf("transact get field %s: %w", fieldMeta.Name, err)
+		}
+	}
+
+	return nil
 }
 
 func buildTransactGetKey(metadata *model.Metadata, converter *pkgTypes.Converter, key any) (map[string]types.AttributeValue, error) {

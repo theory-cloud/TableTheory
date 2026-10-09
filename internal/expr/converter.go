@@ -183,7 +183,10 @@ func convertStructToAttributeValueWithConvention(v reflect.Value, inheritedConve
 	t := v.Type()
 	convention, useTheorydbNaming := resolveStructNaming(t, inheritedConvention, inheritNaming)
 
-	fieldPlans, err := BuildMarshalVisibleFieldPlan(t, nil, true)
+	// Pass the configured converter so an anonymous embedded struct with a
+	// registered custom converter is preserved as a terminal field and its hook
+	// runs, matching the legacy struct encoder and the SafeMarshaler/query paths.
+	fieldPlans, err := BuildMarshalVisibleFieldPlan(t, opts.Converter, true)
 	if err != nil {
 		return nil, err
 	}
