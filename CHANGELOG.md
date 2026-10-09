@@ -92,6 +92,28 @@
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
 
+## [4.0.2-rc](https://github.com/theory-cloud/TableTheory/compare/v4.0.1...v4.0.2-rc) (2026-10-09)
+
+
+### Bug Fixes
+
+* **deps:** consolidate eligible Dependabot npm updates within the cooldown ([7446460](https://github.com/theory-cloud/TableTheory/commit/7446460c2ade97f013745954df63300a03e2b8e9))
+* **deps:** consolidate eligible Dependabot npm updates within the cooldown ([bca7f63](https://github.com/theory-cloud/TableTheory/commit/bca7f63b580b40093da2207bbbde08e06f98bc4f))
+* **deps:** consolidate open Dependabot npm updates within the cooldown ([1ea975b](https://github.com/theory-cloud/TableTheory/commit/1ea975b9b263c5132e7e04a9bd95b8fb82b5597b))
+* **deps:** consolidate open Dependabot npm updates within the cooldown ([6a33a88](https://github.com/theory-cloud/TableTheory/commit/6a33a88d1642732187cc383d077c0c3ec56de7bc))
+* **deps:** refresh eligible AWS SDK, globals, and cryptography pins ([699bc04](https://github.com/theory-cloud/TableTheory/commit/699bc0435a3c646a600964c1faf0d929a3989e1d))
+* **deps:** refresh eligible AWS SDK, globals, and cryptography pins ([6ab3238](https://github.com/theory-cloud/TableTheory/commit/6ab32385b541a47fb4075f5d59a5d0ae0f3c3cae))
+* **errors:** expose the empty-update condition as a matchable sentinel ([fdefedc](https://github.com/theory-cloud/TableTheory/commit/fdefedc454433b3914bab36b9f086f962fb2c325))
+* **go:** inline reflect.Ptr as reflect.Pointer for Go 1.27 ([ebca0b1](https://github.com/theory-cloud/TableTheory/commit/ebca0b13e3328633f6a27d3f676dd748a41932e1))
+* **go:** move every module to Go 1.27.2 ([d8a911b](https://github.com/theory-cloud/TableTheory/commit/d8a911b1d25441995d4414cce5ec5a48594b6a69))
+* **go:** move TableTheory to Go 1.27.2 and clear the 2026-10-08 Go advisories ([50799f7](https://github.com/theory-cloud/TableTheory/commit/50799f77a17d20200de8ffb97b5e30ac92347f8b))
+* **model:** guard nil models in the registry instead of panicking ([350576e](https://github.com/theory-cloud/TableTheory/commit/350576ede5ef1f90d8d5eb1b0190249c6a9b9854))
+* **security:** pin govulncheck to v1.8.0 for Go 1.27.2 analysis ([f60bc6f](https://github.com/theory-cloud/TableTheory/commit/f60bc6f9e335160eeb50e34b0f26e73bf2c5e325))
+* **security:** resolve gosec findings reported under Go 1.27 ([c2231ce](https://github.com/theory-cloud/TableTheory/commit/c2231ce65d3b3321354fce998a6d52ed3a1991d8))
+* **transaction:** legacy transaction index-path correctness, nil guards, and test hygiene ([4b62278](https://github.com/theory-cloud/TableTheory/commit/4b622782b24ad23dca3ef9cecc602b45445a332f))
+* **transaction:** read the legacy delete version through its index path ([51063f1](https://github.com/theory-cloud/TableTheory/commit/51063f1123a7d6e45aa6b60fd0f2e34f48c4daac))
+* **transaction:** resolve model fields through metadata index paths ([c2a7b8b](https://github.com/theory-cloud/TableTheory/commit/c2a7b8b841194e46e4f86df1ca920688a99e3d80))
+
 ## [4.0.1](https://github.com/theory-cloud/TableTheory/compare/v4.0.1-rc...v4.0.1) (2026-10-04)
 
 Stable promotion of `v4.0.1-rc`.
