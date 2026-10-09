@@ -137,7 +137,7 @@ func TestQueryExecutor_unmarshalItem_MapAny_DecodesCommonTypes_COV7(t *testing.T
 		require.Nil(t, dest["null"])
 		require.Equal(t, []byte{0x01}, dest["b"])
 		require.Equal(t, []string{"a", "b"}, dest["ss"])
-		require.Equal(t, []float64{1.5, 2}, dest["ns"])
+		require.Equal(t, []any{1.5, int64(2)}, dest["ns"])
 
 		list, ok := dest["l"].([]interface{})
 		require.True(t, ok)

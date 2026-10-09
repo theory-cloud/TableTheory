@@ -27,13 +27,20 @@ docker-up:
 docker-down:
 	docker-compose down
 
-# Run the API server locally
+# Run the API server locally. JWT_SECRET is the local development secret the
+# server verifies bearer tokens with; mint a token with `make token USER=...`.
 run:
 	AWS_ENDPOINT_URL=http://localhost:8000 \
 	AWS_REGION=us-east-1 \
 	AWS_ACCESS_KEY_ID=dummy \
 	AWS_SECRET_ACCESS_KEY=dummy \
+	JWT_SECRET=dev-secret-change-me \
 	go run cmd/local/main.go
+
+# Mint an HS256 bearer token for local development. Usage:
+#   make token USER=user123 ORG=orgabc [TTL=3600]
+token:
+	go run ./cmd/token -secret dev-secret-change-me -user $(USER) -org $(ORG) -ttl $(or $(TTL),3600)
 
 # Run tests
 test:

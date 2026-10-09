@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -23,6 +24,64 @@ type OrganizationHandler struct {
 // NewOrganizationHandler creates a new organization handler
 func NewOrganizationHandler(db core.ExtendedDB) *OrganizationHandler {
 	return &OrganizationHandler{db: db}
+}
+
+// normalizeOrgID trims an organization identifier and ensures it carries the
+// example's "org#" prefix, so URL parameters, context values, and stored IDs
+// compare consistently. An empty input stays empty.
+func normalizeOrgID(orgID string) string {
+	orgID = strings.TrimSpace(orgID)
+	if orgID == "" || strings.HasPrefix(orgID, "org#") {
+		return orgID
+	}
+	return "org#" + orgID
+}
+
+// orgIDFromContext reads the organization the caller's token is bound to. It
+// type-asserts safely (no panic) and reports false when the value is absent or
+// blank, which callers treat as "not authorized for any organization".
+func orgIDFromContext(ctx context.Context) (string, bool) {
+	value, ok := ctx.Value("org_id").(string)
+	if !ok || strings.TrimSpace(value) == "" {
+		return "", false
+	}
+	return value, true
+}
+
+// userIDFromContext reads the authenticated user ID from the request context,
+// reporting false instead of panicking when it is absent. Handlers use it in
+// place of a bare type assertion on Context().Value("user_id").
+func userIDFromContext(ctx context.Context) (string, bool) {
+	value, ok := ctx.Value("user_id").(string)
+	if !ok || strings.TrimSpace(value) == "" {
+		return "", false
+	}
+	return value, true
+}
+
+// redactOrganization returns a copy of org with the fields a caller must never
+// see cleared: billing details, the subscription ID, and the webhook secret.
+// The struct's json tags drive both the HTTP response and the DynamoDB
+// attribute names, so redaction happens on a copy rather than by hiding fields.
+// The input is left untouched.
+func redactOrganization(org *models.Organization) *models.Organization {
+	if org == nil {
+		return nil
+	}
+	redacted := *org
+	redacted.BillingInfo = models.BillingInfo{}
+	redacted.SubscriptionID = ""
+	redacted.Settings.WebhookSecret = ""
+	return &redacted
+}
+
+// redactOrganizations applies redactOrganization to each element in place,
+// preserving a nil slice as nil so an empty listing still encodes as null.
+func redactOrganizations(orgs []models.Organization) []models.Organization {
+	for i := range orgs {
+		orgs[i] = *redactOrganization(&orgs[i])
+	}
+	return orgs
 }
 
 // CreateOrganization creates a new organization
@@ -139,17 +198,26 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 
 	// Return created organization
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(org)
+	json.NewEncoder(w).Encode(redactOrganization(org))
 }
 
-// GetOrganization retrieves an organization by ID
+// GetOrganization retrieves an organization by ID. A caller may only read the
+// organization its token is bound to: the binding is checked before any database
+// access, so an unbound caller is refused outright and a request for another
+// tenant is indistinguishable from one for a tenant that does not exist.
 func (h *OrganizationHandler) GetOrganization(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	orgID := vars["org_id"]
+	orgID := normalizeOrgID(vars["org_id"])
 
-	// Ensure proper org ID format
-	if !strings.HasPrefix(orgID, "org#") {
-		orgID = fmt.Sprintf("org#%s", orgID)
+	boundOrgID, ok := orgIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if normalizeOrgID(boundOrgID) != orgID {
+		// Do not reveal whether the requested organization exists.
+		http.Error(w, "organization not found", http.StatusNotFound)
+		return
 	}
 
 	var org models.Organization
@@ -165,18 +233,31 @@ func (h *OrganizationHandler) GetOrganization(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(org)
+	json.NewEncoder(w).Encode(redactOrganization(&org))
 }
 
-// UpdateOrganizationSettings updates organization settings
+// UpdateOrganizationSettings updates organization settings. Like GetOrganization
+// it enforces, before any mutation, that the URL organization matches the one
+// the caller's token is bound to, and it reads the acting user through a safe
+// accessor rather than a bare type assertion.
 func (h *OrganizationHandler) UpdateOrganizationSettings(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	orgID := vars["org_id"]
-	userID := r.Context().Value("user_id").(string)
+	orgID := normalizeOrgID(vars["org_id"])
 
-	// Ensure proper org ID format
-	if !strings.HasPrefix(orgID, "org#") {
-		orgID = fmt.Sprintf("org#%s", orgID)
+	boundOrgID, ok := orgIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if normalizeOrgID(boundOrgID) != orgID {
+		http.Error(w, "organization not found", http.StatusNotFound)
+		return
+	}
+
+	userID, ok := userIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
 	}
 
 	var settings models.OrgSettings
@@ -218,7 +299,7 @@ func (h *OrganizationHandler) UpdateOrganizationSettings(w http.ResponseWriter, 
 	h.logAuditEvent(orgID, userID, "update", "organization_settings", orgID, changes, true, "")
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(org)
+	json.NewEncoder(w).Encode(redactOrganization(&org))
 }
 
 // ListOrganizations lists organizations (admin only)
@@ -243,7 +324,7 @@ func (h *OrganizationHandler) ListOrganizations(w http.ResponseWriter, r *http.R
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(orgs)
+	json.NewEncoder(w).Encode(redactOrganizations(orgs))
 }
 
 // getPlanLimits returns the limits for a given plan

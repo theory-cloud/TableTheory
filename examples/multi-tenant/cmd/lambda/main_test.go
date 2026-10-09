@@ -2,30 +2,65 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/auth"
 )
 
 // These tests exercise the entrypoint's own adapter and authorizer code — the
 // parts that do not need a database. The API path's routing is shared with the
 // local server, which the example's DynamoDB-backed tests cover.
 
+const testJWTSecret = "test-secret"
+
+// validClaims returns an unexpired token payload for the standard test caller.
+func validClaims() auth.Claims {
+	return auth.Claims{
+		Subject:   "user123",
+		OrgID:     "orgabc",
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(time.Hour).Unix(),
+	}
+}
+
+// signedToken signs claims with the test secret, so the authorizer accepts it.
+func signedToken(t *testing.T, claims auth.Claims) string {
+	t.Helper()
+	token, err := auth.Sign(testJWTSecret, claims)
+	require.NoError(t, err)
+	return token
+}
+
+// unsignedToken builds an "alg":"none" token by hand, the classic JWT bypass.
+func unsignedToken(t *testing.T) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(
+		`{"sub":"user123","org":"orgabc","exp":` + strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10) + `}`))
+	return header + "." + payload + "."
+}
+
 func TestDispatch_JWTAuthorizerAllowsBearerToken(t *testing.T) {
 	t.Setenv("FUNCTION_TYPE", "jwt_authorizer")
+	t.Setenv("JWT_SECRET", testJWTSecret)
 
 	const methodARN = "arn:aws:execute-api:us-east-1:123456789012:api/dev/GET/organizations"
 	raw, err := json.Marshal(events.APIGatewayCustomAuthorizerRequestTypeRequest{
 		Type:      "REQUEST",
 		MethodArn: methodARN,
-		Headers:   map[string]string{"Authorization": "Bearer user123:orgabc"},
+		Headers:   map[string]string{"Authorization": "Bearer " + signedToken(t, validClaims())},
 	})
 	require.NoError(t, err)
 
@@ -46,36 +81,64 @@ func TestDispatch_JWTAuthorizerAllowsBearerToken(t *testing.T) {
 	assert.Contains(t, statement.Action, "execute-api:Invoke")
 }
 
-func TestDispatch_JWTAuthorizerDefaultsOrgWhenTokenHasNoColon(t *testing.T) {
+// TestDispatch_JWTAuthorizerDenies drives hostile and malformed tokens through
+// the same dispatch path a real API Gateway authorizer invocation uses. Every
+// one must fail with the opaque "Unauthorized" error.
+func TestDispatch_JWTAuthorizerDenies(t *testing.T) {
 	t.Setenv("FUNCTION_TYPE", "jwt_authorizer")
+	t.Setenv("JWT_SECRET", testJWTSecret)
 
-	raw, err := json.Marshal(events.APIGatewayCustomAuthorizerRequestTypeRequest{
-		MethodArn: "arn:aws:execute-api:us-east-1:123456789012:api/dev/GET/organizations",
-		// Lower-case header, to prove the lookup is case-insensitive like API
-		// Gateway's.
-		Headers: map[string]string{"authorization": "user123"},
-	})
-	require.NoError(t, err)
+	forged := signedToken(t, validClaims())
+	forgedParts := strings.Split(forged, ".")
+	require.Len(t, forgedParts, 3)
+	// Keep the header and payload but attach a different signature segment.
+	forged = forgedParts[0] + "." + forgedParts[1] + "." + base64.RawURLEncoding.EncodeToString([]byte("forged-signature"))
 
-	out, err := dispatch(context.Background(), raw)
-	require.NoError(t, err)
+	denied := []struct {
+		name    string
+		headers map[string]string
+	}{
+		{"missing authorization header", nil},
+		{"empty token after the scheme", map[string]string{"Authorization": "Bearer "}},
+		{"not a JWT", map[string]string{"Authorization": "Bearer user123:orgabc"}},
+		{"malformed, too few segments", map[string]string{"Authorization": "Bearer a.b"}},
+		{"forged signature", map[string]string{"Authorization": "Bearer " + forged}},
+		{"unsigned alg none", map[string]string{"Authorization": "Bearer " + unsignedToken(t)}},
+		{"wrong secret", map[string]string{"Authorization": "Bearer " + signedTokenWithSecret(t, "other-secret", validClaims())}},
+		{"expired", map[string]string{"Authorization": "Bearer " + signedToken(t, auth.Claims{Subject: "user123", OrgID: "orgabc", ExpiresAt: time.Now().Add(-time.Minute).Unix()})}},
+		{"empty organization", map[string]string{"Authorization": "Bearer " + signedToken(t, auth.Claims{Subject: "user123", OrgID: "", ExpiresAt: time.Now().Add(time.Hour).Unix()})}},
+	}
 
-	var response events.APIGatewayCustomAuthorizerResponse
-	require.NoError(t, json.Unmarshal(out, &response))
-	assert.Equal(t, "user#user123", response.PrincipalID)
-	assert.Equal(t, "org#demo", response.Context["org_id"])
+	for _, tc := range denied {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := dispatch(context.Background(), requestAuthorizerEvent(t,
+				"arn:aws:execute-api:us-east-1:123456789012:api/dev/GET/organizations", tc.headers))
+			require.Error(t, err, "%s: a request without a valid signed token must be denied", tc.name)
+			assert.Contains(t, err.Error(), "Unauthorized", "%s", tc.name)
+		})
+	}
 }
 
-func TestDispatch_JWTAuthorizerDeniesMissingToken(t *testing.T) {
+func signedTokenWithSecret(t *testing.T, secret string, claims auth.Claims) string {
+	t.Helper()
+	token, err := auth.Sign(secret, claims)
+	require.NoError(t, err)
+	return token
+}
+
+func TestDispatch_JWTAuthorizerDeniesWhenSecretMissing(t *testing.T) {
 	t.Setenv("FUNCTION_TYPE", "jwt_authorizer")
+	t.Setenv("JWT_SECRET", "")
 
 	raw, err := json.Marshal(events.APIGatewayCustomAuthorizerRequestTypeRequest{
 		MethodArn: "arn:aws:execute-api:us-east-1:123456789012:api/dev/GET/organizations",
+		Headers:   map[string]string{"Authorization": "Bearer " + signedToken(t, validClaims())},
 	})
 	require.NoError(t, err)
 
 	_, err = dispatch(context.Background(), raw)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Unauthorized")
 }
 
 func TestDispatch_RejectsUnimplementedFunctionType(t *testing.T) {
@@ -104,6 +167,43 @@ func TestHTTPRequest_MapsEventToRequest(t *testing.T) {
 	assert.Empty(t, request.URL.Fragment)
 	assert.Equal(t, "10", request.URL.Query().Get("limit"))
 	assert.Equal(t, "sk_test_key.secret", request.Header.Get("X-API-Key"))
+}
+
+// TestHTTPRequest_CopiesAuthorizerContext proves the Lambda adapter carries the
+// authorizer's tenant IDs onto the request context. The handlers read these
+// exact string keys; without the copy the deployed path would lose the caller's
+// organization and could not enforce it.
+func TestHTTPRequest_CopiesAuthorizerContext(t *testing.T) {
+	event := events.APIGatewayProxyRequest{
+		HTTPMethod: "GET",
+		Path:       "/organizations/org%23demo",
+		RequestContext: events.APIGatewayProxyRequestContext{
+			Authorizer: map[string]interface{}{
+				"user_id": "user#user123",
+				"org_id":  "org#orgabc",
+				"ignored": 42,
+			},
+		},
+	}
+
+	request, err := httpRequest(context.Background(), event)
+	require.NoError(t, err)
+
+	assert.Equal(t, "user#user123", request.Context().Value("user_id"))
+	assert.Equal(t, "org#orgabc", request.Context().Value("org_id"))
+	// Non-string values are not copied.
+	assert.Nil(t, request.Context().Value("ignored"))
+}
+
+func TestHTTPRequest_NoAuthorizerContext(t *testing.T) {
+	request, err := httpRequest(context.Background(), events.APIGatewayProxyRequest{
+		HTTPMethod: "GET",
+		Path:       "/organizations/org%23demo",
+	})
+	require.NoError(t, err)
+
+	assert.Nil(t, request.Context().Value("org_id"))
+	assert.Nil(t, request.Context().Value("user_id"))
 }
 
 func TestRecorder_CapturesStatusHeadersAndBody(t *testing.T) {
@@ -140,13 +240,14 @@ func TestAuthorizeAPIKey_DeniesWithoutKey(t *testing.T) {
 // the method ARN of a route that inherits DefaultAuthorizer: JWTAuthorizer.
 func TestDispatch_RequestAuthorizerEventsAllowAndDeny(t *testing.T) {
 	t.Setenv("FUNCTION_TYPE", "jwt_authorizer")
+	t.Setenv("JWT_SECRET", testJWTSecret)
 
 	// A default-authorized route: no Auth override in the template, so it runs
 	// through JWTAuthorizer.
 	const methodARN = "arn:aws:execute-api:us-east-1:123456789012:api/dev/GET/organizations/org%23demo/users"
 
 	allowed, err := dispatch(context.Background(), requestAuthorizerEvent(t, methodARN, map[string]string{
-		"Authorization": "Bearer user123:orgabc",
+		"Authorization": "Bearer " + signedToken(t, validClaims()),
 	}))
 	require.NoError(t, err)
 
@@ -164,7 +265,7 @@ func TestDispatch_RequestAuthorizerEventsAllowAndDeny(t *testing.T) {
 	}{
 		{"no authorization header at all", nil},
 		{"empty token after the scheme", map[string]string{"Authorization": "Bearer "}},
-		{"token with an empty tenant", map[string]string{"Authorization": "Bearer user123:"}},
+		{"token with an empty tenant", map[string]string{"Authorization": "Bearer " + signedToken(t, auth.Claims{Subject: "user123", OrgID: "", ExpiresAt: time.Now().Add(time.Hour).Unix()})}},
 	}
 	for _, tc := range denied {
 		_, err := dispatch(context.Background(), requestAuthorizerEvent(t, methodARN, tc.headers))

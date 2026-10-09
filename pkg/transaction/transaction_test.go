@@ -569,6 +569,7 @@ func TestTransactGetBuildsItemsAndCollectsResponses(t *testing.T) {
 	results, err := collectTransactGetResults(
 		context.Background(),
 		nil,
+		converter,
 		requests,
 		metas,
 		[]types.ItemResponse{
@@ -610,7 +611,7 @@ func TestTransactGetWithClientExecutesRequest(t *testing.T) {
 		},
 	}
 
-	results, err := transactGetWithClient(context.Background(), client, nil, requests, metas, items)
+	results, err := transactGetWithClient(context.Background(), client, nil, converter, requests, metas, items)
 	require.NoError(t, err)
 	require.NotNil(t, client.input)
 	assert.Len(t, client.input.TransactItems, 1)
@@ -657,6 +658,7 @@ func TestTransactGetWithClientPropagatesErrors(t *testing.T) {
 	_, err := transactGetWithClient(
 		context.Background(),
 		&mockTransactGetClient{err: want},
+		nil,
 		nil,
 		nil,
 		nil,

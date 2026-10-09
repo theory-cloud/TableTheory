@@ -394,6 +394,12 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 	}
 
 	if isEmbeddedStruct(field) {
+		if hasAnonymousEmbedExclusionTag(field) {
+			// An exclusion tag on an anonymous embedded container suppresses the
+			// entire promoted subtree, matching the field-plan marshal/unmarshal
+			// paths, so its fields are neither written nor read.
+			return nil
+		}
 		return parseFields(field.Type, metadata, indexMap, indexPath)
 	}
 
@@ -441,6 +447,13 @@ func (m *Metadata) addWarning(warning string) {
 
 func isEmbeddedStruct(field reflect.StructField) bool {
 	return field.Anonymous && field.Type.Kind() == reflect.Struct
+}
+
+// hasAnonymousEmbedExclusionTag reports whether an anonymous embedded struct
+// carries an exclusion tag. Either a theorydb or json "-" tag excludes the whole
+// promoted subtree, so the container's fields must not enter model metadata.
+func hasAnonymousEmbedExclusionTag(field reflect.StructField) bool {
+	return field.Tag.Get("theorydb") == "-" || field.Tag.Get("json") == "-"
 }
 
 func registerField(metadata *Metadata, fieldMeta *FieldMetadata) error {

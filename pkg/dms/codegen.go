@@ -117,6 +117,9 @@ func generateGoModel(out *bytes.Buffer, m Model, imports map[string]struct{}) er
 	if modelName == "" {
 		return fmt.Errorf("DMS model %q cannot be converted to a Go identifier", m.Name)
 	}
+	if err := validateGoModelNames(m); err != nil {
+		return err
+	}
 
 	fieldNames := map[string]int{}
 	fmt.Fprintf(out, "type %s struct {\n", modelName)
@@ -160,6 +163,24 @@ func generateGoModel(out *bytes.Buffer, m Model, imports map[string]struct{}) er
 			fmt.Fprintf(out, "\t\t%q: {Type: %q, Fields: []string{%s}},\n", idx.Name, proj.Type, quotedStringList(proj.Fields))
 		}
 		fmt.Fprintf(out, "\t}\n}\n\n")
+	}
+	return nil
+}
+
+// validateGoModelNames rejects DMS attribute and index names that are unsafe to
+// interpolate into Go struct tags. It guards callers that build a *Document
+// directly and skip ParseDocument, so rejection happens before any code is
+// emitted.
+func validateGoModelNames(m Model) error {
+	for _, attr := range m.Attributes {
+		if err := validateDMSName("attribute", attr.Attribute); err != nil {
+			return fmt.Errorf("DMS model %s: %w", m.Name, err)
+		}
+	}
+	for _, idx := range m.Indexes {
+		if err := validateDMSName("index", idx.Name); err != nil {
+			return fmt.Errorf("DMS model %s: %w", m.Name, err)
+		}
 	}
 	return nil
 }

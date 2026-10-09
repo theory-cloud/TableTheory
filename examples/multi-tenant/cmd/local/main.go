@@ -13,6 +13,7 @@ import (
 
 	"github.com/rs/cors"
 	"github.com/theory-cloud/tabletheory/v4"
+	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/auth"
 	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/handlers"
 	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/models"
 	"github.com/theory-cloud/tabletheory/v4/pkg/core"
@@ -186,28 +187,34 @@ func authMiddleware(db core.ExtendedDB) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Check for Bearer token (simplified - in production use proper JWT)
-			auth := r.Header.Get("Authorization")
-			if auth == "" {
+			// Check for a signed Bearer token. It must carry the tenant's user
+			// and organization and verify against JWT_SECRET; anything else is
+			// rejected before the request reaches a handler.
+			authorization := r.Header.Get("Authorization")
+			if authorization == "" {
 				http.Error(w, "Missing authorization", http.StatusUnauthorized)
 				return
 			}
 
-			// Extract token
-			if len(auth) < 7 || auth[:7] != "Bearer " {
+			if !strings.HasPrefix(authorization, "Bearer ") {
 				http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
 				return
 			}
 
-			token := auth[7:]
+			token := strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
 
-			// In production, validate JWT and extract user info
-			// For this example, we'll use a simple token format: "user_id:org_id"
-			// This is NOT secure and should not be used in production
+			claims, err := auth.Verify(strings.TrimSpace(os.Getenv("JWT_SECRET")), token)
+			if err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 
-			// Add user info to context (simplified)
-			ctx := context.WithValue(r.Context(), "user_id", "user#"+token)
-			ctx = context.WithValue(ctx, "org_id", "org#demo")
+			userID := "user#" + strings.TrimPrefix(strings.TrimSpace(claims.Subject), "user#")
+			orgID := "org#" + strings.TrimPrefix(strings.TrimSpace(claims.OrgID), "org#")
+
+			// Add user info to context
+			ctx := context.WithValue(r.Context(), "user_id", userID)
+			ctx = context.WithValue(ctx, "org_id", orgID)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

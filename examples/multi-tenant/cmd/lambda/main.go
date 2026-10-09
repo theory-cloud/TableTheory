@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 
 	"github.com/theory-cloud/tabletheory/v4"
+	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/auth"
 	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/handlers"
 	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 	"github.com/theory-cloud/tabletheory/v4/pkg/session"
@@ -155,7 +156,20 @@ func httpRequest(ctx context.Context, event events.APIGatewayProxyRequest) (*htt
 	for key, value := range event.Headers {
 		request.Header.Set(key, value)
 	}
-	return request.WithContext(ctx), nil
+	return request.WithContext(withAuthorizerContext(ctx, event.RequestContext.Authorizer)), nil
+}
+
+// withAuthorizerContext copies the tenant IDs an API Gateway authorizer placed
+// on the invocation onto the request context, using the same string keys the
+// handlers read. Without this the Lambda path drops the authorizer context and
+// a handler could not tell which organization the caller is bound to.
+func withAuthorizerContext(ctx context.Context, authorizer map[string]interface{}) context.Context {
+	for _, key := range []string{"user_id", "org_id"} {
+		if value, ok := authorizer[key].(string); ok && value != "" {
+			ctx = context.WithValue(ctx, key, value)
+		}
+	}
+	return ctx
 }
 
 // recorder is a minimal http.ResponseWriter that captures what a handler wrote.
@@ -229,29 +243,28 @@ func allowPolicy(principalID, methodARN string, context map[string]any) events.A
 	}
 }
 
-// authorizeJWT validates the example's simplified "user_id:org_id" bearer token
-// and returns the tenant context the handlers read. The example's token
-// handling is deliberately illustrative and matches the local server's
-// middleware: a real deployment would verify a signed JWT here.
+// authorizeJWT verifies the caller's signed HS256 JWT and returns the tenant
+// context the handlers read. The token must carry a non-empty user ("sub") and
+// organization ("org") and be unexpired; any failure is reported as a bare
+// "Unauthorized" so a caller learns nothing about why. The tenant IDs are
+// normalized to the "user#..." / "org#..." form the rest of the example uses.
 func authorizeJWT(event events.APIGatewayCustomAuthorizerRequestTypeRequest) (events.APIGatewayCustomAuthorizerResponse, error) {
 	token := strings.TrimSpace(strings.TrimPrefix(header(event.Headers, "Authorization"), "Bearer "))
 	if token == "" {
 		return events.APIGatewayCustomAuthorizerResponse{}, errors.New("Unauthorized")
 	}
 
-	userID, orgID, found := strings.Cut(token, ":")
-	if !found {
-		userID, orgID = token, "demo"
-	}
-	userID = strings.TrimSpace(userID)
-	orgID = strings.TrimSpace(orgID)
-	if userID == "" || orgID == "" {
+	claims, err := auth.Verify(strings.TrimSpace(os.Getenv("JWT_SECRET")), token)
+	if err != nil {
 		return events.APIGatewayCustomAuthorizerResponse{}, errors.New("Unauthorized")
 	}
 
-	return allowPolicy("user#"+userID, event.MethodArn, map[string]any{
-		"user_id": "user#" + userID,
-		"org_id":  "org#" + orgID,
+	userID := "user#" + strings.TrimPrefix(strings.TrimSpace(claims.Subject), "user#")
+	orgID := "org#" + strings.TrimPrefix(strings.TrimSpace(claims.OrgID), "org#")
+
+	return allowPolicy(userID, event.MethodArn, map[string]any{
+		"user_id": userID,
+		"org_id":  orgID,
 	}), nil
 }
 
