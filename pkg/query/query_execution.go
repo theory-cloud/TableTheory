@@ -922,6 +922,10 @@ func (q *Query) setExecutorContext(ctx context.Context) {
 
 // WithContext sets the context for the query
 func (q *Query) WithContext(ctx context.Context) core.Query {
+	if q.cancel != nil {
+		q.cancel()
+		q.cancel = nil
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}

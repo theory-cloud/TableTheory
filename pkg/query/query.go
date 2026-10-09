@@ -26,6 +26,7 @@ type Query struct {
 	converter               AttributeValueConverter
 	marshaler               marshal.MarshalerInterface
 	ctx                     context.Context
+	cancel                  context.CancelFunc
 	model                   any
 	exclusive               map[string]types.AttributeValue
 	retryConfig             *RetryConfig

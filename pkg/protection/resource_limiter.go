@@ -318,10 +318,10 @@ func (mm *MemoryMonitor) Sample() {
 	mm.readMemStats(&memStats)
 
 	currentMBu := memStats.Alloc / 1024 / 1024
-	currentMB := int64(currentMBu)
 	if currentMBu > uint64(math.MaxInt64) {
-		currentMB = math.MaxInt64
+		currentMBu = uint64(math.MaxInt64)
 	}
+	currentMB := int64(currentMBu)
 
 	// Store current memory with atomic operation (stats fields are accessed atomically elsewhere)
 	atomic.StoreInt64(&mm.stats.CurrentMemoryMB, currentMB)
