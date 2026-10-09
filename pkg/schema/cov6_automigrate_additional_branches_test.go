@@ -100,13 +100,13 @@ func TestManager_copyDataIfRequested_TransformValidationAndEarlyReturns_COV6(t *
 	targetMeta := &model.Metadata{TableName: "target"}
 
 	opts := &AutoMigrateOptions{DataCopy: false, Context: context.Background(), BatchSize: 25}
-	require.NoError(t, mgr.copyDataIfRequested(opts, sourceMeta, targetMeta))
+	require.NoError(t, mgr.copyDataIfRequested(opts, sourceMeta, targetMeta, nil))
 
 	opts = &AutoMigrateOptions{DataCopy: true, Context: context.Background(), BatchSize: 25}
-	require.NoError(t, mgr.copyDataIfRequested(opts, sourceMeta, sourceMeta))
+	require.NoError(t, mgr.copyDataIfRequested(opts, sourceMeta, sourceMeta, nil))
 
 	opts = &AutoMigrateOptions{DataCopy: true, Context: context.Background(), BatchSize: 25, Transform: "not-a-function"}
-	err := mgr.copyDataIfRequested(opts, sourceMeta, targetMeta)
+	err := mgr.copyDataIfRequested(opts, sourceMeta, targetMeta, nil)
 	require.ErrorContains(t, err, "invalid transform function")
 }
 
