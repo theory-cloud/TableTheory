@@ -214,3 +214,40 @@ models:
     },
   );
 }
+
+{
+  const withFormat = defineModel({
+    name: 'FormatDrift',
+    table: { name: 'format_tbl' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'createdAt', type: 'S', format: 'rfc3339nano' },
+    ],
+  });
+  const withoutFormat = defineModel({
+    name: 'FormatDrift',
+    table: { name: 'format_tbl' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'createdAt', type: 'S' },
+    ],
+  });
+
+  assert.throws(
+    () => assertModelsEquivalent(withFormat, withoutFormat.schema),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(err.message, /models not equivalent/);
+      return true;
+    },
+  );
+
+  const dms = modelToDmsModel(withFormat);
+  const createdAt = dms.attributes.find(
+    (attr) => attr.attribute === 'createdAt',
+  );
+  assert.equal(createdAt?.format, 'rfc3339nano');
+}
