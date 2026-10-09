@@ -49,7 +49,7 @@ export class LeaseManager {
   ) {
     if (!tableName) throw new Error('tableName is required');
 
-    this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
+    this.now = opts.now ?? (() => Date.now() / 1000);
     this.token = opts.token ?? (() => randomUUID());
 
     this.pkAttr = opts.pkAttr ?? 'pk';
@@ -71,8 +71,13 @@ export class LeaseManager {
       throw new Error('leaseSeconds must be > 0');
     }
 
-    const now = this.now();
-    const expiresAt = now + Math.ceil(opts.leaseSeconds);
+    const nowSeconds = this.now();
+    // Lease expiration is stored in whole seconds. Compare against the whole
+    // second that has elapsed and round the expiration up, so a successful
+    // acquire always holds for at least the requested duration instead of
+    // expiring inside its creation second.
+    const now = Math.floor(nowSeconds);
+    const expiresAt = Math.ceil(nowSeconds + opts.leaseSeconds);
     const token = this.token();
     const ttl = expiresAt + Math.max(0, Math.ceil(this.ttlBufferSeconds));
 
@@ -121,8 +126,9 @@ export class LeaseManager {
       throw new Error('leaseSeconds must be > 0');
     }
 
-    const now = this.now();
-    const expiresAt = now + Math.ceil(opts.leaseSeconds);
+    const nowSeconds = this.now();
+    const now = Math.floor(nowSeconds);
+    const expiresAt = Math.ceil(nowSeconds + opts.leaseSeconds);
     const ttl = expiresAt + Math.max(0, Math.ceil(this.ttlBufferSeconds));
 
     const updateExpression =
