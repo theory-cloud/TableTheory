@@ -731,6 +731,37 @@ expect_failure_contains \
     --ref "refs/heads/premain=${advanced_base_sha}" \
     --ref "refs/heads/release-please--branches--premain=${head_sha}"
 
+# R1/5c4bce67 + R2/5d26307c: a same-repository PR that uses the retired reusable
+# bootstrap prefix (with any content) must fail release-lane provenance. The
+# prefix cannot launder a passing release check.
+expect_failure_contains \
+  "bootstrap branch prefixes are retired" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base main \
+    --head "fix/release-hygiene-main-bootstrap-replace" \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "replace allowlisted release scripts" \
+    --ref "refs/heads/main=${base_sha}" \
+    --ref "refs/heads/fix/release-hygiene-main-bootstrap-replace=${head_sha}"
+
+expect_failure_contains \
+  "bootstrap branch prefixes are retired" \
+  bash "${checker}" \
+    --repo "${repo}" \
+    --base premain \
+    --head "fix/release-hygiene-main-bootstrap-repair" \
+    --base-repo "${repo}" \
+    --head-repo "${repo}" \
+    --base-sha "${base_sha}" \
+    --head-sha "${head_sha}" \
+    --title "bootstrap release hygiene repair" \
+    --ref "refs/heads/premain=${base_sha}" \
+    --ref "refs/heads/fix/release-hygiene-main-bootstrap-repair=${head_sha}"
+
 expect_success_contains \
   "RC Release-As 1.9.3-rc" \
   bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
@@ -1352,18 +1383,8 @@ grep -Fq "newest Release-As footer wins" "${repo_root}/.github/workflows/release
   exit 1
 }
 
-grep -Fq "premain:staging|main:premain" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: PR-head verifier selection must be limited to protected promotion branch pairs"
-  exit 1
-}
-
 grep -Fq "trusted base lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: verifier selector must document every trusted-base feature-detection reason"
-  exit 1
-}
-
-grep -Fq "protected-pr-head-v2" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must label protected PR-head v2 source"
   exit 1
 }
 
@@ -1433,233 +1454,213 @@ grep -Fq "pending-major-transition" "${repo_root}/.github/workflows/release-hygi
   exit 1
 }
 
-# A stale Node 20 base may adopt the Node 22 verifier only on protected,
-# same-repository promotions. Ordinary branches and forks retain the base.
+# R3/9c3b9371: the release verifier source is always the trusted base. The PR
+# head is never executed as required-check authority, for any head shape.
+
+# Positive controls: a trusted base that carries the current capability markers
+# is the single deterministic verifier source for both protected promotion lanes.
 for lane in "premain staging" "main premain"; do
   read -r selector_base selector_head <<<"${lane}"
   selector_result="$(
     run_verifier_source_selector_fixture \
-      v2-node20 v2 "${selector_base}" "${selector_head}" "${repo}" "${repo}"
-  )"
-  assert_selector_result "${selector_result}" "." "protected-pr-head-v2" \
-    "lacks Node 22 compatibility policy marker"
-
-  selector_result="$(
-    run_verifier_source_selector_fixture \
-      v2-node20 v2-node20 "${selector_base}" "${selector_head}" "${repo}" "${repo}"
-  )"
-  assert_selector_failure "${selector_result}" \
-    "lacks Node 22 compatibility policy marker"
-
-  selector_result="$(
-    run_verifier_source_selector_fixture \
-      v2-node20 v2 "${selector_base}" "${selector_head}" "${repo}" "attacker/TableTheory"
+      v2 v2 "${selector_base}" "${selector_head}" "${repo}" "${repo}"
   )"
   assert_selector_result "${selector_result}" "../trusted-release" "trusted-base" \
-    "using trusted base verifier scripts"
-
-  selector_result="$(
-    run_verifier_source_selector_fixture \
-      v2-node20 v2 "${selector_base}" "feature/arbitrary-head" "${repo}" "${repo}"
-  )"
-  assert_selector_result "${selector_result}" "../trusted-release" "trusted-base" \
-    "using trusted base verifier scripts"
+    "trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, and AGENTS.md materialization-aware verifier markers"
 done
 
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v1 v2 \
-    premain staging \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "." \
-  "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/release-as-supersession"
+# R3: the head shape is irrelevant. A head that carries the marker strings (or an
+# arbitrary command, or nothing) never becomes the verifier source.
+for head_shape in v1 v2 v2-node20 v2-numbered-rc v2-merge-queue; do
+  selector_result="$(
+    run_verifier_source_selector_fixture \
+      v2 "${head_shape}" premain staging "${repo}" "${repo}"
+  )"
+  assert_selector_result "${selector_result}" "../trusted-release" "trusted-base" \
+    "trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, and AGENTS.md materialization-aware verifier markers"
+done
 
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-merge-queue v2 \
-    premain staging \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "." \
-  "protected-pr-head-v2" \
-  "scripts/verify-branch-release-supply-chain.sh lacks direct protected-PR verifier marker"
+# R3: a marker-only/no-op PR-head verifier carries the marker strings but does
+# no work; it is never the verifier source either.
+noop_fixture="$(mktemp -d)"
+tmpdirs+=("${noop_fixture}")
+mkdir -p "${noop_fixture}/trusted-release" "${noop_fixture}/pr/scripts"
+write_v2_verifier_fixture "${noop_fixture}/trusted-release"
+cat >"${noop_fixture}/pr/scripts/verify-release-cycle-state.sh" <<'SH'
+#!/usr/bin/env bash
+# Marker strings present; no verification performed.
+: "scripts/prepare-release-package-versions.py"
+: "py/src/tabletheory_py/version.json"
+: "scripts/verify-go-semantic-import-version.sh"
+SH
+noop_selector="${noop_fixture}/selector.sh"
+extract_workflow_step_run "Resolve release verifier source" >"${noop_selector}"
+noop_selector_out="${noop_fixture}/selector.out"
+noop_gh_output="${noop_fixture}/github-output"
+set +e
+(
+  cd "${noop_fixture}/pr"
+  env BASE_REF=premain GITHUB_OUTPUT="${noop_gh_output}" bash "${noop_selector}"
+) >"${noop_selector_out}" 2>&1
+noop_status=$?
+set -e
+if [[ "${noop_status}" -ne 0 ]]; then
+  cat "${noop_selector_out}"
+  echo "release-hygiene-policy-test: selector must succeed when the trusted base can evaluate the proposal"
+  exit 1
+fi
+grep -Fxq "root=../trusted-release" "${noop_gh_output}" || {
+  cat "${noop_selector_out}"
+  cat "${noop_gh_output}"
+  echo "release-hygiene-policy-test: a marker-only/no-op PR head must not become the verifier source"
+  exit 1
+}
+grep -Fxq "label=trusted-base" "${noop_gh_output}" || {
+  cat "${noop_selector_out}"
+  cat "${noop_gh_output}"
+  echo "release-hygiene-policy-test: a marker-only/no-op PR head must not become the verifier source"
+  exit 1
+}
 
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-pre-pending-major-transition v2 \
-    premain staging \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "." \
-  "protected-pr-head-v2" \
-  "scripts/verify-go-semantic-import-version.sh lacks pending-major-transition support marker"
+# R3: when the trusted base cannot evaluate the proposal, the selector fails
+# closed. It must never fall back to executing PR-head verifier scripts.
+for trusted_shape in \
+  v1 \
+  v2-node20 \
+  v2-numbered-rc \
+  v2-merge-queue \
+  v2-pre-pending-major-transition \
+  v2-pre-release-as-supersession \
+  v2-legacy-promotion-source \
+  v2-release-please-v4; do
+  selector_result="$(
+    run_verifier_source_selector_fixture \
+      "${trusted_shape}" v2 premain staging "${repo}" "${repo}"
+  )"
+  assert_selector_failure "${selector_result}" \
+    "trusted base lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support"
+done
 
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-pre-release-as-supersession v2 \
-    premain staging \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "." \
-  "protected-pr-head-v2" \
-  "scripts/verify-promotion-release-driver.sh lacks Release-As supersession marker"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-merge-queue v2 \
-    main premain \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "." \
-  "protected-pr-head-v2" \
-  "scripts/verify-branch-release-supply-chain.sh lacks direct protected-PR verifier marker"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-release-please-v4 v2 \
-    premain staging \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "." \
-  "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/release-as-supersession"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-numbered-rc v2 \
-    premain staging \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "." \
-  "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/release-as-supersession"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-legacy-promotion-source v2 \
-    premain staging \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "." \
-  "protected-pr-head-v2" \
-  "protected same-repo promotion may use PR-head v2/RC-first/release-please-v5/deterministic-stable/release-as-supersession"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v1 v2 \
-    premain "feature/arbitrary-head" \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "../trusted-release" \
-  "trusted-base" \
-  "using trusted base verifier scripts"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-numbered-rc v2 \
-    premain "feature/arbitrary-head" \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "../trusted-release" \
-  "trusted-base" \
-  "using trusted base verifier scripts"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v1 v2 \
-    premain staging \
-    "${repo}" "attacker/TableTheory"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "../trusted-release" \
-  "trusted-base" \
-  "using trusted base verifier scripts"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-numbered-rc v2 \
-    premain staging \
-    "${repo}" "attacker/TableTheory"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "../trusted-release" \
-  "trusted-base" \
-  "using trusted base verifier scripts"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2 v2 \
-    premain staging \
-    "${repo}" "${repo}"
-)"
-assert_selector_result \
-  "${selector_result}" \
-  "../trusted-release" \
-  "trusted-base" \
-  "trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, and AGENTS.md materialization-aware verifier markers"
-
-selector_result="$(
-  run_verifier_source_selector_fixture \
-    v2-numbered-rc v2-numbered-rc \
-    premain staging \
-    "${repo}" "${repo}"
-)"
-assert_selector_failure \
-  "${selector_result}" \
-  "protected PR head lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support"
+# R3: a marker-only/no-op or arbitrary-command PR-head verifier must never run.
+# Build a hostile head, resolve the verifier source, then run the resolved
+# verifier exactly as the workflow does.
+probe_fixture="$(mktemp -d)"
+tmpdirs+=("${probe_fixture}")
+mkdir -p "${probe_fixture}/trusted-release" "${probe_fixture}/pr"
+write_v2_verifier_fixture "${probe_fixture}/trusted-release"
+cat >>"${probe_fixture}/trusted-release/scripts/verify-release-cycle-state.sh" <<'SH'
+echo "trusted-base-probe: EXECUTED"
+SH
+cp -R "${probe_fixture}/trusted-release/." "${probe_fixture}/pr/"
+probe_sentinel="${probe_fixture}/pr-head-executed"
+cat >"${probe_fixture}/pr/scripts/verify-release-cycle-state.sh" <<SH
+#!/usr/bin/env bash
+set -euo pipefail
+: "scripts/prepare-release-package-versions.py"
+: "py/src/tabletheory_py/version.json"
+: "scripts/verify-go-semantic-import-version.sh"
+echo "pr-head-probe: EXECUTED"
+touch "${probe_sentinel}"
+SH
+probe_selector="${probe_fixture}/selector.sh"
+extract_workflow_step_run "Resolve release verifier source" >"${probe_selector}"
+probe_selector_out="${probe_fixture}/selector.out"
+probe_gh_output="${probe_fixture}/github-output"
+set +e
+(
+  cd "${probe_fixture}/pr"
+  env BASE_REF=premain GITHUB_OUTPUT="${probe_gh_output}" bash "${probe_selector}"
+) >"${probe_selector_out}" 2>&1
+probe_status=$?
+set -e
+if [[ "${probe_status}" -ne 0 ]]; then
+  cat "${probe_selector_out}"
+  echo "release-hygiene-policy-test: selector must succeed when the trusted base can evaluate the proposal"
+  exit 1
+fi
+grep -Fxq "root=../trusted-release" "${probe_gh_output}" || {
+  cat "${probe_selector_out}"
+  cat "${probe_gh_output}"
+  echo "release-hygiene-policy-test: selector must resolve to the trusted base, not the PR head"
+  exit 1
+}
+probe_verifier_root="$(sed -n 's/^root=//p' "${probe_gh_output}")"
+probe_run_out="${probe_fixture}/run.out"
+(
+  cd "${probe_fixture}/pr"
+  bash "${probe_verifier_root}/scripts/verify-release-cycle-state.sh"
+) >"${probe_run_out}" 2>&1
+grep -Fq "trusted-base-probe: EXECUTED" "${probe_run_out}" || {
+  cat "${probe_run_out}"
+  echo "release-hygiene-policy-test: the deterministic path must run the trusted-base verifier"
+  exit 1
+}
+if grep -Fq "pr-head-probe: EXECUTED" "${probe_run_out}"; then
+  cat "${probe_run_out}"
+  echo "release-hygiene-policy-test: a PR-head verifier script must never execute"
+  exit 1
+fi
+if [[ -e "${probe_sentinel}" ]]; then
+  echo "release-hygiene-policy-test: a PR-head verifier side effect must never run"
+  exit 1
+fi
 
 grep -Fq "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: promotion driver must log the selected verifier source"
   exit 1
 }
 
-grep -Fq "Verify release-hygiene bootstrap scope" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: main bootstrap PRs must have a scoped hygiene guard"
+# R1/5c4bce67 + R2/5d26307c: the reusable bootstrap allowlist and its branch-prefix
+# exemption must be gone from the workflow entirely.
+if grep -Fq "Verify release-hygiene bootstrap scope" "${repo_root}/.github/workflows/release-hygiene.yml"; then
+  echo "release-hygiene-policy-test: the release-hygiene bootstrap allowlist must be removed"
+  exit 1
+fi
+
+if grep -Fq "fix/release-hygiene-main-bootstrap-" "${repo_root}/.github/workflows/release-hygiene.yml"; then
+  echo "release-hygiene-policy-test: no reusable bootstrap branch prefix may skip release-lane provenance"
+  exit 1
+fi
+
+if grep -Fq "pulls/\${PR_NUMBER}/files" "${repo_root}/.github/workflows/release-hygiene.yml"; then
+  echo "release-hygiene-policy-test: release hygiene must not reintroduce a changed-file bootstrap allowlist"
+  exit 1
+fi
+
+grep -Fq "name: Verify release-lane same-repository provenance" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must always verify release-lane provenance"
   exit 1
 }
 
-grep -Fq "fix/release-hygiene-main-bootstrap-" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: main bootstrap guard must be branch-scoped"
+# R3/9c3b9371: no PR-head verifier source may exist in the workflow.
+if grep -Fq "protected-pr-head-v2" "${repo_root}/.github/workflows/release-hygiene.yml"; then
+  echo "release-hygiene-policy-test: the workflow must not label a PR-head verifier source"
+  exit 1
+fi
+
+if grep -Fq 'verifier_root="."' "${repo_root}/.github/workflows/release-hygiene.yml"; then
+  echo "release-hygiene-policy-test: the workflow must never point the verifier at the PR head"
+  exit 1
+fi
+
+grep -Fq 'root=${trusted_root}' "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: the workflow must always emit the trusted-base verifier root"
   exit 1
 }
 
-grep -Fq "pulls/\${PR_NUMBER}/files" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: main bootstrap guard must inspect PR changed files"
+grep -Fq "label=trusted-base" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: the workflow must always emit the trusted-base verifier label"
   exit 1
 }
 
-bootstrap_scope_section="$(sed -n '/Verify release-hygiene bootstrap scope/,/Verify release-lane same-repository provenance/p' "${repo_root}/.github/workflows/release-hygiene.yml")"
-grep -Fq "scripts/verify-release-cycle-state.sh" <<<"${bootstrap_scope_section}" || {
-  echo "release-hygiene-policy-test: main bootstrap guard must allow verify-release-cycle-state bootstrap repairs"
+grep -Fq "land the verifier update on" "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: the workflow must fail closed when the trusted base cannot evaluate the proposal"
   exit 1
 }
 
-grep -Fq "scripts/verify-go-semantic-import-version.sh" <<<"${bootstrap_scope_section}" || {
-  echo "release-hygiene-policy-test: main bootstrap guard must allow Go semantic import verifier bootstrap repairs"
+# R2/5d26307c: the provenance guard itself must reject the retired bootstrap prefix.
+grep -Fq "bootstrap branch prefixes are retired" "${repo_root}/scripts/verify-release-lane-provenance.sh" || {
+  echo "release-hygiene-policy-test: provenance must reject the retired bootstrap branch prefix"
   exit 1
 }
 
