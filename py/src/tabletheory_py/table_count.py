@@ -168,7 +168,7 @@ def _count_pages(call: Any, req: dict[str, Any], start_key: Any | None, limit: i
         if limit is not None:
             remaining = limit - evaluated
             if remaining <= 0:
-                break
+                return total
             req["Limit"] = remaining
         try:
             resp = call(**req)
