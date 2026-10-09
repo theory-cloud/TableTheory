@@ -14,10 +14,10 @@
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "3.1144.0",
-    "@aws-sdk/client-kms": "3.1144.0",
-    "@aws-sdk/client-s3": "3.1144.0",
-    "aws-cdk-lib": "2.271.0",
+    "@aws-sdk/client-dynamodb": "3.1146.0",
+    "@aws-sdk/client-kms": "3.1146.0",
+    "@aws-sdk/client-s3": "3.1146.0",
+    "aws-cdk-lib": "2.272.0",
     "constructs": "10.8.1"
   },
   "devDependencies": {
