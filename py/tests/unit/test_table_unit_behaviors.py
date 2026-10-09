@@ -191,10 +191,11 @@ def test_table_query_count_and_scan_count_use_select_count_without_materializati
     stub = _StubClient()
     table: Table[Item] = Table(model, client=stub)
     last_key = {"PK": {"S": "A"}, "SK": {"S": "1"}}
-    stub.set_query_items(
-        [table._to_item(Item(pk="A", sk="1", value=1))], last_key=last_key, count=2, scanned_count=5
-    )
+    item = table._to_item(Item(pk="A", sk="1", value=1))
 
+    # limit bounds total evaluated work: the helper stops after the first page
+    # instead of scanning the whole remaining partition.
+    stub.set_query_items([item], last_key=last_key, count=2, scanned_count=5)
     query_count = table.query_count(
         "A",
         sort=SortKeyCondition.begins_with("ITEM#"),
@@ -203,19 +204,29 @@ def test_table_query_count_and_scan_count_use_select_count_without_materializati
         filter=FilterCondition.eq("value", 1),
     )
 
-    assert query_count == 4
-    assert len(stub.query_reqs) == 2
+    assert query_count == 2
+    assert len(stub.query_reqs) == 1
     assert stub.query_reqs[0]["Select"] == "COUNT"
-    assert "Limit" not in stub.query_reqs[0]
+    assert stub.query_reqs[0]["Limit"] == 1
     assert "ProjectionExpression" not in stub.query_reqs[0]
-    assert stub.query_reqs[1]["ExclusiveStartKey"] == last_key
 
-    stub.set_query_items([table._to_item(Item(pk="A", sk="1", value=1))], count=3, scanned_count=7)
+    # Without a limit the helper still pages to exhaustion.
+    stub.set_query_items([item], last_key=last_key, count=2, scanned_count=5)
+    assert table.query_count("A", sort=SortKeyCondition.begins_with("ITEM#")) == 4
+    assert len(stub.query_reqs) == 3
+    assert "Limit" not in stub.query_reqs[1]
+
+    with pytest.raises(ValidationError, match="limit must be > 0"):
+        table.query_count("A", limit=0)
+
+    # scan_count honors the same evaluated-item budget.
+    stub.set_query_items([item], count=3, scanned_count=7)
     scan_count = table.scan_count(limit=1, projection=["PK"], filter=FilterCondition.eq("value", 1))
 
     assert scan_count == 3
+    assert len(stub.scan_reqs) == 1
     assert stub.scan_reqs[0]["Select"] == "COUNT"
-    assert "Limit" not in stub.scan_reqs[0]
+    assert stub.scan_reqs[0]["Limit"] == 1
     assert "ProjectionExpression" not in stub.scan_reqs[0]
 
 
