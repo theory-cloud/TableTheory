@@ -216,7 +216,7 @@ func (db *DB) Model(model any) core.Query {
 
 	// Fast-path metadata lookup - cache for later use
 	typ := reflect.TypeOf(model)
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 

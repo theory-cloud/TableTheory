@@ -27,7 +27,7 @@ func (e *cov5ConsistencyExecutor) ExecuteQuery(input *core.CompiledQuery, dest a
 	e.last = input
 	if dest != nil {
 		destValue := reflect.ValueOf(dest)
-		if destValue.Kind() == reflect.Ptr && destValue.Elem().Kind() == reflect.Slice && destValue.Elem().Len() == 0 {
+		if destValue.Kind() == reflect.Pointer && destValue.Elem().Kind() == reflect.Slice && destValue.Elem().Len() == 0 {
 			zero := reflect.Zero(destValue.Elem().Type().Elem())
 			destValue.Elem().Set(reflect.Append(destValue.Elem(), zero))
 		}
@@ -39,7 +39,7 @@ func (e *cov5ConsistencyExecutor) ExecuteScan(input *core.CompiledQuery, dest an
 	e.last = input
 	if dest != nil {
 		destValue := reflect.ValueOf(dest)
-		if destValue.Kind() == reflect.Ptr && destValue.Elem().Kind() == reflect.Slice && destValue.Elem().Len() == 0 {
+		if destValue.Kind() == reflect.Pointer && destValue.Elem().Kind() == reflect.Slice && destValue.Elem().Len() == 0 {
 			zero := reflect.Zero(destValue.Elem().Type().Elem())
 			destValue.Elem().Set(reflect.Append(destValue.Elem(), zero))
 		}

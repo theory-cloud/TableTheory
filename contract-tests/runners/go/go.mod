@@ -1,14 +1,14 @@
 module github.com/theory-cloud/tabletheory-contract-tests/runners/go
 
-go 1.26
+go 1.27
 
-toolchain go1.26.6
+toolchain go1.27.2
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.6
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.69.1
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.70.0
 	github.com/aws/aws-sdk-go-v2/service/kms v1.61.1
 	github.com/stretchr/testify v1.12.1
 	github.com/theory-cloud/tabletheory/v4 v4.0.0

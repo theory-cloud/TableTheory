@@ -32,6 +32,34 @@ contract-tests/
   `requires_capabilities`. Runners skip capability-gated scenarios until their runtime advertises that capability; the
   follow-up runtime milestone removes the skip by adding the advertised capability and making the scenario pass.
 
+## Documented coverage exclusion: Go legacy implicit transaction update
+
+The `transactWrite` `kind: update` action asserts the **explicit field-selection** transaction update, which every
+runtime ships:
+
+- Go routes it through `core.TransactionBuilder.Update(model, fields, conditions...)` (see
+  `runners/go/internal/driver/driver.go`), which requires the caller to name the fields.
+- TypeScript requires either `TransactModelUpdate.fields`, `TransactUpdateRaw.updateExpression`, or
+  `TransactUpdateWithBuilder.updateFn`.
+- Python requires `TransactUpdate.updates`.
+
+Go additionally exposes a **legacy implicit whole-model** transaction update,
+`transaction.Transaction.Update(model)`, which derives the field set from the model itself and writes every
+caller-owned field. TypeScript and Python have no equivalent: their transaction update actions always take an explicit
+field selection or an explicit expression. The legacy implicit surface is therefore Go-only.
+
+It is **excluded from the shared contract suite by decision**, not left uncovered:
+
+- No portable scenario can exercise it, because expressing "update the whole model implicitly" would require a new
+  Go-only action kind in the runner protocol, and the other runtimes could not run that scenario. The contract suite only
+  asserts behavior that all three runtimes can produce.
+- The exclusion is covered on the Go side instead, by `pkg/transaction` unit tests and
+  `tests/integration/transaction_legacy_update_test.go`, which pin the implicit selection rules, the managed-field
+  exclusions, and the empty-update rejection.
+
+Revisit this exclusion only if TypeScript or Python adopts an implicit whole-model transaction update; at that point the
+behavior becomes portable and belongs in the shared suite.
+
 ## Run (local)
 
 Start DynamoDB Local:

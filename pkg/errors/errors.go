@@ -60,6 +60,10 @@ var (
 	// ErrEmptyValue is returned when a required value is empty
 	ErrEmptyValue = errors.New("empty value")
 
+	// ErrNoUpdatableFields is returned when an update selects no field the caller
+	// can write, so there is no assignment to apply.
+	ErrNoUpdatableFields = errors.New("no non-key fields to update")
+
 	// ErrInvalidOperator is returned when an invalid query operator is used
 	ErrInvalidOperator = errors.New("invalid query operator")
 

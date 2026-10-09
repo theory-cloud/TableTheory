@@ -29,6 +29,13 @@ const (
 	pyNone              = "None"
 )
 
+const (
+	schemaKeyName      = "name"
+	schemaKeyPartition = "partition"
+	schemaKeyAttribute = "attribute"
+	schemaKeyType      = "type"
+)
+
 func Generate(doc *Document, opts GenerateOptions) ([]byte, error) {
 	if doc == nil {
 		return nil, fmt.Errorf("DMS document is nil")
@@ -258,10 +265,10 @@ func generateTypeScript(models []Model, opts GenerateOptions) ([]byte, error) {
 
 func modelToSchemaMap(m Model) map[string]any {
 	out := map[string]any{
-		"name":       m.Name,
-		"table":      map[string]any{"name": m.Table.Name},
-		"keys":       keysToMap(m.Keys),
-		"attributes": attributesToMaps(m.Attributes),
+		schemaKeyName: m.Name,
+		"table":       map[string]any{schemaKeyName: m.Table.Name},
+		"keys":        keysToMap(m.Keys),
+		"attributes":  attributesToMaps(m.Attributes),
 	}
 	if m.Naming.Convention != "" {
 		out["naming"] = map[string]any{"convention": m.Naming.Convention}
@@ -280,7 +287,7 @@ func modelToSchemaMap(m Model) map[string]any {
 }
 
 func keysToMap(keys Keys) map[string]any {
-	out := map[string]any{"partition": keyToMap(keys.Partition)}
+	out := map[string]any{schemaKeyPartition: keyToMap(keys.Partition)}
 	if keys.Sort != nil {
 		out["sort"] = keyToMap(*keys.Sort)
 	}
@@ -288,7 +295,7 @@ func keysToMap(keys Keys) map[string]any {
 }
 
 func keyToMap(key KeyAttribute) map[string]any {
-	return map[string]any{"attribute": key.Attribute, "type": key.Type}
+	return map[string]any{schemaKeyAttribute: key.Attribute, schemaKeyType: key.Type}
 }
 
 func attributesToMaps(attrs []Attribute) []any {
@@ -296,7 +303,7 @@ func attributesToMaps(attrs []Attribute) []any {
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Attribute < ordered[j].Attribute })
 	out := make([]any, 0, len(ordered))
 	for _, attr := range ordered {
-		m := map[string]any{"attribute": attr.Attribute, "type": attr.Type}
+		m := map[string]any{schemaKeyAttribute: attr.Attribute, schemaKeyType: attr.Type}
 		if attr.Format != "" {
 			m["format"] = attr.Format
 		}
@@ -332,10 +339,10 @@ func indexesToMaps(indexes []Index) []any {
 	out := make([]any, 0, len(indexes))
 	for _, idx := range sortedIndexes(indexes) {
 		m := map[string]any{
-			"name":       idx.Name,
-			"type":       idx.Type,
-			"partition":  keyToMap(idx.Partition),
-			"projection": projectionToMap(normalizeProjection(idx.Projection)),
+			schemaKeyName:      idx.Name,
+			schemaKeyType:      idx.Type,
+			schemaKeyPartition: keyToMap(idx.Partition),
+			"projection":       projectionToMap(normalizeProjection(idx.Projection)),
 		}
 		if idx.Sort != nil {
 			m["sort"] = keyToMap(*idx.Sort)
@@ -346,7 +353,7 @@ func indexesToMaps(indexes []Index) []any {
 }
 
 func projectionToMap(proj Projection) map[string]any {
-	out := map[string]any{"type": proj.Type}
+	out := map[string]any{schemaKeyType: proj.Type}
 	if len(proj.Fields) > 0 {
 		fields := append([]string(nil), proj.Fields...)
 		sort.Strings(fields)
@@ -639,7 +646,7 @@ func tsObject(value any, indent int) string {
 }
 
 func stableSchemaKeyOrder(keys []string) []string {
-	order := []string{"name", "table", "naming", "keys", "write_policy", "attributes", "indexes", "attribute", "type", "format", "required", "optional", "omit_empty", "roles", "json", "binary", "encryption", "partition", "sort", "projection", "fields", "mode", "protected_attributes"}
+	order := []string{schemaKeyName, "table", "naming", "keys", "write_policy", "attributes", "indexes", schemaKeyAttribute, schemaKeyType, "format", "required", "optional", "omit_empty", "roles", "json", "binary", "encryption", schemaKeyPartition, "sort", "projection", "fields", "mode", "protected_attributes"}
 	rank := make(map[string]int, len(order))
 	for i, key := range order {
 		rank[key] = i

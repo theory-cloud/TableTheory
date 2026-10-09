@@ -96,7 +96,7 @@ func (c *Converter) lookupConverter(typ reflect.Type) (CustomConverter, bool) {
 			return converter, true
 		}
 
-		if typ.Kind() != reflect.Ptr {
+		if typ.Kind() != reflect.Pointer {
 			break
 		}
 		typ = typ.Elem()
@@ -130,7 +130,7 @@ func indirectValueOrNull(v reflect.Value) (reflect.Value, bool) {
 			return reflect.Value{}, true
 		}
 
-		if v.Kind() != reflect.Ptr && v.Kind() != reflect.Interface {
+		if v.Kind() != reflect.Pointer && v.Kind() != reflect.Interface {
 			return v, false
 		}
 		if v.IsNil() {
@@ -143,7 +143,7 @@ func indirectValueOrNull(v reflect.Value) (reflect.Value, bool) {
 // FromAttributeValue converts a DynamoDB AttributeValue to Go value
 func (c *Converter) FromAttributeValue(av types.AttributeValue, target any) error {
 	targetValue := reflect.ValueOf(target)
-	if targetValue.Kind() != reflect.Ptr {
+	if targetValue.Kind() != reflect.Pointer {
 		return fmt.Errorf("target must be a pointer")
 	}
 	if targetValue.IsNil() {
@@ -193,7 +193,7 @@ func (c *Converter) anyFromAttributeValue(av types.AttributeValue, target reflec
 }
 
 func ensureSettableConcreteTarget(target reflect.Value) reflect.Value {
-	if target.Kind() != reflect.Ptr {
+	if target.Kind() != reflect.Pointer {
 		return target
 	}
 

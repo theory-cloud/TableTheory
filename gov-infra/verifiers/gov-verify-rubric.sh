@@ -43,9 +43,9 @@ fi
 export PATH="${GOV_TOOLS_BIN}:${PATH}"
 
 # Tool pins (derived from repo CI and go.mod)
-PIN_GOLANGCI_LINT_VERSION="v2.5.0"
-PIN_GOVULNCHECK_VERSION="v1.1.4"
-PIN_GOSEC_VERSION="v2.22.11"
+PIN_GOLANGCI_LINT_VERSION="v2.14.0"
+PIN_GOVULNCHECK_VERSION="v1.8.0"
+PIN_GOSEC_VERSION="v2.29.1-0.20261005092323-d2b649ec0182"
 
 # Optional feature flags (opt-in pack features)
 FEATURE_OSS_RELEASE="false"

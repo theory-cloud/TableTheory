@@ -47,7 +47,7 @@ type Todo struct {
 
 ### Prerequisites
 ```bash
-# Ensure the root-pinned Go toolchain (`go1.26.5`)
+# Ensure the root-pinned Go toolchain (`go1.27.2`)
 go version
 
 # Ensure Docker for DynamoDB Local

@@ -102,7 +102,7 @@ func NormalizeJSONReflectValue(fieldType reflect.Type, value reflect.Value) (any
 		return nil, nil
 	}
 
-	for value.Kind() == reflect.Interface || value.Kind() == reflect.Ptr {
+	for value.Kind() == reflect.Interface || value.Kind() == reflect.Pointer {
 		if value.IsNil() {
 			return nil, nil
 		}
@@ -126,7 +126,7 @@ func UnmarshalJSONFieldValue(av types.AttributeValue, dest reflect.Value, fallba
 		return nil
 	}
 
-	if dest.Kind() == reflect.Ptr {
+	if dest.Kind() == reflect.Pointer {
 		if dest.IsNil() {
 			dest.Set(reflect.New(dest.Type().Elem()))
 		}
@@ -287,7 +287,7 @@ func isDynamicJSONType(typ reflect.Type) bool {
 }
 
 func derefType(typ reflect.Type) reflect.Type {
-	for typ != nil && typ.Kind() == reflect.Ptr {
+	for typ != nil && typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 	return typ
@@ -300,7 +300,7 @@ func isNilLike(value any) bool {
 
 	v := reflect.ValueOf(value)
 	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return v.IsNil()
 	default:
 		return false
@@ -308,7 +308,7 @@ func isNilLike(value any) bool {
 }
 
 func setJSONStringCarrierValue(av types.AttributeValue, dest reflect.Value) error {
-	if dest.Kind() == reflect.Ptr {
+	if dest.Kind() == reflect.Pointer {
 		if isNullAttributeValue(av) {
 			dest.Set(reflect.Zero(dest.Type()))
 			return nil

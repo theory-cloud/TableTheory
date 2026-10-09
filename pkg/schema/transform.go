@@ -80,7 +80,7 @@ func (v *TransformValidator) ValidateTransform(transform interface{}) error {
 // validateModelType validates that a reflect.Type matches the expected model metadata
 func (v *TransformValidator) validateModelType(modelType reflect.Type, _ *model.Metadata, role string) error {
 	// Handle pointer types
-	if modelType.Kind() == reflect.Ptr {
+	if modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 
@@ -197,7 +197,7 @@ func buildSourceModel(
 	converter *pkgTypes.Converter,
 ) (reflect.Value, error) {
 	sourceModelType := transformType.In(0)
-	if sourceModelType.Kind() == reflect.Ptr {
+	if sourceModelType.Kind() == reflect.Pointer {
 		sourceModelType = sourceModelType.Elem()
 	}
 	sourceModel := reflect.New(sourceModelType).Elem()

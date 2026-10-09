@@ -14,9 +14,9 @@ func copyValue(dst, src interface{}) {
 	dstVal := reflect.ValueOf(dst)
 	srcVal := reflect.ValueOf(src)
 
-	if dstVal.Kind() == reflect.Ptr && srcVal.Kind() == reflect.Ptr {
+	if dstVal.Kind() == reflect.Pointer && srcVal.Kind() == reflect.Pointer {
 		dstVal.Elem().Set(srcVal.Elem())
-	} else if dstVal.Kind() == reflect.Ptr {
+	} else if dstVal.Kind() == reflect.Pointer {
 		dstVal.Elem().Set(srcVal)
 	}
 }

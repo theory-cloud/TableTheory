@@ -360,7 +360,7 @@ func (b *Builder) buildFieldUpdate(op transactOperation) (*types.Update, error) 
 	}
 
 	value := reflect.ValueOf(op.model)
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		value = value.Elem()
 	}
 
@@ -376,9 +376,9 @@ func (b *Builder) buildFieldUpdate(op transactOperation) (*types.Update, error) 
 		case fieldMeta.IsVersion:
 			return nil, fmt.Errorf("%w: do not include version in update fields: %s", customerrors.ErrInvalidModel, field)
 		}
-		fieldValue := value.Field(fieldMeta.Index)
-		if !fieldValue.IsValid() {
-			return nil, fmt.Errorf("field %s is invalid", field)
+		fieldValue, err := fieldByIndexPath(value, fieldMeta.IndexPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read field %s: %w", field, err)
 		}
 		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
 			if err := builder.AddUpdateRemove(fieldMeta.DBName); err != nil {
@@ -668,7 +668,7 @@ func (b *Builder) buildConditionCheck(op transactOperation) (*types.ConditionChe
 
 func (b *Builder) populateKeyConditions(q *query.Query, metadata *model.Metadata, model any) error {
 	value := reflect.ValueOf(model)
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		value = value.Elem()
 	}
 
@@ -677,8 +677,11 @@ func (b *Builder) populateKeyConditions(q *query.Query, metadata *model.Metadata
 	}
 
 	pkMeta := metadata.PrimaryKey.PartitionKey
-	pkValue := value.Field(pkMeta.Index)
-	if !pkValue.IsValid() || pkValue.IsZero() {
+	pkValue, err := fieldByIndexPath(value, pkMeta.IndexPath)
+	if err != nil {
+		return fmt.Errorf("failed to read partition key %s: %w", pkMeta.Name, err)
+	}
+	if pkValue.IsZero() {
 		return fmt.Errorf("partition key %s is required", pkMeta.Name)
 	}
 
@@ -686,8 +689,11 @@ func (b *Builder) populateKeyConditions(q *query.Query, metadata *model.Metadata
 
 	if metadata.PrimaryKey.SortKey != nil {
 		skMeta := metadata.PrimaryKey.SortKey
-		skValue := value.Field(skMeta.Index)
-		if !skValue.IsValid() || skValue.IsZero() {
+		skValue, err := fieldByIndexPath(value, skMeta.IndexPath)
+		if err != nil {
+			return fmt.Errorf("failed to read sort key %s: %w", skMeta.Name, err)
+		}
+		if skValue.IsZero() {
 			return fmt.Errorf("sort key %s is required", skMeta.Name)
 		}
 		q.Where(skMeta.Name, "=", skValue.Interface())
