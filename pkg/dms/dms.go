@@ -547,7 +547,7 @@ func attributeTypeFromKind(t reflect.Type) string {
 }
 
 func derefType(t reflect.Type) reflect.Type {
-	for t != nil && t.Kind() == reflect.Ptr {
+	for t != nil && t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return t

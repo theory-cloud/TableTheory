@@ -57,7 +57,7 @@ PK: org#123#resource#abc    SK: 2024-01-15T10:00:00Z
 ## Quick Start
 
 ### Prerequisites
-- Go toolchain `go1.26.5`
+- Go toolchain `go1.27.2`
 - AWS CLI configured
 - Docker (for local DynamoDB)
 

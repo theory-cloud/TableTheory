@@ -8,23 +8,29 @@ import (
 	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 )
 
+const (
+	keyKind       = "kind"
+	keyRef        = "ref"
+	keyObservedAt = "observed_at"
+)
+
 var (
 	allowedProvenanceKeys = map[string]struct{}{
 		"mode":          {},
 		"system":        {},
-		"kind":          {},
-		"ref":           {},
+		keyKind:         {},
+		keyRef:          {},
 		"commit_sha":    {},
-		"observed_at":   {},
+		keyObservedAt:   {},
 		"recorded_at":   {},
 		"import_run_id": {},
 		"evidence":      {},
 	}
 	allowedEvidenceKeys = map[string]struct{}{
-		"kind":        {},
+		keyKind:       {},
 		"source":      {},
-		"ref":         {},
-		"observed_at": {},
+		keyRef:        {},
+		keyObservedAt: {},
 		"digest":      {},
 	}
 	allowedConfidenceKeys = map[string]struct{}{
@@ -95,12 +101,12 @@ func validateProvenanceShape(provenance map[string]any) error {
 		return fmt.Errorf("%w: unsupported provenance.mode %q", theorydbErrors.ErrInvalidModel, mode)
 	}
 
-	for _, key := range []string{"system", "kind", "ref"} {
+	for _, key := range []string{"system", keyKind, keyRef} {
 		if _, err := requiredString(provenance, key); err != nil {
 			return err
 		}
 	}
-	for _, key := range []string{"observed_at", "recorded_at"} {
+	for _, key := range []string{keyObservedAt, "recorded_at"} {
 		value, err := requiredString(provenance, key)
 		if err != nil {
 			return err
@@ -165,7 +171,7 @@ func parseDeployEvidence(evidence map[string]any) (deployEvidence, error) {
 		return deployEvidence{}, err
 	}
 
-	kind, err := requiredString(evidence, "kind")
+	kind, err := requiredString(evidence, keyKind)
 	if err != nil {
 		return deployEvidence{}, err
 	}
@@ -173,11 +179,11 @@ func parseDeployEvidence(evidence map[string]any) (deployEvidence, error) {
 	if err != nil {
 		return deployEvidence{}, err
 	}
-	ref, err := requiredString(evidence, "ref")
+	ref, err := requiredString(evidence, keyRef)
 	if err != nil {
 		return deployEvidence{}, err
 	}
-	observedAt, err := requiredString(evidence, "observed_at")
+	observedAt, err := requiredString(evidence, keyObservedAt)
 	if err != nil {
 		return deployEvidence{}, err
 	}

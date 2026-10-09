@@ -20,7 +20,7 @@ import (
 // This function is exported for use with DynamoDB streams and other external data sources.
 func UnmarshalItems(items []map[string]types.AttributeValue, dest any) error {
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr {
+	if destValue.Kind() != reflect.Pointer {
 		return fmt.Errorf("destination must be a pointer")
 	}
 
@@ -45,7 +45,7 @@ func UnmarshalItems(items []map[string]types.AttributeValue, dest any) error {
 	for _, item := range items {
 		// Create a new instance of the item type
 		newItem := reflect.New(itemType)
-		if itemType.Kind() == reflect.Ptr {
+		if itemType.Kind() == reflect.Pointer {
 			newItem = reflect.New(itemType.Elem())
 		}
 
@@ -55,7 +55,7 @@ func UnmarshalItems(items []map[string]types.AttributeValue, dest any) error {
 		}
 
 		// Append to slice
-		if itemType.Kind() == reflect.Ptr {
+		if itemType.Kind() == reflect.Pointer {
 			newSlice = reflect.Append(newSlice, newItem)
 		} else {
 			newSlice = reflect.Append(newSlice, newItem.Elem())
@@ -91,7 +91,7 @@ func UnmarshalItem(item map[string]types.AttributeValue, dest any) error {
 
 func resolveUnmarshalTarget(dest any) (reflect.Value, reflect.Type, naming.Convention, error) {
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() {
+	if destValue.Kind() != reflect.Pointer || destValue.IsNil() {
 		return reflect.Value{}, nil, naming.CamelCase, fmt.Errorf("destination must be a pointer")
 	}
 
@@ -299,7 +299,7 @@ func unmarshalAttributeValueWithConvention(av types.AttributeValue, dest reflect
 		return fmt.Errorf("cannot set value")
 	}
 
-	if dest.Kind() == reflect.Ptr {
+	if dest.Kind() == reflect.Pointer {
 		return unmarshalPointerAttributeValueWithConvention(av, dest, inheritedConvention, inheritNaming)
 	}
 

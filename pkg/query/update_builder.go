@@ -521,7 +521,7 @@ func (ub *UpdateBuilder) ExecuteWithResult(result any) error {
 
 	// Validate result is a pointer
 	resultValue := reflect.ValueOf(result)
-	if resultValue.Kind() != reflect.Ptr || resultValue.IsNil() {
+	if resultValue.Kind() != reflect.Pointer || resultValue.IsNil() {
 		return fmt.Errorf("result must be a non-nil pointer")
 	}
 

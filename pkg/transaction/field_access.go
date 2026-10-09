@@ -25,7 +25,7 @@ func fieldByIndexPath(modelValue reflect.Value, indexPath []int) (reflect.Value,
 func validFieldIndexPath(structType reflect.Type, indexPath []int) bool {
 	current := structType
 	for _, index := range indexPath {
-		for current.Kind() == reflect.Ptr {
+		for current.Kind() == reflect.Pointer {
 			current = current.Elem()
 		}
 		if current.Kind() != reflect.Struct || index < 0 || index >= current.NumField() {
@@ -45,7 +45,7 @@ func modelStructValue(model any) (reflect.Value, error) {
 	if !modelValue.IsValid() {
 		return reflect.Value{}, fmt.Errorf("model cannot be nil")
 	}
-	if modelValue.Kind() == reflect.Ptr {
+	if modelValue.Kind() == reflect.Pointer {
 		if modelValue.IsNil() {
 			return reflect.Value{}, fmt.Errorf("model cannot be nil")
 		}

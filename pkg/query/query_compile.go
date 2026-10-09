@@ -239,7 +239,7 @@ func (q *Query) modelStructValue() (reflect.Value, bool) {
 	if !modelValue.IsValid() {
 		return reflect.Value{}, false
 	}
-	if modelValue.Kind() == reflect.Ptr {
+	if modelValue.Kind() == reflect.Pointer {
 		if modelValue.IsNil() {
 			return reflect.Value{}, false
 		}

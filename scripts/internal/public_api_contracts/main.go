@@ -26,6 +26,12 @@ type Activity struct {
 	Object string
 }
 
+const (
+	attrType   = "type"
+	attrActor  = "actor"
+	attrObject = "object"
+)
+
 func main() {
 	mustVerify(verifySnakeCaseModelUnmarshal)
 	mustVerify(verifyPromotedActivityItemUnmarshal)
@@ -159,45 +165,45 @@ func contractActivity() Activity {
 
 func promotedActivityItem(activity Activity) map[string]types.AttributeValue {
 	return map[string]types.AttributeValue{
-		"id":     &types.AttributeValueMemberS{Value: activity.ID},
-		"type":   &types.AttributeValueMemberS{Value: activity.Type},
-		"to":     stringListAttributeValue(activity.To),
-		"actor":  &types.AttributeValueMemberS{Value: activity.Actor},
-		"object": &types.AttributeValueMemberS{Value: activity.Object},
+		"id":       &types.AttributeValueMemberS{Value: activity.ID},
+		attrType:   &types.AttributeValueMemberS{Value: activity.Type},
+		"to":       stringListAttributeValue(activity.To),
+		attrActor:  &types.AttributeValueMemberS{Value: activity.Actor},
+		attrObject: &types.AttributeValueMemberS{Value: activity.Object},
 	}
 }
 
 func legacyPromotedActivityItem(activity Activity) map[string]types.AttributeValue {
 	return map[string]types.AttributeValue{
 		"baseObject": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
-			"id":   &types.AttributeValueMemberS{Value: activity.ID},
-			"type": &types.AttributeValueMemberS{Value: activity.Type},
-			"to":   stringListAttributeValue(activity.To),
+			"id":     &types.AttributeValueMemberS{Value: activity.ID},
+			attrType: &types.AttributeValueMemberS{Value: activity.Type},
+			"to":     stringListAttributeValue(activity.To),
 		}},
-		"actor":  &types.AttributeValueMemberS{Value: activity.Actor},
-		"object": &types.AttributeValueMemberS{Value: activity.Object},
+		attrActor:  &types.AttributeValueMemberS{Value: activity.Actor},
+		attrObject: &types.AttributeValueMemberS{Value: activity.Object},
 	}
 }
 
 func promotedActivityStreamImage(activity Activity) map[string]events.DynamoDBAttributeValue {
 	return map[string]events.DynamoDBAttributeValue{
-		"id":     events.NewStringAttribute(activity.ID),
-		"type":   events.NewStringAttribute(activity.Type),
-		"to":     stringListStreamAttributeValue(activity.To),
-		"actor":  events.NewStringAttribute(activity.Actor),
-		"object": events.NewStringAttribute(activity.Object),
+		"id":       events.NewStringAttribute(activity.ID),
+		attrType:   events.NewStringAttribute(activity.Type),
+		"to":       stringListStreamAttributeValue(activity.To),
+		attrActor:  events.NewStringAttribute(activity.Actor),
+		attrObject: events.NewStringAttribute(activity.Object),
 	}
 }
 
 func legacyPromotedActivityStreamImage(activity Activity) map[string]events.DynamoDBAttributeValue {
 	return map[string]events.DynamoDBAttributeValue{
 		"baseObject": events.NewMapAttribute(map[string]events.DynamoDBAttributeValue{
-			"id":   events.NewStringAttribute(activity.ID),
-			"type": events.NewStringAttribute(activity.Type),
-			"to":   stringListStreamAttributeValue(activity.To),
+			"id":     events.NewStringAttribute(activity.ID),
+			attrType: events.NewStringAttribute(activity.Type),
+			"to":     stringListStreamAttributeValue(activity.To),
 		}),
-		"actor":  events.NewStringAttribute(activity.Actor),
-		"object": events.NewStringAttribute(activity.Object),
+		attrActor:  events.NewStringAttribute(activity.Actor),
+		attrObject: events.NewStringAttribute(activity.Object),
 	}
 }
 

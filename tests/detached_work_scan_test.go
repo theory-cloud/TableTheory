@@ -103,7 +103,7 @@ func walkDetachedWorkSources(t *testing.T, root string, dirs []string, include f
 			}
 			// The walker is the single place that reads source, always from a
 			// path it derived itself by walking the repository root.
-			src, err := os.ReadFile(filepath.Clean(path))
+			src, err := os.ReadFile(filepath.Clean(path)) // #nosec G122 -- test walker reads repository sources it enumerated itself; no untrusted path input.
 			if err != nil {
 				return err
 			}

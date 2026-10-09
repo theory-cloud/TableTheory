@@ -200,7 +200,7 @@ docker-clean:
 # Install development dependencies
 install-tools:
 	@echo "Installing development tools..."
-	@GOBIN="$(GO_BIN_DIR)" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+	@GOBIN="$(GO_BIN_DIR)" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 	@GOBIN="$(GO_BIN_DIR)" go install github.com/golang/mock/mockgen@latest
 
 # Generate mocks

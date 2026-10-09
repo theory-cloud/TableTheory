@@ -204,7 +204,7 @@ func derefNonNilPointer(dest any) (reflect.Value, error) {
 	}
 
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() {
+	if destValue.Kind() != reflect.Pointer || destValue.IsNil() {
 		return reflect.Value{}, fmt.Errorf("destination must be a pointer")
 	}
 
@@ -363,7 +363,7 @@ func (qe *queryExecutor) unmarshalItemToStruct(item map[string]types.AttributeVa
 
 func (qe *queryExecutor) unmarshalItems(items []map[string]types.AttributeValue, dest any) error {
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Pointer || destValue.IsNil() || destValue.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("destination must be a pointer to slice")
 	}
 
@@ -373,7 +373,7 @@ func (qe *queryExecutor) unmarshalItems(items []map[string]types.AttributeValue,
 
 	for i, item := range items {
 		var elem reflect.Value
-		if elemType.Kind() == reflect.Ptr {
+		if elemType.Kind() == reflect.Pointer {
 			elem = reflect.New(elemType.Elem())
 		} else {
 			elem = reflect.New(elemType)
@@ -383,7 +383,7 @@ func (qe *queryExecutor) unmarshalItems(items []map[string]types.AttributeValue,
 			return fmt.Errorf("failed to unmarshal item %d: %w", i, err)
 		}
 
-		if elemType.Kind() == reflect.Ptr {
+		if elemType.Kind() == reflect.Pointer {
 			newSlice.Index(i).Set(elem)
 		} else {
 			newSlice.Index(i).Set(elem.Elem())
@@ -1381,7 +1381,7 @@ func writeCountResult(dest any, count int64, scannedCount int64) error {
 	}
 
 	value := reflect.ValueOf(dest)
-	if value.Kind() != reflect.Ptr || value.IsNil() {
+	if value.Kind() != reflect.Pointer || value.IsNil() {
 		return fmt.Errorf("destination must be a pointer")
 	}
 
