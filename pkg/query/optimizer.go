@@ -527,29 +527,29 @@ func (oq *OptimizedQuery) GetPlan() *QueryPlan {
 func (oq *OptimizedQuery) ExplainPlan() string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("Query Plan for %s:\n", oq.plan.ID))
-	sb.WriteString(fmt.Sprintf("  Operation: %s\n", oq.plan.Operation))
+	fmt.Fprintf(&sb, "Query Plan for %s:\n", oq.plan.ID)
+	fmt.Fprintf(&sb, "  Operation: %s\n", oq.plan.Operation)
 
 	if oq.plan.IndexName != "" {
-		sb.WriteString(fmt.Sprintf("  Index: %s\n", oq.plan.IndexName))
+		fmt.Fprintf(&sb, "  Index: %s\n", oq.plan.IndexName)
 	}
 
 	if oq.plan.ParallelSegments > 1 {
-		sb.WriteString(fmt.Sprintf("  Parallel Segments: %d\n", oq.plan.ParallelSegments))
+		fmt.Fprintf(&sb, "  Parallel Segments: %d\n", oq.plan.ParallelSegments)
 	}
 
 	if oq.plan.EstimatedCost != nil {
 		sb.WriteString("\n  Cost Estimates:\n")
-		sb.WriteString(fmt.Sprintf("    Read Capacity Units: %.2f\n", oq.plan.EstimatedCost.ReadCapacityUnits))
-		sb.WriteString(fmt.Sprintf("    Estimated Items: %d\n", oq.plan.EstimatedCost.EstimatedItemCount))
-		sb.WriteString(fmt.Sprintf("    Estimated Duration: %v\n", oq.plan.EstimatedCost.EstimatedDuration))
-		sb.WriteString(fmt.Sprintf("    Confidence: %.0f%%\n", oq.plan.EstimatedCost.ConfidenceLevel*100))
+		fmt.Fprintf(&sb, "    Read Capacity Units: %.2f\n", oq.plan.EstimatedCost.ReadCapacityUnits)
+		fmt.Fprintf(&sb, "    Estimated Items: %d\n", oq.plan.EstimatedCost.EstimatedItemCount)
+		fmt.Fprintf(&sb, "    Estimated Duration: %v\n", oq.plan.EstimatedCost.EstimatedDuration)
+		fmt.Fprintf(&sb, "    Confidence: %.0f%%\n", oq.plan.EstimatedCost.ConfidenceLevel*100)
 	}
 
 	if len(oq.plan.OptimizationHints) > 0 {
 		sb.WriteString("\n  Optimization Hints:\n")
 		for _, hint := range oq.plan.OptimizationHints {
-			sb.WriteString(fmt.Sprintf("    - %s\n", hint))
+			fmt.Fprintf(&sb, "    - %s\n", hint)
 		}
 	}
 

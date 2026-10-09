@@ -549,8 +549,8 @@ type ColdStartMetrics struct {
 // String returns a formatted string of the metrics
 func (m ColdStartMetrics) String() string {
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Cold Start Metrics (Total: %v)\n", m.TotalDuration))
-	result.WriteString(fmt.Sprintf("Lambda Memory: %d MB\n", m.MemoryMB))
+	fmt.Fprintf(&result, "Cold Start Metrics (Total: %v)\n", m.TotalDuration)
+	fmt.Fprintf(&result, "Lambda Memory: %d MB\n", m.MemoryMB)
 	result.WriteString("Phases:\n")
 
 	// Sort phases for consistent output
@@ -561,7 +561,7 @@ func (m ColdStartMetrics) String() string {
 	sort.Strings(phases)
 
 	for _, phase := range phases {
-		result.WriteString(fmt.Sprintf("  %s: %v\n", phase, m.Phases[phase]))
+		fmt.Fprintf(&result, "  %s: %v\n", phase, m.Phases[phase])
 	}
 
 	return result.String()
