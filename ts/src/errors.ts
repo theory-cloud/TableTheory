@@ -11,6 +11,8 @@ export type ErrorCode =
   | 'ErrEncryptedFieldNotQueryable'
   | 'ErrEncryptionNotConfigured'
   | 'ErrInvalidEncryptedEnvelope'
+  | 'ErrNumberPrecisionLoss'
+  | 'ErrMigrationEncryptionRequired'
   | 'ErrImmutableModelMutation'
   | 'ErrProtectedFieldMutation'
   | 'ErrRejectedDeployAuthorityEvidence';

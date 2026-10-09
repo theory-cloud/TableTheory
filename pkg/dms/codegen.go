@@ -100,9 +100,6 @@ func generateGo(models []Model, opts GenerateOptions) ([]byte, error) {
 		}
 		fmt.Fprintf(&out, ")\n\n")
 	}
-	if goNeedsDecimalString(models) {
-		fmt.Fprintf(&out, "type DecimalString string\n\n")
-	}
 	out.Write(body.Bytes())
 
 	formatted, err := format.Source(out.Bytes())
@@ -238,7 +235,10 @@ func goTypeForAttribute(attr Attribute, imports map[string]struct{}) (string, er
 		return "string", nil
 	case "N":
 		if attr.Format == formatDecimalString {
-			return "DecimalString", nil
+			// Exact numbers use encoding/json.Number, which the framework's
+			// default marshal paths already encode and decode as DynamoDB N.
+			imports["encoding/json"] = struct{}{}
+			return "json.Number", nil
 		}
 		return "int64", nil
 	case "B":
@@ -955,17 +955,6 @@ func tsString(value string) string {
 	}
 	b.WriteByte('\'')
 	return b.String()
-}
-
-func goNeedsDecimalString(models []Model) bool {
-	for _, m := range models {
-		for _, attr := range m.Attributes {
-			if attr.Type == "N" && attr.Format == formatDecimalString {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func pythonNeedsDecimal(models []Model) bool {

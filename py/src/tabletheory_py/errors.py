@@ -58,6 +58,10 @@ class EncryptionNotConfiguredError(TheorydbPyError):
     pass
 
 
+class MigrationEncryptionError(TheorydbPyError):
+    pass
+
+
 class AwsError(TheorydbPyError):
     def __init__(self, *, code: str, message: str) -> None:
         super().__init__(f"{code}: {message}")

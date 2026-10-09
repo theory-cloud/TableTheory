@@ -17,7 +17,7 @@ make verify-api-reference
 ### `errors`
 
 ```ts
-export type ErrorCode = 'ErrItemNotFound' | 'ErrConditionFailed' | 'ErrVersionConflict' | 'ErrLeaseHeld' | 'ErrLeaseNotOwned' | 'ErrInvalidModel' | 'ErrMissingPrimaryKey' | 'ErrInvalidOperator' | 'ErrTableNotFound' | 'ErrEncryptedFieldNotQueryable' | 'ErrEncryptionNotConfigured' | 'ErrInvalidEncryptedEnvelope' | 'ErrImmutableModelMutation' | 'ErrProtectedFieldMutation' | 'ErrRejectedDeployAuthorityEvidence';
+export type ErrorCode = 'ErrItemNotFound' | 'ErrConditionFailed' | 'ErrVersionConflict' | 'ErrLeaseHeld' | 'ErrLeaseNotOwned' | 'ErrInvalidModel' | 'ErrMissingPrimaryKey' | 'ErrInvalidOperator' | 'ErrTableNotFound' | 'ErrEncryptedFieldNotQueryable' | 'ErrEncryptionNotConfigured' | 'ErrInvalidEncryptedEnvelope' | 'ErrNumberPrecisionLoss' | 'ErrMigrationEncryptionRequired' | 'ErrImmutableModelMutation' | 'ErrProtectedFieldMutation' | 'ErrRejectedDeployAuthorityEvidence';
 export declare class TheorydbError extends Error {
     readonly code: ErrorCode;
     readonly codes: readonly ErrorCode[];
@@ -761,6 +761,7 @@ export declare function updateTimeToLive(ddb: DynamoDBClient, model: Model, opts
 
 ```ts
 import { type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import type { EncryptionProvider } from './encryption.js';
 import type { Model } from './model.js';
 /** A raw DynamoDB item (attribute-name to AttributeValue). */
 export type MigrationItem = Record<string, AttributeValue>;
@@ -780,6 +781,8 @@ export interface AutoMigrateOptions {
     batchSize?: number;
     /** Copy data from the source table into the target table. */
     dataCopy?: boolean;
+    /** Provider used to encrypt plaintext attributes the target declares encrypted. */
+    encryption?: EncryptionProvider;
 }
 /**
  * autoMigrate ensures the target table exists and, when requested, copies data

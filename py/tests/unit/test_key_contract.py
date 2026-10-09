@@ -326,3 +326,46 @@ def test_evaluation_error_and_edge_paths() -> None:
         evaluate_derived_key_definition(numeric_key, {"value": None})  # type: ignore[dict-item]
     with pytest.raises(ValidationError, match="must be a scalar"):
         evaluate_derived_key_definition(numeric_key, {"value": object()})  # type: ignore[dict-item]
+
+
+def _number_key() -> dict[str, object]:
+    return {
+        "name": "NumberBounds",
+        "join": "",
+        "inputs": [{"name": "value", "type": "number"}],
+        "segments": [{"prefix": "n=", "value": {"input": "value"}}],
+    }
+
+
+def test_number_bounds_reject_hostile_exponents() -> None:
+    key = _number_key()
+    for value in (
+        "1e100000000",
+        Decimal("1e100000000"),
+        Decimal("1e125000000"),
+        1e126,
+        "1e-131",
+        Decimal("1e-131"),
+    ):
+        with pytest.raises(ValidationError, match="within DynamoDB number bounds"):
+            evaluate_derived_key_definition(key, {"value": value})
+
+
+def test_number_bounds_keep_supported_magnitudes_canonical() -> None:
+    key = _number_key()
+    assert evaluate_derived_key_definition(key, {"value": "1e21"}) == "n=1000000000000000000000"
+    assert evaluate_derived_key_definition(key, {"value": 1e21}) == "n=1000000000000000000000"
+    assert evaluate_derived_key_definition(key, {"value": 1e-6}) == "n=0.000001"
+    assert evaluate_derived_key_definition(key, {"value": Decimal("1.250")}) == "n=1.250"
+    assert evaluate_derived_key_definition(key, {"value": "0.00"}) == "n=0"
+    assert evaluate_derived_key_definition(key, {"value": -0.0}) == "n=0"
+    assert evaluate_derived_key_definition(key, {"value": Decimal("9.9e125")}) == "n=99" + "0" * 124
+    assert evaluate_derived_key_definition(key, {"value": Decimal("1e125")}) == "n=1" + "0" * 125
+    assert evaluate_derived_key_definition(key, {"value": Decimal("1e-130")}) == "n=0." + "0" * 129 + "1"
+
+
+def test_number_bounds_still_reject_non_finite_values() -> None:
+    key = _number_key()
+    for value in (math.nan, math.inf, -math.inf):
+        with pytest.raises(ValidationError, match="finite number"):
+            evaluate_derived_key_definition(key, {"value": value})
