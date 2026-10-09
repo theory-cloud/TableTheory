@@ -25,6 +25,7 @@ type MultiAccountDB struct {
 	baseDB     *LambdaDB
 	accounts   map[string]AccountConfig
 	cache      *sync.Map
+	now        func() time.Time
 	baseConfig aws.Config
 	mu         sync.RWMutex
 }
@@ -40,10 +41,11 @@ type AccountConfig struct {
 
 // NewMultiAccount creates a multi-account aware DB.
 //
-// NewMultiAccount starts no background work. Partner sessions are created and
-// refreshed synchronously on the Partner() call path, inside the invocation
-// that needs them, because Lambda freezes the execution environment when the
-// handler returns.
+// NewMultiAccount starts no background work. A partner session is created and
+// refreshed synchronously on the Partner() call path, inside the invocation that
+// needs it, because Lambda freezes the execution environment when the handler
+// returns. One Partner() call touches only the partner it was asked for; it never
+// sweeps the whole cache.
 func NewMultiAccount(accounts map[string]AccountConfig) (*MultiAccountDB, error) {
 	baseDB, err := NewLambdaOptimized()
 	if err != nil {
@@ -60,27 +62,40 @@ func NewMultiAccount(accounts map[string]AccountConfig) (*MultiAccountDB, error)
 		baseDB:     baseDB,
 		accounts:   accounts,
 		cache:      &sync.Map{},
+		now:        time.Now,
 		baseConfig: baseConfig,
 	}, nil
 }
 
-// Partner returns a DB instance for the specified partner account
+// Partner returns a DB instance for the specified partner account.
+//
+// A Partner() call performs work only for the partner it was asked for. An
+// expired cache entry for another partner is left untouched until that partner is
+// requested, so one caller cannot be blocked by unrelated sessions. When a
+// refresh fails, the entry records an exponential backoff and later calls within
+// that window fail fast instead of repeating the rebuild; a successful refresh
+// clears the backoff.
 func (mdb *MultiAccountDB) Partner(partnerID string) (*LambdaDB, error) {
 	// Empty partner ID returns base DB
 	if partnerID == "" {
 		return mdb.baseDB, nil
 	}
 
-	// Refresh cached partner sessions that have passed their renewal deadline.
-	// This runs synchronously inside the calling invocation: Lambda freezes the
-	// execution environment when the handler returns, so the refresh may not be
-	// deferred to a background goroutine or ticker.
-	mdb.refreshExpiredCredentials()
+	now := mdb.clock()
 
-	// Check cache first
+	// Check cache first.
 	if cached, ok := mdb.cache.Load(partnerID); ok {
-		if entry, ok := cached.(*cacheEntry); ok && !entry.isExpired() {
-			return entry.db, nil
+		if entry, ok := cached.(*cacheEntry); ok && entry != nil {
+			if !entry.isExpiredAt(now) {
+				return entry.db, nil
+			}
+			if now.Before(entry.backoffUntil) {
+				return nil, fmt.Errorf(
+					"partner %s session refresh is backing off until %s",
+					sanitizePartnerID(partnerID),
+					entry.backoffUntil.UTC().Format(time.RFC3339),
+				)
+			}
 		}
 	}
 
@@ -93,8 +108,13 @@ func (mdb *MultiAccountDB) Partner(partnerID string) (*LambdaDB, error) {
 		return nil, fmt.Errorf("unknown partner: %s", partnerID)
 	}
 
-	// Create or refresh DB for partner
-	return mdb.createPartnerDB(partnerID, account)
+	// Create or refresh DB for this partner only.
+	db, err := mdb.createPartnerDB(partnerID, account)
+	if err != nil {
+		mdb.recordPartnerRefreshFailure(partnerID, account, now)
+		return nil, err
+	}
+	return db, nil
 }
 
 // AddPartner dynamically adds a new partner configuration
@@ -190,7 +210,7 @@ func (mdb *MultiAccountDB) createPartnerDB(partnerID string, account AccountConf
 	// Cache with expiration
 	entry := &cacheEntry{
 		db:         lambdaDB,
-		expiry:     time.Now().Add(sessionDuration - 5*time.Minute), // Refresh 5 minutes before expiry
+		expiry:     mdb.clock().Add(sessionDuration - 5*time.Minute), // Refresh 5 minutes before expiry
 		partnerID:  partnerID,
 		accountCfg: account,
 	}
@@ -199,60 +219,63 @@ func (mdb *MultiAccountDB) createPartnerDB(partnerID string, account AccountConf
 	return lambdaDB, nil
 }
 
-// refreshExpiredCredentials synchronously refreshes the cached partner sessions
-// that have passed their renewal deadline, and returns only once every refresh
-// it started has finished. It runs on the invocation path from Partner(), not on
-// a background ticker: Lambda freezes the execution environment when the handler
-// returns, so a ticker and any refresh it triggered could be frozen mid-flight
-// and resume against an invocation that had already completed.
-//
-// It uses the same expiry predicate as the Partner() cache lookup
-// (cacheEntry.isExpired), so a session this sweep renews is skipped by later
-// sweeps while it stays fresh.
-//
-// It is not exactly-once, and an earlier revision of this comment was wrong to
-// claim "at most once per session lifetime":
-//
-//   - Under concurrency, two Partner() calls can both observe the same expired
-//     entry and both refresh it, because there is no per-partner single-flight
-//     here. A correct one would have to own the whole cache-fill path for a
-//     partner (including Partner()'s own createPartnerDB call after this sweep)
-//     with a lock shared by the WithContext-derived instances that share the
-//     cache, which is a larger change than this sweep can carry alone.
-//   - A failed refresh leaves the old, expired entry in the cache, so the next
-//     call retries it. That retry is the recovery path, not a defect.
-//
-// Both cases are benign: a refresh is idempotent (a successful one stores an
-// equivalent session with a renewed deadline), and the sweep is best-effort
-// cleanup rather than a correctness guarantee.
-func (mdb *MultiAccountDB) refreshExpiredCredentials() {
-	mdb.cache.Range(func(key, value any) bool {
-		partnerID, ok := key.(string)
-		if !ok {
-			return true
+// Partner refresh backoff bounds. A failed partner build is retried after an
+// exponentially growing delay, capped here, so a persistently failing partner
+// cannot be rebuilt on every request while a healthy one stays fast.
+const (
+	partnerRefreshBaseBackoff = 250 * time.Millisecond
+	partnerRefreshMaxBackoff  = 30 * time.Second
+)
+
+// clock returns the manager's time source, defaulting to the wall clock. Tests
+// inject a deterministic clock through the unexported now field.
+func (mdb *MultiAccountDB) clock() time.Time {
+	if mdb != nil && mdb.now != nil {
+		return mdb.now()
+	}
+	return time.Now()
+}
+
+// partnerRefreshBackoff returns the backoff for the given consecutive failure
+// count, doubling from the base delay and capped at the maximum.
+func partnerRefreshBackoff(failures int) time.Duration {
+	if failures < 1 {
+		failures = 1
+	}
+	backoff := partnerRefreshBaseBackoff
+	for i := 1; i < failures && backoff < partnerRefreshMaxBackoff; i++ {
+		backoff *= 2
+	}
+	if backoff > partnerRefreshMaxBackoff {
+		backoff = partnerRefreshMaxBackoff
+	}
+	return backoff
+}
+
+// recordPartnerRefreshFailure stores a backoff marker for a partner whose
+// synchronous refresh failed. The marker keeps the partner's account config so a
+// later retry can rebuild it, and carries the failure count forward so repeated
+// failures back off further. The stored entry has no db and an already-passed
+// expiry, so a successful later rebuild replaces it.
+func (mdb *MultiAccountDB) recordPartnerRefreshFailure(partnerID string, account AccountConfig, now time.Time) {
+	failures := 1
+	if existing, ok := mdb.cache.Load(partnerID); ok {
+		if entry, ok := existing.(*cacheEntry); ok && entry != nil && entry.accountCfg == account {
+			failures = entry.failures + 1
 		}
+	}
 
-		entry, ok := value.(*cacheEntry)
-		if !ok || entry == nil {
-			return true
-		}
+	// SECURITY: Log without exposing sensitive credential details.
+	opID := generateOperationID()
+	log.Printf("Credential refresh failed: operation_id=%s partner_id=%s",
+		opID, sanitizePartnerID(partnerID))
 
-		// Check if credentials have reached their renewal deadline
-		if entry.isExpired() {
-			if _, err := mdb.createPartnerDB(partnerID, entry.accountCfg); err != nil {
-				// SECURITY: Log without exposing sensitive credential details
-				// Generate operation ID for correlation
-				opID := generateOperationID()
-
-				// Log detailed error internally for debugging (sanitized)
-				log.Printf("Credential refresh failed: operation_id=%s partner_id=%s",
-					opID, sanitizePartnerID(partnerID))
-
-				// Don't expose internal error details in logs
-			}
-		}
-
-		return true
+	mdb.cache.Store(partnerID, &cacheEntry{
+		expiry:       now,
+		partnerID:    partnerID,
+		accountCfg:   account,
+		failures:     failures,
+		backoffUntil: now.Add(partnerRefreshBackoff(failures)),
 	})
 }
 
@@ -268,6 +291,7 @@ func (mdb *MultiAccountDB) WithContext(ctx context.Context) *MultiAccountDB {
 	newMDB := &MultiAccountDB{
 		baseDB:     mdb.baseDB.WithLambdaTimeout(ctx),
 		accounts:   mdb.accounts,
+		now:        mdb.now,
 		baseConfig: mdb.baseConfig,
 	}
 	// Share the same cache pointer
@@ -281,11 +305,18 @@ type cacheEntry struct {
 	expiry     time.Time
 	partnerID  string
 	accountCfg AccountConfig
+
+	// backoffUntil and failures track a failed refresh so repeated Partner()
+	// calls do not repeat the rebuild. A successful createPartnerDB stores a
+	// fresh entry with these zeroed.
+	backoffUntil time.Time
+	failures     int
 }
 
-// isExpired checks if the cache entry has expired
-func (e *cacheEntry) isExpired() bool {
-	return time.Now().After(e.expiry)
+// isExpiredAt reports whether the cache entry has passed its renewal deadline at
+// the given instant.
+func (e *cacheEntry) isExpiredAt(now time.Time) bool {
+	return now.After(e.expiry)
 }
 
 // PartnerContext adds partner information to context for tracing
