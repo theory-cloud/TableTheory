@@ -64,9 +64,11 @@
   configured session KMS key when one is present
 * **py:** bound derived-key numeric coercion to DynamoDB's exponent range before fixed-point expansion, so a tiny
   input such as `1e100000000` can no longer expand toward an unbounded allocation
-* **ts:** aggregate exact-decimal-string `N` values numerically for `sum`/`average`/`min`/`max`/`group by` instead of
-  silently returning `0` or comparing lexicographically, and raise `ErrNumberPrecisionLoss` when a value cannot be
-  represented exactly
+* **ts:** aggregate exact-decimal-string `N` values numerically: `sum`/`average`/`min`/`max`/`group by`/`having` no
+  longer silently return `0` or order lexicographically. `min`/`max`/`group by` order by exact decimal text;
+  `sum`/`average`/`having` accumulate exactly and return a number only when every value and the result is exactly
+  representable as an IEEE-754 double, otherwise raising `ErrNumberPrecisionLoss`; exponent notation outside DynamoDB's
+  `[-130, 125]` adjusted-exponent range is rejected before any fixed-point expansion
 * **ts:** retain and compare DMS attribute `format` in normalization, equivalence, and model-to-DMS so format-only
   drift is no longer reported equivalent
 * **go:** remove the detached cold-start pre-warm and the multi-account credential-refresh ticker, so no TableTheory
