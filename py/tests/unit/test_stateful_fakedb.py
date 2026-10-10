@@ -370,3 +370,56 @@ def test_stateful_fakedb_count_and_limit_follow_dynamodb_semantics() -> None:
     counted = client.scan(TableName=table_name, Select="COUNT")
     assert counted["Count"] == 3
     assert counted["ScannedCount"] == 3
+
+
+def test_stateful_fakedb_keeps_distinct_composite_keys_distinct() -> None:
+    client = StatefulDynamoDBClient()
+    table_name = "notes_composite_keys"
+    client.create_table(
+        TableName=table_name,
+        KeySchema=[
+            {"AttributeName": "PK", "KeyType": "HASH"},
+            {"AttributeName": "SK", "KeyType": "RANGE"},
+        ],
+    )
+
+    # These two DynamoDB key tuples both naive-concatenate to "S:a|S:b|S:c".
+    first_item = _item("a|S:b", "c", "first", "10")
+    second_item = _item("a", "b|S:c", "second", "20")
+    first_key = _key("a|S:b", "c")
+    second_key = _key("a", "b|S:c")
+
+    client.batch_write_item(
+        RequestItems={
+            table_name: [
+                {"PutRequest": {"Item": first_item}},
+                {"PutRequest": {"Item": second_item}},
+            ]
+        }
+    )
+    client.transact_write_items(
+        TransactItems=[{"Put": {"TableName": table_name, "Item": _item("tx|S:1", "tail", "tx", "30")}}]
+    )
+    assert len(client.items(table_name)) == 3, "distinct composite keys must not alias"
+
+    # get: each key resolves to its own item.
+    assert client.get_item(TableName=table_name, Key=first_key)["Item"]["name"] == _av_s("first")
+    assert client.get_item(TableName=table_name, Key=second_key)["Item"]["name"] == _av_s("second")
+
+    # batch get: both keys return.
+    batch = client.batch_get_item(RequestItems={table_name: {"Keys": [first_key, second_key]}})
+    assert len(batch["Responses"][table_name]) == 2
+
+    # transaction get: the second item is still addressable.
+    transact = client.transact_get_items(
+        TransactItems=[{"Get": {"TableName": table_name, "Key": second_key}}]
+    )
+    assert transact["Responses"][0]["Item"]["name"] == _av_s("second")
+
+    # delete: only the addressed item disappears.
+    client.delete_item(TableName=table_name, Key=first_key)
+    assert client.get_item(TableName=table_name, Key=second_key)["Item"]["name"] == _av_s("second")
+
+    # ordinary delimiter-free keys are unchanged.
+    client.put_item(TableName=table_name, Item=_item("USER#1", "A", "ordinary", "1"))
+    assert client.get_item(TableName=table_name, Key=_key("USER#1", "A"))["Item"]["name"] == _av_s("ordinary")

@@ -162,6 +162,17 @@ func TestSecureBodyReaderStalledHTTP1BodyReleasesRequestSlot(t *testing.T) {
 		t.Fatal("server handler never started")
 	}
 
+	// The handler closes handlerStarted before it acquires the slot, so first
+	// wait for the stalled request to actually hold the slot. Without this the
+	// release check below can pass spuriously — observing a free slot before the
+	// stalled request ever acquired one — and the follow-up control request then
+	// races the still-in-flight hold and is correctly rejected as over the
+	// concurrency limit.
+	require.Eventually(t, func() bool {
+		return len(protector.requestSemaphore) == 1
+	}, requestTimeout+2*time.Second, 2*time.Millisecond,
+		"stalled HTTP/1 request never acquired the request slot")
+
 	// The slot is released within the documented bound even though the client
 	// never sends the declared body.
 	require.Eventually(t, func() bool {

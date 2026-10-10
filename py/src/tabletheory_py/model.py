@@ -287,6 +287,11 @@ class ModelDefinition[T]:
 
             converter = cast(AttributeConverter | None, opts.get("converter"))
             attribute_name = cast(str, opts.get("name", dc_field.name))
+            # A present-but-empty (or whitespace-only) override is malformed:
+            # reject it rather than register the field under a blank (or, in Go,
+            # unintended inferred) database attribute name.
+            if not isinstance(attribute_name, str) or not attribute_name.strip():
+                raise ModelDefinitionError(f"field {dc_field.name} attribute name must be a non-empty string")
             if previous_field := attribute_names.get(attribute_name):
                 # Python has no distinct duplicate-primary-key exception sentinel;
                 # all model-shape failures use ModelDefinitionError.

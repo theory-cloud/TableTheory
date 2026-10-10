@@ -19,14 +19,26 @@ import (
 
 // Query represents a DynamoDB query builder
 type Query struct {
-	builderErr              error
-	executor                QueryExecutor
-	metadata                core.ModelMetadata
-	rawMetadata             *model.Metadata
-	converter               AttributeValueConverter
-	marshaler               marshal.MarshalerInterface
-	ctx                     context.Context
-	cancel                  context.CancelFunc
+	builderErr  error
+	executor    QueryExecutor
+	metadata    core.ModelMetadata
+	rawMetadata *model.Metadata
+	converter   AttributeValueConverter
+	marshaler   marshal.MarshalerInterface
+	ctx         context.Context
+	baseCtx     context.Context
+	// cancelCtx is the cancelable layer installed by WithCancellation. Together
+	// with the deadline retained from QueryTimeout it forms the retained layers
+	// the effective context is recomposed from, so either ordering of
+	// WithCancellation and QueryTimeout keeps both the deadline and manual
+	// cancellation in force.
+	cancelCtx context.Context
+	cancel    context.CancelFunc
+	// deadline is the absolute instant configured by QueryTimeout; the zero value
+	// means no timeout is configured. It is retained rather than recomputed so a
+	// later WithCancellation preserves the exact bound instead of extending or
+	// discarding it.
+	deadline                time.Time
 	model                   any
 	exclusive               map[string]types.AttributeValue
 	retryConfig             *RetryConfig
@@ -466,11 +478,13 @@ type preparedBatchWriteItemExecutor interface {
 
 // New creates a new Query instance
 func New(model any, metadata core.ModelMetadata, executor QueryExecutor) *Query {
+	baseCtx := context.Background()
 	q := &Query{
 		model:                   model,
 		metadata:                metadata,
 		executor:                executor,
-		ctx:                     context.Background(),
+		ctx:                     baseCtx,
+		baseCtx:                 baseCtx,
 		filters:                 make([]Filter, 0),
 		writeConditions:         make([]Condition, 0),
 		rawConditionExpressions: make([]conditionExpression, 0),

@@ -475,7 +475,16 @@ def _item_key(table: _TableState, item: Item) -> str:
     if table.pk not in item:
         raise ValueError(f"missing partition key {table.pk}")
     sk = table.sk
-    return _key_part(item[table.pk]) + ("|" + _key_part(item.get(sk)) if sk else "")
+    return _key_index_component(item[table.pk]) + ("|" + _key_index_component(item.get(sk)) if sk else "")
+
+
+def _key_index_component(av: Any) -> str:
+    # Length-prefix _key_part so distinct composite-key tuples cannot alias onto
+    # the same dict key. Concatenating _key_part output directly would collide
+    # (PK="a|S:b", SK="c") with (PK="a", SK="b|S:c") at "S:a|S:b|S:c". _key_part
+    # is left unchanged for ordering and value extraction.
+    part = _key_part(av)
+    return f"{len(part)}:{part}"
 
 
 def _key_from_map(table: _TableState, key: Item) -> str:
