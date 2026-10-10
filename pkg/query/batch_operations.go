@@ -602,7 +602,7 @@ func (q *Query) applyContext() {
 	if base == nil {
 		base = context.Background()
 	}
-	if q.hasDeadline {
+	if !q.deadline.IsZero() {
 		ctx, cancel := context.WithDeadline(base, q.deadline)
 		q.ctx = ctx
 		q.cancel = cancel
@@ -621,7 +621,6 @@ func (q *Query) applyContext() {
 // configured before WithCancellation is no longer discarded.
 func (q *Query) QueryTimeout(timeout time.Duration) core.Query {
 	q.deadline = time.Now().Add(timeout)
-	q.hasDeadline = true
 	q.applyContext()
 	return q
 }

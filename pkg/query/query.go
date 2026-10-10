@@ -34,11 +34,11 @@ type Query struct {
 	// cancellation in force.
 	cancelCtx context.Context
 	cancel    context.CancelFunc
-	// deadline is the absolute instant configured by QueryTimeout. It is retained
-	// rather than recomputed so a later WithCancellation preserves the exact bound
-	// instead of extending or discarding it.
+	// deadline is the absolute instant configured by QueryTimeout; the zero value
+	// means no timeout is configured. It is retained rather than recomputed so a
+	// later WithCancellation preserves the exact bound instead of extending or
+	// discarding it.
 	deadline                time.Time
-	hasDeadline             bool
 	model                   any
 	exclusive               map[string]types.AttributeValue
 	retryConfig             *RetryConfig

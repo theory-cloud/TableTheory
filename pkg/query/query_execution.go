@@ -956,7 +956,6 @@ func (q *Query) WithContext(ctx context.Context) core.Query {
 	// cancellation wrapper installed by WithCancellation and any deadline
 	// configured by QueryTimeout.
 	q.cancelCtx = nil
-	q.hasDeadline = false
 	q.deadline = time.Time{}
 	if ctx == nil {
 		ctx = context.Background()
