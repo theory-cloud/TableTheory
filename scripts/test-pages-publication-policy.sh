@@ -15,6 +15,14 @@ set -euo pipefail
 # not read or mutate hosted repository/environment settings and never contacts
 # GitHub.
 #
+# The gate fails closed rather than guessing: a condition it cannot reduce to
+# the modeled context properties (an unknown identifier, a function call, an
+# unparseable token) is a finding, not a falsy value; a Pages deploy sink the
+# structural walk cannot attribute to a job, and a deploying job no modeled
+# event can reach, are findings too. The repository scan additionally asserts
+# that it reviewed at least one deploy job, so a rename or reformat cannot turn
+# the gate into a silent no-op.
+#
 # It also asserts the inverse (ordinary success control): the trusted
 # `main`/tag publication journey must remain eligible, and build-only
 # (pull_request) runs must not share the publication concurrency queue.
@@ -52,6 +60,12 @@ CONTEXTS = [
 UNSAFE_CONTEXTS = {"pull_request to staging", "pull_request to main", "push to staging"}
 PUBLICATION_CONTEXTS = {"push to main", "dispatch on main", "dispatch on tag"}
 
+# Exactly the context properties the synthetic matrix models. A condition that
+# reads any other property cannot be evaluated here, and an unknown property
+# would look falsy while GitHub could evaluate it true on a staging push, so the
+# gate fails closed instead of guessing.
+MODELED_IDENTIFIERS = frozenset(CONTEXTS[0][1])
+
 
 class Unsupported(Exception):
     pass
@@ -77,6 +91,25 @@ def strip_comment(line: str) -> str:
 
 def indent_of(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
+
+
+def min_indent(lines, begin, end):
+    """Indentation of the shallowest content line in lines[begin:end].
+
+    YAML nesting depth is what matters here, not a fixed column. Deriving child
+    indentation from the document itself keeps the gate working when a workflow
+    is reformatted with a different but valid indent width, instead of silently
+    reviewing zero jobs.
+    """
+    shallowest = None
+    for i in range(begin, end):
+        s = strip_comment(lines[i])
+        if not s.strip():
+            continue
+        ind = indent_of(s)
+        if shallowest is None or ind < shallowest:
+            shallowest = ind
+    return shallowest
 
 
 def parse_top_level(lines):
@@ -109,6 +142,10 @@ def parse_on(lines, start, end, inline):
             triggers[value.strip("'\"")] = {}
         return triggers
 
+    event_indent = min_indent(lines, start + 1, end)
+    if event_indent is None:
+        return triggers
+
     current = None
     sub = {}
     last_key = None
@@ -117,14 +154,14 @@ def parse_on(lines, start, end, inline):
         if not s.strip():
             continue
         ind = indent_of(s)
-        if ind == 2:
+        if ind == event_indent:
             if current is not None:
                 triggers[current] = sub
             m = re.match(r"^\s*([^\s:#][^:]*):\s*(.*)$", s)
             current = m.group(1).strip().strip("'\"") if m else None
             sub = {}
             last_key = None
-        elif ind >= 4 and current is not None:
+        elif ind > event_indent and current is not None:
             stripped = s.strip()
             if stripped.startswith("-") and last_key:
                 sub[last_key].append(stripped[1:].strip().strip("'\""))
@@ -189,11 +226,14 @@ def parse_jobs(lines, start, end):
     jobs = []
     current = None
     job_start = None
+    job_indent = min_indent(lines, start + 1, end)
+    if job_indent is None:
+        return jobs
     for i in range(start + 1, end):
         s = strip_comment(lines[i])
         if not s.strip():
             continue
-        if indent_of(s) == 2:
+        if indent_of(s) == job_indent:
             m = re.match(r"^\s*([^\s:#][^:]*):\s*$", s)
             if m:
                 if current is not None:
@@ -213,10 +253,23 @@ def job_deploys_pages(body_text):
     return re.search(r"uses:\s*actions/deploy-pages@", body_text) is not None
 
 
+def page_deploy_sinks(lines):
+    """Lines carrying a Pages deploy sink, independent of YAML shape.
+
+    Used as a vacuity guard: a sink the structural walk did not attribute to a
+    reviewed deploy job means the gate could not read the document's shape and
+    must fail closed rather than report a clean scan.
+    """
+    return sum(1 for raw in lines if "actions/deploy-pages@" in strip_comment(raw))
+
+
 def job_if_value(body):
+    prop_indent = min_indent(body, 1, len(body))
+    if prop_indent is None:
+        return None
     for line in body:
         s = strip_comment(line)
-        if indent_of(s) == 4:
+        if indent_of(s) == prop_indent:
             m = re.match(r"^\s*if:\s*(.*)$", s)
             if m:
                 return m.group(1).strip()
@@ -227,9 +280,14 @@ def concurrency_group(lines, block):
     start, end, inline = block
     if inline.strip():
         return inline.strip()
+    group_indent = min_indent(lines, start + 1, end)
+    if group_indent is None:
+        return None
     for i in range(start + 1, end):
         s = strip_comment(lines[i])
-        m = re.match(r"^\s{2}group:\s*(.*)$", s)
+        if indent_of(s) != group_indent:
+            continue
+        m = re.match(r"^\s*group:\s*(.*)$", s)
         if m:
             return m.group(1).strip()
     return None
@@ -353,7 +411,12 @@ class Parser:
         if kind == "ident":
             if self.peek() == ("op", "("):
                 raise Unsupported(f"function call {val}(...) is not analyzable")
-            return self.ctx.get(val, "")
+            if val not in MODELED_IDENTIFIERS:
+                raise Unsupported(
+                    f"context property {val!r} is not modeled by this gate, so it could "
+                    "evaluate true on a staging or pull request run"
+                )
+            return self.ctx[val]
         raise Unsupported(f"unexpected token {kind}:{val}")
 
 
@@ -362,6 +425,21 @@ def eval_expr(expr, ctx):
     if not expr:
         raise Unsupported("empty expression")
     return Parser(tokenize(expr), ctx).parse()
+
+
+def eval_concurrency_group(expr, ctx):
+    """Resolve a concurrency group the way GitHub does.
+
+    A bare value is a literal string, not an expression; only a single `${{ }}`
+    wrapper is evaluated. A group that mixes literal text with expressions is
+    not reducible here, so it fails closed.
+    """
+    raw = expr.strip()
+    if "${{" not in raw:
+        return raw
+    if raw.startswith("${{") and raw.endswith("}}"):
+        return str(eval_expr(raw, ctx))
+    raise Unsupported("concurrency group mixes literal text with expressions")
 
 
 def check_workflows(root: Path):
@@ -379,74 +457,97 @@ def check_workflows(root: Path):
         if "on" in top:
             start, end, inline = top["on"]
             triggers = parse_on(lines, start, end, inline)
-        if "jobs" not in top:
-            continue
-        job_start, job_end, _ = top["jobs"]
-        group_expr = concurrency_group(lines, top["concurrency"]) if "concurrency" in top else None
 
-        for job_id, jstart, jend in parse_jobs(lines, job_start, job_end):
-            body = job_body(lines, jstart, jend)
-            if not job_deploys_pages("\n".join(body)):
-                continue
-            deploy_jobs += 1
-            condition = job_if_value(body)
+        file_deploy_jobs = 0
+        if "jobs" in top:
+            job_start, job_end, _ = top["jobs"]
+            group_expr = concurrency_group(lines, top["concurrency"]) if "concurrency" in top else None
 
-            for name, ctx in CONTEXTS:
-                if not triggered(triggers, ctx["github.event_name"], ctx["github.ref"], ctx["github.base_ref"]):
+            for job_id, jstart, jend in parse_jobs(lines, job_start, job_end):
+                body = job_body(lines, jstart, jend)
+                if not job_deploys_pages("\n".join(body)):
                     continue
-                try:
-                    eligible = True if condition is None else truthy(eval_expr(condition, ctx))
-                except Unsupported as exc:
-                    problems.append(
-                        f"{path}: deploy job {job_id!r} has a condition this gate cannot analyze "
-                        f"({exc}); use a simple main push/dispatch guard"
-                    )
-                    continue
-                if eligible and name in UNSAFE_CONTEXTS:
-                    problems.append(
-                        f"{path}: deploy job {job_id!r} can publish Pages for the {name!r} context "
-                        f"(condition: {condition!r})"
-                    )
-                if not eligible and name in PUBLICATION_CONTEXTS:
-                    problems.append(
-                        f"{path}: deploy job {job_id!r} no longer publishes for the trusted {name!r} context "
-                        f"(condition: {condition!r})"
-                    )
+                file_deploy_jobs += 1
+                deploy_jobs += 1
+                condition = job_if_value(body)
 
-            if group_expr is not None:
-                build_ctxs = [
-                    (name, ctx)
-                    for name, ctx in CONTEXTS
-                    if name in UNSAFE_CONTEXTS
-                    and triggered(triggers, ctx["github.event_name"], ctx["github.ref"], ctx["github.base_ref"])
-                ]
-                pub_ctxs = [
-                    (name, ctx)
-                    for name, ctx in CONTEXTS
-                    if name in PUBLICATION_CONTEXTS
-                    and triggered(triggers, ctx["github.event_name"], ctx["github.ref"], ctx["github.base_ref"])
-                ]
-                if build_ctxs and pub_ctxs:
+                reachable = False
+                for name, ctx in CONTEXTS:
+                    if not triggered(triggers, ctx["github.event_name"], ctx["github.ref"], ctx["github.base_ref"]):
+                        continue
+                    reachable = True
                     try:
-                        groups = {
-                            (name, str(eval_expr(group_expr, ctx)))
-                            for name, ctx in build_ctxs + pub_ctxs
-                        }
+                        eligible = True if condition is None else truthy(eval_expr(condition, ctx))
                     except Unsupported as exc:
                         problems.append(
-                            f"{path}: concurrency group this gate cannot analyze ({exc}); "
-                            "build-only runs must use a group distinct from publication"
+                            f"{path}: deploy job {job_id!r} has a condition this gate cannot analyze "
+                            f"({exc}); use a simple main push/dispatch guard"
                         )
-                    else:
-                        build_groups = {g for name, g in groups if name in UNSAFE_CONTEXTS}
-                        pub_groups = {g for name, g in groups if name in PUBLICATION_CONTEXTS}
-                        shared = build_groups & pub_groups
-                        if shared:
+                        continue
+                    if eligible and name in UNSAFE_CONTEXTS:
+                        problems.append(
+                            f"{path}: deploy job {job_id!r} can publish Pages for the {name!r} context "
+                            f"(condition: {condition!r})"
+                        )
+                    if not eligible and name in PUBLICATION_CONTEXTS:
+                        problems.append(
+                            f"{path}: deploy job {job_id!r} no longer publishes for the trusted {name!r} context "
+                            f"(condition: {condition!r})"
+                        )
+
+                # A deploy job no modeled event can reach is not evidence of
+                # main-only publication; it is an unread trigger shape.
+                if not reachable:
+                    problems.append(
+                        f"{path}: deploy job {job_id!r} is not reachable from any modeled trigger context, "
+                        "so this gate cannot confirm it can never publish from staging or a pull request"
+                    )
+
+                if group_expr is not None:
+                    build_ctxs = [
+                        (name, ctx)
+                        for name, ctx in CONTEXTS
+                        if name in UNSAFE_CONTEXTS
+                        and triggered(triggers, ctx["github.event_name"], ctx["github.ref"], ctx["github.base_ref"])
+                    ]
+                    pub_ctxs = [
+                        (name, ctx)
+                        for name, ctx in CONTEXTS
+                        if name in PUBLICATION_CONTEXTS
+                        and triggered(triggers, ctx["github.event_name"], ctx["github.ref"], ctx["github.base_ref"])
+                    ]
+                    if build_ctxs and pub_ctxs:
+                        try:
+                            groups = {
+                                (name, str(eval_concurrency_group(group_expr, ctx)))
+                                for name, ctx in build_ctxs + pub_ctxs
+                            }
+                        except Unsupported as exc:
                             problems.append(
-                                f"{path}: build-only runs share concurrency group "
-                                f"{', '.join(sorted(shared)) or '<empty>'} with publication runs; a "
-                                "build-only update could replace a pending publication"
+                                f"{path}: concurrency group this gate cannot analyze ({exc}); "
+                                "build-only runs must use a group distinct from publication"
                             )
+                        else:
+                            build_groups = {g for name, g in groups if name in UNSAFE_CONTEXTS}
+                            pub_groups = {g for name, g in groups if name in PUBLICATION_CONTEXTS}
+                            shared = build_groups & pub_groups
+                            if shared:
+                                problems.append(
+                                    f"{path}: build-only runs share concurrency group "
+                                    f"{', '.join(sorted(shared)) or '<empty>'} with publication runs; a "
+                                    "build-only update could replace a pending publication"
+                                )
+
+        # Vacuity guard: every Pages deploy sink in the file must have been
+        # attributed to a job the gate actually reviewed. An unreadable shape or
+        # indent width would otherwise let a staging or PR deploy job pass
+        # unreviewed and report a clean scan.
+        sinks = page_deploy_sinks(lines)
+        if sinks > file_deploy_jobs:
+            problems.append(
+                f"{path}: contains {sinks} Pages deploy sink(s) but this gate attributed only "
+                f"{file_deploy_jobs} to a reviewed job; unsupported YAML shape or indentation"
+            )
 
     return problems, deploy_jobs
 
@@ -496,8 +597,20 @@ expect_reject() {
 
 # 1. The real workflows must pass: no Pages deploy is reachable from staging or
 #    pull_request, the main/tag publication journey is retained, and build-only
-#    runs use a concurrency group distinct from publication.
-expect_accept "${repo_root}/.github/workflows" "repository workflows"
+#    runs use a concurrency group distinct from publication. The scan must also
+#    be non-vacuous: it has to have reviewed at least one deploy job, or a
+#    rename/reformat could reduce this gate to a no-op that still prints clean.
+repo_output=""
+if ! repo_output="$(run_checker "${repo_root}/.github/workflows" 2>&1)"; then
+  printf '%s\n' "${repo_output}"
+  echo "pages-publication-policy: repository workflows: expected the checker to pass"
+  exit 1
+fi
+if ! grep -Eq 'clean \(([1-9][0-9]*) deploy job\(s\) reviewed' <<<"${repo_output}"; then
+  printf '%s\n' "${repo_output}"
+  echo "pages-publication-policy: repository workflows: the scan reviewed no Pages deploy job, so the gate would pass vacuously"
+  exit 1
+fi
 
 # 2. Pull request trigger + an unguarded deploy job.
 pr_fixture="$(mktemp -d)"
@@ -659,5 +772,134 @@ jobs:
       - uses: actions/deploy-pages@0000000000000000000000000000000000000000
 YAML
 expect_accept "${main_only_fixture}" "main-only publication fixture"
+
+# 9. An unknown context property in a deploy guard. GitHub could evaluate
+#    `github.repository_owner != ''` as true on a staging push; a gate that
+#    resolves every unmodeled identifier to the empty string would call that
+#    condition false and report a clean scan, so it must fail closed instead.
+unknown_ident_fixture="$(mktemp -d)"
+tmpdirs+=("${unknown_ident_fixture}")
+cat >"${unknown_ident_fixture}/unknown-ident.yml" <<'YAML'
+name: unknown-ident-pages
+on:
+  push:
+    branches: [staging]
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.repository_owner != ''
+    steps:
+      - uses: actions/deploy-pages@0000000000000000000000000000000000000000
+YAML
+expect_reject "${unknown_ident_fixture}" "cannot analyze" "unmodeled context property deploy condition"
+
+# 10. A Pages deploy sink in a shape the structural walk cannot read (flow-style
+#     jobs) must fail closed rather than pass as an unreviewed clean file.
+flow_jobs_fixture="$(mktemp -d)"
+tmpdirs+=("${flow_jobs_fixture}")
+cat >"${flow_jobs_fixture}/flow-jobs.yml" <<'YAML'
+name: flow-jobs-pages
+on:
+  push:
+    branches: [staging]
+jobs: {"deploy": {"runs-on": "ubuntu-latest", "steps": [{"uses": "actions/deploy-pages@0000000000000000000000000000000000000000"}]}}
+YAML
+expect_reject "${flow_jobs_fixture}" "unsupported YAML shape or indentation" "flow-style deploy job"
+
+# 11. A deploy job no modeled event can reach is an unread trigger shape, not
+#     evidence of main-only publication, so the gate fails closed.
+unreachable_fixture="$(mktemp -d)"
+tmpdirs+=("${unreachable_fixture}")
+cat >"${unreachable_fixture}/schedule-only.yml" <<'YAML'
+name: schedule-pages
+on:
+  schedule:
+    - cron: "0 0 * * *"
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/deploy-pages@0000000000000000000000000000000000000000
+YAML
+expect_reject "${unreachable_fixture}" "not reachable from any modeled trigger context" "unreachable deploy trigger"
+
+# 12. The recognized shape at a wider, still-valid indent width must parse
+#     correctly (positive indentation control) instead of degrading to a
+#     vacuous clean scan.
+wide_indent_fixture="$(mktemp -d)"
+tmpdirs+=("${wide_indent_fixture}")
+cat >"${wide_indent_fixture}/wide-indent.yml" <<'YAML'
+name: wide-indent-pages
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [staging]
+    workflow_dispatch:
+concurrency:
+    group: ${{ github.event_name == 'pull_request' && github.ref || 'pages' }}
+    cancel-in-progress: false
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+        steps:
+            - run: echo build
+    deploy:
+        needs: build
+        runs-on: ubuntu-latest
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+        steps:
+            - uses: actions/deploy-pages@0000000000000000000000000000000000000000
+YAML
+expect_accept "${wide_indent_fixture}" "wide-indentation main-only fixture"
+
+# 13. The same wide indentation must not blind the gate in the dangerous
+#     direction: a staging deploy hidden at a different indent width is still a
+#     finding (the pre-fix checker reviewed zero jobs and reported clean).
+wide_indent_staging_fixture="$(mktemp -d)"
+tmpdirs+=("${wide_indent_staging_fixture}")
+cat >"${wide_indent_staging_fixture}/wide-indent-staging.yml" <<'YAML'
+name: wide-indent-staging-pages
+on:
+    push:
+        branches: [staging]
+concurrency:
+    group: pages
+    cancel-in-progress: false
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/deploy-pages@0000000000000000000000000000000000000000
+YAML
+expect_reject "${wide_indent_staging_fixture}" "can publish Pages" "wide-indentation staging deploy"
+
+# 14. An unmodeled context property fails closed on the trusted path too: a
+#     main-only trigger does not make an unanalyzable deploy condition acceptable.
+unknown_ident_main_fixture="$(mktemp -d)"
+tmpdirs+=("${unknown_ident_main_fixture}")
+cat >"${unknown_ident_main_fixture}/unknown-ident-main.yml" <<'YAML'
+name: unknown-ident-main-pages
+on:
+  push:
+    branches: [main]
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.repository_owner != ''
+    steps:
+      - uses: actions/deploy-pages@0000000000000000000000000000000000000000
+YAML
+expect_reject "${unknown_ident_main_fixture}" "cannot analyze" "unmodeled context property on the publication path"
 
 echo "pages-publication-policy: PASS"

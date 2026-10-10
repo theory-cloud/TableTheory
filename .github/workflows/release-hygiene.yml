@@ -184,11 +184,56 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
           echo "release-verifier-source: selected trusted-base (${trusted_root})"
 
+      - name: Resolve highest published release
+        id: published
+        if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # The next version candidate must be strictly greater than the highest
+          # published release, whatever its origin (Release-As footer, manifest, or
+          # release-please computation). The floor is the semver MAXIMUM over every
+          # non-draft, non-prerelease release — not the newest-created release,
+          # which out-of-order publication can mis-rank, and not a draft, which
+          # `--exclude-pre-releases` alone does not drop. `gh release list` also
+          # truncates at --limit, so page the REST API until a short page ends the
+          # list. An empty result means nothing has been published yet (bootstrap);
+          # any API, JSON, or semver failure aborts here instead of passing an
+          # unchecked baseline downstream.
+          page=1
+          releases='[]'
+          while :; do
+            body="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=${page}")"
+            jq -e 'type == "array"' <<<"${body}" >/dev/null
+            releases="$(jq -c --argjson page "${body}" '. + $page' <<<"${releases}")"
+            if (( $(jq -r 'length' <<<"${body}") < 100 )); then
+              break
+            fi
+            page=$((page + 1))
+          done
+          baseline="$(
+            jq -er '
+              [ .[] | select(.draft == false and .prerelease == false) | .tag_name ]
+              | map(sub("^v"; ""))
+              | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$") | not)) as $bad
+              | if ($bad | length) > 0 then
+                  error("published stable release tags are not X.Y.Z semver: \($bad | join(", "))")
+                else . end
+              | sort_by(split(".") | map(tonumber))
+              | last // ""
+            ' <<<"${releases}"
+          )"
+          echo "baseline=${baseline}" >> "${GITHUB_OUTPUT}"
+          echo "release-hygiene: highest published release baseline: ${baseline:-<none>}"
+
       - name: Verify human promotion release driver
         if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
         working-directory: pr
         env:
           GH_TOKEN: ${{ github.token }}
+          PUBLISHED_BASELINE: ${{ steps.published.outputs.baseline }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
@@ -197,25 +242,14 @@ jobs:
         run: |
           set -euo pipefail
           echo "promotion-release-driver: using ${VERIFIER_LABEL} verifier source (${VERIFIER_ROOT})"
-
-          # The next version candidate must be strictly greater than the highest
-          # published release, whatever its origin (Release-As footer, manifest, or
-          # release-please computation). --exclude-pre-releases drops drafts and
-          # prereleases, so this names the newest published stable release; an empty
-          # result means nothing has been published yet (bootstrap).
-          published_baseline="$(
-            gh release list --repo "${GITHUB_REPOSITORY}" --exclude-pre-releases --limit 1 \
-              --json tagName --jq '.[0].tagName // ""'
-          )"
-          published_baseline="${published_baseline#v}"
-          echo "promotion-release-driver: highest published release baseline: ${published_baseline:-<none>}"
+          echo "promotion-release-driver: highest published release baseline: ${PUBLISHED_BASELINE:-<none>}"
 
           bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh" \
             --repo "${GITHUB_REPOSITORY}" \
             --base "${GITHUB_BASE_REF}" \
             --head "${GITHUB_HEAD_REF}" \
             --pr "${PR_NUMBER}" \
-            --published-baseline "${published_baseline}"
+            --published-baseline "${PUBLISHED_BASELINE}"
 
       - name: Verify release cycle state
         if: github.event_name == 'pull_request'

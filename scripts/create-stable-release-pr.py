@@ -610,7 +610,7 @@ def main() -> int:
 
     published_baseline = (args.published_baseline or "").strip()
     if published_baseline:
-        baseline_match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", published_baseline)
+        baseline_match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", published_baseline)
         if not baseline_match:
             fail(f"published release baseline is not a supported semver: {published_baseline}")
         baseline_tuple = tuple(int(part) for part in baseline_match.group(1, 2, 3))

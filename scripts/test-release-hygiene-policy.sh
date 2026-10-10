@@ -218,8 +218,9 @@ PY
 extract_workflow_step_run() {
   local step_name="$1"
   local occurrence="${2:-1}"
+  local workflow_path="${3:-${repo_root}/.github/workflows/release-hygiene.yml}"
 
-  python3 - "${repo_root}/.github/workflows/release-hygiene.yml" "${step_name}" "${occurrence}" <<'PY'
+  python3 - "${workflow_path}" "${step_name}" "${occurrence}" <<'PY'
 import re
 import sys
 
@@ -1800,6 +1801,292 @@ grep -Fq "bootstrap branch prefixes are retired" "${repo_root}/scripts/verify-re
 
 grep -Fq 'RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr' "${repo_root}/.github/workflows/release-hygiene.yml" || {
   echo "release-hygiene-policy-test: release cycle state must validate the checked-out PR head"
+  exit 1
+}
+
+# TTSEC2-M3-T3 (F4): the released-baseline floor must be the semver MAXIMUM over
+# published stable releases, not the newest-created release; drafts and
+# prereleases must be excluded even when they are newer; the read must page past
+# a full page; and any API, JSON, or semver fault must fail closed instead of
+# yielding an unchecked or empty baseline. The real workflow steps run here
+# against a stubbed `gh`, so no release, network, or cloud call happens.
+write_release_baseline_fixture() {
+  local root="$1"
+  local mode="$2"
+
+  mkdir -p "${root}"
+  case "${mode}" in
+    out-of-order)
+      python3 - "${root}/page1.json" <<'PY'
+import json
+import sys
+
+# created_at order is deliberately the reverse of semver order, and the
+# higher draft/prerelease entries must not become the floor.
+releases = [
+    {"tag_name": "v1.9.3", "draft": False, "prerelease": False, "created_at": "2026-10-09T00:00:00Z"},
+    {"tag_name": "v4.0.2", "draft": False, "prerelease": False, "created_at": "2026-01-02T00:00:00Z"},
+    {"tag_name": "v9.9.9", "draft": True, "prerelease": False, "created_at": "2026-10-10T00:00:00Z"},
+    {"tag_name": "v5.0.0-rc.1", "draft": False, "prerelease": True, "created_at": "2026-10-10T00:00:00Z"},
+]
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(releases, handle)
+PY
+      ;;
+    paginated)
+      python3 - "${root}/page1.json" "${root}/page2.json" <<'PY'
+import json
+import sys
+
+# A full first page forces the reader to ask for page 2, where the highest
+# published stable release lives. v1.9.0 on page 1 also separates a numeric
+# semver maximum from a textual one, which would pick 1.9.0 over 1.10.0.
+page1 = [{"tag_name": f"v1.0.{i}", "draft": False, "prerelease": False} for i in range(98)]
+page1.append({"tag_name": "v1.9.0", "draft": False, "prerelease": False})
+page1.append({"tag_name": "v1.0.99-rc.1", "draft": False, "prerelease": True})
+page2 = [{"tag_name": "v1.10.0", "draft": False, "prerelease": False}]
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(page1, handle)
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(page2, handle)
+PY
+      ;;
+    bootstrap-empty)
+      printf '[]\n' >"${root}/page1.json"
+      ;;
+    only-unpublished)
+      python3 - "${root}/page1.json" <<'PY'
+import json
+import sys
+
+releases = [
+    {"tag_name": "v2.0.0", "draft": True, "prerelease": False},
+    {"tag_name": "v1.9.3-rc.1", "draft": False, "prerelease": True},
+]
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(releases, handle)
+PY
+      ;;
+    non-semver)
+      printf '[{"tag_name":"nightly","draft":false,"prerelease":false}]\n' >"${root}/page1.json"
+      ;;
+    *)
+      echo "release-hygiene-policy-test: unknown release baseline fixture ${mode}" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# run_release_baseline_step SCRIPT FIXTURE MODE OUT_FILE GH_OUTPUT -> inner exit status
+run_release_baseline_step() {
+  local step_script="$1"
+  local fixture="$2"
+  local mode="$3"
+  local out_file="$4"
+  local gh_output="$5"
+
+  local fail="" invalid=""
+  case "${mode}" in
+    ok) ;;
+    api-fail) fail=1 ;;
+    invalid-json) invalid=1 ;;
+    *) echo "release-hygiene-policy-test: unknown release baseline mode ${mode}" >&2; exit 1 ;;
+  esac
+
+  local status
+  set +e
+  env \
+    PATH="${fake_gh_bin}:${PATH}" \
+    GITHUB_REPOSITORY="${repo}" \
+    GITHUB_OUTPUT="${gh_output}" \
+    FAKE_GH_DIR="${fixture}" \
+    FAKE_GH_CALLS="${fixture}/calls" \
+    FAKE_GH_FAIL="${fail}" \
+    FAKE_GH_INVALID_JSON="${invalid}" \
+    bash "${step_script}" >"${out_file}" 2>&1
+  status=$?
+  set -e
+  printf '%s' "${status}"
+}
+
+assert_release_baseline() {
+  local label="$1"
+  local status="$2"
+  local out_file="$3"
+  local gh_output="$4"
+  local expected="$5"
+
+  if [[ "${status}" -ne 0 ]]; then
+    cat "${out_file}"
+    echo "release-hygiene-policy-test: ${label}: expected the released-baseline step to succeed"
+    exit 1
+  fi
+  if ! grep -Fxq "baseline=${expected}" "${gh_output}"; then
+    cat "${out_file}"
+    cat "${gh_output}"
+    echo "release-hygiene-policy-test: ${label}: expected baseline=${expected}"
+    exit 1
+  fi
+}
+
+assert_release_baseline_failure() {
+  local label="$1"
+  local status="$2"
+  local out_file="$3"
+  local gh_output="$4"
+  local needle="$5"
+
+  if [[ "${status}" -eq 0 ]]; then
+    cat "${out_file}"
+    echo "release-hygiene-policy-test: ${label}: expected the released-baseline step to fail closed"
+    exit 1
+  fi
+  if [[ -n "${needle}" ]] && ! grep -Fq -- "${needle}" "${out_file}"; then
+    cat "${out_file}"
+    echo "release-hygiene-policy-test: ${label}: expected failure to mention: ${needle}"
+    exit 1
+  fi
+  if grep -q '^baseline=' "${gh_output}"; then
+    cat "${gh_output}"
+    echo "release-hygiene-policy-test: ${label}: a failed baseline read must not emit a baseline"
+    exit 1
+  fi
+}
+
+fake_gh_bin="$(mktemp -d)"
+tmpdirs+=("${fake_gh_bin}")
+cat >"${fake_gh_bin}/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" != "api" ]]; then
+  echo "fake-gh: unexpected invocation: $*" >&2
+  exit 64
+fi
+if [[ -n "${FAKE_GH_FAIL:-}" ]]; then
+  echo "fake-gh: HTTP 502 Bad Gateway" >&2
+  exit 1
+fi
+page="$(sed -n 's/.*page=\([0-9][0-9]*\).*/\1/p' <<<"${2:-}")"
+page="${page:-1}"
+printf '%s\n' "${page}" >>"${FAKE_GH_CALLS}"
+if [[ -n "${FAKE_GH_INVALID_JSON:-}" ]]; then
+  printf 'this is not json\n'
+  exit 0
+fi
+if [[ -f "${FAKE_GH_DIR}/page${page}.json" ]]; then
+  cat "${FAKE_GH_DIR}/page${page}.json"
+else
+  printf '[]\n'
+fi
+SH
+chmod +x "${fake_gh_bin}/gh"
+
+hygiene_baseline_step="$(mktemp)"
+tmpdirs+=("${hygiene_baseline_step}")
+extract_workflow_step_run "Resolve highest published release" 1 \
+  "${repo_root}/.github/workflows/release-hygiene.yml" >"${hygiene_baseline_step}"
+
+release_pr_baseline_step="$(mktemp)"
+tmpdirs+=("${release_pr_baseline_step}")
+extract_workflow_step_run "Resolve highest published release" 1 \
+  "${repo_root}/.github/workflows/release-pr.yml" >"${release_pr_baseline_step}"
+
+for baseline_step in "${hygiene_baseline_step}" "${release_pr_baseline_step}"; do
+  baseline_label="$(basename "${baseline_step}")"
+
+  baseline_fixture="$(mktemp -d)"
+  tmpdirs+=("${baseline_fixture}")
+  write_release_baseline_fixture "${baseline_fixture}" out-of-order
+  baseline_out="$(mktemp)"
+  tmpdirs+=("${baseline_out}")
+  baseline_gh_out="$(mktemp)"
+  tmpdirs+=("${baseline_gh_out}")
+  assert_release_baseline \
+    "${baseline_label} out-of-order stables" \
+    "$(run_release_baseline_step "${baseline_step}" "${baseline_fixture}" ok "${baseline_out}" "${baseline_gh_out}")" \
+    "${baseline_out}" "${baseline_gh_out}" "4.0.2"
+
+  baseline_fixture="$(mktemp -d)"
+  tmpdirs+=("${baseline_fixture}")
+  write_release_baseline_fixture "${baseline_fixture}" paginated
+  baseline_out="$(mktemp)"
+  tmpdirs+=("${baseline_out}")
+  baseline_gh_out="$(mktemp)"
+  tmpdirs+=("${baseline_gh_out}")
+  assert_release_baseline \
+    "${baseline_label} paginated list" \
+    "$(run_release_baseline_step "${baseline_step}" "${baseline_fixture}" ok "${baseline_out}" "${baseline_gh_out}")" \
+    "${baseline_out}" "${baseline_gh_out}" "1.10.0"
+  if [[ "$(tr -d '\n' <"${baseline_fixture}/calls")" != "12" ]]; then
+    cat "${baseline_fixture}/calls"
+    echo "release-hygiene-policy-test: ${baseline_label}: a full page must be followed by a second page request"
+    exit 1
+  fi
+
+  baseline_fixture="$(mktemp -d)"
+  tmpdirs+=("${baseline_fixture}")
+  write_release_baseline_fixture "${baseline_fixture}" bootstrap-empty
+  baseline_out="$(mktemp)"
+  tmpdirs+=("${baseline_out}")
+  baseline_gh_out="$(mktemp)"
+  tmpdirs+=("${baseline_gh_out}")
+  assert_release_baseline \
+    "${baseline_label} bootstrap empty" \
+    "$(run_release_baseline_step "${baseline_step}" "${baseline_fixture}" ok "${baseline_out}" "${baseline_gh_out}")" \
+    "${baseline_out}" "${baseline_gh_out}" ""
+
+  baseline_fixture="$(mktemp -d)"
+  tmpdirs+=("${baseline_fixture}")
+  write_release_baseline_fixture "${baseline_fixture}" only-unpublished
+  baseline_out="$(mktemp)"
+  tmpdirs+=("${baseline_out}")
+  baseline_gh_out="$(mktemp)"
+  tmpdirs+=("${baseline_gh_out}")
+  assert_release_baseline \
+    "${baseline_label} drafts and prereleases only" \
+    "$(run_release_baseline_step "${baseline_step}" "${baseline_fixture}" ok "${baseline_out}" "${baseline_gh_out}")" \
+    "${baseline_out}" "${baseline_gh_out}" ""
+
+  baseline_fixture="$(mktemp -d)"
+  tmpdirs+=("${baseline_fixture}")
+  write_release_baseline_fixture "${baseline_fixture}" out-of-order
+  baseline_out="$(mktemp)"
+  tmpdirs+=("${baseline_out}")
+  baseline_gh_out="$(mktemp)"
+  tmpdirs+=("${baseline_gh_out}")
+  assert_release_baseline_failure \
+    "${baseline_label} API failure" \
+    "$(run_release_baseline_step "${baseline_step}" "${baseline_fixture}" api-fail "${baseline_out}" "${baseline_gh_out}")" \
+    "${baseline_out}" "${baseline_gh_out}" "502"
+
+  baseline_fixture="$(mktemp -d)"
+  tmpdirs+=("${baseline_fixture}")
+  write_release_baseline_fixture "${baseline_fixture}" out-of-order
+  baseline_out="$(mktemp)"
+  tmpdirs+=("${baseline_out}")
+  baseline_gh_out="$(mktemp)"
+  tmpdirs+=("${baseline_gh_out}")
+  assert_release_baseline_failure \
+    "${baseline_label} malformed JSON" \
+    "$(run_release_baseline_step "${baseline_step}" "${baseline_fixture}" invalid-json "${baseline_out}" "${baseline_gh_out}")" \
+    "${baseline_out}" "${baseline_gh_out}" ""
+
+  baseline_fixture="$(mktemp -d)"
+  tmpdirs+=("${baseline_fixture}")
+  write_release_baseline_fixture "${baseline_fixture}" non-semver
+  baseline_out="$(mktemp)"
+  tmpdirs+=("${baseline_out}")
+  baseline_gh_out="$(mktemp)"
+  tmpdirs+=("${baseline_gh_out}")
+  assert_release_baseline_failure \
+    "${baseline_label} non-semver published tag" \
+    "$(run_release_baseline_step "${baseline_step}" "${baseline_fixture}" ok "${baseline_out}" "${baseline_gh_out}")" \
+    "${baseline_out}" "${baseline_gh_out}" "not X.Y.Z semver"
+done
+
+grep -Fq 'PUBLISHED_BASELINE: ${{ steps.published.outputs.baseline }}' \
+  "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must feed the resolved released baseline to the promotion driver"
   exit 1
 }
 
