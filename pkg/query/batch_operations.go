@@ -348,7 +348,8 @@ func (q *Query) executeDeleteBatch(batch []any, opts *BatchUpdateOptions) error 
 	}
 
 	// Use the new executeBatchWriteWithRetries function for better retry handling
-	return q.executeBatchWriteWithRetries(q.metadata.TableName(), writeRequests, opts)
+	_, _, err := q.executeBatchWriteWithRetries(q.metadata.TableName(), writeRequests, opts)
+	return err
 }
 
 // extractKey extracts primary key values from an item
@@ -540,11 +541,13 @@ type BatchResult struct {
 // results.
 //
 // The operation continues past item-level failures: items that fail to marshal
-// and items in chunks whose batch write fails are counted in Failed with their
-// errors collected in Errors, while successfully written items are counted in
-// Succeeded. A non-nil error is returned only for environment-level failures
+// and items still unprocessed after retry exhaustion are counted in Failed with
+// their errors collected in Errors, while successfully written items are counted
+// in Succeeded. Item-level failures are reported through the result instead of
+// returned, and each input is counted at most once so Failed and Succeeded stay
+// non-negative. A non-nil error is returned only for environment-level failures
 // (invalid input, unsupported executor, or write-once/protected-field guard
-// violations); item-level failures are reported through the result instead.
+// violations).
 func (q *Query) BatchCreateWithResult(items any) (*BatchResult, error) {
 	opts := DefaultBatchOptions()
 	result := &BatchResult{
@@ -565,6 +568,15 @@ func (q *Query) BatchCreateWithResult(items any) (*BatchResult, error) {
 	}
 
 	err := q.batchCreateWithOptionsInternal(items, opts)
+
+	// Each input is counted at most once, so neither counter may be negative.
+	// Clamp defensively rather than return a dishonest result.
+	if result.Failed < 0 {
+		result.Failed = 0
+	}
+	if result.Succeeded < 0 {
+		result.Succeeded = 0
+	}
 	return result, err
 }
 
@@ -600,47 +612,78 @@ func (qc *QueryCanceler) Cancel() {
 	}
 }
 
-// executeBatchWriteWithRetries executes batch write operations with automatic retry for unprocessed items
-func (q *Query) executeBatchWriteWithRetries(tableName string, writeRequests []types.WriteRequest, opts *BatchUpdateOptions) error {
+// executeBatchWriteWithRetries executes batch write operations with automatic
+// retry for unprocessed items.
+//
+// It returns the requests still unprocessed after the retry loop (nil when
+// every request was written) together with their positions in writeRequests.
+// Callers use those identities to attribute a terminal failure to the exact
+// surviving requests instead of to the whole chunk. DynamoDB may accept part of
+// a chunk and return only the remainder in UnprocessedItems, so the accepted
+// requests must never be reported as failed and the failure count must never be
+// derived from the input size.
+//
+// positions is nil when the surviving identities cannot be attributed (for
+// example a custom executor that changes the request count during preparation);
+// callers must then fall back to treating the whole chunk as failed.
+func (q *Query) executeBatchWriteWithRetries(tableName string, writeRequests []types.WriteRequest, opts *BatchUpdateOptions) ([]types.WriteRequest, []int, error) {
 	if len(writeRequests) == 0 {
-		return nil
+		return nil, nil, nil
 	}
 
 	batchExecutor, ok := q.executor.(BatchWriteItemExecutor)
 	if !ok {
-		return fmt.Errorf("executor does not support batch write operations")
+		return writeRequests, allRequestPositions(len(writeRequests)), fmt.Errorf("executor does not support batch write operations")
 	}
 
-	remainingRequests, executeBatchWriteItem, err := q.prepareBatchWriteRetry(batchExecutor, writeRequests)
+	preparedRequests, executeBatchWriteItem, err := q.prepareBatchWriteRetry(batchExecutor, writeRequests)
 	if err != nil {
-		return err
+		return writeRequests, allRequestPositions(len(writeRequests)), err
+	}
+
+	// prepareBatchWriteRetry may clone or encrypt the requests. The concrete
+	// executors preserve the caller's order one-to-one, so position i of the
+	// prepared slice still identifies writeRequests[i]. When an executor changes
+	// the request count the identities cannot be tracked positionally, so report
+	// nil positions and let callers fall back to the whole chunk.
+	identityTracked := len(preparedRequests) == len(writeRequests)
+
+	remaining := preparedRequests
+	var positions []int
+	if identityTracked {
+		positions = allRequestPositions(len(preparedRequests))
 	}
 
 	attempts := 0
 	maxAttempts := 5 // Maximum number of attempts for unprocessed items
 
-	for len(remainingRequests) > 0 && attempts < maxAttempts {
+	for len(remaining) > 0 && attempts < maxAttempts {
 		attempts++
 
 		// Execute batch write
-		result, err := executeBatchWriteItem(tableName, remainingRequests)
+		result, err := executeBatchWriteItem(tableName, remaining)
 		if err != nil {
-			return fmt.Errorf("batch write failed: %w", err)
+			return remaining, positions, fmt.Errorf("batch write failed: %w", err)
 		}
 		if result == nil {
-			return fmt.Errorf("batch write executor returned nil result")
+			return remaining, positions, fmt.Errorf("batch write executor returned nil result")
 		}
 
 		unprocessed := collectUnprocessedWriteRequests(result.UnprocessedItems)
 		if len(unprocessed) == 0 {
-			return nil
+			return nil, nil, nil
+		}
+
+		// Narrow the surviving requests and their positions onto the observed
+		// UnprocessedItems subset. If any returned request cannot be matched the
+		// identities are untrustworthy, so keep the whole current set.
+		nextRemaining, nextPositions, attributed := selectUnprocessedRequests(remaining, positions, unprocessed)
+		if !attributed {
+			nextRemaining, nextPositions = remaining, positions
 		}
 
 		// Log or callback for unprocessed items
-		if opts != nil && opts.ProgressCallback != nil {
-			processed := len(writeRequests) - len(unprocessed)
-			opts.ProgressCallback(processed, len(writeRequests))
-		}
+		notifyUnprocessedProgress(opts, len(writeRequests), len(nextRemaining))
 
 		// Exponential backoff before retry
 		if attempts < maxAttempts {
@@ -651,14 +694,21 @@ func (q *Query) executeBatchWriteWithRetries(tableName string, writeRequests []t
 			time.Sleep(backoffTime)
 		}
 
-		remainingRequests = unprocessed
+		remaining, positions = nextRemaining, nextPositions
 	}
 
-	if len(remainingRequests) > 0 {
-		return fmt.Errorf("failed to process %d items after %d attempts", len(remainingRequests), attempts)
+	if len(remaining) > 0 {
+		return remaining, positions, fmt.Errorf("failed to process %d items after %d attempts", len(remaining), attempts)
 	}
 
-	return nil
+	return nil, nil, nil
+}
+
+func notifyUnprocessedProgress(opts *BatchUpdateOptions, total, remainingCount int) {
+	if opts == nil || opts.ProgressCallback == nil {
+		return
+	}
+	opts.ProgressCallback(total-remainingCount, total)
 }
 
 func collectUnprocessedWriteRequests(unprocessedItems map[string][]types.WriteRequest) []types.WriteRequest {
@@ -667,6 +717,49 @@ func collectUnprocessedWriteRequests(unprocessedItems map[string][]types.WriteRe
 		unprocessed = append(unprocessed, items...)
 	}
 	return unprocessed
+}
+
+func allRequestPositions(count int) []int {
+	if count == 0 {
+		return nil
+	}
+	positions := make([]int, count)
+	for i := range positions {
+		positions[i] = i
+	}
+	return positions
+}
+
+// selectUnprocessedRequests maps the requests DynamoDB reported as unprocessed
+// back to their positions in sent. Each reported request is matched to an
+// as-yet-unmatched sent request by exact equality; the boolean is false when any
+// reported request cannot be attributed, in which case the caller must treat the
+// whole sent set as unprocessed.
+func selectUnprocessedRequests(sent []types.WriteRequest, sentPositions []int, unprocessed []types.WriteRequest) ([]types.WriteRequest, []int, bool) {
+	used := make([]bool, len(sent))
+	remaining := make([]types.WriteRequest, 0, len(unprocessed))
+	positions := make([]int, 0, len(unprocessed))
+
+	for _, request := range unprocessed {
+		match := -1
+		for i := range sent {
+			if used[i] {
+				continue
+			}
+			if reflect.DeepEqual(sent[i], request) {
+				match = i
+				break
+			}
+		}
+		if match < 0 {
+			return nil, nil, false
+		}
+		used[match] = true
+		remaining = append(remaining, request)
+		positions = append(positions, sentPositions[match])
+	}
+
+	return remaining, positions, true
 }
 
 type batchWriteItemFunc func(string, []types.WriteRequest) (*core.BatchWriteResult, error)
@@ -727,8 +820,15 @@ func (q *Query) BatchWriteWithOptions(putItems []any, deleteKeys []any, opts *Ba
 	// Execute batches
 	processed := 0
 	for _, batch := range batches {
-		if err := q.executeBatchWriteWithRetries(q.metadata.TableName(), batch, opts); err != nil {
-			if handlerErr := handleBatchUpdateError(opts, batch, err, err); handlerErr != nil {
+		remaining, _, err := q.executeBatchWriteWithRetries(q.metadata.TableName(), batch, opts)
+		if err != nil {
+			// Report only the requests still unprocessed after retry exhaustion;
+			// requests DynamoDB already accepted are not failures.
+			report := batch
+			if len(remaining) > 0 {
+				report = remaining
+			}
+			if handlerErr := handleBatchUpdateError(opts, report, err, err); handlerErr != nil {
 				return handlerErr
 			}
 		}

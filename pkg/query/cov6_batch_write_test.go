@@ -46,24 +46,28 @@ func TestQuery_executeBatchWriteWithRetries_CoversRetriesAndCallbacks_COV6(t *te
 
 	t.Run("no requests", func(t *testing.T) {
 		q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, &cov6BatchWriteSeqExecutor{})
-		require.NoError(t, q.executeBatchWriteWithRetries("tbl", nil, nil))
+		_, _, err := q.executeBatchWriteWithRetries("tbl", nil, nil)
+		require.NoError(t, err)
 	})
 
 	t.Run("unsupported executor", func(t *testing.T) {
 		q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, &struct{ QueryExecutor }{})
-		require.ErrorContains(t, q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq()}, nil), "does not support batch write operations")
+		_, _, err := q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq()}, nil)
+		require.ErrorContains(t, err, "does not support batch write operations")
 	})
 
 	t.Run("executor returns error", func(t *testing.T) {
 		exec := &cov6BatchWriteSeqExecutor{errs: []error{errors.New("boom")}}
 		q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
-		require.ErrorContains(t, q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq()}, nil), "batch write failed")
+		_, _, err := q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq()}, nil)
+		require.ErrorContains(t, err, "batch write failed")
 	})
 
 	t.Run("unprocessed items empty", func(t *testing.T) {
 		exec := &cov6BatchWriteSeqExecutor{results: []*core.BatchWriteResult{{UnprocessedItems: map[string][]types.WriteRequest{}}}}
 		q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
-		require.NoError(t, q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq()}, nil))
+		_, _, err := q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq()}, nil)
+		require.NoError(t, err)
 	})
 
 	t.Run("unprocessed map present but empty slice", func(t *testing.T) {
@@ -73,7 +77,8 @@ func TestQuery_executeBatchWriteWithRetries_CoversRetriesAndCallbacks_COV6(t *te
 			},
 		}}}
 		q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec)
-		require.NoError(t, q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq()}, nil))
+		_, _, err := q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq()}, nil)
+		require.NoError(t, err)
 	})
 
 	t.Run("retries and progress callback", func(t *testing.T) {
@@ -93,7 +98,8 @@ func TestQuery_executeBatchWriteWithRetries_CoversRetriesAndCallbacks_COV6(t *te
 		}
 
 		start := time.Now()
-		require.NoError(t, q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq(), makeReq()}, opts))
+		_, _, err := q.executeBatchWriteWithRetries("tbl", []types.WriteRequest{makeReq(), makeReq()}, opts)
+		require.NoError(t, err)
 		require.GreaterOrEqual(t, atomic.LoadInt32(&progressCalls), int32(1))
 		require.Less(t, time.Since(start), 2*time.Second)
 	})

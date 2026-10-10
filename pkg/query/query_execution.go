@@ -834,15 +834,16 @@ func (q *Query) batchCreateWithBatchWriteItemExecutor(itemsValue reflect.Value, 
 			})
 		}
 
-		// A failed batch write leaves every successfully-marshaled item of the
-		// chunk unwritten; report each one through the error handler. Marshal-
-		// failed items were already reported above and are not reported again.
+		// A terminal batch write reports only the requests still unprocessed after
+		// retry exhaustion. DynamoDB can accept part of the chunk and return the
+		// remainder in UnprocessedItems, so accepted items must not be reported as
+		// failed. Marshal-failed items were already reported above and are not
+		// reported again. When the surviving identities could not be attributed,
+		// fall back to the whole chunk because nothing is known to have succeeded.
 		// With nil opts the first failure still aborts.
-		if err := q.executeBatchWriteWithRetries(tableName, writeRequests, nil); err != nil {
-			for _, item := range marshaledItems {
-				if handlerErr := handleBatchUpdateError(opts, item, err, err); handlerErr != nil {
-					return handlerErr
-				}
+		if _, positions, err := q.executeBatchWriteWithRetries(tableName, writeRequests, nil); err != nil {
+			if handlerErr := reportUnprocessedChunkFailure(opts, marshaledItems, positions, err); handlerErr != nil {
+				return handlerErr
 			}
 		}
 
@@ -852,6 +853,29 @@ func (q *Query) batchCreateWithBatchWriteItemExecutor(itemsValue reflect.Value, 
 		}
 	}
 
+	return nil
+}
+
+// reportUnprocessedChunkFailure reports a terminal chunk-write failure to the
+// error handler, restricted to the items whose requests were still unprocessed
+// after retry exhaustion. When positions is empty the surviving identities could
+// not be attributed, so every marshaled item is reported (nothing is known to
+// have been accepted). A non-nil handler return aborts the operation.
+func reportUnprocessedChunkFailure(opts *BatchUpdateOptions, marshaledItems []any, positions []int, err error) error {
+	reported := marshaledItems
+	if len(positions) > 0 {
+		reported = make([]any, 0, len(positions))
+		for _, position := range positions {
+			if position >= 0 && position < len(marshaledItems) {
+				reported = append(reported, marshaledItems[position])
+			}
+		}
+	}
+	for _, item := range reported {
+		if handlerErr := handleBatchUpdateError(opts, item, err, err); handlerErr != nil {
+			return handlerErr
+		}
+	}
 	return nil
 }
 
