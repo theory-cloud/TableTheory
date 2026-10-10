@@ -909,6 +909,7 @@ expect_success_contains \
       --title "Promote premain to main" \
       --body "Release-As: 1.10.1" \
       --commit-message $'fix(security): recover release cycle\n\nRelease-As: 1.10.1-rc.1' \
+      --published-baseline 1.10.0 \
       --dry-run
 
 expect_failure_contains \
@@ -949,7 +950,77 @@ expect_success_contains \
       --head premain \
       --title "Promote premain to main" \
       --body "" \
+      --published-baseline 1.10.0 \
       --dry-run
+
+# TTSEC2-M3-T3: every next-version candidate must be strictly greater than the
+# highest published release, whatever its origin. These exercise the real guard:
+# the manifest origin and the Release-As footer origin must both fail on an equal
+# or lower candidate, an explicit empty baseline means "nothing published yet"
+# (bootstrap) rather than a skipped check, and an absent baseline fails closed on
+# the premain -> main path.
+expect_failure_contains \
+  "manifest candidate 1.10.1-rc.1 must be strictly greater than the highest published release 1.10.1" \
+  run_in_pending_fixture \
+    bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+      --base main \
+      --head premain \
+      --title "Promote premain to main" \
+      --body "Release-As: 1.10.1" \
+      --published-baseline 1.10.1 \
+      --dry-run
+
+expect_failure_contains \
+  "must be strictly greater than the highest published release 1.10.2" \
+  run_in_pending_fixture \
+    bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+      --base main \
+      --head premain \
+      --title "Promote premain to main" \
+      --body "Release-As: 1.10.1" \
+      --published-baseline 1.10.2 \
+      --dry-run
+
+expect_failure_contains \
+  "requires the highest published release baseline" \
+  run_in_pending_fixture \
+    bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+      --base main \
+      --head premain \
+      --title "Promote premain to main" \
+      --body "Release-As: 1.10.1" \
+      --dry-run
+
+expect_success_contains \
+  "manifest-derived stable Release-As" \
+  run_in_pending_fixture \
+    bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+      --base main \
+      --head premain \
+      --title "Promote premain to main" \
+      --body "" \
+      --published-baseline "" \
+      --dry-run
+
+expect_failure_contains \
+  "staging -> premain Release-As footer candidate 1.10.1-rc.1 must be strictly greater than the highest published release 1.10.1" \
+  bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+    --base premain \
+    --head staging \
+    --title "Promote staging to premain" \
+    --body "Release-As: 1.10.1-rc.1" \
+    --published-baseline 1.10.1 \
+    --dry-run
+
+expect_success_contains \
+  "effective RC Release-As 1.10.2-rc.1" \
+  bash "${repo_root}/scripts/verify-promotion-release-driver.sh" \
+    --base premain \
+    --head staging \
+    --title "Promote staging to premain" \
+    --body "Release-As: 1.10.2-rc.1" \
+    --published-baseline 1.10.1 \
+    --dry-run
 
 stable_manifest_fixture="$(mktemp -d)"
 tmpdirs+=("${stable_manifest_fixture}")
@@ -1179,6 +1250,69 @@ expect_success_contains \
       --head release-please--branches--main \
       --expected-version 2.0.1 \
       --repo-root "${stable_pr_fixture}" \
+      --dry-run
+
+# TTSEC2-M3-T3 computation origin: the version release-pr.yml computes from the
+# single manifest and hands to the stable Release PR generator must also be
+# strictly greater than the highest published release. The guard runs before any
+# repository mutation, so an equal or lower computation fails fast.
+expect_failure_contains \
+  "computed stable version 2.0.1 must be strictly greater than the highest published release 2.0.1" \
+  python3 "${repo_root}/scripts/create-stable-release-pr.py" \
+    --repo theory-cloud/TableTheory \
+    --base main \
+    --head release-please--branches--main \
+    --expected-version 2.0.1 \
+    --repo-root "${stable_pr_fixture}" \
+    --published-baseline 2.0.1 \
+    --dry-run
+
+expect_failure_contains \
+  "must be strictly greater than the highest published release 2.0.2" \
+  python3 "${repo_root}/scripts/create-stable-release-pr.py" \
+    --repo theory-cloud/TableTheory \
+    --base main \
+    --head release-please--branches--main \
+    --expected-version 2.0.1 \
+    --repo-root "${stable_pr_fixture}" \
+    --published-baseline 2.0.2 \
+    --dry-run
+
+monotonic_fixture="$(mktemp -d)"
+tmpdirs+=("${monotonic_fixture}")
+git -C "${monotonic_fixture}" init -q
+git -C "${monotonic_fixture}" config user.email fixture@example.com
+git -C "${monotonic_fixture}" config user.name "Release Fixture"
+cat >"${monotonic_fixture}/.release-please-manifest.json" <<'JSON'
+{
+  ".": "2.0.2-rc.1"
+}
+JSON
+cat >"${monotonic_fixture}/CHANGELOG.md" <<'MD'
+# Changelog
+
+## Unreleased
+
+## [2.0.2-rc.1](https://github.com/theory-cloud/TableTheory/compare/v2.0.2-rc...v2.0.2-rc.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* release lane repair
+MD
+git -C "${monotonic_fixture}" add .
+git -C "${monotonic_fixture}" commit -q -m "fixture monotonic"
+
+expect_success_contains \
+  "dry-run generated chore(main): release 2.0.2" \
+  env RELEASE_DATE=2026-07-07 \
+    python3 "${repo_root}/scripts/create-stable-release-pr.py" \
+      --repo theory-cloud/TableTheory \
+      --base main \
+      --head release-please--branches--main \
+      --expected-version 2.0.2 \
+      --repo-root "${monotonic_fixture}" \
+      --published-baseline 2.0.1 \
       --dry-run
 
 grep -Fq '".": "2.0.1"' "${stable_pr_fixture}/.release-please-manifest.json" || {

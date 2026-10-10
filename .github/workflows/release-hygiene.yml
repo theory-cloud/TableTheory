@@ -197,11 +197,25 @@ jobs:
         run: |
           set -euo pipefail
           echo "promotion-release-driver: using ${VERIFIER_LABEL} verifier source (${VERIFIER_ROOT})"
+
+          # The next version candidate must be strictly greater than the highest
+          # published release, whatever its origin (Release-As footer, manifest, or
+          # release-please computation). --exclude-pre-releases drops drafts and
+          # prereleases, so this names the newest published stable release; an empty
+          # result means nothing has been published yet (bootstrap).
+          published_baseline="$(
+            gh release list --repo "${GITHUB_REPOSITORY}" --exclude-pre-releases --limit 1 \
+              --json tagName --jq '.[0].tagName // ""'
+          )"
+          published_baseline="${published_baseline#v}"
+          echo "promotion-release-driver: highest published release baseline: ${published_baseline:-<none>}"
+
           bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh" \
             --repo "${GITHUB_REPOSITORY}" \
             --base "${GITHUB_BASE_REF}" \
             --head "${GITHUB_HEAD_REF}" \
-            --pr "${PR_NUMBER}"
+            --pr "${PR_NUMBER}" \
+            --published-baseline "${published_baseline}"
 
       - name: Verify release cycle state
         if: github.event_name == 'pull_request'

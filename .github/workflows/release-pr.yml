@@ -93,10 +93,31 @@ jobs:
           echo "release_as=${release_as}" >> "${GITHUB_OUTPUT}"
           echo "release-as: ${release_as:-<none>}"
 
+      - name: Resolve highest published release
+        id: published
+        if: steps.cycle.outputs.pending_stable_promotion == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # The next stable version must be strictly greater than the highest
+          # published release, no matter how it was computed. --exclude-pre-releases
+          # drops drafts and prereleases, so this names the newest published stable
+          # release; an empty result means nothing has been published yet (bootstrap).
+          baseline="$(
+            gh release list --repo "${GITHUB_REPOSITORY}" --exclude-pre-releases --limit 1 \
+              --json tagName --jq '.[0].tagName // ""'
+          )"
+          baseline="${baseline#v}"
+          echo "baseline=${baseline}" >> "${GITHUB_OUTPUT}"
+          echo "release-pr: highest published release baseline: ${baseline:-<none>}"
+
       - name: Create stable Release PR
         if: steps.cycle.outputs.pending_stable_promotion == 'true'
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.release_as }}
+          PUBLISHED_BASELINE: ${{ steps.published.outputs.baseline }}
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -110,7 +131,8 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --base main \
             --head release-please--branches--main \
-            --expected-version "${EXPECTED_VERSION}"
+            --expected-version "${EXPECTED_VERSION}" \
+            --published-baseline "${PUBLISHED_BASELINE}"
 
       - name: Verify stable Release PR postcondition
         if: steps.cycle.outputs.pending_stable_promotion == 'true'

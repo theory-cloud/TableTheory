@@ -591,6 +591,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base", default="main")
     parser.add_argument("--head", default="release-please--branches--main")
     parser.add_argument("--expected-version", required=True)
+    parser.add_argument(
+        "--published-baseline",
+        default=os.environ.get("PUBLISHED_RELEASE_BASELINE", ""),
+        help="Highest published release (vX.Y.Z). When set, the computed stable version must be strictly greater.",
+    )
     parser.add_argument("--repo-root", default=".")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -602,6 +607,19 @@ def main() -> int:
     expected = args.expected_version
     if not re.match(r"^\d+\.\d+\.\d+$", expected):
         fail(f"expected version must be stable X.Y.Z, got {expected}")
+
+    published_baseline = (args.published_baseline or "").strip()
+    if published_baseline:
+        baseline_match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", published_baseline)
+        if not baseline_match:
+            fail(f"published release baseline is not a supported semver: {published_baseline}")
+        baseline_tuple = tuple(int(part) for part in baseline_match.group(1, 2, 3))
+        expected_tuple = tuple(int(part) for part in expected.split("."))
+        if expected_tuple <= baseline_tuple:
+            fail(
+                f"computed stable version {expected} must be strictly greater than the highest published release "
+                f"{published_baseline}"
+            )
 
     rc_version = read_manifest(repo_root)
     computed = stable_base(rc_version)

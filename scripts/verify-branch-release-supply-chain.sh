@@ -754,6 +754,27 @@ if [[ -f "scripts/stage_theorycloud_tabletheory_subtree.sh" ]]; then
     "staging helper must create a private manifest file"
 fi
 
+# TTSEC2-M3-T3: every next-version candidate must be strictly greater than the
+# highest published release, whatever its origin. The promotion driver derives
+# candidates from a Release-As footer and the single manifest; the stable
+# Release PR generator consumes the release-please computation. A dropped
+# baseline flag would silently disable the check, so pin both the guard text and
+# both workflow call sites.
+if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
+  require_fixed "strictly greater than the highest published release" \
+    "scripts/verify-promotion-release-driver.sh" \
+    "promotion release driver must reject a candidate that is not strictly newer than the highest published release"
+fi
+require_fixed "--published-baseline" ".github/workflows/release-hygiene.yml" \
+  "release-hygiene must pass the highest published release baseline to the promotion driver"
+require_fixed "--published-baseline" ".github/workflows/release-pr.yml" \
+  "release-pr must pass the highest published release baseline to the stable Release PR generator"
+if [[ -f "scripts/create-stable-release-pr.py" ]]; then
+  require_fixed "strictly greater than the highest published release" \
+    "scripts/create-stable-release-pr.py" \
+    "stable Release PR generator must reject a computed version that is not strictly newer than the highest published release"
+fi
+
 if [[ "${failures}" -ne 0 ]]; then
   echo "branch-release: FAIL (${failures} issue(s))"
   exit 1

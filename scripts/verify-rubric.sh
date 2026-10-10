@@ -42,5 +42,11 @@ bash ./scripts/test-release-pr-postcondition-policy.sh
 bash ./scripts/test-theorycloud-publish-policy.sh
 bash ./scripts/test-consumer-dependency-policy.sh
 
+# TTSEC2-M3-T2 Pages publication trust boundary: no workflow may deploy GitHub
+# Pages from a `staging` or `pull_request` trigger, and build-only runs must
+# never share the publication concurrency queue. Hostile fixtures prove the
+# checker is not vacuous before the real workflows are checked.
+bash ./scripts/test-pages-publication-policy.sh
+
 # Preserve legacy success line for scripts that grep for it.
 echo "rubric: PASS"
