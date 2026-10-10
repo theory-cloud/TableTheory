@@ -952,6 +952,9 @@ func (q *Query) WithContext(ctx context.Context) core.Query {
 		q.cancel()
 		q.cancel = nil
 	}
+	// An explicit context replaces every derived layer, including any
+	// cancellation wrapper installed by WithCancellation.
+	q.cancelCtx = nil
 	if ctx == nil {
 		ctx = context.Background()
 	}

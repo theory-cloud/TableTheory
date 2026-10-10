@@ -19,14 +19,18 @@ import (
 
 // Query represents a DynamoDB query builder
 type Query struct {
-	builderErr              error
-	executor                QueryExecutor
-	metadata                core.ModelMetadata
-	rawMetadata             *model.Metadata
-	converter               AttributeValueConverter
-	marshaler               marshal.MarshalerInterface
-	ctx                     context.Context
-	baseCtx                 context.Context
+	builderErr  error
+	executor    QueryExecutor
+	metadata    core.ModelMetadata
+	rawMetadata *model.Metadata
+	converter   AttributeValueConverter
+	marshaler   marshal.MarshalerInterface
+	ctx         context.Context
+	baseCtx     context.Context
+	// cancelCtx is the cancelable layer installed by WithCancellation. QueryTimeout
+	// derives its timeout from it when set, so a timeout configured after
+	// WithCancellation still observes the returned canceler.
+	cancelCtx               context.Context
 	cancel                  context.CancelFunc
 	model                   any
 	exclusive               map[string]types.AttributeValue

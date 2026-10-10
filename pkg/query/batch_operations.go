@@ -583,14 +583,19 @@ func (q *Query) BatchCreateWithResult(items any) (*BatchResult, error) {
 // QueryTimeout sets a timeout for the query execution
 func (q *Query) QueryTimeout(timeout time.Duration) core.Query {
 	// Release the previous derived context's timer, then derive the replacement
-	// from the retained, never-canceled base context. Deriving from q.ctx here
-	// would inherit the cancellation applied just above and leave the new timeout
-	// dead on arrival.
+	// from the retained base for timeouts: the cancellation layer installed by a
+	// prior WithCancellation when present, otherwise the never-canceled root.
+	// Deriving from q.ctx would inherit the previous timeout's cancellation and
+	// leave the new timeout dead on arrival, while deriving from the root alone
+	// would bypass an earlier cancellation wrapper.
 	if q.cancel != nil {
 		q.cancel()
 		q.cancel = nil
 	}
-	base := q.baseCtx
+	base := q.cancelCtx
+	if base == nil {
+		base = q.baseCtx
+	}
 	if base == nil {
 		base = context.Background()
 	}
@@ -605,9 +610,26 @@ type QueryCanceler struct {
 	cancel context.CancelFunc
 }
 
-// WithCancellation returns a query that can be canceled
+// WithCancellation returns a query that can be canceled.
+//
+// The cancelable context becomes the layer that a later QueryTimeout derives
+// from, so a timeout configured after this call still observes Cancel. It is
+// derived from the root base rather than the current effective context, so
+// releasing a timeout — here or in a later QueryTimeout — can never cancel the
+// cancellation layer and poison the live context. Call WithCancellation before
+// QueryTimeout to combine both; a timeout already configured when this is called
+// is replaced by the cancelable context.
 func (q *Query) WithCancellation() (core.Query, *QueryCanceler) {
-	ctx, cancel := context.WithCancel(q.ctx)
+	if q.cancel != nil {
+		q.cancel()
+		q.cancel = nil
+	}
+	base := q.baseCtx
+	if base == nil {
+		base = context.Background()
+	}
+	ctx, cancel := context.WithCancel(base)
+	q.cancelCtx = ctx
 	q.ctx = ctx
 	return q, &QueryCanceler{cancel: cancel}
 }
