@@ -1,6 +1,8 @@
 SHELL := /bin/bash
-ROOT_GOTOOLCHAIN := $(shell awk '/^toolchain /{print $$2; exit}' ../../../go.mod)
-GO_ENV := AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 DYNAMODB_ENDPOINT=http://localhost:8000 GOTOOLCHAIN=$(ROOT_GOTOOLCHAIN)
+REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))../../..)
+ROOT_GOTOOLCHAIN := $(shell awk '/^toolchain /{print $$2; exit}' $(REPO_ROOT)/go.mod)
+DYNAMODB_ENDPOINT ?= http://localhost:8000
+GO_ENV := AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 DYNAMODB_ENDPOINT=$(DYNAMODB_ENDPOINT) GOTOOLCHAIN=$(ROOT_GOTOOLCHAIN)
 COMPOSE ?= docker compose
 
 .PHONY: docker-up docker-down run test fmt lint coverage dev-setup dev setup tables-create tables-delete clean
@@ -28,9 +30,10 @@ dev-setup: docker-up setup
 dev: run
 
 docker-up:
-	@if curl -sS --max-time 2 -o /dev/null http://localhost:8000; then \
-		echo "DynamoDB Local already available at http://localhost:8000"; \
+	@if ( cd "$(REPO_ROOT)" && GOTOOLCHAIN=$(ROOT_GOTOOLCHAIN) AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 go run ./internal/dynamodbprobe/cmd/dynamodb-local-check -endpoint $(DYNAMODB_ENDPOINT) ); then \
+		echo "DynamoDB Local already available at $(DYNAMODB_ENDPOINT)"; \
 	else \
+		echo "DynamoDB Local not detected at $(DYNAMODB_ENDPOINT); starting it with Docker Compose"; \
 		$(COMPOSE) up -d; \
 	fi
 
