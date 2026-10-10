@@ -272,9 +272,14 @@ func resolveProtectedAttributes(attributes []string, metadata *Metadata) ([]stri
 			return nil, fmt.Errorf("%w: write_policy protected attributes must be non-empty", errors.ErrInvalidModel)
 		}
 
-		fieldMeta := metadata.Fields[attr]
+		// Canonical DynamoDB attribute names are the authoritative namespace for
+		// write-policy declarations. Resolving them first means a protected name
+		// that is also some other field's Go name still selects the canonical
+		// attribute it names, instead of silently protecting the colliding Go
+		// field. Go field names remain accepted when no canonical name matches.
+		fieldMeta := metadata.FieldsByDBName[attr]
 		if fieldMeta == nil {
-			fieldMeta = metadata.FieldsByDBName[attr]
+			fieldMeta = metadata.Fields[attr]
 		}
 		if fieldMeta == nil {
 			return nil, fmt.Errorf("%w: write_policy protected attribute not found: %s", errors.ErrInvalidModel, attr)

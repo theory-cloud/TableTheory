@@ -248,3 +248,59 @@ def test_transactions_enforce_write_policy() -> None:
 
 def _updates_field(req: dict[str, Any], attribute_name: str) -> bool:
     return attribute_name in req["ExpressionAttributeNames"].values()
+
+
+@dataclass(frozen=True)
+class AliasCollisionRecord:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    protected_value: str = theorydb_field(name="authority", default="")
+    authority: str = theorydb_field(name="description", default="")
+
+
+def _alias_collision_model(
+    *, protected: tuple[str, ...] = ("authority",)
+) -> ModelDefinition[AliasCollisionRecord]:
+    return ModelDefinition.from_dataclass(
+        AliasCollisionRecord,
+        table_name="alias_collision_contract",
+        write_policy=WritePolicy(mode="mutable", protected_attributes=protected),
+    )
+
+
+def test_write_policy_prefers_canonical_attribute_namespace() -> None:
+    # `authority` is both the canonical name of `protected_value` and the Python
+    # name of another field stored as `description`. The canonical attribute must
+    # win so the declaration protects the intended DynamoDB attribute.
+    model = _alias_collision_model()
+    assert model.write_policy.protected_attributes == ("authority",)
+
+
+def test_alias_collision_protects_intended_attribute_on_all_update_paths() -> None:
+    client = FakeDynamoDBClient()
+    table: Table[AliasCollisionRecord] = Table(_alias_collision_model(), client=client)
+
+    with pytest.raises(ProtectedFieldMutationError):
+        table.update("PK#1", "SK#1", {"protected_value": "mutated"})
+
+    with pytest.raises(ProtectedFieldMutationError):
+        table.transact_write([TransactUpdate(pk="PK#1", sk="SK#1", updates={"protected_value": "mutated"})])
+
+    with pytest.raises(ProtectedFieldMutationError):
+        table.update_builder("PK#1", "SK#1").set("protected_value", "mutated").execute()
+
+    assert client.calls == []
+
+
+def test_alias_collision_per_operation_protection_uses_canonical_namespace() -> None:
+    table: Table[AliasCollisionRecord] = Table(
+        _alias_collision_model(protected=()), client=FakeDynamoDBClient()
+    )
+
+    with pytest.raises(ProtectedFieldMutationError):
+        table.update(
+            "PK#1",
+            "SK#1",
+            {"protected_value": "mutated"},
+            protected_attributes=["authority"],
+        )

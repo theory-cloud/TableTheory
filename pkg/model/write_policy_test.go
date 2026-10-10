@@ -122,3 +122,35 @@ func TestWritePolicyMetadata_RejectsEmptyProtectedAttribute(t *testing.T) {
 	require.True(t, errors.Is(err, theorydbErrors.ErrInvalidModel))
 	require.Contains(t, err.Error(), "write_policy protected attributes must be non-empty")
 }
+
+// writePolicyAliasCollisionModel uses the PascalCase naming convention, under
+// which a canonical attribute name can equal another field's Go name: the Go
+// field "Authority" is stored as "Description", while the field
+// "ProtectedValue" is stored as "Authority".
+type writePolicyAliasCollisionModel struct {
+	_ struct{} `theorydb:"naming:pascal_case"`
+
+	PK             string `theorydb:"pk"`
+	SK             string `theorydb:"sk"`
+	ProtectedValue string `theorydb:"attr:Authority"`
+	Authority      string `theorydb:"attr:Description"`
+}
+
+func (writePolicyAliasCollisionModel) WritePolicy() WritePolicy {
+	return WritePolicy{
+		Mode:                WritePolicyModeMutable,
+		ProtectedAttributes: []string{"Authority"},
+	}
+}
+
+func TestWritePolicyMetadata_CanonicalNameWinsOverCollidingFieldName(t *testing.T) {
+	registry := NewRegistry()
+	require.NoError(t, registry.Register(&writePolicyAliasCollisionModel{}))
+
+	metadata, err := registry.GetMetadata(&writePolicyAliasCollisionModel{})
+	require.NoError(t, err)
+	// "Authority" is the canonical attribute of ProtectedValue and also the Go
+	// name of a different field stored as "Description". The canonical attribute
+	// must be the one protected.
+	require.Equal(t, []string{"Authority"}, metadata.WritePolicy.ProtectedAttributes)
+}
