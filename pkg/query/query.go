@@ -26,6 +26,7 @@ type Query struct {
 	converter               AttributeValueConverter
 	marshaler               marshal.MarshalerInterface
 	ctx                     context.Context
+	baseCtx                 context.Context
 	cancel                  context.CancelFunc
 	model                   any
 	exclusive               map[string]types.AttributeValue
@@ -466,11 +467,13 @@ type preparedBatchWriteItemExecutor interface {
 
 // New creates a new Query instance
 func New(model any, metadata core.ModelMetadata, executor QueryExecutor) *Query {
+	baseCtx := context.Background()
 	q := &Query{
 		model:                   model,
 		metadata:                metadata,
 		executor:                executor,
-		ctx:                     context.Background(),
+		ctx:                     baseCtx,
+		baseCtx:                 baseCtx,
 		filters:                 make([]Filter, 0),
 		writeConditions:         make([]Condition, 0),
 		rawConditionExpressions: make([]conditionExpression, 0),

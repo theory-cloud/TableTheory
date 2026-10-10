@@ -956,6 +956,7 @@ func (q *Query) WithContext(ctx context.Context) core.Query {
 		ctx = context.Background()
 	}
 	q.ctx = ctx
+	q.baseCtx = ctx
 	q.setExecutorContext(ctx)
 	return q
 }

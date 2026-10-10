@@ -582,12 +582,19 @@ func (q *Query) BatchCreateWithResult(items any) (*BatchResult, error) {
 
 // QueryTimeout sets a timeout for the query execution
 func (q *Query) QueryTimeout(timeout time.Duration) core.Query {
-	// Release the previous derived context before replacing it so its timer
-	// does not outlive the query's use of it.
+	// Release the previous derived context's timer, then derive the replacement
+	// from the retained, never-canceled base context. Deriving from q.ctx here
+	// would inherit the cancellation applied just above and leave the new timeout
+	// dead on arrival.
 	if q.cancel != nil {
 		q.cancel()
+		q.cancel = nil
 	}
-	ctx, cancel := context.WithTimeout(q.ctx, timeout)
+	base := q.baseCtx
+	if base == nil {
+		base = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(base, timeout)
 	q.ctx = ctx
 	q.cancel = cancel
 	return q
