@@ -681,7 +681,16 @@ function nameOf(token: string, names: Record<string, string>): string {
 function itemKey(table: Table, item: Item): string {
   const pk = item[table.pk];
   if (!pk) throw new Error(`missing partition key ${table.pk}`);
-  return `${keyPart(pk)}|${table.sk ? keyPart(item[table.sk]) : ''}`;
+  return `${keyComponent(pk)}|${table.sk ? keyComponent(item[table.sk]) : ''}`;
+}
+
+// keyComponent length-prefixes keyPart so distinct composite-key tuples cannot
+// collide. Concatenating keyPart outputs directly would alias e.g.
+// (PK='a|S:b', SK='c') with (PK='a', SK='b|S:c'). keyPart is left unchanged for
+// ordering (compareAV) and string extraction (stringValue).
+function keyComponent(av?: AttributeValue): string {
+  const part = keyPart(av);
+  return `${part.length}:${part}`;
 }
 
 function keyFromMap(table: Table, key: Item): string {
