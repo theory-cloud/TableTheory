@@ -27,7 +27,12 @@ import {
 } from './batch.js';
 import { mapDynamoError } from './dynamo-error.js';
 import { hasTheorydbErrorCode, TheorydbError } from './errors.js';
-import type { Model, ModelItem, ModelSchema } from './model.js';
+import type {
+  InferModelItemForMode,
+  Model,
+  ModelSchema,
+  NumberUnmarshalMode,
+} from './model.js';
 import type { SendOptions } from './send-options.js';
 import {
   isEmptyAttribute,
@@ -36,7 +41,6 @@ import {
   marshalScalar,
   nowRfc3339Nano,
   unmarshalItem,
-  type NumberUnmarshalMode,
   type UnmarshalOptions,
 } from './marshal.js';
 import { QueryBuilder, ScanBuilder } from './query.js';
@@ -152,7 +156,9 @@ export class ModelRepository<
   }
 }
 
-export class TheorydbClient {
+export class TheorydbClient<
+  TNumberMode extends NumberUnmarshalMode = 'string',
+> {
   private readonly models = new Map<string, Model>();
   private encryption: EncryptionProvider | undefined;
   private readonly now: () => string;
@@ -176,8 +182,8 @@ export class TheorydbClient {
     return this;
   }
 
-  withSendOptions(sendOptions?: SendOptions): TheorydbClient {
-    const next = new TheorydbClient(this.ddb, {
+  withSendOptions(sendOptions?: SendOptions): TheorydbClient<TNumberMode> {
+    const next = new TheorydbClient<TNumberMode>(this.ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(sendOptions ? { sendOptions } : {}),
@@ -187,8 +193,8 @@ export class TheorydbClient {
     return next;
   }
 
-  withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient {
-    const next = new TheorydbClient(ddb, {
+  withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient<TNumberMode> {
+    const next = new TheorydbClient<TNumberMode>(ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
@@ -216,8 +222,8 @@ export class TheorydbClient {
    * inheriting the caller's encryption provider, clock, send options, and
    * number-unmarshal mode instead of mutating the shared registry.
    */
-  fork(): TheorydbClient {
-    return new TheorydbClient(this.ddb, {
+  fork(): TheorydbClient<TNumberMode> {
+    return new TheorydbClient<TNumberMode>(this.ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
@@ -225,7 +231,9 @@ export class TheorydbClient {
     });
   }
 
-  model<M extends Model>(model: M): ModelRepository<ModelItem<M>>;
+  model<M extends Model>(
+    model: M,
+  ): ModelRepository<InferModelItemForMode<M, TNumberMode>>;
   model(modelName: string): ModelRepository<Record<string, unknown>>;
   model(modelOrName: string | Model): ModelRepository<Record<string, unknown>> {
     const model =
