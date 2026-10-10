@@ -302,38 +302,41 @@ def _read_response(
 ) -> dict[str, Any]:
     names = req.get("ExpressionAttributeNames") or {}
     values = req.get("ExpressionAttributeValues") or {}
-    items = [
+    # The key condition selects the items evaluated; the filter is applied after.
+    evaluated = [
         deepcopy(item)
         for item in source
-        if (not query or _matches(req.get("KeyConditionExpression"), item, names, values))
-        and _matches(req.get("FilterExpression"), item, names, values)
+        if not query or _matches(req.get("KeyConditionExpression"), item, names, values)
     ]
     if table.sk is not None:
         sort_key = table.sk
-        items.sort(key=lambda item: _key_part(item.get(sort_key)))
+        evaluated.sort(key=lambda item: _key_part(item.get(sort_key)))
     if req.get("ScanIndexForward") is False:
-        items.reverse()
+        evaluated.reverse()
     if req.get("ExclusiveStartKey"):
         start = _key_from_map(table, req["ExclusiveStartKey"])
-        for idx, item in enumerate(items):
+        for idx, item in enumerate(evaluated):
             if _item_key(table, item) == start:
-                items = items[idx + 1 :]
+                evaluated = evaluated[idx + 1 :]
                 break
-    scanned = len(items)
+    # DynamoDB Limit bounds the number of evaluated items (before the filter) and
+    # LastEvaluatedKey points at the last evaluated item.
     last_key: Item | None = None
     limit = req.get("Limit")
-    if isinstance(limit, int) and limit > 0 and len(items) > limit:
-        last_key = _key_map(table, items[limit - 1])
-        items = items[:limit]
+    if isinstance(limit, int) and limit > 0 and len(evaluated) > limit:
+        last_key = _key_map(table, evaluated[limit - 1])
+        evaluated = evaluated[:limit]
+    scanned = len(evaluated)
+    matched = [item for item in evaluated if _matches(req.get("FilterExpression"), item, names, values)]
     if req.get("Select") == "COUNT":
-        out: dict[str, Any] = {"Count": scanned, "ScannedCount": scanned}
+        out: dict[str, Any] = {"Count": len(matched), "ScannedCount": scanned}
     else:
         out = {
             "Items": [
                 _project(item, req.get("ProjectionExpression"), req.get("ExpressionAttributeNames") or {})
-                for item in items
+                for item in matched
             ],
-            "Count": len(items),
+            "Count": len(matched),
             "ScannedCount": scanned,
         }
     if last_key is not None:
@@ -365,7 +368,12 @@ def _matches(expression: Any, item: Item | None, names: dict[str, str], values: 
         if marker not in expr:
             continue
         left, right = expr.split(marker, 1)
-        cmp = _compare_av((item or {}).get(_name(left, names)), values.get(right.strip()))
+        left_val = (item or {}).get(_name(left, names))
+        if left_val is None:
+            # DynamoDB evaluates a comparison against a missing attribute to
+            # false, regardless of the operator.
+            return False
+        cmp = _compare_av(left_val, values.get(right.strip()))
         return {
             "=": cmp == 0,
             "<>": cmp != 0,
@@ -519,8 +527,23 @@ def _add_av(left: Any, right: Any) -> Any:
 
 
 def _strip_parens(expr: str) -> str:
-    while expr.startswith("(") and expr.endswith(")"):
-        expr = expr[1:-1].strip()
+    # Remove only a genuinely matching outer pair. Stripping whenever the string
+    # merely starts with "(" and ends with ")" would mangle a compound condition
+    # such as "(#missing = :expected) AND attribute_not_exists(#pk)".
+    while expr.startswith("("):
+        depth = 0
+        close = -1
+        for idx, ch in enumerate(expr):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    close = idx
+                    break
+        if close != len(expr) - 1:
+            return expr
+        expr = expr[1:close].strip()
     return expr
 
 

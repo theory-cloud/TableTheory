@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   BatchGetItemCommand,
   BatchWriteItemCommand,
+  ConditionalCheckFailedException,
   CreateTableCommand,
   DeleteItemCommand,
   DeleteTableCommand,
@@ -294,9 +295,15 @@ void test('StatefulDynamoDBFake supports admin, batches, scans, and transactions
     }),
   )) as {
     Items?: Array<Record<string, AttributeValue>>;
+    Count?: number;
+    ScannedCount?: number;
     LastEvaluatedKey?: Record<string, AttributeValue>;
   };
-  assert.equal(scanned.Items?.length, 1);
+  // DynamoDB Limit bounds evaluated items, before the filter: the first evaluated
+  // item does not match, so Count is 0 with a continuation key.
+  assert.equal(scanned.Count, 0);
+  assert.deepEqual(scanned.Items, []);
+  assert.equal(scanned.ScannedCount, 1);
   assert.ok(scanned.LastEvaluatedKey);
 
   const counted = (await client.send(
@@ -443,4 +450,92 @@ void test('StatefulDynamoDBFake supports admin, batches, scans, and transactions
   );
   fake.reset();
   assert.deepEqual(fake.items(tableName), []);
+});
+
+void test('StatefulDynamoDBFake does not bypass combined write-once conditions', async () => {
+  const { client, fake } = createStatefulDynamoDBClient();
+  const tableName = 'stateful_conditions';
+  await client.send(
+    new CreateTableCommand({
+      TableName: tableName,
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+    }),
+  );
+  fake.seed(tableName, statefulItem('USER#1', 'A', 'one', '10'));
+
+  // The outer parens are not a matching pair for the whole string, so both
+  // clauses must still be enforced: the item exists, so the write-once clause
+  // fails and the put is rejected.
+  await assert.rejects(
+    () =>
+      client.send(
+        new PutItemCommand({
+          TableName: tableName,
+          Item: statefulItem('USER#1', 'A', 'hijacked', '99'),
+          ConditionExpression:
+            '(#missing = :expected) AND attribute_not_exists(#pk)',
+          ExpressionAttributeNames: { '#missing': 'missing', '#pk': 'PK' },
+          ExpressionAttributeValues: { ':expected': avS('keep') },
+        }),
+      ),
+    ConditionalCheckFailedException,
+  );
+  assert.deepEqual(fake.items(tableName)[0]?.name, avS('one'));
+
+  // A genuinely matching outer pair and a satisfied clause still succeeds.
+  await client.send(
+    new PutItemCommand({
+      TableName: tableName,
+      Item: statefulItem('USER#2', 'A', 'fresh', '5'),
+      ConditionExpression: '(attribute_not_exists(#pk))',
+      ExpressionAttributeNames: { '#pk': 'PK' },
+    }),
+  );
+  const got = (await client.send(
+    new GetItemCommand({
+      TableName: tableName,
+      Key: statefulKey('USER#2', 'A'),
+    }),
+  )) as { Item?: Record<string, AttributeValue> };
+  assert.deepEqual(got.Item?.name, avS('fresh'));
+});
+
+void test('StatefulDynamoDBFake COUNT and Limit follow DynamoDB semantics', async () => {
+  const { client, fake } = createStatefulDynamoDBClient();
+  const tableName = 'stateful_counts';
+  await client.send(
+    new CreateTableCommand({
+      TableName: tableName,
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+    }),
+  );
+  fake.seed(
+    tableName,
+    statefulItem('USER#1', 'A', 'one', '10'),
+    statefulItem('USER#1', 'B', 'two', '20'),
+    statefulItem('USER#2', 'A', 'three', '30'),
+  );
+
+  const filtered = (await client.send(
+    new ScanCommand({
+      TableName: tableName,
+      FilterExpression: '#score >= :min',
+      ExpressionAttributeNames: { '#score': 'score' },
+      ExpressionAttributeValues: { ':min': avN('20') },
+    }),
+  )) as { Count?: number; ScannedCount?: number };
+  assert.equal(filtered.Count, 2);
+  assert.equal(filtered.ScannedCount, 3);
+
+  const counted = (await client.send(
+    new ScanCommand({ TableName: tableName, Select: 'COUNT' }),
+  )) as { Count?: number; ScannedCount?: number };
+  assert.equal(counted.Count, 3);
+  assert.equal(counted.ScannedCount, 3);
 });

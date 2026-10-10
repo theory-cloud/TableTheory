@@ -368,3 +368,126 @@ func TestManager_Release_ValidatesToken(t *testing.T) {
 	err = mgr.Release(context.Background(), Lease{Key: Key{PK: "CACHE#A", SK: DefaultLockSortKey}})
 	require.Error(t, err)
 }
+
+func TestExpiryUnix_RoundsUpNeverShorter(t *testing.T) {
+	check := func(name string, in time.Time, want int64) {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, want, expiryUnix(in))
+		})
+	}
+
+	check("whole second is unchanged", time.Unix(1000, 0), 1000)
+	check("sub-second rounds up", time.Unix(1000, 1), 1001)
+	check("near-boundary fraction rounds up", time.Unix(1005, 999_999_999), 1006)
+	check("pre-epoch fraction rounds toward zero", time.Unix(-1, 500_000_000), 0)
+}
+
+// TestExpiryUnix_NeverShortensRequestedDuration is the property the lease contract relies on: the
+// stored expiration must never fall inside the requested duration, at any fractional boundary.
+func TestExpiryUnix_NeverShortensRequestedDuration(t *testing.T) {
+	durations := []time.Duration{
+		time.Millisecond,
+		100 * time.Millisecond,
+		999 * time.Millisecond,
+		time.Second,
+		5 * time.Second,
+		90 * time.Second,
+	}
+
+	for frac := 0; frac < 1_000_000_000; frac += 100_000_000 {
+		now := time.Unix(1000, int64(frac))
+		for _, d := range durations {
+			held := time.Unix(expiryUnix(now.Add(d)), 0).Sub(now)
+			require.GreaterOrEqual(t, held, d, "now=%v duration=%v held=%v", now, d, held)
+		}
+	}
+}
+
+func TestManager_Acquire_RoundsSubSecondExpirationUp(t *testing.T) {
+	mockClient := new(mocks.MockDynamoDBClient)
+
+	fixed := time.Unix(1000, 100_000_000) // 1000.1s
+	mgr, err := NewManager(
+		mockClient,
+		"tbl",
+		WithNow(func() time.Time { return fixed }),
+		WithTokenGenerator(func() string { return "tok" }),
+		WithIncludeTTL(false),
+	)
+	require.NoError(t, err)
+
+	mockClient.
+		On(
+			"PutItem",
+			mock.Anything,
+			mock.MatchedBy(func(in *dynamodb.PutItemInput) bool {
+				if in == nil {
+					return false
+				}
+				nowAV, ok := in.ExpressionAttributeValues[":now"].(*types.AttributeValueMemberN)
+				if !ok || nowAV.Value != "1000" {
+					return false
+				}
+				expAV, ok := in.Item["lease_expires_at"].(*types.AttributeValueMemberN)
+				if !ok || expAV.Value != "1001" {
+					return false
+				}
+				return true
+			}),
+			mock.Anything,
+		).
+		Return(&dynamodb.PutItemOutput{}, nil).
+		Once()
+
+	lease, err := mgr.Acquire(context.Background(), "CACHE#A", 100*time.Millisecond)
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+	require.Equal(t, int64(1001), lease.ExpiresAt)
+	mockClient.AssertExpectations(t)
+}
+
+func TestManager_Refresh_RoundsSubSecondExpirationUp(t *testing.T) {
+	mockClient := new(mocks.MockDynamoDBClient)
+
+	fixed := time.Unix(1000, 900_000_000) // 1000.9s
+	mgr, err := NewManager(
+		mockClient,
+		"tbl",
+		WithNow(func() time.Time { return fixed }),
+		WithIncludeTTL(false),
+	)
+	require.NoError(t, err)
+
+	mockClient.
+		On(
+			"UpdateItem",
+			mock.Anything,
+			mock.MatchedBy(func(in *dynamodb.UpdateItemInput) bool {
+				if in == nil {
+					return false
+				}
+				nowAV, ok := in.ExpressionAttributeValues[":now"].(*types.AttributeValueMemberN)
+				if !ok || nowAV.Value != "1000" {
+					return false
+				}
+				expAV, ok := in.ExpressionAttributeValues[":exp"].(*types.AttributeValueMemberN)
+				if !ok || expAV.Value != "1006" {
+					return false
+				}
+				return true
+			}),
+			mock.Anything,
+		).
+		Return(&dynamodb.UpdateItemOutput{}, nil).
+		Once()
+
+	out, err := mgr.Refresh(
+		context.Background(),
+		Lease{Key: Key{PK: "CACHE#A", SK: DefaultLockSortKey}, Token: "tok"},
+		5*time.Second,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.Equal(t, int64(1006), out.ExpiresAt)
+	mockClient.AssertExpectations(t)
+}

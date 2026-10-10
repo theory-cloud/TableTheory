@@ -81,19 +81,34 @@ export class QueryOptimizer {
       analyzeConditions(shape.conditions ?? []),
       shape.indexes ?? [],
     );
-    const effectiveIndexName = shape.indexName ?? selectedIndex?.name;
-    const effectiveIndexType = shape.indexType ?? selectedIndex?.type;
+    // An optimizer-selected index is only a real plan when the query's partition
+    // key is actually bound. Without it (equality conditions that are merely
+    // filters), execution still fails, so a filter-derived suggestion must not be
+    // reported as the executed index.
+    const partitionKeyBound = shape.kind !== 'query' || shape.hasPartitionKey;
+    const hasExplicitIndex = shape.indexName !== undefined;
+    const indexIsExecutable = partitionKeyBound || hasExplicitIndex;
+    const effectiveIndexName = indexIsExecutable
+      ? (shape.indexName ?? selectedIndex?.name)
+      : shape.indexName;
+    const effectiveIndexType = indexIsExecutable
+      ? (shape.indexType ?? selectedIndex?.type)
+      : shape.indexType;
 
     if (effectiveIndexType === 'GSI' && shape.consistentRead) {
       hints.push('ERROR: Consistent reads are not supported on GSIs');
     }
 
     if (shape.kind === 'query') {
-      if (!shape.hasPartitionKey && !selectedIndex) {
+      if (!shape.hasPartitionKey) {
         hints.push('ERROR: partitionKey() is not set (query will fail)');
       }
-      if (!shape.indexName && selectedIndex) {
+      if (!shape.indexName && selectedIndex && shape.hasPartitionKey) {
         hints.push(indexSelectionHint(selectedIndex));
+      } else if (!shape.hasPartitionKey && selectedIndex) {
+        hints.push(
+          'WARNING: an index condition matched, but partitionKey() is not set, so the query cannot use it',
+        );
       }
       if (shape.hasSortKey && !shape.hasSortKeyCondition) {
         hints.push(

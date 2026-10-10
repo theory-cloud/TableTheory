@@ -360,3 +360,78 @@ func avS(value string) types.AttributeValue {
 func avN(value string) types.AttributeValue {
 	return &types.AttributeValueMemberN{Value: value}
 }
+
+func TestScanCountLimitAndCombinedConditions(t *testing.T) {
+	ctx := context.Background()
+	fake := fakedb.New()
+	tableName := "counts_semantics"
+
+	_, err := fake.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: aws.String(tableName),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("PK"), KeyType: types.KeyTypeHash},
+			{AttributeName: aws.String("SK"), KeyType: types.KeyTypeRange},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, fake.Seed(tableName,
+		fakeItem("USER#1", "A", "one", "10", "blue", "G#1", "001"),
+		fakeItem("USER#1", "B", "two", "20", "green", "G#1", "002"),
+		fakeItem("USER#2", "A", "three", "30", "blue", "G#2", "001"),
+	))
+
+	// Count is matched, ScannedCount is evaluated.
+	filtered, err := fake.Scan(ctx, &dynamodb.ScanInput{
+		TableName:                 aws.String(tableName),
+		FilterExpression:          aws.String("#score >= :min"),
+		ExpressionAttributeNames:  map[string]string{"#score": "score"},
+		ExpressionAttributeValues: map[string]types.AttributeValue{":min": avN("20")},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(2), filtered.Count)
+	require.Equal(t, int32(3), filtered.ScannedCount)
+
+	// Select=COUNT reports the matched count, not zero.
+	counted, err := fake.Scan(ctx, &dynamodb.ScanInput{
+		TableName: aws.String(tableName),
+		Select:    types.SelectCount,
+	})
+	require.NoError(t, err)
+	require.Empty(t, counted.Items)
+	require.Equal(t, int32(3), counted.Count)
+	require.Equal(t, int32(3), counted.ScannedCount)
+
+	// Limit bounds evaluated items: the first evaluated item (SK=A, score 10) does
+	// not match, so Count is 0 with a continuation key.
+	limited, err := fake.Scan(ctx, &dynamodb.ScanInput{
+		TableName:                 aws.String(tableName),
+		FilterExpression:          aws.String("#score >= :min"),
+		ExpressionAttributeNames:  map[string]string{"#score": "score"},
+		ExpressionAttributeValues: map[string]types.AttributeValue{":min": avN("20")},
+		Limit:                     aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Empty(t, limited.Items)
+	require.Equal(t, int32(0), limited.Count)
+	require.Equal(t, int32(1), limited.ScannedCount)
+	require.NotEmpty(t, limited.LastEvaluatedKey)
+
+	// A combined write-once condition whose leading paren is not a matching outer
+	// pair must still enforce both clauses.
+	_, err = fake.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName:                 aws.String(tableName),
+		Item:                      fakeItem("USER#1", "A", "hijacked", "99", "blue", "G#1", "001"),
+		ConditionExpression:       aws.String("(#missing = :expected) AND attribute_not_exists(#pk)"),
+		ExpressionAttributeNames:  map[string]string{"#missing": "missing", "#pk": "PK"},
+		ExpressionAttributeValues: map[string]types.AttributeValue{":expected": avS("keep")},
+	})
+	require.Error(t, err)
+	require.ErrorAs(t, err, new(*types.ConditionalCheckFailedException))
+
+	got, err := fake.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(tableName),
+		Key:       fakeKey("USER#1", "A"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, avS("one"), got.Item["name"])
+}

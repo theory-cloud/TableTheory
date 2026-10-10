@@ -373,9 +373,6 @@ function readResponse(
     .filter((item) =>
       matchesExpression(opts.keyExpression, item, opts.names, opts.values),
     )
-    .filter((item) =>
-      matchesExpression(opts.filterExpression, item, opts.names, opts.values),
-    )
     .map(cloneItem)
     .sort((a, b) => compareAV(a[table.sk ?? ''], b[table.sk ?? '']));
   if (opts.forward === false) items = items.reverse();
@@ -384,26 +381,32 @@ function readResponse(
     const index = items.findIndex((item) => itemKey(table, item) === start);
     if (index >= 0) items = items.slice(index + 1);
   }
-  const scanned = items.length;
+  // DynamoDB Limit bounds the number of evaluated items (before the filter) and
+  // LastEvaluatedKey points at the last evaluated item, so Count (matched) and
+  // ScannedCount (evaluated) can differ.
   let LastEvaluatedKey: Item | undefined;
   if (opts.limit && items.length > opts.limit) {
     LastEvaluatedKey = keyMap(table, items[opts.limit - 1]!);
     items = items.slice(0, opts.limit);
   }
+  const scanned = items.length;
+  const matched = items.filter((item) =>
+    matchesExpression(opts.filterExpression, item, opts.names, opts.values),
+  );
   if (opts.select === 'COUNT') {
     return {
       $metadata: {},
-      Count: scanned,
+      Count: matched.length,
       ScannedCount: scanned,
       LastEvaluatedKey,
     };
   }
   return {
     $metadata: {},
-    Items: items.map((item) =>
+    Items: matched.map((item) =>
       projectItem(item, opts.projectionExpression, opts.names),
     ),
-    Count: items.length,
+    Count: matched.length,
     ScannedCount: scanned,
     LastEvaluatedKey,
   };
@@ -538,7 +541,13 @@ function matchesExpression(
     if (idx < 0) continue;
     const left = expr.slice(0, idx);
     const right = expr.slice(idx + needle.length).trim();
-    const cmp = compareAV(item?.[nameOf(left, names)], values[right]);
+    const leftValue = item?.[nameOf(left, names)];
+    if (leftValue === undefined) {
+      // DynamoDB evaluates a comparison against a missing attribute to false,
+      // regardless of the operator.
+      return false;
+    }
+    const cmp = compareAV(leftValue, values[right]);
     if (op === '=') return cmp === 0;
     if (op === '<>') return cmp !== 0;
     if (op === '>') return cmp > 0;
@@ -610,9 +619,27 @@ function splitLogical(expr: string, op: 'AND' | 'OR'): string[] {
 }
 
 function stripOuterParens(expr: string): string {
-  while (expr.startsWith('(') && expr.endsWith(')'))
-    expr = expr.slice(1, -1).trim();
-  return expr;
+  // Remove only a genuinely matching outer pair. Stripping whenever the string
+  // merely starts with "(" and ends with ")" would mangle a compound condition
+  // such as "(#missing = :expected) AND attribute_not_exists(#pk)".
+  let current = expr;
+  for (;;) {
+    if (!current.startsWith('(')) return current;
+    let depth = 0;
+    let close = -1;
+    for (let i = 0; i < current.length; i += 1) {
+      if (current[i] === '(') depth += 1;
+      else if (current[i] === ')') {
+        depth -= 1;
+        if (depth === 0) {
+          close = i;
+          break;
+        }
+      }
+    }
+    if (close !== current.length - 1) return current;
+    current = current.slice(1, -1).trim();
+  }
 }
 
 function splitCsv(input: string): string[] {

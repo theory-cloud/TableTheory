@@ -113,6 +113,13 @@
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
+* **go:** round lease expiry up to the whole second at or after `now+duration` in `pkg/lease`, so a sub-second lease cannot be taken over inside the second it was acquired and longer leases are never shortened; the TypeScript and Python lease managers round the same way. Whole-second clocks and durations are unchanged
+* **go:** bound `MultiAccountDB.Partner` to the requested partner with exponential failure backoff instead of synchronously refreshing every expired account, so unrelated expired or failing accounts can no longer block a request
+* **py:** treat `Table.query_count`/`scan_count` `limit` as a total evaluated-item budget instead of deleting it and scanning the whole remaining partition or table; `limit=None` still pages to exhaustion
+* **go/py/ts:** align the stateful fakes with DynamoDB: combined conditions whose outer parentheses do not form a matching pair and missing-attribute comparisons are enforced, `Count` is the matched count and `ScannedCount` the evaluated count, and `Limit` bounds evaluated items before the filter
+* **ts:** stop `QueryOptimizer.explain` from reporting an executable index — and suppressing the missing-partition-key error — when a filter condition only resembles an index key
+* **go:** classify a condition failure as `ErrVersionConflict` only on case-sensitive whole-token placeholders or attribute names, so `#value`, `#n10`, and case-variant names no longer misclassify a generic conditional failure
+* **go:** carry `Config.CredentialsProvider`/`Config.AWSConfigOptions` into the KMS AWS config in `NewSessionWithClient`, and fail early with `ErrEncryptionNotConfigured` when a KMS key ARN has no usable credential source; callers that set `KMSKeyARN` without a `KMSClient` must now supply credentials or an explicit KMS client
 
 ## [4.0.2](https://github.com/theory-cloud/TableTheory/compare/v4.0.2-rc...v4.0.2) (2026-10-09)
 

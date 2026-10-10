@@ -340,7 +340,7 @@ func (f *Fake) Query(_ context.Context, params *dynamodb.QueryInput, _ ...func(*
 	})
 	return &dynamodb.QueryOutput{
 		Items:            items.items,
-		Count:            safeInt32(len(items.items)),
+		Count:            safeInt32(items.count),
 		ScannedCount:     safeInt32(items.scanned),
 		LastEvaluatedKey: items.lastKey,
 	}, nil
@@ -368,7 +368,7 @@ func (f *Fake) Scan(_ context.Context, params *dynamodb.ScanInput, _ ...func(*dy
 	})
 	return &dynamodb.ScanOutput{
 		Items:            items.items,
-		Count:            safeInt32(len(items.items)),
+		Count:            safeInt32(items.count),
 		ScannedCount:     safeInt32(items.scanned),
 		LastEvaluatedKey: items.lastKey,
 	}, nil
@@ -487,6 +487,7 @@ type readOutput struct {
 	lastKey map[string]types.AttributeValue
 	items   []map[string]types.AttributeValue
 	scanned int
+	count   int
 }
 
 const maxDynamoDBCount = int64(1<<31 - 1)
@@ -499,28 +500,40 @@ func safeInt32(n int) int32 {
 }
 
 func (f *Fake) readItemsLocked(table *tableState, input readInput) readOutput {
+	// The key condition selects the items a Query/Scan evaluates; the filter is
+	// applied afterwards. DynamoDB's Limit bounds the number of evaluated items
+	// (before the filter), and LastEvaluatedKey points at the last evaluated item,
+	// so Count (matched) and ScannedCount (evaluated) can differ.
 	items := collectReadItems(table, input)
 	sortReadItems(table, input, items)
 	items = applyExclusiveStartKey(table, input, items)
-	scanned := len(items)
 
-	lastKey, items := limitReadItems(table, input, items)
+	lastKey, evaluated := limitReadItems(table, input, items)
+	scanned := len(evaluated)
+
+	matched := make([]map[string]types.AttributeValue, 0, len(evaluated))
+	for _, item := range evaluated {
+		if evalCondition(input.filterExpression, item, input.expressionAttributeNames, input.expressionAttributeValues) {
+			matched = append(matched, item)
+		}
+	}
+
 	if strings.EqualFold(input.selectMode, string(types.SelectCount)) {
-		return readOutput{items: nil, lastKey: lastKey, scanned: scanned}
+		return readOutput{lastKey: lastKey, scanned: scanned, count: len(matched)}
 	}
-	for i := range items {
-		items[i] = projectItem(items[i], input.projectionExpression, input.expressionAttributeNames)
+	for i := range matched {
+		matched[i] = projectItem(matched[i], input.projectionExpression, input.expressionAttributeNames)
 	}
-	return readOutput{items: items, lastKey: lastKey, scanned: scanned}
+	return readOutput{items: matched, lastKey: lastKey, scanned: scanned, count: len(matched)}
 }
 
+// collectReadItems returns the items a Query/Scan evaluates: those matching the
+// key condition. The filter expression is applied later so that evaluated
+// (ScannedCount) and matched (Count) counts stay distinct.
 func collectReadItems(table *tableState, input readInput) []map[string]types.AttributeValue {
 	items := make([]map[string]types.AttributeValue, 0, len(table.items))
 	for _, item := range table.items {
 		if !evalCondition(input.keyConditionExpression, item, input.expressionAttributeNames, input.expressionAttributeValues) {
-			continue
-		}
-		if !evalCondition(input.filterExpression, item, input.expressionAttributeNames, input.expressionAttributeValues) {
 			continue
 		}
 		items = append(items, cloneItem(item))
@@ -899,10 +912,16 @@ func evalTwoArgFunction(
 func evalRangeOrMembershipExpr(expr string, item map[string]types.AttributeValue, names map[string]string, values map[string]types.AttributeValue) (bool, bool) {
 	if attr, lo, hi, ok := parseBetween(expr); ok {
 		have := item[resolveName(attr, names)]
+		if have == nil {
+			return false, true
+		}
 		return compareAV(have, values[lo]) >= 0 && compareAV(have, values[hi]) <= 0, true
 	}
 	if attr, valueRefs, ok := parseIn(expr); ok {
 		have := item[resolveName(attr, names)]
+		if have == nil {
+			return false, true
+		}
 		for _, ref := range valueRefs {
 			if compareAV(have, values[ref]) == 0 {
 				return true, true
@@ -919,7 +938,13 @@ func evalComparisonExpr(expr string, item map[string]types.AttributeValue, names
 		if !ok {
 			continue
 		}
-		cmp := compareAV(item[resolveName(left, names)], values[strings.TrimSpace(right)])
+		have := item[resolveName(left, names)]
+		if have == nil {
+			// DynamoDB evaluates a comparison against a missing attribute to
+			// false, regardless of the operator.
+			return false, true
+		}
+		cmp := compareAV(have, values[strings.TrimSpace(right)])
 		return compareByOperator(cmp, op), true
 	}
 	return false, false
