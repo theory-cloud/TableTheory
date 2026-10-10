@@ -147,6 +147,11 @@ var typescriptDetectorFlagged = []struct{ name, src, rule string }{
 	// re-enters it; neither leaves the function, so a launch after the loop is
 	// still reported when no join reaches it.
 	{"labeled break leaves no join behind", "async function run() {\n  const p = load(id).then((u) => render(u));\n  outer: for (const x of xs) {\n    break outer;\n  }\n}", "floating-then"},
+	// A labelled transfer out of a `try` runs that `try`'s `finally` first, so a
+	// `finally` that returns before the held promise is awaited leaves the promise
+	// unjoined even though the labelled edge skips the `await` textually.
+	{"labeled break runs a returns-finally before the await", "const p = debit().then(audit);\ndone: {\n  try {\n    break done;\n  } finally {\n    return;\n  }\n}\nawait p;", "floating-then"},
+	{"labeled continue runs a returns-finally before the await", "const p = debit().then(audit);\ndone: for (const x of xs) {\n  try {\n    continue done;\n  } finally {\n    return;\n  }\n}\nawait p;", "floating-then"},
 }
 
 // typescriptDetectorClean are the shapes the TypeScript detector must accept.
@@ -187,6 +192,11 @@ var typescriptDetectorClean = []struct{ name, src string }{
 	// loop is joined by an await the labeled branch still reaches.
 	{"labeled break is not a function exit", "async function run() {\n  const p = load(id).then((u) => render(u));\n  outer: for (const x of xs) {\n    break outer;\n  }\n  await p;\n}"},
 	{"labeled continue is not a function exit", "async function run() {\n  const p = load(id).then((u) => render(u));\n  outer: for (const x of xs) {\n    for (const y of ys) {\n      continue outer;\n    }\n  }\n  await p;\n}"},
+	// The labelled transfer runs the `finally` on its way to the label's target,
+	// so a real promise join inside that `finally` dominates a labelled exit just
+	// as it dominates a `return`.
+	{"join in finally dominates a labeled break", "async function run(c) {\n  const p = load(id).then((u) => render(u));\n  done: {\n    try {\n      if (c) break done;\n    } finally {\n      await p;\n    }\n  }\n}"},
+	{"join in finally dominates a labeled continue", "async function run(c) {\n  done: for (const x of xs) {\n    const p = load(id).then((u) => render(u));\n    try {\n      if (c) continue done;\n    } finally {\n      await p;\n    }\n  }\n}"},
 }
 
 // TestTypeScriptDetachedWorkDetectorIsNotVacuous proves the TypeScript detector

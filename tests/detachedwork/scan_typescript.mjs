@@ -35,8 +35,10 @@
  * or a short-circuit operator (`c && a`, `c || a`, `a ?? b`) is not such a
  * statement, so `if (c) await p;`, `c && await p;`, and `c ? await p : 0` leave
  * the held promise reported. A join in a `finally` clause is reached from every
- * exit and so dominates; a join split across both branches of an `if/else` is
- * accepted, because the graph merges the branches.
+ * exit and so dominates, including a labelled `break`/`continue` that leaves a
+ * `try` block: the transfer runs the `finally` on its way to the label's target,
+ * exactly as a `return` does. A join split across both branches of an `if/else`
+ * is accepted, because the graph merges the branches.
  *
  * Recognized launches: timers (`setTimeout`/`setInterval`/`setImmediate`,
  * property or computed-member form) that are neither a promise-resolver delay
@@ -378,13 +380,25 @@ class Graph {
       cache.set(cont, entry);
       return entry;
     };
+    // A labelled `break`/`continue` that leaves the `try` must run the `finally`
+    // on its way to the label's target, exactly like the unlabelled `brk`/`cont`
+    // targets above. The label map is copied per `try` so the outer entries stay
+    // unwrapped for a transfer that starts inside the `finally` itself, where the
+    // clause is already executing.
+    const finLabels = (labels) => {
+      const out = new Map();
+      for (const [name, target] of labels ?? []) {
+        out.set(name, { brk: fin(target.brk), cont: fin(target.cont) });
+      }
+      return out;
+    };
     const normalAfter = fin(k);
     const catchEntry = s.catchClause ? this.node(null) : null;
     const tryExc = catchEntry ?? fin(ctx.exc);
-    const tctx = new Ctx(fin(ctx.exit), tryExc, fin(ctx.brk), fin(ctx.cont), true, ctx.labels);
+    const tctx = new Ctx(fin(ctx.exit), tryExc, fin(ctx.brk), fin(ctx.cont), true, finLabels(ctx.labels));
     const tryEntry = this.seq(s.tryBlock.statements, normalAfter, tctx);
     if (catchEntry) {
-      const cctx = new Ctx(fin(ctx.exit), fin(ctx.exc), fin(ctx.brk), fin(ctx.cont), false, ctx.labels);
+      const cctx = new Ctx(fin(ctx.exit), fin(ctx.exc), fin(ctx.brk), fin(ctx.cont), false, finLabels(ctx.labels));
       catchEntry.succ = dedupe([this.seq(s.catchClause.block.statements, normalAfter, cctx)]);
     }
     const n = this.node(s);
