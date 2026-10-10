@@ -61,5 +61,10 @@ bash ./scripts/test-release-hygiene-policy.sh
 # helper/input names do not throw (finding 1a300492).
 bash ./scripts/test-generated-ts-key-contract-tdz-policy.sh
 
+# TTSEC2-M4-T4 coverage package floors: a package built into several test
+# binaries repeats each source segment, so the aggregation must count unique
+# segments once, matching `go tool cover` (finding 033ccfd5).
+bash ./scripts/test-coverage-package-targets-policy.sh
+
 # Preserve legacy success line for scripts that grep for it.
 echo "rubric: PASS"

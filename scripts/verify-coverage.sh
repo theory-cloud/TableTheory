@@ -538,19 +538,35 @@ for raw in targets.read_text(encoding="utf-8").splitlines():
         raise SystemExit(2)
     min_pct[parts[0]] = float(parts[1])
 
-covered: dict[str, int] = {}
-total: dict[str, int] = {}
+# Go runs every package with a shared `-coverpkg` set, so it emits the same
+# source segment once per test binary: covered in one record and uncovered in
+# the others. Count each unique segment's statements once and treat it as
+# covered when any record has a positive execution count, matching the
+# aggregation `go tool cover` performs.
+segment_stmts: dict[str, int] = {}
+segment_max: dict[str, int] = {}
 for raw in profile.read_text(encoding="utf-8", errors="replace").splitlines()[1:]:
     parts = raw.split()
     if len(parts) < 3:
         continue
     location, stmts_s, count_s = parts[:3]
-    file_path = location.split(":", 1)[0]
-    pkg = str(Path(file_path).parent)
     stmts = int(float(stmts_s))
     count = int(float(count_s))
+    if location not in segment_stmts:
+        segment_stmts[location] = stmts
+        segment_max[location] = count
+        continue
+    if stmts > segment_stmts[location]:
+        segment_stmts[location] = stmts
+    if count > segment_max[location]:
+        segment_max[location] = count
+
+covered: dict[str, int] = {}
+total: dict[str, int] = {}
+for location, stmts in segment_stmts.items():
+    pkg = str(Path(location.split(":", 1)[0]).parent)
     total[pkg] = total.get(pkg, 0) + stmts
-    if count > 0:
+    if segment_max[location] > 0:
         covered[pkg] = covered.get(pkg, 0) + stmts
 
 failures = 0
