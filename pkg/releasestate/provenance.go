@@ -12,6 +12,7 @@ const (
 	keyKind       = "kind"
 	keyRef        = "ref"
 	keyObservedAt = "observed_at"
+	keyDigest     = "digest"
 )
 
 var (
@@ -24,6 +25,7 @@ var (
 		keyObservedAt:   {},
 		"recorded_at":   {},
 		"import_run_id": {},
+		keyDigest:       {},
 		"evidence":      {},
 	}
 	allowedEvidenceKeys = map[string]struct{}{
@@ -31,7 +33,7 @@ var (
 		"source":      {},
 		keyRef:        {},
 		keyObservedAt: {},
-		"digest":      {},
+		keyDigest:     {},
 	}
 	allowedConfidenceKeys = map[string]struct{}{
 		"level":   {},
@@ -85,11 +87,43 @@ func ValidateDeployAuthorityMetadata(item map[string]any) error {
 		return err
 	}
 
-	reason, err := deriveDeployAuthorityReason(provenance)
+	reason, authority, err := deriveDeployAuthority(provenance)
 	if err != nil {
 		return err
 	}
+	if err := validateProvenanceEvidenceAlignment(provenance, authority); err != nil {
+		return err
+	}
 	return validateConfidence(confidence, reason)
+}
+
+// validateProvenanceEvidenceAlignment requires the top-level provenance
+// identity to describe the same artifact as the evidence entry that grants
+// deploy authority. Unrelated evidence must not bless a different top-level
+// artifact.
+func validateProvenanceEvidenceAlignment(provenance map[string]any, evidence deployEvidence) error {
+	kind, err := requiredString(provenance, keyKind)
+	if err != nil {
+		return err
+	}
+	system, err := requiredString(provenance, "system")
+	if err != nil {
+		return err
+	}
+	ref, err := requiredString(provenance, keyRef)
+	if err != nil {
+		return err
+	}
+	if kind != evidence.kind || system != evidence.source || ref != evidence.ref {
+		return fmt.Errorf("%w: provenance identity does not match the deploy authority evidence", theorydbErrors.ErrRejectedDeployAuthorityEvidence)
+	}
+	if rawDigest, ok := provenance[keyDigest]; ok {
+		digest, isString := rawDigest.(string)
+		if !isString || evidence.digest == "" || digest != evidence.digest {
+			return fmt.Errorf("%w: provenance digest does not match the deploy authority evidence", theorydbErrors.ErrRejectedDeployAuthorityEvidence)
+		}
+	}
+	return nil
 }
 
 func validateProvenanceShape(provenance map[string]any) error {
@@ -115,7 +149,7 @@ func validateProvenanceShape(provenance map[string]any) error {
 			return err
 		}
 	}
-	for _, key := range []string{"commit_sha", "import_run_id"} {
+	for _, key := range []string{"commit_sha", "import_run_id", keyDigest} {
 		if value, ok := provenance[key]; ok {
 			if _, ok := value.(string); !ok {
 				return fmt.Errorf("%w: provenance.%s must be a string", theorydbErrors.ErrInvalidModel, key)
@@ -125,21 +159,21 @@ func validateProvenanceShape(provenance map[string]any) error {
 	return nil
 }
 
-func deriveDeployAuthorityReason(provenance map[string]any) (string, error) {
+func deriveDeployAuthority(provenance map[string]any) (string, deployEvidence, error) {
 	evidenceList, err := evidenceValues(provenance["evidence"])
 	if err != nil {
-		return "", err
+		return "", deployEvidence{}, err
 	}
 	if len(evidenceList) == 0 {
-		return "", fmt.Errorf("%w: deploy authority requires evidence", theorydbErrors.ErrRejectedDeployAuthorityEvidence)
+		return "", deployEvidence{}, fmt.Errorf("%w: deploy authority requires evidence", theorydbErrors.ErrRejectedDeployAuthorityEvidence)
 	}
 
 	var signature string
 	var first deployEvidence
 	for i, evidence := range evidenceList {
-		parsed, err := parseDeployEvidence(evidence)
-		if err != nil {
-			return "", err
+		parsed, parseErr := parseDeployEvidence(evidence)
+		if parseErr != nil {
+			return "", deployEvidence{}, parseErr
 		}
 
 		currentSignature := parsed.signature()
@@ -149,21 +183,26 @@ func deriveDeployAuthorityReason(provenance map[string]any) (string, error) {
 			continue
 		}
 		if currentSignature != signature {
-			return "", fmt.Errorf("%w: conflicting deploy authority evidence", theorydbErrors.ErrRejectedDeployAuthorityEvidence)
+			return "", deployEvidence{}, fmt.Errorf("%w: conflicting deploy authority evidence", theorydbErrors.ErrRejectedDeployAuthorityEvidence)
 		}
 	}
 
-	return authorityReasonForEvidence(first)
+	reason, err := authorityReasonForEvidence(first)
+	if err != nil {
+		return "", deployEvidence{}, err
+	}
+	return reason, first, nil
 }
 
 type deployEvidence struct {
 	kind   string
 	source string
 	ref    string
+	digest string
 }
 
 func (e deployEvidence) signature() string {
-	return e.kind + "|" + e.source + "|" + e.ref
+	return e.kind + "|" + e.source + "|" + e.ref + "|" + e.digest
 }
 
 func parseDeployEvidence(evidence map[string]any) (deployEvidence, error) {
@@ -190,13 +229,16 @@ func parseDeployEvidence(evidence map[string]any) (deployEvidence, error) {
 	if err := validateRFC3339("evidence.observed_at", observedAt); err != nil {
 		return deployEvidence{}, err
 	}
-	if digest, ok := evidence["digest"]; ok {
-		if _, ok := digest.(string); !ok {
+	var digest string
+	if rawDigest, ok := evidence["digest"]; ok {
+		text, ok := rawDigest.(string)
+		if !ok {
 			return deployEvidence{}, fmt.Errorf("%w: evidence.digest must be a string", theorydbErrors.ErrInvalidModel)
 		}
+		digest = text
 	}
 
-	return deployEvidence{kind: kind, source: source, ref: ref}, nil
+	return deployEvidence{kind: kind, source: source, ref: ref, digest: digest}, nil
 }
 
 func authorityReasonForEvidence(evidence deployEvidence) (string, error) {

@@ -23,8 +23,11 @@ need a mutable actual-state row plus immutable event history.
 | Generic mutation guard | Model-level `write_policy` metadata |
 | Per-call tightening | Additional protected attributes for that operation only |
 | Transition + event append | One DynamoDB transaction when rows share a transaction boundary |
+| Outbox intent | Write-once outbox row created in the same transaction as the state it authorizes |
 | External side effects | Outbox/retry/reconciliation; never represented as DynamoDB-atomic |
 | Deploy authority | Deterministic `provenance` + `confidence` metadata |
+| Evidence identity | Same kind/source/ref/digest is idempotent; a differing digest conflicts |
+| Top-level provenance | Must align with the evidence that earned authority |
 | Ambiguous evidence | Rejected for deploy authority; store only as immutable visibility/audit events |
 
 The default remains unchanged for existing models: a model without `write_policy` is mutable and has no protected
@@ -91,14 +94,17 @@ explicit migration or repair work outside the high-level TableTheory contract.
 ## Transaction boundary
 
 When the actual-state row and event-history row are in DynamoDB under the same transaction boundary, perform the state
-transition and event append in one DynamoDB transaction:
+transition, event append, and conditional outbox create in one DynamoDB transaction:
 
 1. Update the actual-state row.
 2. Increment the `version` field.
 3. Check the expected version when supplied.
 4. Create the event-history row with a not-exists condition.
+5. Create the outbox-intent row with a not-exists condition when a side effect is queued.
 
-That gives consumers one observable outcome: both internal rows commit, or neither commits.
+The event row must describe the exact release partition the actual-state row updates: a transition helper rejects an
+event whose partition key does not match the actual row before it submits anything. That gives consumers one observable
+outcome: every internal row commits, or none commits.
 
 ✅ Correct:
 
@@ -106,6 +112,7 @@ That gives consumers one observable outcome: both internal rows commit, or neith
 TransactWriteItems:
   - Update RELEASE#service-a / ACTUAL
   - Put    RELEASE#service-a / EVENT#...
+  - Put    RELEASE#service-a / OUTBOX#lambda-alias#...
 ```
 
 ❌ Incorrect:
@@ -113,9 +120,11 @@ TransactWriteItems:
 ```text
 Update ACTUAL
 Put EVENT
+Put OUTBOX (separate call, or constructed but never submitted)
 ```
 
-Two separate calls can leave current state without its audit/event record.
+Two separate calls can leave current state without its audit/event record or without the outbox intent that authorizes
+the external side effect.
 
 ## External side effects are not DynamoDB-atomic
 
@@ -210,10 +219,14 @@ The helper validation accepts deterministic high-confidence evidence and rejects
 - missing `provenance`/`confidence` pairings;
 - unsupported free-form provenance keys;
 - non-RFC3339 timestamps;
-- conflicting evidence signatures;
+- conflicting evidence signatures, including the same kind/source/ref with different evidence `digest` values;
+- top-level `provenance.system`/`kind`/`ref` (and `digest` when present) that does not match the evidence entry that
+  earned deploy authority;
 - unsupported evidence kinds/sources;
 - `medium` or `low` confidence as deploy authority;
 - confidence reasons that do not match the deterministic evidence mapping.
+
+Byte-for-byte identical evidence, including an identical digest, stays idempotent.
 
 If import evidence is ambiguous, preserve it as immutable evidence/event rows. Do not write it to the actual-state row
 as deploy authority.

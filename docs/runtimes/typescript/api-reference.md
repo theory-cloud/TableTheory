@@ -49,7 +49,7 @@ export declare function hasTheorydbErrorCode(value: unknown, code: ErrorCode): b
 ```ts
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { type BatchGetResult, type BatchWriteResult, type RetryOptions } from './batch.js';
-import type { Model, ModelItem } from './model.js';
+import type { Model, ModelItem, ModelSchema } from './model.js';
 import type { SendOptions } from './send-options.js';
 import { type NumberUnmarshalMode } from './marshal.js';
 import { QueryBuilder, ScanBuilder } from './query.js';
@@ -110,6 +110,13 @@ export declare class TheorydbClient {
     register(...models: Model[]): this;
     model<M extends Model>(model: M): ModelRepository<ModelItem<M>>;
     model(modelName: string): ModelRepository<Record<string, unknown>>;
+    /**
+     * Returns the registered schema for a model name.
+     *
+     * Release-state transition helpers use this to bind an appended event to the
+     * exact actual row it describes before any transaction is submitted.
+     */
+    modelSchema(modelName: string): Readonly<ModelSchema>;
     private requireModel;
     private requireEncryption;
     create(modelName: string, item: Record<string, unknown>, opts?: {
@@ -1042,6 +1049,13 @@ export interface ReleaseStateTransitionInput {
     set: Record<string, unknown>;
     eventModel: string;
     eventItem: Record<string, unknown>;
+    /**
+     * Optional immutable write-once outbox row created in the same transaction as
+     * the actual-state update and event append. Provide `outboxModel` and
+     * `outboxItem` together.
+     */
+    outboxModel?: string;
+    outboxItem?: Record<string, unknown>;
     expectedVersion?: number;
     versionAttribute?: string;
 }
