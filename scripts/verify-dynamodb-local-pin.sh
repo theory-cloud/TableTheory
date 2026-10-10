@@ -27,6 +27,21 @@ if [[ -f Makefile ]]; then
   fi
 fi
 
+# DynamoDB Local enforces no authentication, so a local runner must publish its
+# port on loopback only. Docker publishes on every host interface when the host
+# IP is omitted (finding 3e93ce38).
+run_local="examples/cdk-multilang/local/run-local.sh"
+if [[ -f "${run_local}" ]]; then
+  if ! grep -Fq -- '-p "127.0.0.1:${PORT}:8000"' "${run_local}"; then
+    echo "dynamodb-local: ${run_local} must publish DynamoDB Local on loopback (127.0.0.1)"
+    failures=$((failures + 1))
+  fi
+  if grep -Fq -- '-p "${PORT}:8000"' "${run_local}"; then
+    echo "dynamodb-local: ${run_local} publishes DynamoDB Local on all interfaces (missing loopback host)"
+    failures=$((failures + 1))
+  fi
+fi
+
 # Scan repo for other docker-compose usage, but exclude documentation markdown to avoid false positives.
 if rg -n --no-heading \
   --glob '!scripts/verify-dynamodb-local-pin.sh' \

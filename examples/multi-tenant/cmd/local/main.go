@@ -59,7 +59,7 @@ func main() {
 
 	// Setup server
 	srv := &http.Server{
-		Addr:         ":8080",
+		Addr:         localListenAddr,
 		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
@@ -68,7 +68,7 @@ func main() {
 
 	// Start server
 	go func() {
-		fmt.Println("Multi-tenant SaaS API starting on :8080")
+		fmt.Printf("Multi-tenant SaaS API starting on %s\n", localListenAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("Server failed to start:", err)
 		}
@@ -91,6 +91,11 @@ func main() {
 
 	fmt.Println("Server exited")
 }
+
+// localListenAddr binds the example's local server to loopback only. The local
+// server relies on JWT_SECRET and API keys but is not a hardened edge, so it must
+// never listen on every network interface.
+const localListenAddr = "127.0.0.1:8080"
 
 // createTables creates the necessary DynamoDB tables for local development
 func createTables(db core.ExtendedDB) error {

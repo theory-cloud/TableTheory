@@ -4,9 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,12 +22,13 @@ import (
 
 // APIKeyHandler handles API key management
 type APIKeyHandler struct {
-	db core.ExtendedDB
+	db       core.ExtendedDB
+	verifier *keyVerifier
 }
 
 // NewAPIKeyHandler creates a new API key handler
 func NewAPIKeyHandler(db core.ExtendedDB) *APIKeyHandler {
-	return &APIKeyHandler{db: db}
+	return &APIKeyHandler{db: db, verifier: newKeyVerifier()}
 }
 
 // CreateAPIKey creates a new API key for programmatic access
@@ -365,25 +368,9 @@ func (h *APIKeyHandler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 
 // ValidateAPIKey validates an API key and returns its details (used by middleware)
 func (h *APIKeyHandler) ValidateAPIKey(apiKey string) (*models.APIKey, error) {
-	// Format: sk_{env}_{keyID}.{secret}
-	keyParts := strings.SplitN(apiKey, ".", 2)
-	if len(keyParts) != 2 {
-		return nil, fmt.Errorf("invalid API key")
-	}
-	keyIDWithPrefix := keyParts[0]
-	secret := keyParts[1]
-
-	var keyID string
-	switch {
-	case strings.HasPrefix(keyIDWithPrefix, "sk_live_"):
-		keyID = strings.TrimPrefix(keyIDWithPrefix, "sk_live_")
-	case strings.HasPrefix(keyIDWithPrefix, "sk_test_"):
-		keyID = strings.TrimPrefix(keyIDWithPrefix, "sk_test_")
-	default:
-		return nil, fmt.Errorf("invalid API key")
-	}
-	if keyID == "" || secret == "" {
-		return nil, fmt.Errorf("invalid API key")
+	keyID, secret, err := splitAPIKey(apiKey)
+	if err != nil {
+		return nil, err
 	}
 
 	// Search for the key by ID
@@ -398,9 +385,27 @@ func (h *APIKeyHandler) ValidateAPIKey(apiKey string) (*models.APIKey, error) {
 		return nil, err
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(apiKeyRecord.KeyHash), []byte(secret)); err != nil {
+	// The record lookup already proves the caller knows a real, active key
+	// identifier (creation and listing return it). Bound the expensive work that
+	// follows so that knowledge cannot be turned into pre-auth CPU exhaustion: a
+	// caller may hold at most one verification slot, and repeated failures for
+	// one key identifier are throttled before the bcrypt comparison runs.
+	release, ok := h.verifier.acquire()
+	if !ok {
+		return nil, errAPIKeyVerificationBusy
+	}
+	defer release()
+
+	now := time.Now()
+	if h.verifier.throttled(keyID, now) {
+		return nil, errAPIKeyVerificationThrottled
+	}
+
+	if err := h.verifier.compare([]byte(apiKeyRecord.KeyHash), []byte(secret)); err != nil {
+		h.verifier.recordFailure(keyID, now)
 		return nil, fmt.Errorf("invalid API key")
 	}
+	h.verifier.clearFailures(keyID)
 
 	// Check if expired
 	if !apiKeyRecord.ExpiresAt.IsZero() && time.Now().After(apiKeyRecord.ExpiresAt) {
@@ -412,6 +417,134 @@ func (h *APIKeyHandler) ValidateAPIKey(apiKey string) (*models.APIKey, error) {
 	h.db.Model(&apiKeyRecord).Update()
 
 	return &apiKeyRecord, nil
+}
+
+// splitAPIKey parses the "sk_{env}_{keyID}.{secret}" key format.
+func splitAPIKey(apiKey string) (keyID, secret string, err error) {
+	keyParts := strings.SplitN(apiKey, ".", 2)
+	if len(keyParts) != 2 {
+		return "", "", fmt.Errorf("invalid API key")
+	}
+	keyIDWithPrefix := keyParts[0]
+	secret = keyParts[1]
+
+	switch {
+	case strings.HasPrefix(keyIDWithPrefix, "sk_live_"):
+		keyID = strings.TrimPrefix(keyIDWithPrefix, "sk_live_")
+	case strings.HasPrefix(keyIDWithPrefix, "sk_test_"):
+		keyID = strings.TrimPrefix(keyIDWithPrefix, "sk_test_")
+	default:
+		return "", "", fmt.Errorf("invalid API key")
+	}
+	if keyID == "" || secret == "" {
+		return "", "", fmt.Errorf("invalid API key")
+	}
+	return keyID, secret, nil
+}
+
+const (
+	// maxConcurrentKeyVerifications bounds how many bcrypt comparisons run at
+	// once, so a burst of API-key attempts cannot saturate the CPU.
+	maxConcurrentKeyVerifications = 8
+	// keyVerificationFailureLimit and keyVerificationFailureWindow throttle
+	// repeated pre-auth failures for one key identifier, the primitive a caller
+	// who knows a valid key identifier would otherwise use to burn CPU.
+	keyVerificationFailureLimit  = 5
+	keyVerificationFailureWindow = 30 * time.Second
+	// keyVerificationWait bounds how long a request waits for a verification slot
+	// before it is rejected instead of queueing unboundedly.
+	keyVerificationWait = 250 * time.Millisecond
+)
+
+var (
+	// errAPIKeyVerificationThrottled rejects a key identifier that has failed
+	// verification too often inside the window.
+	errAPIKeyVerificationThrottled = errors.New("invalid API key")
+	// errAPIKeyVerificationBusy rejects a request when every verification slot is
+	// occupied past the bounded wait.
+	errAPIKeyVerificationBusy = errors.New("API key verification is busy")
+)
+
+// keyVerifier bounds the pre-authentication work of API-key verification. It
+// never caches a successful verification: a revoked or rotated credential takes
+// effect on the next record lookup.
+type keyVerifier struct {
+	compare func(hashedPassword, password []byte) error
+
+	slots chan struct{}
+
+	mu       sync.Mutex
+	failures map[string]*verificationFailures
+}
+
+// verificationFailures tracks recent pre-auth failures for one key identifier.
+// Entries only exist for identifiers that resolved to a stored key, so the map is
+// bounded by the number of keys, not by attacker input.
+type verificationFailures struct {
+	windowStart time.Time
+	count       int
+}
+
+func newKeyVerifier() *keyVerifier {
+	return &keyVerifier{
+		compare:  bcrypt.CompareHashAndPassword,
+		slots:    make(chan struct{}, maxConcurrentKeyVerifications),
+		failures: make(map[string]*verificationFailures),
+	}
+}
+
+// acquire reserves a verification slot, waiting at most keyVerificationWait
+// before giving up. The returned release function must be called.
+func (v *keyVerifier) acquire() (release func(), ok bool) {
+	select {
+	case v.slots <- struct{}{}:
+		return func() { <-v.slots }, true
+	default:
+	}
+
+	timer := time.NewTimer(keyVerificationWait)
+	defer timer.Stop()
+	select {
+	case v.slots <- struct{}{}:
+		return func() { <-v.slots }, true
+	case <-timer.C:
+		return nil, false
+	}
+}
+
+// throttled reports whether keyID exhausted its failure budget inside the
+// window. A stale window is cleared so the throttle cannot persist forever.
+func (v *keyVerifier) throttled(keyID string, now time.Time) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	entry, ok := v.failures[keyID]
+	if !ok {
+		return false
+	}
+	if now.Sub(entry.windowStart) > keyVerificationFailureWindow {
+		delete(v.failures, keyID)
+		return false
+	}
+	return entry.count >= keyVerificationFailureLimit
+}
+
+func (v *keyVerifier) recordFailure(keyID string, now time.Time) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	entry, ok := v.failures[keyID]
+	if !ok || now.Sub(entry.windowStart) > keyVerificationFailureWindow {
+		v.failures[keyID] = &verificationFailures{count: 1, windowStart: now}
+		return
+	}
+	entry.count++
+}
+
+func (v *keyVerifier) clearFailures(keyID string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	delete(v.failures, keyID)
 }
 
 // CheckRateLimit checks if the API key has exceeded its rate limit
