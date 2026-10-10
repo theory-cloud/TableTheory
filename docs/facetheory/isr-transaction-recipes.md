@@ -142,6 +142,8 @@ TableTheory exports a small helper that implements the FaceTheory ISR metadata +
 - `LeaseManager` for acquiring/releasing `LOCK` rows
 - `TheorydbClient.transactWrite()` for atomic “publish META + release LOCK” (Recipe A)
 
+If you supply the optional `client`, the helper registers its `FaceTheoryCacheMetadata` and `FaceTheoryCacheLease` models on a private fork of that client rather than mutating the client it was given. Two helpers constructed for different tables can therefore share one configured `client` without a later construction rebinding an earlier helper's table: each helper's reads and transactions target its own `tableName`, lease and metadata operations share that one binding, and the supplied client's registry is left untouched.
+
 ```ts
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { createFaceTheoryIsrMetaStore } from '@theory-cloud/tabletheory-ts/facetheory';

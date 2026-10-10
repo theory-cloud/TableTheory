@@ -205,6 +205,26 @@ export class TheorydbClient {
     return this;
   }
 
+  /**
+   * Returns a new client with the same configuration as this one and its own
+   * empty model registry.
+   *
+   * `register()` writes into a registry keyed by model name. A component that
+   * registers fixed model names into a caller-owned client therefore rebinds
+   * any earlier component that registered the same names against a different
+   * table. `fork()` lets such a component hold a private binding while still
+   * inheriting the caller's encryption provider, clock, send options, and
+   * number-unmarshal mode instead of mutating the shared registry.
+   */
+  fork(): TheorydbClient {
+    return new TheorydbClient(this.ddb, {
+      now: this.now,
+      ...(this.encryption ? { encryption: this.encryption } : {}),
+      ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
+      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+    });
+  }
+
   model<M extends Model>(model: M): ModelRepository<ModelItem<M>>;
   model(modelName: string): ModelRepository<Record<string, unknown>>;
   model(modelOrName: string | Model): ModelRepository<Record<string, unknown>> {

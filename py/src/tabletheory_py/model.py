@@ -119,7 +119,12 @@ def _resolve_write_policy(
     protected: set[str] = set()
     by_attribute_name = {attr.attribute_name: attr for attr in attributes.values()}
     for attr in resolved.protected_attributes:
-        attr_def = attributes.get(attr) or by_attribute_name.get(attr)
+        # Canonical DynamoDB attribute names are the authoritative namespace.
+        # Resolving them first means a protected name that is also another
+        # field's Python name still selects the canonical attribute it names,
+        # rather than silently protecting the colliding Python field. Python
+        # field names remain accepted when no canonical name matches.
+        attr_def = by_attribute_name.get(attr) or attributes.get(attr)
         if attr_def is None:
             raise ModelDefinitionError(f"write_policy protected attribute not found: {attr}")
         protected.add(attr_def.attribute_name)

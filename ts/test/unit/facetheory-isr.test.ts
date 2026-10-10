@@ -11,6 +11,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 
 import { TheorydbError } from '../../src/errors.js';
+import { TheorydbClient } from '../../src/client.js';
 import { FaceTheoryIsrMetaStore } from '../../src/facetheory-isr.js';
 import { createMockDynamoDBClient } from '../../src/testkit/index.js';
 
@@ -199,4 +200,56 @@ import { createMockDynamoDBClient } from '../../src/testkit/index.js';
   assert.equal(cmd.input.TableName, 'tbl');
   assert.equal(cmd.input.Key?.pk?.S, 'CACHE#a');
   assert.equal(cmd.input.Key?.sk?.S, 'LOCK');
+}
+
+{
+  // Regression: two stores for different tables sharing one caller-supplied
+  // client. Constructing the second store must not rebind the first store's
+  // reads or transactions to the second table; each store keeps one immutable
+  // (client, tableName) binding across its metadata and transaction work.
+  const mock = createMockDynamoDBClient();
+  mock.when(GetItemCommand, async () => ({ $metadata: {} }));
+  mock.when(TransactWriteItemsCommand, async () => ({ $metadata: {} }));
+
+  const shared = new TheorydbClient(mock.client as unknown as DynamoDBClient);
+
+  const storeA = new FaceTheoryIsrMetaStore({
+    ddb: mock.client as unknown as DynamoDBClient,
+    tableName: 'tenant-A-table',
+    client: shared,
+  });
+  const storeB = new FaceTheoryIsrMetaStore({
+    ddb: mock.client as unknown as DynamoDBClient,
+    tableName: 'tenant-B-table',
+    client: shared,
+  });
+
+  await storeA.get({ cacheKey: 'homepage' });
+  const getA = mock.calls[mock.calls.length - 1];
+  assert.ok(getA instanceof GetItemCommand);
+  assert.equal(getA.input.TableName, 'tenant-A-table');
+
+  await storeA.commitGeneration({
+    cacheKey: 'homepage',
+    leaseToken: 'tok',
+    nowMs: 1_000_000,
+    htmlPointer: 's3://tenant-a/home.html',
+    generatedAtMs: 1_000_000,
+    revalidateSeconds: 60,
+  });
+  const txA = mock.calls[mock.calls.length - 1];
+  assert.ok(txA instanceof TransactWriteItemsCommand);
+  for (const item of txA.input.TransactItems ?? []) {
+    assert.equal((item.Put ?? item.Delete)?.TableName, 'tenant-A-table');
+  }
+
+  await storeB.get({ cacheKey: 'homepage' });
+  const getB = mock.calls[mock.calls.length - 1];
+  assert.ok(getB instanceof GetItemCommand);
+  assert.equal(getB.input.TableName, 'tenant-B-table');
+
+  // The caller-owned client's registry is left untouched: the stores bound
+  // their fixed-name models privately instead of mutating it.
+  assert.throws(() => shared.model('FaceTheoryCacheMetadata'));
+  assert.throws(() => shared.model('FaceTheoryCacheLease'));
 }

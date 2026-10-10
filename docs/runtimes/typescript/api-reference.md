@@ -108,6 +108,18 @@ export declare class TheorydbClient {
     withSendOptions(sendOptions?: SendOptions): TheorydbClient;
     withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient;
     register(...models: Model[]): this;
+    /**
+     * Returns a new client with the same configuration as this one and its own
+     * empty model registry.
+     *
+     * `register()` writes into a registry keyed by model name. A component that
+     * registers fixed model names into a caller-owned client therefore rebinds
+     * any earlier component that registered the same names against a different
+     * table. `fork()` lets such a component hold a private binding while still
+     * inheriting the caller's encryption provider, clock, send options, and
+     * number-unmarshal mode instead of mutating the shared registry.
+     */
+    fork(): TheorydbClient;
     model<M extends Model>(model: M): ModelRepository<ModelItem<M>>;
     model(modelName: string): ModelRepository<Record<string, unknown>>;
     /**

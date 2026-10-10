@@ -125,20 +125,19 @@ export class FaceTheoryIsrMetaStore {
       cfg.pkFromCacheKey ??
       ((cacheKey) => `${cfg.pkPrefix ?? 'CACHE#'}${cacheKey}`);
 
-    this.client =
-      cfg.client ??
-      new TheorydbClient(this.ddb).register(
-        defineFaceTheoryCacheMetadataModel(this.tableName),
-        defineFaceTheoryCacheLeaseModel(this.tableName),
-      );
-
-    // Ensure models exist when caller provided a pre-configured client.
-    if (cfg.client) {
-      this.client.register(
-        defineFaceTheoryCacheMetadataModel(this.tableName),
-        defineFaceTheoryCacheLeaseModel(this.tableName),
-      );
-    }
+    // Bind this store's models to a private registry. `register()` keys models
+    // by name, so registering the fixed `FaceTheoryCacheMetadata` /
+    // `FaceTheoryCacheLease` names into a caller-supplied client would let a
+    // second store constructed with that client silently rebind this store's
+    // reads and transactions to another table. Forking the supplied client
+    // keeps its configuration while giving this store one immutable
+    // (ddb, tableName) binding shared by its metadata and lease operations.
+    this.client = (
+      cfg.client ? cfg.client.fork() : new TheorydbClient(this.ddb)
+    ).register(
+      defineFaceTheoryCacheMetadataModel(this.tableName),
+      defineFaceTheoryCacheLeaseModel(this.tableName),
+    );
   }
 
   async get(
