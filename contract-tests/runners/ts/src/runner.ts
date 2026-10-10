@@ -450,12 +450,16 @@ function assertExpectation(
     "raw_attribute_types",
     "raw_item_contains",
   ]);
+  // item_absent requires the operation to succeed, but not a present item, so it
+  // is neither an item assertion (which needs a non-nil item) nor one it can be
+  // combined with an error expectation.
+  const hasAbsenceAssertion = expect.item_absent !== undefined;
 
   if (expect.error) {
     assert.ok(err, "expected error");
     assert.equal(mapError(err), expect.error);
     assert.equal(
-      hasItemAssertion || hasRawAssertion,
+      hasItemAssertion || hasRawAssertion || hasAbsenceAssertion,
       false,
       "item assertions cannot be combined with error expectations",
     );
@@ -465,7 +469,7 @@ function assertExpectation(
     assert.ok(err, "expected error");
     assert.deepEqual(mapErrors(err).sort(), expect.errors.slice().sort());
     assert.equal(
-      hasItemAssertion || hasRawAssertion,
+      hasItemAssertion || hasRawAssertion || hasAbsenceAssertion,
       false,
       "item assertions cannot be combined with error expectations",
     );
@@ -487,6 +491,13 @@ function assertExpectation(
       "expected successful operation for raw-item assertions",
     );
     assert.ok(raw, "expected raw item for raw assertions");
+  }
+  if (hasAbsenceAssertion) {
+    assert.equal(
+      err,
+      undefined,
+      "expected successful operation for item_absent assertions",
+    );
   }
 
   if (expect.ok !== undefined) {

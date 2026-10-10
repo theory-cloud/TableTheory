@@ -151,7 +151,7 @@ write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL
 expect_success_contains "surfaces 2" node "${synthetic_checker}"
 expect_success_contains "declarations 2" node "${synthetic_checker}"
 expect_success_contains \
-  "self-test 45 synthetic surfaces + 2 scope cases + 1 entry-point probe" \
+  "self-test 53 synthetic surfaces + 2 scope cases + 1 entry-point probe" \
   node "${synthetic_checker}" --self-test
 
 # --- deprecated declarations ------------------------------------------------
@@ -302,5 +302,54 @@ write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL
 expect_failure_contains \
   "1 Lambda runtime declaration(s) are deprecated or unmodelled (2 declarations across 2 surfaces)" \
   node "${synthetic_checker}"
+
+# --- comments cannot hide a declaration, nor invent one ---------------------
+# The original hostile wrote a block comment between `fromString(` and its
+# argument inside a new, undeclared stack, so the coverage walk saw no
+# declaration to judge and never opened the file. The commented literal is a real
+# declaration, so the undeclared surface is now caught.
+write_surface "${synthetic}" "${surface_a}" "runtime: lambda.Runtime.NODEJS_24_X,
+"
+write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL2023,
+"
+write_surface "${synthetic}" "examples/cdk-multilang/lib/scratch-commented.ts" "runtime: lambda.Runtime.fromString(/* pinned */ 'nodejs18.x'),
+"
+expect_failure_contains \
+  "unmodelled surface(s) declare a Lambda runtime but are not judged: examples/cdk-multilang/lib/scratch-commented.ts" \
+  node "${synthetic_checker}"
+rm -f "${synthetic}/examples/cdk-multilang/lib/scratch-commented.ts"
+
+# The same commented literal on a declared surface is judged, not missed.
+write_surface "${synthetic}" "${surface_a}" "runtime: lambda.Runtime.fromString(/* pinned */ 'nodejs18.x'),
+"
+expect_failure_contains \
+  "declares 'nodejs18.x', which AWS has deprecated" \
+  node "${synthetic_checker}"
+
+# A declaration that is entirely commented out does not count, so a surface left
+# with no readable declaration fails closed instead of passing on a comment. Both
+# comment forms are pinned.
+write_surface "${synthetic}" "${surface_a}" "// runtime: lambda.Runtime.NODEJS_24_X,
+"
+write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL2023,
+"
+expect_failure_contains \
+  "declares no modelled Lambda runtime" \
+  node "${synthetic_checker}"
+
+write_surface "${synthetic}" "${surface_a}" "/* runtime: lambda.Runtime.PYTHON_3_8, */
+"
+expect_failure_contains \
+  "declares no modelled Lambda runtime" \
+  node "${synthetic_checker}"
+
+# Ordinary supported forms behind comments, and a URL inside a string, are
+# unaffected.
+write_surface "${synthetic}" "${surface_a}" "const endpoint = \"https://runtime.example.com/path\";
+runtime: lambda.Runtime.fromString(/* keep */ 'nodejs24.x'), // current
+"
+write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL2023,
+"
+expect_success_contains "surfaces 2" node "${synthetic_checker}"
 
 echo "lambda-runtime-deprecations-policy-test: PASS"

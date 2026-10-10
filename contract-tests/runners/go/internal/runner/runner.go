@@ -367,17 +367,21 @@ func stepModelName(s *scenario.Scenario, step scenario.Step) string {
 func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectation, item map[string]any, err error, raw map[string]types.AttributeValue, model spec.Model) {
 	hasItemAssertion := expectationHasItemAssertion(expect)
 	hasRawAssertion := expectationHasRawItemAssertion(expect)
+	// item_absent requires the operation to succeed, but not a present item, so
+	// it is neither an item assertion (which needs a non-nil item) nor one it can
+	// be combined with an error expectation.
+	hasAbsenceAssertion := expect.ItemAbsent != nil
 
 	if expect.Error != "" {
 		require.Error(t, err)
 		require.Equal(t, driver.ErrorCode(expect.Error), driver.MapError(err))
-		require.False(t, hasItemAssertion || hasRawAssertion, "item assertions cannot be combined with error expectations")
+		require.False(t, hasItemAssertion || hasRawAssertion || hasAbsenceAssertion, "item assertions cannot be combined with error expectations")
 		return
 	}
 	if len(expect.Errors) > 0 {
 		require.Error(t, err)
 		require.ElementsMatch(t, errorCodesFromExpectation(expect.Errors), driver.MapErrors(err))
-		require.False(t, hasItemAssertion || hasRawAssertion, "item assertions cannot be combined with error expectations")
+		require.False(t, hasItemAssertion || hasRawAssertion || hasAbsenceAssertion, "item assertions cannot be combined with error expectations")
 		return
 	}
 	if hasItemAssertion {
@@ -387,6 +391,9 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 	if hasRawAssertion {
 		require.NoError(t, err, "expected successful operation for raw-item assertions")
 		require.NotNil(t, raw, "expected raw item for raw assertions")
+	}
+	if hasAbsenceAssertion {
+		require.NoError(t, err, "expected successful operation for item_absent assertions")
 	}
 	if expect.Ok != nil {
 		if *expect.Ok {

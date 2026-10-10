@@ -35,12 +35,16 @@
  * or a short-circuit operator (`c && a`, `c || a`, `a ?? b`) is not such a
  * statement, so `if (c) await p;`, `c && await p;`, and `c ? await p : 0` leave
  * the held promise reported. A join in a `finally` clause is reached from every
- * exit and so dominates; a join split across both branches of an `if/else` is
- * accepted, because the graph merges the branches.
+ * exit and so dominates, including a labelled `break`/`continue` that leaves a
+ * `try` block: the transfer runs the `finally` on its way to the label's target,
+ * exactly as a `return` does. A join split across both branches of an `if/else`
+ * is accepted, because the graph merges the branches.
  *
  * Recognized launches: timers (`setTimeout`/`setInterval`/`setImmediate`,
  * property or computed-member form) that are neither a promise-resolver delay
- * nor a handle this file clears or unrefs; `queueMicrotask` and
+ * nor a handle this file clears or unrefs. A timer handle is not a promise, so
+ * `await`ing or returning the handle cannot wait for the callback and never
+ * joins it; `queueMicrotask` and
  * `process.nextTick`; a `void` discard of a call; a dropped async IIFE; a
  * dropped `.then`/`.catch`/`.finally` chain; a dropped call to a function this
  * file declares `async`; a promise bound to a name, member, or element and not
@@ -85,6 +89,11 @@ try {
 }
 
 const TIMER_NAMES = new Set(['setTimeout', 'setInterval', 'setImmediate']);
+// A timer handle is not a promise: `await`ing or returning it cannot wait for
+// the callback, so a launch carrying one of these rules is never suppressed by
+// a join. The only thing that can make such a launch safe is clearing or
+// unrefing the handle, which is decided in promiseRule before a launch is seen.
+const TIMER_RULES = new Set([...TIMER_NAMES].map((name) => `floating-${name}`));
 const CLEAR_NAMES = new Set(['clearTimeout', 'clearInterval', 'clearImmediate']);
 const CHAIN_NAMES = new Set(['then', 'catch', 'finally']);
 const RESOLVER_NAMES = new Set(['resolve', 'r', 'res', 'done', 'reject', '_resolve', '_r']);
@@ -378,13 +387,25 @@ class Graph {
       cache.set(cont, entry);
       return entry;
     };
+    // A labelled `break`/`continue` that leaves the `try` must run the `finally`
+    // on its way to the label's target, exactly like the unlabelled `brk`/`cont`
+    // targets above. The label map is copied per `try` so the outer entries stay
+    // unwrapped for a transfer that starts inside the `finally` itself, where the
+    // clause is already executing.
+    const finLabels = (labels) => {
+      const out = new Map();
+      for (const [name, target] of labels ?? []) {
+        out.set(name, { brk: fin(target.brk), cont: fin(target.cont) });
+      }
+      return out;
+    };
     const normalAfter = fin(k);
     const catchEntry = s.catchClause ? this.node(null) : null;
     const tryExc = catchEntry ?? fin(ctx.exc);
-    const tctx = new Ctx(fin(ctx.exit), tryExc, fin(ctx.brk), fin(ctx.cont), true, ctx.labels);
+    const tctx = new Ctx(fin(ctx.exit), tryExc, fin(ctx.brk), fin(ctx.cont), true, finLabels(ctx.labels));
     const tryEntry = this.seq(s.tryBlock.statements, normalAfter, tctx);
     if (catchEntry) {
-      const cctx = new Ctx(fin(ctx.exit), fin(ctx.exc), fin(ctx.brk), fin(ctx.cont), false, ctx.labels);
+      const cctx = new Ctx(fin(ctx.exit), fin(ctx.exc), fin(ctx.brk), fin(ctx.cont), false, finLabels(ctx.labels));
       catchEntry.succ = dedupe([this.seq(s.catchClause.block.statements, normalAfter, cctx)]);
     }
     const n = this.node(s);
@@ -667,7 +688,7 @@ function analyzeScope(file, scope, managed, asyncNames, lines) {
     }
     if (ts.isBinaryExpression(expr) && isAssignmentOperator(expr.operatorToken.kind)) {
       const rule = promiseRule(file, expr.right, managed, asyncNames);
-      if (rule && !launchJoined(node, expr.left.getText(file))) {
+      if (rule && (TIMER_RULES.has(rule) || !launchJoined(node, expr.left.getText(file)))) {
         record(node, rule);
       }
       continue;
@@ -687,7 +708,7 @@ function analyzeScope(file, scope, managed, asyncNames, lines) {
         continue;
       }
       const rule = promiseRule(file, decl.initializer, managed, asyncNames);
-      if (rule && !launchJoined(node, decl.name.getText(file))) {
+      if (rule && (TIMER_RULES.has(rule) || !launchJoined(node, decl.name.getText(file)))) {
         record(node, rule);
       }
     }
