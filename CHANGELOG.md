@@ -4,6 +4,12 @@
 
 ### Breaking Changes
 
+* **ts:** on the default `TheorydbClient` (`numberUnmarshalMode` `'string'`), typed items now declare DynamoDB `N` fields
+  as `string` and `NS` fields as `string[]` instead of `number`/`number[]`. Runtime behavior is unchanged — the
+  documented default was already exact-string — so this is a compile-time-only break: consumer code that relied on the
+  previous incorrect `number` declaration must handle the decimal strings directly, or construct the client/repository
+  in `'number'` mode (`TheorydbClient<'number'>`) to obtain numbers. Semver decision: this public type correction is
+  release-major material and must not ship as a patch/minor.
 * **contract:** advance the shared model contract to DMS v0.2. High-level updates now distinguish field selection:
   unselected zero-valued `omitempty` fields remain unchanged, while explicitly selected empty `omitempty` fields remove
   the persisted DynamoDB attribute. TypeScript already had this behavior; Go and Python previously stored empty values.
