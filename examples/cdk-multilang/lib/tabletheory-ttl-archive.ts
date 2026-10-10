@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { Duration, RemovalPolicy } from "aws-cdk-lib";
+import { Duration, RemovalPolicy, Token } from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
@@ -38,6 +38,16 @@ export class TableTheoryTtlArchive extends Construct {
     if (!props.table.tableStreamArn) {
       throw new Error(
         "TableTheoryTtlArchive requires a table with DynamoDB Streams enabled",
+      );
+    }
+
+    const streamViewType = resolveStreamViewType(props.table);
+    if (
+      streamViewType !== undefined &&
+      streamViewType !== dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
+    ) {
+      throw new Error(
+        `TableTheoryTtlArchive requires stream view type ${dynamodb.StreamViewType.NEW_AND_OLD_IMAGES} so TTL REMOVE records carry the expiring OldImage; ${props.table.node.path} uses ${streamViewType}`,
       );
     }
 
@@ -109,4 +119,22 @@ export class TableTheoryTtlArchive extends Construct {
 
 function normalizePrefix(prefix: string): string {
   return prefix.replace(/^\/+|\/+$/g, "");
+}
+
+function resolveStreamViewType(table: dynamodb.ITable): string | undefined {
+  const child = table.node.defaultChild;
+  if (!(child instanceof dynamodb.CfnTable)) {
+    return undefined;
+  }
+  const specification = child.streamSpecification;
+  if (specification === undefined || Token.isUnresolved(specification)) {
+    return undefined;
+  }
+  const view = (
+    specification as dynamodb.CfnTable.StreamSpecificationProperty
+  ).streamViewType;
+  if (view === undefined || Token.isUnresolved(view)) {
+    return undefined;
+  }
+  return view;
 }

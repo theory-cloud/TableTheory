@@ -40,20 +40,26 @@ export interface ArchiveResult {
   skipped: number;
 }
 
-export function isTtlExpiredRecord(record: StreamRecord): boolean {
+export function isTtlExpiryRemove(record: StreamRecord): boolean {
   return (
     record.eventName === "REMOVE" &&
     record.userIdentity?.type === "Service" &&
-    record.userIdentity?.principalId === "dynamodb.amazonaws.com" &&
-    record.dynamodb?.OldImage !== undefined
+    record.userIdentity?.principalId === "dynamodb.amazonaws.com"
   );
+}
+
+export function hasOldImage(record: StreamRecord): boolean {
+  return record.dynamodb?.OldImage !== undefined;
+}
+
+export function isTtlExpiredRecord(record: StreamRecord): boolean {
+  return isTtlExpiryRemove(record) && hasOldImage(record);
 }
 
 export async function archiveExpiredRecords(
   records: readonly StreamRecord[],
   opts: ArchiveOptions,
 ): Promise<ArchiveResult> {
-  const ttlRecords = records.filter(isTtlExpiredRecord);
   const now = opts.now ?? (() => new Date());
   const prefix = normalizePrefix(opts.archivePrefix ?? "ttl-archive");
   const uploadConcurrency = Math.max(
@@ -61,6 +67,27 @@ export async function archiveExpiredRecords(
     Math.floor(opts.uploadConcurrency ?? 25),
   );
   const batchItemFailures: Array<{ itemIdentifier: string }> = [];
+  const ttlRecords: StreamRecord[] = [];
+  let skipped = 0;
+
+  for (const record of records) {
+    if (!isTtlExpiryRemove(record)) {
+      skipped += 1;
+      continue;
+    }
+    if (!hasOldImage(record)) {
+      if (!record.eventID) {
+        throw new Error(
+          "TTL expiry record is missing OldImage and eventID; cannot archive or report a batch item failure",
+        );
+      }
+      batchItemFailures.push({ itemIdentifier: record.eventID });
+      continue;
+    }
+    ttlRecords.push(record);
+  }
+
+  let uploadFailures = 0;
 
   await mapWithConcurrency(
     ttlRecords,
@@ -88,6 +115,7 @@ export async function archiveExpiredRecords(
       } catch (error) {
         if (record.eventID) {
           batchItemFailures.push({ itemIdentifier: record.eventID });
+          uploadFailures += 1;
           return;
         }
         throw error;
@@ -96,9 +124,9 @@ export async function archiveExpiredRecords(
   );
 
   return {
-    archived: ttlRecords.length - batchItemFailures.length,
+    archived: ttlRecords.length - uploadFailures,
     batchItemFailures,
-    skipped: records.length - ttlRecords.length,
+    skipped,
   };
 }
 

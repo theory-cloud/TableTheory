@@ -96,7 +96,7 @@ For a complete working program, see [`py/docs/getting-started.md`](https://githu
 | ----------------------- | -------------------------------------- |
 | `theorydb:"pk"`         | `theorydb_field(roles=["pk"])`         |
 | `theorydb:"sk"`         | `theorydb_field(roles=["sk"])`         |
-| `theorydb:"gsi1pk"`     | `theorydb_field(roles=["gsi1pk"])`     |
+| `theorydb:"index:gsi1,pk"` | `theorydb_field(roles=["gsi1pk"])`  |
 | `theorydb:"encrypted"`  | `theorydb_field(encrypted=True)`       |
 | `theorydb:"version"`    | `theorydb_field(roles=["version"])`    |
 | `theorydb:"created_at"` | `theorydb_field(roles=["created_at"])` |

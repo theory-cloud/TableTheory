@@ -86,7 +86,7 @@ A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag 
 |----------------------------|--------------------------------------------------------------|
 | `theorydb:"pk"`            | Partition key                                                |
 | `theorydb:"sk"`            | Sort key                                                     |
-| `theorydb:"gsi1pk"` etc.   | Global secondary index keys                                  |
+| `theorydb:"index:gsi1,pk"` etc. | Global secondary index keys                            |
 | `theorydb:"encrypted"`     | KMS-encrypted field, fail-closed                             |
 | `theorydb:"version"`       | Optimistic-lock version field                                |
 | `theorydb:"created_at"`    | Lifecycle timestamp populated on first write                 |

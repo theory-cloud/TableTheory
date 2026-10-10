@@ -61,11 +61,16 @@ A safe ordering is:
      - if `STARTED`, short-circuit to “already in progress”
 3. Acquire the lease (`LOCK`).
 4. Regenerate and write body to S3.
-5. Publish `META` and finalize idempotency in one transaction:
-   - `ConditionCheck` the lease token (still owned + not expired)
+5. Publish `META`, finalize the idempotency record, and release the lease in one transaction:
    - `Put/Update` `META` (new pointer, etag, generated_at)
    - `Update` the idempotency record to `COMPLETED` with `result_s3_key`
-   - `Delete` the lease (best-effort)
+   - `Delete` the lease (`LOCK`) with a condition expression that asserts the lease token is still owned and
+     unexpired (`#tok = :tok AND #exp > :now`)
+
+   DynamoDB rejects a transaction that contains two operations on the same item, so the lease must be released by this
+   single conditional `Delete`. Do not use a `ConditionCheck` on the lease plus a separate `Delete` of the same `LOCK`
+   row: that transaction is invalid and will be rejected. This matches Recipe A in
+   `docs/facetheory/isr-transaction-recipes.md` and the shipped `FaceTheoryIsrMetaStore.commitGeneration` helper.
 
 This prevents:
 

@@ -537,7 +537,7 @@ def begins_with(prefix: Any) -> SortKeyCondition
 #### `transition_release_state`
 
 ```python
-def transition_release_state(actual_table: Table[Any], event_table: Table[Any], *, actual_key: Mapping[str, Any], set_values: Mapping[str, Any], event_item: Any, expected_version: int | None=None, version_field: str='version') -> None
+def transition_release_state(actual_table: Table[Any], event_table: Table[Any], *, actual_key: Mapping[str, Any], set_values: Mapping[str, Any], event_item: Any, outbox_item: Any | None=None, outbox_table: Table[Any] | None=None, expected_version: int | None=None, version_field: str='version') -> None
 ```
 
 #### `validate_deploy_authority_metadata`

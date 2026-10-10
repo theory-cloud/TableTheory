@@ -27,7 +27,7 @@ import {
 } from './batch.js';
 import { mapDynamoError } from './dynamo-error.js';
 import { hasTheorydbErrorCode, TheorydbError } from './errors.js';
-import type { Model, ModelItem } from './model.js';
+import type { Model, ModelItem, ModelSchema } from './model.js';
 import type { SendOptions } from './send-options.js';
 import {
   isEmptyAttribute,
@@ -213,6 +213,16 @@ export class TheorydbClient {
         ? this.requireModel(modelOrName)
         : this.register(modelOrName).requireModel(modelOrName.name);
     return new ModelRepository(this, model);
+  }
+
+  /**
+   * Returns the registered schema for a model name.
+   *
+   * Release-state transition helpers use this to bind an appended event to the
+   * exact actual row it describes before any transaction is submitted.
+   */
+  modelSchema(modelName: string): Readonly<ModelSchema> {
+    return this.requireModel(modelName).schema;
   }
 
   private requireModel(name: string): Model {

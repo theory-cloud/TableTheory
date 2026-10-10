@@ -74,6 +74,7 @@ def main() -> None:
         table_name=table_name,
         write_policy=WritePolicy(mode="write_once"),
     )
+    outbox_table = Table(_outbox_model, client=client)
 
     observed_at = "2026-04-24T19:00:00Z"
     recorded_at = "2026-04-24T19:00:01Z"
@@ -100,11 +101,22 @@ def main() -> None:
     confidence: dict[str, Any] = {"level": "high", "reasons": ["operator_command_authority"]}
     validate_deploy_authority_metadata({"provenance": provenance, "confidence": confidence})
 
+    outbox = ReleaseStateOutbox(
+        pk=f"RELEASE#{service}",
+        sk=f"OUTBOX#lambda-alias#{release_id}",
+        operation="lambda_alias_update",
+        idempotency_key=f"{service}:{release_id}",
+        requested_state="active",
+        next_attempt_at=observed_at,
+    )
+
     def validate_transaction(req: dict[str, Any]) -> None:
         items = req["TransactItems"]
-        assert len(items) == 2
+        assert len(items) == 3
         assert items[0]["Update"]["TableName"] == table_name
         assert items[1]["Put"]["TableName"] == table_name
+        assert items[2]["Put"]["TableName"] == table_name
+        assert items[2]["Put"]["ConditionExpression"] == "attribute_not_exists(#pk)"
 
     client.expect("transact_write_items", validate_transaction, response={})
     transition_release_state(
@@ -128,18 +140,12 @@ def main() -> None:
             actor="operator@example.com",
             evidence=provenance,
         ),
+        outbox_item=outbox,
+        outbox_table=outbox_table,
     )
     client.assert_no_pending()
 
-    outbox = ReleaseStateOutbox(
-        pk=f"RELEASE#{service}",
-        sk=f"OUTBOX#lambda-alias#{release_id}",
-        operation="lambda_alias_update",
-        idempotency_key=f"{service}:{release_id}",
-        requested_state="active",
-        next_attempt_at=observed_at,
-    )
-    print(f"transaction_items=2 outbox={outbox.sk}")
+    print(f"transaction_items=3 outbox={outbox.sk}")
 
 
 if __name__ == "__main__":
