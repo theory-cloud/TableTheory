@@ -795,15 +795,24 @@ func (t *tableState) itemKey(item map[string]types.AttributeValue) (string, erro
 	if pk == nil {
 		return "", fmt.Errorf("missing partition key %s", t.pk)
 	}
-	key := avKeyComponent(pk)
+	key := avKeyIndexComponent(pk)
 	if t.sk != "" {
 		sk := item[t.sk]
 		if sk == nil {
 			return "", fmt.Errorf("missing sort key %s", t.sk)
 		}
-		key += "|" + avKeyComponent(sk)
+		key += "|" + avKeyIndexComponent(sk)
 	}
 	return key, nil
+}
+
+// avKeyIndexComponent length-prefixes avKeyComponent so distinct composite-key
+// tuples cannot alias onto the same item-map key. Concatenating avKeyComponent
+// outputs directly would collide (PK="a|S:b", SK="c") with (PK="a", SK="b|S:c")
+// at "S:a|S:b|S:c". avKeyComponent is left unchanged for key ordering.
+func avKeyIndexComponent(av types.AttributeValue) string {
+	component := avKeyComponent(av)
+	return strconv.Itoa(len(component)) + ":" + component
 }
 
 func (t *tableState) keyMap(item map[string]types.AttributeValue) map[string]types.AttributeValue {

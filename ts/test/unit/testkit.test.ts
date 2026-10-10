@@ -539,3 +539,101 @@ void test('StatefulDynamoDBFake COUNT and Limit follow DynamoDB semantics', asyn
   assert.equal(counted.Count, 3);
   assert.equal(counted.ScannedCount, 3);
 });
+
+void test('StatefulDynamoDBFake keeps distinct composite keys distinct', async () => {
+  const { client, fake } = createStatefulDynamoDBClient();
+  const tableName = 'stateful_composite_keys';
+  await client.send(
+    new CreateTableCommand({
+      TableName: tableName,
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+    }),
+  );
+
+  // These two DynamoDB key tuples both naive-concatenate to "S:a|S:b|S:c".
+  // They must remain two independent items.
+  const first = statefulItem('a|S:b', 'c', 'first', '10');
+  const second = statefulItem('a', 'b|S:c', 'second', '20');
+  const firstKey = statefulKey('a|S:b', 'c');
+  const secondKey = statefulKey('a', 'b|S:c');
+
+  await client.send(
+    new BatchWriteItemCommand({
+      RequestItems: {
+        [tableName]: [
+          { PutRequest: { Item: first } },
+          { PutRequest: { Item: second } },
+        ],
+      },
+    }),
+  );
+  await client.send(
+    new TransactWriteItemsCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: tableName,
+            Item: statefulItem('tx|S:1', 'tail', 'tx', '30'),
+          },
+        },
+      ],
+    }),
+  );
+
+  assert.equal(fake.items(tableName).length, 3, 'no key alias collapse');
+
+  // get: each key resolves to its own item.
+  const gotFirst = (await client.send(
+    new GetItemCommand({ TableName: tableName, Key: firstKey }),
+  )) as { Item?: Record<string, AttributeValue> };
+  const gotSecond = (await client.send(
+    new GetItemCommand({ TableName: tableName, Key: secondKey }),
+  )) as { Item?: Record<string, AttributeValue> };
+  assert.deepEqual(gotFirst.Item?.name, avS('first'));
+  assert.deepEqual(gotSecond.Item?.name, avS('second'));
+
+  // batch get: both keys return, one item each.
+  const batch = (await client.send(
+    new BatchGetItemCommand({
+      RequestItems: {
+        [tableName]: { Keys: [firstKey, secondKey] },
+      },
+    }),
+  )) as { Responses?: Record<string, unknown[]> };
+  assert.equal(batch.Responses?.[tableName]?.length, 2);
+
+  // transaction get: the second item is still addressable.
+  const transact = (await client.send(
+    new TransactGetItemsCommand({
+      TransactItems: [{ Get: { TableName: tableName, Key: secondKey } }],
+    }),
+  )) as { Responses?: Array<{ Item?: Record<string, AttributeValue> }> };
+  assert.deepEqual(transact.Responses?.[0]?.Item?.name, avS('second'));
+
+  // delete: only the addressed item disappears.
+  await client.send(
+    new DeleteItemCommand({ TableName: tableName, Key: firstKey }),
+  );
+  const afterDelete = (await client.send(
+    new GetItemCommand({ TableName: tableName, Key: secondKey }),
+  )) as { Item?: Record<string, AttributeValue> };
+  assert.deepEqual(afterDelete.Item?.name, avS('second'));
+
+  // Ordinary delimiter-free keys are unchanged.
+  await client.send(
+    new PutItemCommand({
+      TableName: tableName,
+      Item: statefulItem('USER#1', 'A', 'ordinary', '1'),
+    }),
+  );
+  const ordinary = (await client.send(
+    new GetItemCommand({
+      TableName: tableName,
+      Key: statefulKey('USER#1', 'A'),
+    }),
+  )) as { Item?: Record<string, AttributeValue> };
+  assert.deepEqual(ordinary.Item?.name, avS('ordinary'));
+});

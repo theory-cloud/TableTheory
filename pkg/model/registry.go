@@ -673,6 +673,12 @@ func applyTagPart(meta *FieldMetadata, part string) error {
 func applyKeyValueTag(meta *FieldMetadata, key, value string) error {
 	switch key {
 	case "attr":
+		// A present-but-empty override is malformed. It must fail here, before
+		// naming-convention resolution can replace the empty value with an
+		// inferred name and register the model under an unintended attribute.
+		if value == "" {
+			return fmt.Errorf("%w: attr: requires a non-empty attribute name", errors.ErrInvalidTag)
+		}
 		meta.DBName = value
 		return nil
 	case "index":

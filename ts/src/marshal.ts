@@ -1,9 +1,9 @@
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 
-import type { AttributeSchema, Model } from './model.js';
+import type { AttributeSchema, Model, NumberUnmarshalMode } from './model.js';
 import { TheorydbError } from './errors.js';
 
-export type NumberUnmarshalMode = 'number' | 'string';
+export type { NumberUnmarshalMode };
 
 export interface UnmarshalOptions {
   numberMode?: NumberUnmarshalMode;

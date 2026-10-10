@@ -4,6 +4,14 @@ export type ScalarType =
   'S' | 'N' | 'B' | 'BOOL' | 'NULL' | 'M' | 'L' | 'SS' | 'NS' | 'BS';
 export type KeyType = 'S' | 'N' | 'B';
 
+/**
+ * Controls how DynamoDB N/NS values are unmarshaled.
+ *
+ * 'string' (the client default) returns canonical DynamoDB decimal strings so
+ * reads are precision-safe; 'number' returns JavaScript numbers.
+ */
+export type NumberUnmarshalMode = 'number' | 'string';
+
 export interface ValueConverter {
   toDynamoValue(value: unknown): unknown;
   fromDynamoValue(value: unknown): unknown;
@@ -73,6 +81,8 @@ export interface ModelRoles {
 
 export interface Model<
   TItem extends Record<string, unknown> = Record<string, unknown>,
+  TSchema extends ModelSchema = ModelSchema,
+  TNumberMode extends NumberUnmarshalMode = 'string',
 > {
   readonly name: string;
   readonly tableName: string;
@@ -82,12 +92,23 @@ export interface Model<
   readonly roles: Readonly<ModelRoles>;
   readonly writePolicy: Readonly<WritePolicy>;
   readonly __itemType?: TItem;
+  readonly __schemaType?: TSchema;
+  readonly __numberMode?: TNumberMode;
 }
 
-type AttributeValueFor<A extends AttributeSchema> = A['type'] extends 'S'
+// N and NS map to the representation the configured number-unmarshal mode
+// actually produces: strings in 'string' mode, numbers in 'number' mode. The
+// typed repository must never declare a number for a value the runtime can
+// return as a string.
+type AttributeValueFor<
+  A extends AttributeSchema,
+  N extends NumberUnmarshalMode,
+> = A['type'] extends 'S'
   ? string
   : A['type'] extends 'N'
-    ? number
+    ? N extends 'number'
+      ? number
+      : string
     : A['type'] extends 'B'
       ? Uint8Array
       : A['type'] extends 'BOOL'
@@ -97,7 +118,9 @@ type AttributeValueFor<A extends AttributeSchema> = A['type'] extends 'S'
           : A['type'] extends 'SS'
             ? string[]
             : A['type'] extends 'NS'
-              ? number[]
+              ? N extends 'number'
+                ? number[]
+                : string[]
               : A['type'] extends 'BS'
                 ? Uint8Array[]
                 : A['type'] extends 'L'
@@ -135,27 +158,50 @@ type AttributeName<A extends AttributeSchema> = A['attribute'] extends string
   ? A['attribute']
   : never;
 
-type RequiredAttributes<S extends ModelSchema> = {
+type RequiredAttributes<
+  S extends ModelSchema,
+  N extends NumberUnmarshalMode,
+> = {
   [
     A in S['attributes'][number] as IsOptionalAttribute<A> extends true
       ? never
       : AttributeName<A>
-  ]: AttributeValueFor<A>;
+  ]: AttributeValueFor<A, N>;
 };
 
-type OptionalAttributes<S extends ModelSchema> = {
+type OptionalAttributes<
+  S extends ModelSchema,
+  N extends NumberUnmarshalMode,
+> = {
   [
     A in S['attributes'][number] as IsOptionalAttribute<A> extends true
       ? AttributeName<A>
       : never
-  ]?: AttributeValueFor<A>;
+  ]?: AttributeValueFor<A, N>;
 };
 
-export type InferModelItem<S extends ModelSchema> = RequiredAttributes<S> &
-  OptionalAttributes<S>;
+export type InferModelItem<
+  S extends ModelSchema,
+  N extends NumberUnmarshalMode = 'string',
+> = RequiredAttributes<S, N> & OptionalAttributes<S, N>;
 
 export type ModelItem<M extends Model> =
-  M extends Model<infer TItem> ? TItem : Record<string, unknown>;
+  M extends Model<infer TItem, ModelSchema, NumberUnmarshalMode>
+    ? TItem
+    : Record<string, unknown>;
+
+/**
+ * The item type a model produces for a given number-unmarshal mode. Used by the
+ * typed repository so reads are declared with the representation the client is
+ * actually configured to return.
+ */
+export type InferModelItemForMode<
+  M extends Model,
+  N extends NumberUnmarshalMode,
+> =
+  M extends Model<Record<string, unknown>, infer S, NumberUnmarshalMode>
+    ? InferModelItem<S, N>
+    : never;
 
 function isSupportedJsonStorageType(type: ScalarType): boolean {
   return (
@@ -170,7 +216,7 @@ function isSupportedJsonStorageType(type: ScalarType): boolean {
 
 export function defineModel<const S extends ModelSchema>(
   schema: S,
-): Model<InferModelItem<S>> {
+): Model<InferModelItem<S, 'string'>, S, 'string'> {
   validateModelSchema(schema);
 
   const attributes = new Map<string, AttributeSchema>();

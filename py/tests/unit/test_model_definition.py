@@ -176,3 +176,30 @@ def test_model_definition_rejects_invalid_write_policy() -> None:
 
     with pytest.raises(ModelDefinitionError, match="protected attribute not found"):
         ModelDefinition.from_dataclass(User, write_policy=WritePolicy(protected_attributes=["missing"]))
+
+
+def test_model_definition_rejects_present_but_empty_attribute_name() -> None:
+    @dataclass(frozen=True)
+    class EmptyName:
+        pk: str = theorydb_field(name="PK", roles=["pk"])
+        value: str = theorydb_field(name="")
+
+    with pytest.raises(ModelDefinitionError, match="non-empty string"):
+        ModelDefinition.from_dataclass(EmptyName)
+
+    @dataclass(frozen=True)
+    class BlankName:
+        pk: str = theorydb_field(name="PK", roles=["pk"])
+        value: str = theorydb_field(name="   ")
+
+    # Whitespace-only is a present-but-empty override too.
+    with pytest.raises(ModelDefinitionError, match="non-empty string"):
+        ModelDefinition.from_dataclass(BlankName)
+
+    @dataclass(frozen=True)
+    class ValidOverride:
+        pk: str = theorydb_field(name="PK", roles=["pk"])
+        value: str = theorydb_field(name="valueName")
+
+    model = ModelDefinition.from_dataclass(ValidOverride)
+    assert model.attributes["value"].attribute_name == "valueName"
