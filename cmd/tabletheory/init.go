@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/theory-cloud/tabletheory/v4/internal/safeoutput"
 )
 
 //go:embed templates
@@ -117,11 +119,21 @@ func normalizeInitLang(lang string) (string, error) {
 }
 
 func ensureWritableDir(dir string, force bool) error {
-	entries, err := os.ReadDir(dir)
+	info, err := os.Lstat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return os.MkdirAll(dir, 0o750)
 		}
+		return err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to scaffold into %s: it is a symbolic link", dir)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("refusing to scaffold into %s: it is not a directory", dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
 		return err
 	}
 	if len(entries) > 0 && !force {
@@ -156,15 +168,11 @@ func renderTemplateTree(targetDir, treeName string, data initData) ([]string, er
 			return relErr
 		}
 		outRel := strings.TrimSuffix(rel, ".tmpl")
-		outPath := filepath.Join(targetDir, outRel)
-		if mkdirErr := os.MkdirAll(filepath.Dir(outPath), 0o750); mkdirErr != nil {
-			return mkdirErr
-		}
 		rendered, renderErr := renderTemplateFile(path, data)
 		if renderErr != nil {
 			return renderErr
 		}
-		if writeErr := os.WriteFile(outPath, rendered, 0o600); writeErr != nil {
+		if writeErr := safeoutput.WriteFileWithin(targetDir, outRel, rendered, 0o600); writeErr != nil {
 			return writeErr
 		}
 		written = append(written, outRel)
