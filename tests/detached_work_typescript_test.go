@@ -113,6 +113,11 @@ var typescriptDetectorFlagged = []struct{ name, src, rule string }{
 	{"bracket timer", "globalThis[\"setTimeout\"](() => flush(), 1000);", "floating-setTimeout"},
 	{"bracket interval", "window[\"setInterval\"](poll, 5000);", "floating-setInterval"},
 	{"bracket immediate", "global[\"setImmediate\"](work);", "floating-setImmediate"},
+	// Awaiting a timer handle does not wait for the callback, so it is not a join:
+	// the handle must be cleared or unrefed instead.
+	{"awaited timer handle", "const t = setTimeout(() => write(), 5);\nawait t;", "floating-setTimeout"},
+	{"awaited interval handle", "const t = setInterval(poll, 5000);\nawait t;", "floating-setInterval"},
+	{"reassigned awaited timer handle", "let t;\nt = setTimeout(() => write(), 5);\nawait t;", "floating-setTimeout"},
 	// A bound promise is a launch; a join that does not dominate is not one.
 	{"bound chain returned on one path only", "async function run(cond) {\n  const p = load(id).then((u) => render(u));\n  if (cond) return;\n  await p;\n}", "floating-then"},
 	{"bound chain awaited inside a conditional", "async function run(cond) {\n  const p = load(id).then((u) => render(u));\n  if (cond) {\n    await p;\n  }\n}", "floating-then"},

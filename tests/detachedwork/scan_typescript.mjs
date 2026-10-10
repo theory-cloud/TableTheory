@@ -42,7 +42,9 @@
  *
  * Recognized launches: timers (`setTimeout`/`setInterval`/`setImmediate`,
  * property or computed-member form) that are neither a promise-resolver delay
- * nor a handle this file clears or unrefs; `queueMicrotask` and
+ * nor a handle this file clears or unrefs. A timer handle is not a promise, so
+ * `await`ing or returning the handle cannot wait for the callback and never
+ * joins it; `queueMicrotask` and
  * `process.nextTick`; a `void` discard of a call; a dropped async IIFE; a
  * dropped `.then`/`.catch`/`.finally` chain; a dropped call to a function this
  * file declares `async`; a promise bound to a name, member, or element and not
@@ -87,6 +89,11 @@ try {
 }
 
 const TIMER_NAMES = new Set(['setTimeout', 'setInterval', 'setImmediate']);
+// A timer handle is not a promise: `await`ing or returning it cannot wait for
+// the callback, so a launch carrying one of these rules is never suppressed by
+// a join. The only thing that can make such a launch safe is clearing or
+// unrefing the handle, which is decided in promiseRule before a launch is seen.
+const TIMER_RULES = new Set([...TIMER_NAMES].map((name) => `floating-${name}`));
 const CLEAR_NAMES = new Set(['clearTimeout', 'clearInterval', 'clearImmediate']);
 const CHAIN_NAMES = new Set(['then', 'catch', 'finally']);
 const RESOLVER_NAMES = new Set(['resolve', 'r', 'res', 'done', 'reject', '_resolve', '_r']);
@@ -681,7 +688,7 @@ function analyzeScope(file, scope, managed, asyncNames, lines) {
     }
     if (ts.isBinaryExpression(expr) && isAssignmentOperator(expr.operatorToken.kind)) {
       const rule = promiseRule(file, expr.right, managed, asyncNames);
-      if (rule && !launchJoined(node, expr.left.getText(file))) {
+      if (rule && (TIMER_RULES.has(rule) || !launchJoined(node, expr.left.getText(file)))) {
         record(node, rule);
       }
       continue;
@@ -701,7 +708,7 @@ function analyzeScope(file, scope, managed, asyncNames, lines) {
         continue;
       }
       const rule = promiseRule(file, decl.initializer, managed, asyncNames);
-      if (rule && !launchJoined(node, decl.name.getText(file))) {
+      if (rule && (TIMER_RULES.has(rule) || !launchJoined(node, decl.name.getText(file)))) {
         record(node, rule);
       }
     }
