@@ -93,10 +93,54 @@ jobs:
           echo "release_as=${release_as}" >> "${GITHUB_OUTPUT}"
           echo "release-as: ${release_as:-<none>}"
 
+      - name: Resolve highest published release
+        id: published
+        if: steps.cycle.outputs.pending_stable_promotion == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # The next stable version must be strictly greater than the highest
+          # published release, no matter how it was computed. The floor is the
+          # semver MAXIMUM over every non-draft, non-prerelease release — not the
+          # newest-created release, which out-of-order publication can mis-rank,
+          # and not a draft, which `--exclude-pre-releases` alone does not drop.
+          # `gh release list` also truncates at --limit, so page the REST API
+          # until a short page ends the list. An empty result means nothing has
+          # been published yet (bootstrap); any API, JSON, or semver failure
+          # aborts here instead of passing an unchecked baseline downstream.
+          page=1
+          releases='[]'
+          while :; do
+            body="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=${page}")"
+            jq -e 'type == "array"' <<<"${body}" >/dev/null
+            releases="$(jq -c --argjson page "${body}" '. + $page' <<<"${releases}")"
+            if (( $(jq -r 'length' <<<"${body}") < 100 )); then
+              break
+            fi
+            page=$((page + 1))
+          done
+          baseline="$(
+            jq -er '
+              [ .[] | select(.draft == false and .prerelease == false) | .tag_name ]
+              | map(sub("^v"; ""))
+              | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$") | not)) as $bad
+              | if ($bad | length) > 0 then
+                  error("published stable release tags are not X.Y.Z semver: \($bad | join(", "))")
+                else . end
+              | sort_by(split(".") | map(tonumber))
+              | last // ""
+            ' <<<"${releases}"
+          )"
+          echo "baseline=${baseline}" >> "${GITHUB_OUTPUT}"
+          echo "release-pr: highest published release baseline: ${baseline:-<none>}"
+
       - name: Create stable Release PR
         if: steps.cycle.outputs.pending_stable_promotion == 'true'
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.release_as }}
+          PUBLISHED_BASELINE: ${{ steps.published.outputs.baseline }}
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -110,7 +154,8 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --base main \
             --head release-please--branches--main \
-            --expected-version "${EXPECTED_VERSION}"
+            --expected-version "${EXPECTED_VERSION}" \
+            --published-baseline "${PUBLISHED_BASELINE}"
 
       - name: Verify stable Release PR postcondition
         if: steps.cycle.outputs.pending_stable_promotion == 'true'

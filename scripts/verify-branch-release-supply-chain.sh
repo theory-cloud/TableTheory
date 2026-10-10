@@ -754,6 +754,43 @@ if [[ -f "scripts/stage_theorycloud_tabletheory_subtree.sh" ]]; then
     "staging helper must create a private manifest file"
 fi
 
+# TTSEC2-M3-T3: every next-version candidate must be strictly greater than the
+# highest published release, whatever its origin. The promotion driver derives
+# candidates from a Release-As footer and the single manifest; the stable
+# Release PR generator consumes the release-please computation. A dropped
+# baseline flag would silently disable the check, so pin both the guard text and
+# both workflow call sites.
+if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
+  require_fixed "strictly greater than the highest published release" \
+    "scripts/verify-promotion-release-driver.sh" \
+    "promotion release driver must reject a candidate that is not strictly newer than the highest published release"
+fi
+require_fixed "--published-baseline" ".github/workflows/release-hygiene.yml" \
+  "release-hygiene must pass the highest published release baseline to the promotion driver"
+require_fixed "--published-baseline" ".github/workflows/release-pr.yml" \
+  "release-pr must pass the highest published release baseline to the stable Release PR generator"
+# A truncated, newest-created-first, draft-including read under-reports the
+# baseline and lets an already published version pass `> baseline`, so pin the
+# resolver's behavior — drafts and prereleases excluded, semver maximum, paged
+# REST read — at both call sites, not just the flag name.
+require_fixed "Resolve highest published release" ".github/workflows/release-hygiene.yml" \
+  "release-hygiene must resolve the highest published release through the resolver step"
+require_fixed "Resolve highest published release" ".github/workflows/release-pr.yml" \
+  "release-pr must resolve the highest published release through the resolver step"
+for release_workflow in "release-hygiene.yml" "release-pr.yml"; do
+  require_fixed 'select(.draft == false and .prerelease == false)' ".github/workflows/${release_workflow}" \
+    "${release_workflow} baseline resolver must exclude drafts and prereleases"
+  require_fixed 'sort_by(split(".") | map(tonumber))' ".github/workflows/${release_workflow}" \
+    "${release_workflow} baseline resolver must take the semver maximum over published stable releases"
+  require_fixed 'per_page=100&page=${page}' ".github/workflows/${release_workflow}" \
+    "${release_workflow} baseline resolver must page the releases API"
+done
+if [[ -f "scripts/create-stable-release-pr.py" ]]; then
+  require_fixed "strictly greater than the highest published release" \
+    "scripts/create-stable-release-pr.py" \
+    "stable Release PR generator must reject a computed version that is not strictly newer than the highest published release"
+fi
+
 if [[ "${failures}" -ne 0 ]]; then
   echo "branch-release: FAIL (${failures} issue(s))"
   exit 1

@@ -4,12 +4,14 @@
 # Builds the Jekyll site under docs/ and deploys it to GitHub Pages.
 #
 # TRIGGER POLICY:
-#   - push to `staging`: republish the integration docs line from the
-#     staging head, stamped with the latest published stable release.
+#   - push to `main`: build and publish the public docs site from the protected
+#     stable branch head, stamped with the latest published stable release.
+#     Publication/deployment is main-only.
 #   - pull request to `staging`: build (never deploy) the same site, so a docs
-#     change cannot merge green and then break the push-to-`staging`
-#     publication run (#623-class gap: a job that runs on push must also be
-#     exercised before merge). The `deploy` job stays push/dispatch-only.
+#     change cannot merge green and then break the push-to-`main` publication
+#     run (#623-class gap: a job that runs on push must also be exercised
+#     before merge). A pull request builds the identical tree, but the `deploy`
+#     job's publication-only guard rejects the event, so it can never publish.
 #   - `workflow_dispatch` with an explicit `tag` input: dispatched by
 #     release.yml immediately after it publishes a stable release, so the
 #     site deploys the just-published tag's docs stamped with that tag —
@@ -49,9 +51,20 @@
 # older than that fails fast in the generator step — deploy such tags by
 # dispatching without `tag` instead.
 #
-# The github-pages environment's deployment policy accepts the `staging`
-# branch and `v*` tag refs, which covers every trigger above; a manual
-# dispatch from any other ref is rejected by the environment policy.
+# The github-pages environment's deployment policy must accept the `main`
+# branch and `v*` tag refs, which covers every deploy trigger above; a manual
+# dispatch from any other ref is rejected by the environment policy. That
+# policy is a hosted repository/environment setting, not repository state this
+# workflow can read or enforce, so verify the published site after a `main`
+# push and adjust the setting separately (through an authorized settings
+# change) if `main` deployments are refused.
+#
+# Publication trust boundary: the `deploy` job guard admits only a `main` push
+# and `workflow_dispatch`; every build-only path (pull requests to `staging`)
+# runs the same build but cannot deploy. Build-only runs therefore carry no
+# publication authority, and the `pages` concurrency group below is reserved
+# for publication runs so build-only churn can never replace a pending
+# publication.
 #
 # This workflow is independent of release.yml / prerelease.yml /
 # quality-gates.yml — it never publishes packages, never mutates tags,
@@ -69,7 +82,7 @@ name: pages
 
 on:
   push:
-    branches: [staging]
+    branches: [main]
   pull_request:
     branches: [staging]
   # Explicit stable tag deploy (release.yml handoff) or manual re-deploy.
@@ -85,11 +98,12 @@ on:
 permissions:
   contents: read
 
-# Coalesce in-flight deploys: if a second push or release dispatch lands
-# before the previous deploy finishes, queue it (don't cancel) so we never
-# skip a publish.
+# Publication runs (`main` push and tag/dispatch handoff) share the `pages`
+# group and are queued, never cancelled, so a release publication is never
+# dropped. Build-only runs (pull requests) use their own per-PR group, so PR
+# churn can never replace a pending release-tag publication run.
 concurrency:
-  group: pages
+  group: ${{ github.event_name == 'pull_request' && github.ref || 'pages' }}
   cancel-in-progress: false
 
 jobs:
@@ -98,11 +112,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # Pushes deploy from staging only (defense in depth behind the branch
-    # trigger); dispatches are ref-gated by the environment policy; pull
-    # requests build the same tree without deploying (the `deploy` job below
-    # keeps its push/dispatch-only guard).
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/staging') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    # `main` pushes publish; dispatches are ref-gated by the environment
+    # policy; pull requests build the same tree without ever deploying (the
+    # `deploy` job below keeps its publication-only guard).
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     steps:
       - name: Resolve deploy tag
         id: resolve
@@ -257,9 +270,9 @@ jobs:
       contents: read
       pages: write
       id-token: write
-    # Deploys publish only from a staging push or an explicit dispatch: a
+    # Deploys publish only from a `main` push or an explicit dispatch: a
     # pull-request run builds the site but must never deploy it.
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/staging') || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     environment:
       name: github-pages
       url: https://tabletheory.theorycloud.ai/
