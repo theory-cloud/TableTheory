@@ -953,8 +953,11 @@ func (q *Query) WithContext(ctx context.Context) core.Query {
 		q.cancel = nil
 	}
 	// An explicit context replaces every derived layer, including any
-	// cancellation wrapper installed by WithCancellation.
+	// cancellation wrapper installed by WithCancellation and any deadline
+	// configured by QueryTimeout.
 	q.cancelCtx = nil
+	q.hasDeadline = false
+	q.deadline = time.Time{}
 	if ctx == nil {
 		ctx = context.Background()
 	}

@@ -27,11 +27,18 @@ type Query struct {
 	marshaler   marshal.MarshalerInterface
 	ctx         context.Context
 	baseCtx     context.Context
-	// cancelCtx is the cancelable layer installed by WithCancellation. QueryTimeout
-	// derives its timeout from it when set, so a timeout configured after
-	// WithCancellation still observes the returned canceler.
-	cancelCtx               context.Context
-	cancel                  context.CancelFunc
+	// cancelCtx is the cancelable layer installed by WithCancellation. Together
+	// with the deadline retained from QueryTimeout it forms the retained layers
+	// the effective context is recomposed from, so either ordering of
+	// WithCancellation and QueryTimeout keeps both the deadline and manual
+	// cancellation in force.
+	cancelCtx context.Context
+	cancel    context.CancelFunc
+	// deadline is the absolute instant configured by QueryTimeout. It is retained
+	// rather than recomputed so a later WithCancellation preserves the exact bound
+	// instead of extending or discarding it.
+	deadline                time.Time
+	hasDeadline             bool
 	model                   any
 	exclusive               map[string]types.AttributeValue
 	retryConfig             *RetryConfig

@@ -580,14 +580,17 @@ func (q *Query) BatchCreateWithResult(items any) (*BatchResult, error) {
 	return result, err
 }
 
-// QueryTimeout sets a timeout for the query execution
-func (q *Query) QueryTimeout(timeout time.Duration) core.Query {
-	// Release the previous derived context's timer, then derive the replacement
-	// from the retained base for timeouts: the cancellation layer installed by a
-	// prior WithCancellation when present, otherwise the never-canceled root.
-	// Deriving from q.ctx would inherit the previous timeout's cancellation and
-	// leave the new timeout dead on arrival, while deriving from the root alone
-	// would bypass an earlier cancellation wrapper.
+// applyContext recomposes the query's effective context from the retained layers
+// — the cancelable layer installed by WithCancellation (or the root base) plus
+// the deadline configured by QueryTimeout — and releases the previously derived
+// context.
+//
+// Only the previously derived context is released; the retained layers are never
+// canceled here, so reconfiguring the timeout or installing the cancellation
+// wrapper cannot poison the live context. Because the effective context is
+// always recomposed from the retained layers, either ordering of QueryTimeout
+// and WithCancellation keeps both the deadline and manual cancellation in force.
+func (q *Query) applyContext() {
 	if q.cancel != nil {
 		q.cancel()
 		q.cancel = nil
@@ -599,9 +602,27 @@ func (q *Query) QueryTimeout(timeout time.Duration) core.Query {
 	if base == nil {
 		base = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(base, timeout)
-	q.ctx = ctx
-	q.cancel = cancel
+	if q.hasDeadline {
+		ctx, cancel := context.WithDeadline(base, q.deadline)
+		q.ctx = ctx
+		q.cancel = cancel
+		return
+	}
+	q.ctx = base
+}
+
+// QueryTimeout sets a timeout for the query execution.
+//
+// The deadline is retained as an absolute instant and recomposed on top of the
+// root/cancellation layer, so it survives repeated reconfiguration and is
+// preserved when WithCancellation is called afterwards. Deriving from the
+// retained layers rather than from the previous derived context means replacing a
+// timeout never inherits the released timer's cancellation, while a timeout
+// configured before WithCancellation is no longer discarded.
+func (q *Query) QueryTimeout(timeout time.Duration) core.Query {
+	q.deadline = time.Now().Add(timeout)
+	q.hasDeadline = true
+	q.applyContext()
 	return q
 }
 
@@ -612,25 +633,21 @@ type QueryCanceler struct {
 
 // WithCancellation returns a query that can be canceled.
 //
-// The cancelable context becomes the layer that a later QueryTimeout derives
-// from, so a timeout configured after this call still observes Cancel. It is
-// derived from the root base rather than the current effective context, so
-// releasing a timeout — here or in a later QueryTimeout — can never cancel the
-// cancellation layer and poison the live context. Call WithCancellation before
-// QueryTimeout to combine both; a timeout already configured when this is called
-// is replaced by the cancelable context.
+// The cancelable context is installed as a retained layer derived from the root
+// base, and the effective context is recomposed on top of it. Because the
+// QueryTimeout deadline is retained as a layer too, either ordering keeps both
+// guarantees: a timeout configured before this call still bounds the query, and a
+// timeout configured after it still observes Cancel. Releasing a timeout — here
+// or in a later QueryTimeout — never cancels this layer, so the live context is
+// never poisoned.
 func (q *Query) WithCancellation() (core.Query, *QueryCanceler) {
-	if q.cancel != nil {
-		q.cancel()
-		q.cancel = nil
-	}
 	base := q.baseCtx
 	if base == nil {
 		base = context.Background()
 	}
 	ctx, cancel := context.WithCancel(base)
 	q.cancelCtx = ctx
-	q.ctx = ctx
+	q.applyContext()
 	return q, &QueryCanceler{cancel: cancel}
 }
 

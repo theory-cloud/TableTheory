@@ -87,17 +87,62 @@ func TestWithCancellation_ThenQueryTimeoutStillCancellable(t *testing.T) {
 		"Cancel must reach the live context even after a later QueryTimeout")
 }
 
-// TestQueryTimeout_ThenWithCancellationIsCancellable covers the other ordinary
-// order: the returned canceler cancels the query's current context.
-func TestQueryTimeout_ThenWithCancellationIsCancellable(t *testing.T) {
+// TestQueryTimeout_ThenWithCancellationPreservesDeadlineAndCancel covers the
+// other ordinary order. The returned canceler must cancel the query's current
+// context AND the deadline configured before WithCancellation must survive: the
+// composition regression replaced the effective context with a cancel-only layer,
+// silently dropping the timeout so the query could run unbounded.
+func TestQueryTimeout_ThenWithCancellationPreservesDeadlineAndCancel(t *testing.T) {
 	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, &contextCapturingScanExecutor{})
 
 	q.QueryTimeout(time.Hour)
 	_, canceler := q.WithCancellation()
 
 	require.NoError(t, q.ctx.Err())
+	deadline, ok := q.ctx.Deadline()
+	require.True(t, ok, "WithCancellation must not discard the configured deadline")
+	require.WithinDuration(t, time.Now().Add(time.Hour), deadline, time.Second)
+
 	canceler.Cancel()
 	require.ErrorIs(t, q.ctx.Err(), context.Canceled)
+}
+
+// TestQueryTimeout_ThenWithCancellationDoesNotExtendDeadline proves the retained
+// deadline is the original instant: WithCancellation must not restart the clock
+// and silently buy the query more time than QueryTimeout configured.
+func TestQueryTimeout_ThenWithCancellationDoesNotExtendDeadline(t *testing.T) {
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, &contextCapturingScanExecutor{})
+
+	q.QueryTimeout(200 * time.Millisecond)
+	before, ok := q.ctx.Deadline()
+	require.True(t, ok)
+
+	time.Sleep(30 * time.Millisecond)
+	_, canceler := q.WithCancellation()
+	defer canceler.Cancel()
+
+	after, ok := q.ctx.Deadline()
+	require.True(t, ok)
+	require.WithinDuration(t, before, after, time.Millisecond,
+		"WithCancellation must preserve the original deadline instant")
+}
+
+// TestQueryTimeout_ThenWithCancellation_DeadlineStillExpires is the negative
+// control: after WithCancellation the retained deadline must still fire on its
+// own, not only when Cancel is called.
+func TestQueryTimeout_ThenWithCancellation_DeadlineStillExpires(t *testing.T) {
+	q := New(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, &contextCapturingScanExecutor{})
+
+	q.QueryTimeout(20 * time.Millisecond)
+	_, canceler := q.WithCancellation()
+	defer canceler.Cancel()
+
+	select {
+	case <-q.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("the configured deadline did not expire after WithCancellation")
+	}
+	require.ErrorIs(t, q.ctx.Err(), context.DeadlineExceeded)
 }
 
 // TestQueryTimeoutAfterCancellation_RepeatedTimeoutStaysLive proves the two
