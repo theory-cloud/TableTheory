@@ -74,7 +74,9 @@ func NewMultiAccount(accounts map[string]AccountConfig) (*MultiAccountDB, error)
 // requested, so one caller cannot be blocked by unrelated sessions. When a
 // refresh fails, the entry records an exponential backoff and later calls within
 // that window fail fast instead of repeating the rebuild; a successful refresh
-// clears the backoff.
+// clears the backoff. A failed refresh updates only the exact stale entry the
+// failing caller observed, so it can never overwrite a healthy entry a concurrent
+// caller stored.
 func (mdb *MultiAccountDB) Partner(partnerID string) (*LambdaDB, error) {
 	// Empty partner ID returns base DB
 	if partnerID == "" {
@@ -83,10 +85,17 @@ func (mdb *MultiAccountDB) Partner(partnerID string) (*LambdaDB, error) {
 
 	now := mdb.clock()
 
-	// Check cache first.
-	if cached, ok := mdb.cache.Load(partnerID); ok {
-		if entry, ok := cached.(*cacheEntry); ok && entry != nil {
-			if !entry.isExpiredAt(now) {
+	// Check cache first. Hold on to the entry we observed so a failed refresh can
+	// conditionally update only that exact entry.
+	observed, observedOK := mdb.cache.Load(partnerID)
+	var observedEntry *cacheEntry
+	if observedOK {
+		if entry, ok := observed.(*cacheEntry); ok && entry != nil {
+			observedEntry = entry
+			// Only a live entry may be served as a healthy cache hit. A failure
+			// marker carries no DB, so it must never be returned as one, even
+			// when the clock equals its expiry exactly.
+			if entry.db != nil && !entry.isExpiredAt(now) {
 				return entry.db, nil
 			}
 			if now.Before(entry.backoffUntil) {
@@ -111,7 +120,7 @@ func (mdb *MultiAccountDB) Partner(partnerID string) (*LambdaDB, error) {
 	// Create or refresh DB for this partner only.
 	db, err := mdb.createPartnerDB(partnerID, account)
 	if err != nil {
-		mdb.recordPartnerRefreshFailure(partnerID, account, now)
+		mdb.recordPartnerRefreshFailure(partnerID, account, now, observedEntry)
 		return nil, err
 	}
 	return db, nil
@@ -255,28 +264,44 @@ func partnerRefreshBackoff(failures int) time.Duration {
 // recordPartnerRefreshFailure stores a backoff marker for a partner whose
 // synchronous refresh failed. The marker keeps the partner's account config so a
 // later retry can rebuild it, and carries the failure count forward so repeated
-// failures back off further. The stored entry has no db and an already-passed
-// expiry, so a successful later rebuild replaces it.
-func (mdb *MultiAccountDB) recordPartnerRefreshFailure(partnerID string, account AccountConfig, now time.Time) {
+// failures back off further. The marker has no db, so it is never served as a
+// healthy cache hit; the explicit nil-db guard in Partner() enforces that
+// regardless of clock resolution.
+//
+// The marker is written conditionally against the exact entry the failing caller
+// observed: if a concurrent refresh already stored a fresh healthy entry, this
+// failure must not replace it. A caller that saw an original cache miss uses
+// LoadOrStore for the same reason.
+func (mdb *MultiAccountDB) recordPartnerRefreshFailure(partnerID string, account AccountConfig, now time.Time, observed *cacheEntry) {
 	failures := 1
-	if existing, ok := mdb.cache.Load(partnerID); ok {
-		if entry, ok := existing.(*cacheEntry); ok && entry != nil && entry.accountCfg == account {
-			failures = entry.failures + 1
-		}
+	if observed != nil && observed.accountCfg == account {
+		failures = observed.failures + 1
 	}
 
-	// SECURITY: Log without exposing sensitive credential details.
+	// SECURITY: only the generated correlation id is logged. The caller-supplied
+	// partner id is deliberately not written, so hostile input cannot forge log
+	// entries (no tainted value reaches the log sink).
 	opID := generateOperationID()
-	log.Printf("Credential refresh failed: operation_id=%s partner_id=%s",
-		opID, sanitizePartnerID(partnerID))
+	log.Printf("Credential refresh failed: operation_id=%s", opID)
 
-	mdb.cache.Store(partnerID, &cacheEntry{
+	marker := &cacheEntry{
 		expiry:       now,
 		partnerID:    partnerID,
 		accountCfg:   account,
 		failures:     failures,
 		backoffUntil: now.Add(partnerRefreshBackoff(failures)),
-	})
+	}
+
+	if observed != nil {
+		// Swap only the exact stale entry this caller saw. If another caller
+		// already refreshed or recorded against it, their value wins.
+		mdb.cache.CompareAndSwap(partnerID, observed, marker)
+		return
+	}
+
+	// Original cache miss: never create a marker over an entry another caller
+	// stored.
+	mdb.cache.LoadOrStore(partnerID, marker)
 }
 
 // Close releases the base connection. It starts no background work, so there is
