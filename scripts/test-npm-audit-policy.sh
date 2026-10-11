@@ -132,10 +132,58 @@ if grep -Fxq "${finding}" gov-infra/planning/theorydb-supply-chain-allowlist.txt
   exit 1
 fi
 
-node <<'NODE'
-const fs = require('node:fs');
+# Checker transport-failure negatives: a truncated report, a registry failure
+# object, and an empty-but-parseable report must each fail closed instead of
+# being read as "no findings".
+cat >"${tmpdir}/malformed-audit.json" <<'JSON'
+{ "auditReportVersion": 2, "vulnerabilities":
+JSON
+expect_failure_contains \
+  "invalid JSON report" \
+  node "${checker}" "${tmpdir}/malformed-audit.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang
 
-const lock = JSON.parse(fs.readFileSync('examples/cdk-multilang/package-lock.json', 'utf8'));
+cat >"${tmpdir}/transport-failure.json" <<'JSON'
+{
+  "error": {
+    "code": "EAI_AGAIN",
+    "summary": "request to https://registry.npmjs.org/-/npm/v1/security/audits/quick failed, reason: getaddrinfo EAI_AGAIN registry.npmjs.org"
+  }
+}
+JSON
+expect_failure_contains \
+  "invalid audit report" \
+  node "${checker}" "${tmpdir}/transport-failure.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang
+
+cat >"${tmpdir}/empty-report.json" <<'JSON'
+{ "auditReportVersion": 2, "vulnerabilities": {} }
+JSON
+expect_failure_contains \
+  "reported no vulnerability findings" \
+  node "${checker}" "${tmpdir}/empty-report.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang
+
+# Positive fixed-graph guard for the retired AWS-bundled brace-expansion exception.
+# examples/cdk-multilang now pins aws-cdk-lib 2.273.0, which bundles brace-expansion
+# 5.0.12 (the fixed version for GHSA-q2hr-2g5m-vwhr / qhr7-859c-m2p7 / 6j4f-fj2g-mc7p).
+# This guard keeps that state honest: it asserts the actual bundled graph, proves the
+# bundled minimatch still accepts the bundled brace-expansion, refuses any vulnerable
+# brace-expansion anywhere in the lockfile, and refuses any residual visible policy
+# entry referencing the retired exception. It fails closed on every malformed input.
+# It replaces the earlier pinned-vulnerable (5.0.9) coherence anchor: that anchor only
+# existed to keep the retired exception honest while aws-cdk-lib was still vulnerable.
+cat >"${tmpdir}/verify-bundled-brace-graph.mjs" <<'NODE'
+import fs from 'node:fs';
+
+const [lockPath, policyPath, label] = process.argv.slice(2);
+if (!lockPath || !policyPath) {
+  console.error('verify-bundled-brace-graph: usage: <lockfile> <policy> [label]');
+  process.exit(2);
+}
+const tag = label ? `${label}: ` : '';
+
+function fail(message) {
+  console.error(`verify-bundled-brace-graph: ${tag}${message}`);
+  process.exit(1);
+}
 
 function versionAtLeast(actual, minimum) {
   if (typeof actual !== 'string') return false;
@@ -151,70 +199,312 @@ function versionAtLeast(actual, minimum) {
   return true;
 }
 
-const cdkLib = lock.packages?.['node_modules/aws-cdk-lib'];
-if (!versionAtLeast(cdkLib?.version, '2.260.0')) {
-  throw new Error(`expected aws-cdk-lib lock entry to be at least 2.260.0, got ${cdkLib?.version ?? 'missing'}`);
+// Minimal declared-range check (no external semver dependency). Supports exactly
+// five shapes npm writes into a bundled graph: caret ^X.Y.Z, tilde ~X.Y.Z,
+// >=X.Y.Z, strict >X.Y.Z, and a bare exact X.Y.Z (string equality). Every other
+// shape (including `<=`/`<`, `=`, compound, hyphen, `||`, or `*` ranges) fails
+// closed instead of silently passing.
+function satisfiesRange(actual, range) {
+  if (typeof actual !== 'string' || typeof range !== 'string') return false;
+  const trimmed = range.trim();
+
+  const caret = trimmed.match(/^\^(\d+)\.(\d+)\.(\d+)$/);
+  if (caret) {
+    const [major, minor, patch] = caret.slice(1).map(Number);
+    if (!versionAtLeast(actual, `${major}.${minor}.${patch}`)) return false;
+    if (major > 0) return !versionAtLeast(actual, `${major + 1}.0.0`);
+    if (minor > 0) return !versionAtLeast(actual, `0.${minor + 1}.0`);
+    return !versionAtLeast(actual, `0.0.${patch + 1}`);
+  }
+
+  const tilde = trimmed.match(/^~(\d+)\.(\d+)\.(\d+)$/);
+  if (tilde) {
+    const [major, minor, patch] = tilde.slice(1).map(Number);
+    if (!versionAtLeast(actual, `${major}.${minor}.${patch}`)) return false;
+    return !versionAtLeast(actual, `${major}.${minor + 1}.0`);
+  }
+
+  if (/^\d+\.\d+\.\d+$/.test(trimmed)) return actual === trimmed;
+
+  const comparator = trimmed.match(/^(>=|>)\s*(\d+\.\d+\.\d+)$/);
+  if (comparator) {
+    const [, operator, floor] = comparator;
+    if (!versionAtLeast(actual, floor)) return false;
+    if (operator === '>') return !versionAtLeast(floor, actual);
+    return true;
+  }
+
+  fail(`unsupported declared range "${range}"`);
 }
 
-const bundledBrace = lock.packages?.['node_modules/aws-cdk-lib/node_modules/brace-expansion'];
-if (!versionAtLeast(bundledBrace?.version, '5.0.6')) {
-  throw new Error(`expected aws-cdk-lib bundled brace-expansion lock entry to be at least 5.0.6, got ${bundledBrace?.version ?? 'missing'}`);
+function readJson(path, description) {
+  let raw;
+  try {
+    raw = fs.readFileSync(path, 'utf8');
+  } catch (err) {
+    fail(`${description} not readable: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    fail(`${description} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
-const policy = JSON.parse(fs.readFileSync('gov-infra/planning/theorydb-visible-npm-audit-findings.json', 'utf8'));
-const visibleBracePolicy = policy.findings?.find(
-  (finding) =>
-    finding.project === 'examples/cdk-multilang' &&
-    finding.package === 'brace-expansion' &&
-    finding.advisory === 'GHSA-mh99-v99m-4gvg' &&
-    finding.node === 'node_modules/aws-cdk-lib/node_modules/brace-expansion'
+const lock = readJson(lockPath, 'lockfile');
+const policy = readJson(policyPath, 'visible policy');
+
+const packages = lock && typeof lock === 'object' && !Array.isArray(lock) ? lock.packages : null;
+if (!packages || typeof packages !== 'object' || Array.isArray(packages)) {
+  fail('lockfile has no packages map');
+}
+
+const CDK_LIB_PATH = 'node_modules/aws-cdk-lib';
+const BRACE_PATH = 'node_modules/aws-cdk-lib/node_modules/brace-expansion';
+const MINIMATCH_PATH = 'node_modules/aws-cdk-lib/node_modules/minimatch';
+const CDK_LIB_FLOOR = '2.273.0';
+const BRACE_FLOOR = '5.0.12';
+const RETIRED_ADVISORIES = ['GHSA-q2hr-2g5m-vwhr', 'GHSA-qhr7-859c-m2p7', 'GHSA-6j4f-fj2g-mc7p'];
+
+if (!BRACE_PATH.startsWith(`${CDK_LIB_PATH}/node_modules/`)) fail('internal: unexpected bundled brace path');
+if (!MINIMATCH_PATH.startsWith(`${CDK_LIB_PATH}/node_modules/`)) fail('internal: unexpected bundled minimatch path');
+
+function requireEntry(path) {
+  const entry = packages[path];
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    fail(`required lock entry ${path} is missing`);
+  }
+  return entry;
+}
+
+const cdkLib = requireEntry(CDK_LIB_PATH);
+if (!versionAtLeast(cdkLib.version, CDK_LIB_FLOOR)) {
+  fail(`aws-cdk-lib lock entry must be >= ${CDK_LIB_FLOOR}, got ${cdkLib.version ?? 'missing'}`);
+}
+if (typeof cdkLib.resolved !== 'string' || cdkLib.resolved.trim() === '') {
+  fail('aws-cdk-lib lock entry is missing resolved');
+}
+if (typeof cdkLib.integrity !== 'string' || !/^sha512-/.test(cdkLib.integrity)) {
+  fail('aws-cdk-lib lock entry is missing sha512 integrity');
+}
+
+const brace = requireEntry(BRACE_PATH);
+if (brace.inBundle !== true) {
+  fail(`${BRACE_PATH} must be inBundle:true`);
+}
+if (!versionAtLeast(brace.version, BRACE_FLOOR)) {
+  fail(`bundled brace-expansion must be >= ${BRACE_FLOOR}, got ${brace.version ?? 'missing'}`);
+}
+
+const minimatch = requireEntry(MINIMATCH_PATH);
+if (minimatch.inBundle !== true) {
+  fail(`${MINIMATCH_PATH} must be inBundle:true`);
+}
+const declaredRange = minimatch.dependencies?.['brace-expansion'];
+if (typeof declaredRange !== 'string' || declaredRange.trim() === '') {
+  fail('bundled minimatch must declare a brace-expansion range');
+}
+if (!satisfiesRange(brace.version, declaredRange)) {
+  fail(`bundled brace-expansion ${brace.version} does not satisfy bundled minimatch range ${declaredRange}`);
+}
+
+// No vulnerable brace-expansion may exist anywhere in the lockfile.
+for (const [path, entry] of Object.entries(packages)) {
+  if (!/(^|\/)brace-expansion$/.test(path)) continue;
+  if (!versionAtLeast(entry?.version, BRACE_FLOOR)) {
+    fail(`vulnerable brace-expansion ${entry?.version ?? 'missing'} at ${path}`);
+  }
+}
+
+// Zero residual visible policy entries may reference the retired exception.
+const findings = Array.isArray(policy?.findings) ? policy.findings : null;
+if (!findings) {
+  fail('visible policy is missing a findings array');
+}
+const residual = findings.filter((finding) => {
+  if (!finding || typeof finding !== 'object' || Array.isArray(finding)) return false;
+  const node = typeof finding.node === 'string' ? finding.node : '';
+  const referencesBundledNode = node.includes('aws-cdk-lib/node_modules/brace-expansion');
+  const isRetiredAdvisory = RETIRED_ADVISORIES.includes(finding.advisory);
+  const isExampleBraceExpansion =
+    finding.project === 'examples/cdk-multilang' && finding.package === 'brace-expansion';
+  return referencesBundledNode || isRetiredAdvisory || isExampleBraceExpansion;
+});
+if (residual.length > 0) {
+  fail(`${residual.length} residual visible policy entry(ies) still reference the retired examples/cdk-multilang brace-expansion exception`);
+}
+
+console.log(
+  `verify-bundled-brace-graph: ${tag}PASS (aws-cdk-lib ${cdkLib.version}, bundled brace-expansion ${brace.version} via bundled minimatch ${minimatch.version} ${declaredRange})`,
 );
-if (versionAtLeast(bundledBrace?.version, '5.0.8')) {
-  if (visibleBracePolicy) {
-    throw new Error('aws-cdk-lib now bundles fixed brace-expansion; remove the visible exception before merging');
-  }
-} else {
-  if (!versionAtLeast(bundledBrace?.version, '5.0.7')) {
-    throw new Error(`expected aws-cdk-lib to bundle brace-expansion 5.0.7 or newer, got ${bundledBrace?.version ?? 'missing'}`);
-  }
-  if (!visibleBracePolicy) {
-    throw new Error('expected the current aws-cdk-lib bundled brace-expansion advisory to remain visibly documented');
-  }
-}
-
-// Version-coherence guard for the operator-approved AWS-bundled exception.
-// The visible policy itself can only match project/package/advisory/node, so the
-// exact bundled version is enforced here: the exception is valid only while
-// aws-cdk-lib bundles brace-expansion 5.0.9. Any other bundled version re-opens
-// the review (a different still-vulnerable version fails, and a fixed version
-// fails until the exception is removed).
-const bundledBraceVersion = bundledBrace?.version;
-const BUNDLED_BRACE_CURRENT = '5.0.9';
-const BUNDLED_BRACE_FIXED = '5.0.12';
-const bundledExceptionAdvisories = [
-  'GHSA-q2hr-2g5m-vwhr',
-  'GHSA-qhr7-859c-m2p7',
-  'GHSA-6j4f-fj2g-mc7p',
-];
-const bundledExceptionEntries = (policy.findings ?? []).filter(
-  (finding) =>
-    finding.project === 'examples/cdk-multilang' &&
-    finding.package === 'brace-expansion' &&
-    finding.node === 'node_modules/aws-cdk-lib/node_modules/brace-expansion' &&
-    bundledExceptionAdvisories.includes(finding.advisory),
-);
-if (versionAtLeast(bundledBraceVersion, BUNDLED_BRACE_FIXED)) {
-  if (bundledExceptionEntries.length > 0) {
-    throw new Error('aws-cdk-lib now bundles fixed brace-expansion; remove the visible SEC-2 exception for examples/cdk-multilang');
-  }
-} else {
-  if (bundledBraceVersion !== BUNDLED_BRACE_CURRENT) {
-    throw new Error(`aws-cdk-lib bundled brace-expansion changed to ${bundledBraceVersion ?? 'missing'}; re-review the visible SEC-2 exception for examples/cdk-multilang`);
-  }
-  if (bundledExceptionEntries.length !== bundledExceptionAdvisories.length) {
-    throw new Error(`expected ${bundledExceptionAdvisories.length} visible SEC-2 exception(s) for the aws-cdk-lib bundled brace-expansion advisories, found ${bundledExceptionEntries.length}`);
-  }
-}
 NODE
+
+cat >"${tmpdir}/make-bundled-brace-fixtures.mjs" <<'NODE'
+import fs from 'node:fs';
+
+const [, , lockPath, policyPath, outDir] = process.argv;
+const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
+const clone = (value) => JSON.parse(JSON.stringify(value));
+
+const CDK_LIB_PATH = 'node_modules/aws-cdk-lib';
+const BRACE_PATH = 'node_modules/aws-cdk-lib/node_modules/brace-expansion';
+const MINIMATCH_PATH = 'node_modules/aws-cdk-lib/node_modules/minimatch';
+
+function writeJson(name, value) {
+  fs.writeFileSync(`${outDir}/${name}`, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function visibleEntry(overrides) {
+  return {
+    project: 'examples/cdk-multilang',
+    package: 'brace-expansion',
+    advisory: 'GHSA-q2hr-2g5m-vwhr',
+    node: BRACE_PATH,
+    visibility: 'visible',
+    status: 'upstream-bundled-pending-fix',
+    reviewed_on: '2026-10-03',
+    expires_on: '2099-12-31',
+    remove_when: 'Remove when aws-cdk-lib bundles brace-expansion >= 5.0.12.',
+    justification: 'Synthetic negative-control fixture for the bundled brace-expansion guard.',
+    ...overrides,
+  };
+}
+
+{
+  const mutated = clone(lock);
+  mutated.packages[BRACE_PATH].version = '5.0.9';
+  writeJson('lock-old-5.0.9.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  delete mutated.packages[BRACE_PATH];
+  writeJson('lock-missing-brace.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  delete mutated.packages[CDK_LIB_PATH];
+  writeJson('lock-missing-cdk.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  delete mutated.packages[CDK_LIB_PATH].integrity;
+  writeJson('lock-no-integrity.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  delete mutated.packages[CDK_LIB_PATH].resolved;
+  writeJson('lock-no-resolved.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  delete mutated.packages[MINIMATCH_PATH].inBundle;
+  writeJson('lock-minimatch-not-bundled.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  delete mutated.packages[BRACE_PATH].inBundle;
+  writeJson('lock-brace-not-bundled.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  mutated.packages[MINIMATCH_PATH].dependencies['brace-expansion'] = '^6.0.0';
+  writeJson('lock-range-mismatch.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  mutated.packages[MINIMATCH_PATH].dependencies['brace-expansion'] = '5.0.11';
+  writeJson('lock-exact-pin-higher-actual.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  mutated.packages[MINIMATCH_PATH].dependencies['brace-expansion'] = '>5.0.12';
+  writeJson('lock-strict-gt-equal-actual.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  mutated.packages['node_modules/brace-expansion'] = { version: '5.0.9', license: 'MIT' };
+  writeJson('lock-root-vuln.json', mutated);
+}
+fs.writeFileSync(`${outDir}/lock-malformed.json`, '{\n  "packages": {\n');
+
+writeJson('policy-bundled-entry.json', { ...policy, findings: [visibleEntry({})] });
+writeJson('policy-wrong-package.json', {
+  ...policy,
+  findings: [
+    visibleEntry({ package: 'minimatch', advisory: 'GHSA-qhr7-859c-m2p7', node: MINIMATCH_PATH }),
+  ],
+});
+writeJson('policy-wrong-node.json', {
+  ...policy,
+  findings: [visibleEntry({ advisory: 'GHSA-aaaa-bbbb-cccc', node: 'node_modules/brace-expansion' })],
+});
+fs.writeFileSync(`${outDir}/policy-malformed.json`, '{ "findings": [ }\n');
+NODE
+
+graph_lock="examples/cdk-multilang/package-lock.json"
+graph_policy="gov-infra/planning/theorydb-visible-npm-audit-findings.json"
+graph_checker="${tmpdir}/verify-bundled-brace-graph.mjs"
+
+# Positive: the committed fixed graph must satisfy the guard.
+expect_success_contains \
+  "verify-bundled-brace-graph: committed: PASS" \
+  node "${graph_checker}" "${graph_lock}" "${graph_policy}" committed
+
+node "${tmpdir}/make-bundled-brace-fixtures.mjs" "${graph_lock}" "${graph_policy}" "${tmpdir}"
+
+# Negative: the guard must fail closed on every drift and malformed input.
+expect_failure_contains \
+  "bundled brace-expansion must be >= 5.0.12" \
+  node "${graph_checker}" "${tmpdir}/lock-old-5.0.9.json" "${graph_policy}" negative
+expect_failure_contains \
+  "required lock entry node_modules/aws-cdk-lib/node_modules/brace-expansion is missing" \
+  node "${graph_checker}" "${tmpdir}/lock-missing-brace.json" "${graph_policy}" negative
+expect_failure_contains \
+  "required lock entry node_modules/aws-cdk-lib is missing" \
+  node "${graph_checker}" "${tmpdir}/lock-missing-cdk.json" "${graph_policy}" negative
+expect_failure_contains \
+  "aws-cdk-lib lock entry is missing sha512 integrity" \
+  node "${graph_checker}" "${tmpdir}/lock-no-integrity.json" "${graph_policy}" negative
+expect_failure_contains \
+  "aws-cdk-lib lock entry is missing resolved" \
+  node "${graph_checker}" "${tmpdir}/lock-no-resolved.json" "${graph_policy}" negative
+expect_failure_contains \
+  "node_modules/aws-cdk-lib/node_modules/minimatch must be inBundle:true" \
+  node "${graph_checker}" "${tmpdir}/lock-minimatch-not-bundled.json" "${graph_policy}" negative
+expect_failure_contains \
+  "node_modules/aws-cdk-lib/node_modules/brace-expansion must be inBundle:true" \
+  node "${graph_checker}" "${tmpdir}/lock-brace-not-bundled.json" "${graph_policy}" negative
+expect_failure_contains \
+  "does not satisfy bundled minimatch range ^6.0.0" \
+  node "${graph_checker}" "${tmpdir}/lock-range-mismatch.json" "${graph_policy}" negative
+# Exact-pin regression (ADV678-F1): a declared exact version must be honored as
+# equality, so a higher actual version is rejected instead of silently accepted.
+expect_failure_contains \
+  "does not satisfy bundled minimatch range 5.0.11" \
+  node "${graph_checker}" "${tmpdir}/lock-exact-pin-higher-actual.json" "${graph_policy}" negative
+# Strict-greater regression (ADV678-F1): ">" must reject an actual version that
+# only equals the declared floor rather than collapsing into ">=".
+expect_failure_contains \
+  "does not satisfy bundled minimatch range >5.0.12" \
+  node "${graph_checker}" "${tmpdir}/lock-strict-gt-equal-actual.json" "${graph_policy}" negative
+expect_failure_contains \
+  "vulnerable brace-expansion 5.0.9 at node_modules/brace-expansion" \
+  node "${graph_checker}" "${tmpdir}/lock-root-vuln.json" "${graph_policy}" negative
+expect_failure_contains \
+  "lockfile is not valid JSON" \
+  node "${graph_checker}" "${tmpdir}/lock-malformed.json" "${graph_policy}" negative
+expect_failure_contains \
+  "residual visible policy entry" \
+  node "${graph_checker}" "${graph_lock}" "${tmpdir}/policy-bundled-entry.json" negative
+expect_failure_contains \
+  "residual visible policy entry" \
+  node "${graph_checker}" "${graph_lock}" "${tmpdir}/policy-wrong-package.json" negative
+expect_failure_contains \
+  "residual visible policy entry" \
+  node "${graph_checker}" "${graph_lock}" "${tmpdir}/policy-wrong-node.json" negative
+expect_failure_contains \
+  "visible policy is not valid JSON" \
+  node "${graph_checker}" "${graph_lock}" "${tmpdir}/policy-malformed.json" negative
 
 echo "npm-audit-policy-test: PASS"
