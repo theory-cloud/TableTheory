@@ -199,9 +199,11 @@ function versionAtLeast(actual, minimum) {
   return true;
 }
 
-// Minimal declared-range check (no external semver dependency). Supports the
-// caret, tilde, comparison, and exact shapes npm writes into a bundled graph;
-// any other shape fails closed instead of silently passing.
+// Minimal declared-range check (no external semver dependency). Supports exactly
+// five shapes npm writes into a bundled graph: caret ^X.Y.Z, tilde ~X.Y.Z,
+// >=X.Y.Z, strict >X.Y.Z, and a bare exact X.Y.Z (string equality). Every other
+// shape (including `<=`/`<`, `=`, compound, hyphen, `||`, or `*` ranges) fails
+// closed instead of silently passing.
 function satisfiesRange(actual, range) {
   if (typeof actual !== 'string' || typeof range !== 'string') return false;
   const trimmed = range.trim();
@@ -222,10 +224,15 @@ function satisfiesRange(actual, range) {
     return !versionAtLeast(actual, `${major}.${minor + 1}.0`);
   }
 
-  const comparator = trimmed.match(/^(?:>=|>)?\s*(\d+\.\d+\.\d+)$/);
-  if (comparator) return versionAtLeast(actual, comparator[1]);
-
   if (/^\d+\.\d+\.\d+$/.test(trimmed)) return actual === trimmed;
+
+  const comparator = trimmed.match(/^(>=|>)\s*(\d+\.\d+\.\d+)$/);
+  if (comparator) {
+    const [, operator, floor] = comparator;
+    if (!versionAtLeast(actual, floor)) return false;
+    if (operator === '>') return !versionAtLeast(floor, actual);
+    return true;
+  }
 
   fail(`unsupported declared range "${range}"`);
 }
@@ -406,6 +413,16 @@ function visibleEntry(overrides) {
 }
 {
   const mutated = clone(lock);
+  mutated.packages[MINIMATCH_PATH].dependencies['brace-expansion'] = '5.0.11';
+  writeJson('lock-exact-pin-higher-actual.json', mutated);
+}
+{
+  const mutated = clone(lock);
+  mutated.packages[MINIMATCH_PATH].dependencies['brace-expansion'] = '>5.0.12';
+  writeJson('lock-strict-gt-equal-actual.json', mutated);
+}
+{
+  const mutated = clone(lock);
   mutated.packages['node_modules/brace-expansion'] = { version: '5.0.9', license: 'MIT' };
   writeJson('lock-root-vuln.json', mutated);
 }
@@ -461,6 +478,16 @@ expect_failure_contains \
 expect_failure_contains \
   "does not satisfy bundled minimatch range ^6.0.0" \
   node "${graph_checker}" "${tmpdir}/lock-range-mismatch.json" "${graph_policy}" negative
+# Exact-pin regression (ADV678-F1): a declared exact version must be honored as
+# equality, so a higher actual version is rejected instead of silently accepted.
+expect_failure_contains \
+  "does not satisfy bundled minimatch range 5.0.11" \
+  node "${graph_checker}" "${tmpdir}/lock-exact-pin-higher-actual.json" "${graph_policy}" negative
+# Strict-greater regression (ADV678-F1): ">" must reject an actual version that
+# only equals the declared floor rather than collapsing into ">=".
+expect_failure_contains \
+  "does not satisfy bundled minimatch range >5.0.12" \
+  node "${graph_checker}" "${tmpdir}/lock-strict-gt-equal-actual.json" "${graph_policy}" negative
 expect_failure_contains \
   "vulnerable brace-expansion 5.0.9 at node_modules/brace-expansion" \
   node "${graph_checker}" "${tmpdir}/lock-root-vuln.json" "${graph_policy}" negative
