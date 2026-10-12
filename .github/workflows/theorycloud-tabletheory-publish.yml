@@ -1,5 +1,21 @@
 name: TableTheory TheoryCloud subtree publish
 
+# Trigger set (kept deliberately tight):
+#
+#   push -> premain/main, limited to the published subtree content, the subtree
+#     tooling this job executes, the trigger helper, and the pinned publish
+#     tooling this job installs (scripts/requirements/theorycloud-publish.in and
+#     scripts/requirements/theorycloud-publish.txt). A change to the dependency
+#     lock changes what this job installs, so it must re-run this job exactly
+#     like a change to the subtree content does: a hash-lock repair that fixes a
+#     failed publish must not merge without re-executing the publish it repairs.
+#
+#   workflow_dispatch -> premain/main only, for the case the push filter cannot
+#     cover: re-running a publish that failed, or that a later push superseded,
+#     without re-running the old commit. It takes no inputs and no separate ref
+#     parameter; the run checks out and publishes the ref it is dispatched on,
+#     and the "Resolve publish target branch" step below fails closed on any ref
+#     outside premain/main before any checkout, install, or role assumption.
 on:
   push:
     branches:
@@ -45,7 +61,10 @@ on:
       - "scripts/verify-theorycloud-tabletheory-subtree.sh"
       - "scripts/sync_theorycloud_tabletheory_subtree.sh"
       - "scripts/trigger_theorycloud_publish.sh"
+      - "scripts/requirements/theorycloud-publish.in"
+      - "scripts/requirements/theorycloud-publish.txt"
       - ".github/workflows/theorycloud-tabletheory-publish.yml"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -65,6 +84,24 @@ jobs:
       THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR: /tmp/theorycloud-tabletheory-source
       THEORYCLOUD_PUBLISH_REASON: ${{ format('github:{0}:{1}', github.repository, github.ref_name) }}
     steps:
+      - name: Resolve publish target branch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+
+          # A manual dispatch publishes the ref it is dispatched on, so only the
+          # protected release branches may publish; every other ref fails closed
+          # here, before the checkout, install, or role-assumption steps below.
+          target="${GITHUB_REF_NAME}"
+          case "${target}" in
+            premain|main)
+              ;;
+            *)
+              echo "theorycloud-publish: FAIL (manual dispatch is limited to premain/main, got ${target:-<empty>})" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Checkout protected branch head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
