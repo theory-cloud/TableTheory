@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/testing/fakedb"
+	"github.com/theory-cloud/tabletheory/v5/pkg/testing/fakedb"
 )
 
 func sAttr(value string) types.AttributeValue {

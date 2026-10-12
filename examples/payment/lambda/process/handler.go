@@ -13,10 +13,10 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v4"
-	payment "github.com/theory-cloud/tabletheory/v4/examples/payment"
-	"github.com/theory-cloud/tabletheory/v4/examples/payment/utils"
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5"
+	payment "github.com/theory-cloud/tabletheory/v5/examples/payment"
+	"github.com/theory-cloud/tabletheory/v5/examples/payment/utils"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
 )
 
 // ProcessPaymentRequest represents the payment request payload

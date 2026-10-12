@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
+	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
 )
 
 // TestDefaultConfig tests the DefaultConfig function

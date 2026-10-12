@@ -61,7 +61,7 @@ if [[ -x "$host_bin" ]]; then
   }
   scaffold="${OUT}/ldflags-scaffold"
   "$host_bin" init --lang go --dir "$scaffold" --module example.com/tabletheory-cli-ldflags >/dev/null
-  grep -q "github.com/theory-cloud/tabletheory/v4 v${test_runtime_version}" "${scaffold}/go.mod" || {
+  grep -q "github.com/theory-cloud/tabletheory/v5 v${test_runtime_version}" "${scaffold}/go.mod" || {
     echo "FAIL: release linker override did not pin v${test_runtime_version}" >&2
     cat "${scaffold}/go.mod" >&2
     exit 1

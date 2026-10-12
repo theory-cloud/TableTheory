@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
 )
 
 // contextCapturingScanExecutor records the context installed on it and reports a

@@ -10,11 +10,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
-	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
-	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v4/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v5/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v5/internal/numutil"
+	"github.com/theory-cloud/tabletheory/v5/internal/reflectutil"
+	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v5/pkg/naming"
 )
 
 // UnmarshalItems unmarshals DynamoDB items into the destination.

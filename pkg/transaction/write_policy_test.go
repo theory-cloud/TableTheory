@@ -7,11 +7,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
 )
 
 type writePolicyTransactionActual struct {

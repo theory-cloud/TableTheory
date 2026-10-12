@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/theory-cloud/tabletheory/v4/internal/expr"
-	"github.com/theory-cloud/tabletheory/v4/pkg/validation"
+	"github.com/theory-cloud/tabletheory/v5/internal/expr"
+	"github.com/theory-cloud/tabletheory/v5/pkg/validation"
 )
 
 func main() {

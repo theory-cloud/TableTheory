@@ -16,12 +16,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 
-	"github.com/theory-cloud/tabletheory/v4"
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v4/pkg/releasestate"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
-	"github.com/theory-cloud/tabletheory/v4/pkg/testing/fakedb"
+	"github.com/theory-cloud/tabletheory/v5"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v5/pkg/releasestate"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5/pkg/testing/fakedb"
 )
 
 type ErrorCode string

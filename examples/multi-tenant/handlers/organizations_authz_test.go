@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/models"
 )
 
 // requestWithContext builds a GET request for /organizations/{org} carrying the

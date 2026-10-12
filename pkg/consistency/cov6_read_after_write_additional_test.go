@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	"github.com/theory-cloud/tabletheory/v4/pkg/mocks"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5/pkg/mocks"
 )
 
 type cov6ConsistencyDB struct {

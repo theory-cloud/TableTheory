@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
-	"github.com/theory-cloud/tabletheory/v4/tests"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5/tests"
 )
 
 func deleteTableIfExists(t *testing.T, manager *Manager, tableName string) {
