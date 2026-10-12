@@ -152,7 +152,7 @@ THE-2450 guard disposition details:
 
 | Guard / threat | THE-2450 disposition | Rationale / successor |
 | --- | --- | --- |
-| Fork or name-spoofed release-lane PR checks out untrusted code | **Retained** | `release-hygiene.yml` still runs `verify-release-lane-provenance.sh` from the trusted base checkout before PR-head checkout. |
+| Fork or name-spoofed release-lane PR checks out untrusted code | **Retained** | `release-hygiene.yml` runs `verify-release-lane-provenance.sh` from a single checkout of the promoted head. The earlier trusted-base second checkout and verifier-source marker negotiation were replaced by the single-source gate on 2026-10-12 (operator ruling after the PR #681 deadlock); controls against gate weakening are branch protection, required review, and the visible `staging`-PR CI instead of in-workflow negotiation. |
 | Illegal `premain`/`main` source branch or RC/stable release-please title shape | **Retained** | `verify-release-lane-provenance.sh` still allows only `staging`/generated RC heads for `premain` and `premain`/generated stable heads for `main`. |
 | Human promotion lacks release intent / lets release-please report "No user facing commits" | **Retained** | `verify-promotion-release-driver.sh` still runs on `staging` -> `premain` and `premain` -> `main` PRs. |
 | PR-event base/head SHA must equal current live branch refs | **Covered by queue semantics in normal path; retained for explicit manual-freeze checks** | The protected branch merge queue validates the queued merge ref against the target branch tip before merge. The strict live-ref check remains the default in `verify-release-lane-provenance.sh` for manual-freeze checks; the workflow uses `--queue-freshness`. |
