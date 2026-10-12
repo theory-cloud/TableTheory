@@ -4,16 +4,16 @@ set -euo pipefail
 # TTSEC2-M3-T2: durable Pages publication trust-boundary regression test.
 #
 # Fails if ANY workflow can deploy GitHub Pages while it is triggered by a
-# `staging` branch push or a `pull_request` event. Publication/deployment must
-# stay reserved for protected release paths (a `main` push, or the release.yml
-# tag / manual `workflow_dispatch` handoff).
+# `pull_request` event. Publication/deployment must stay reserved for the
+# environment-policy-authorized publication refs (a `staging` branch push, or
+# the release.yml tag / manual `workflow_dispatch` handoff); a pull request
+# builds the same tree but must never publish.
 #
 # The checker evaluates each Pages-deploying job's effective eligibility over a
 # matrix of synthetic GitHub event contexts, so a composite `if:` expression
-# (`a && b || c`, nested parentheses, negations) cannot hide a pull_request or
-# staging deployment path. It is a source-controlled structural gate: it does
-# not read or mutate hosted repository/environment settings and never contacts
-# GitHub.
+# (`a && b || c`, nested parentheses, negations) cannot hide a pull_request
+# deployment path. It is a source-controlled structural gate: it does not read
+# or mutate hosted repository/environment settings and never contacts GitHub.
 #
 # The gate fails closed rather than guessing: a condition it cannot reduce to
 # the modeled context properties (an unknown identifier, a function call, an
@@ -24,7 +24,7 @@ set -euo pipefail
 # the gate into a silent no-op.
 #
 # It also asserts the inverse (ordinary success control): the trusted
-# `main`/tag publication journey must remain eligible, and build-only
+# `staging`/tag publication journey must remain eligible, and build-only
 # (pull_request) runs must not share the publication concurrency queue.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,9 +46,10 @@ import re
 import sys
 from pathlib import Path
 
-# Synthetic event contexts. The first three are the trust-boundary cases that
+# Synthetic event contexts. The first two are the trust-boundary cases that
 # must never reach a Pages deploy; the rest are the trusted publication journey
-# that must keep working.
+# (the environment-policy-authorized `staging` push and release/tag dispatch
+# handoff) plus a `main` push, which the environment policy refuses.
 CONTEXTS = [
     ("pull_request to staging", {"github.event_name": "pull_request", "github.ref": "refs/pull/11/merge", "github.ref_name": "11/merge", "github.base_ref": "staging", "github.head_ref": "feature/docs"}),
     ("pull_request to main", {"github.event_name": "pull_request", "github.ref": "refs/pull/12/merge", "github.ref_name": "12/merge", "github.base_ref": "main", "github.head_ref": "premain"}),
@@ -57,8 +58,12 @@ CONTEXTS = [
     ("dispatch on main", {"github.event_name": "workflow_dispatch", "github.ref": "refs/heads/main", "github.ref_name": "main", "github.base_ref": "", "github.head_ref": ""}),
     ("dispatch on tag", {"github.event_name": "workflow_dispatch", "github.ref": "refs/tags/v9.9.9", "github.ref_name": "v9.9.9", "github.base_ref": "", "github.head_ref": ""}),
 ]
-UNSAFE_CONTEXTS = {"pull_request to staging", "pull_request to main", "push to staging"}
-PUBLICATION_CONTEXTS = {"push to main", "dispatch on main", "dispatch on tag"}
+UNSAFE_CONTEXTS = {"pull_request to staging", "pull_request to main"}
+# `push to main` stays modeled as a publication context even though no trigger
+# set uses it: the github-pages environment deployment policy authorizes the
+# `staging` branch and `v*` tag refs, so a deploy job that only a `main` push
+# could reach would never actually publish and must keep failing this gate.
+PUBLICATION_CONTEXTS = {"push to staging", "push to main", "dispatch on main", "dispatch on tag"}
 
 # Exactly the context properties the synthetic matrix models. A condition that
 # reads any other property cannot be evaluated here, and an unknown property
@@ -636,33 +641,35 @@ jobs:
 YAML
 expect_reject "${pr_fixture}" "can publish Pages" "pull_request deploy job"
 
-# 3. Composite condition that admits a staging push alongside main.
+# 3. Composite condition that admits a pull_request deploy alongside the
+#    trusted publication paths.
 composite_fixture="$(mktemp -d)"
 tmpdirs+=("${composite_fixture}")
 cat >"${composite_fixture}/composite.yml" <<'YAML'
 name: composite-pages
 on:
-  push:
-    branches: [staging, main]
+  pull_request:
+    branches: [staging]
+  workflow_dispatch:
 concurrency:
   group: pages
   cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')) || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'pull_request' && (github.base_ref == 'staging' || github.base_ref == 'main')) || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/deploy-pages@0000000000000000000000000000000000000000
 YAML
-expect_reject "${composite_fixture}" "'push to staging'" "composite staging deploy condition"
+expect_reject "${composite_fixture}" "'pull_request to staging'" "composite pull_request deploy condition"
 
-# 4. Negated guard that still admits a staging push.
+# 4. Negated guard that still admits a pull_request deploy.
 negated_fixture="$(mktemp -d)"
 tmpdirs+=("${negated_fixture}")
 cat >"${negated_fixture}/negated.yml" <<'YAML'
 name: negated-pages
 on:
-  push:
+  pull_request:
     branches: [staging]
 concurrency:
   group: pages
@@ -670,11 +677,11 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'push'
     steps:
       - uses: actions/deploy-pages@0000000000000000000000000000000000000000
 YAML
-expect_reject "${negated_fixture}" "'push to staging'" "negated staging deploy condition"
+expect_reject "${negated_fixture}" "'pull_request to staging'" "negated pull_request deploy condition"
 
 # 5. A deploy condition that cannot be reduced to the supported guard shape
 #    fails closed instead of silently passing.
@@ -861,14 +868,15 @@ YAML
 expect_accept "${wide_indent_fixture}" "wide-indentation main-only fixture"
 
 # 13. The same wide indentation must not blind the gate in the dangerous
-#     direction: a staging deploy hidden at a different indent width is still a
-#     finding (the pre-fix checker reviewed zero jobs and reported clean).
-wide_indent_staging_fixture="$(mktemp -d)"
-tmpdirs+=("${wide_indent_staging_fixture}")
-cat >"${wide_indent_staging_fixture}/wide-indent-staging.yml" <<'YAML'
-name: wide-indent-staging-pages
+#     direction: an unguarded deploy reachable from a pull request, hidden at a
+#     different indent width, is still a finding (the pre-fix checker reviewed
+#     zero jobs and reported clean).
+wide_indent_pr_fixture="$(mktemp -d)"
+tmpdirs+=("${wide_indent_pr_fixture}")
+cat >"${wide_indent_pr_fixture}/wide-indent-pr.yml" <<'YAML'
+name: wide-indent-pr-pages
 on:
-    push:
+    pull_request:
         branches: [staging]
 concurrency:
     group: pages
@@ -879,7 +887,7 @@ jobs:
         steps:
             - uses: actions/deploy-pages@0000000000000000000000000000000000000000
 YAML
-expect_reject "${wide_indent_staging_fixture}" "can publish Pages" "wide-indentation staging deploy"
+expect_reject "${wide_indent_pr_fixture}" "can publish Pages" "wide-indentation pull_request deploy"
 
 # 14. An unmodeled context property fails closed on the trusted path too: a
 #     main-only trigger does not make an unanalyzable deploy condition acceptable.
