@@ -663,24 +663,27 @@ for wf in ".github/workflows/prerelease.yml" ".github/workflows/prerelease-pr.ym
   require_fixed "verify-branch-version-sync.sh &&" "${wf}" \
     "${wf} must join the strict verifiers with && so either failure reaches the classifier"
 done
+# Release intent is a promotion-time invariant, not a staging-PR one. The former
+# staging-side eligibility step in quality-gates.yml keyed on the head branch NAME
+# and the feat/fix/perf label set, so it false-blocked valid staging work (a
+# breaking refactor, and a content-identical main back-merge whose head branch was
+# not literally named `main`). It is removed by operator ruling; the invariant it
+# claimed is enforced where release intent is actually consumed, by
+# release-hygiene.yml running the promotion driver on the release-lane PRs
+# (pinned just below and above).
 if [[ -f ".github/workflows/quality-gates.yml" ]]; then
   q_t3=".github/workflows/quality-gates.yml"
-  require_fixed "name: Verify staged PR is release-eligible" "${q_t3}" \
-    "quality-gates must keep the release-eligibility step"
-  if ! python3 - "${q_t3}" <<'PY'
-import sys
-from pathlib import Path
-
-lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-for i, line in enumerate(lines):
-    if line.strip() == "- name: Verify staged PR is release-eligible":
-        window = "\n".join(lines[i:i + 8])
-        raise SystemExit(0 if "if: github.event_name == 'pull_request'" in window else 1)
-raise SystemExit(1)
-PY
-  then
-    fail "quality-gates release-eligibility step must be gated to pull_request so workflow_dispatch reaches the rubric"
-  fi
+  forbid_fixed "Verify staged PR is release-eligible" "${q_t3}" \
+    "quality-gates must not reintroduce a staging-side release-eligibility step; promotion-time enforcement owns that invariant"
+  forbid_fixed "staging-release-driver" "${q_t3}" \
+    "quality-gates must not reintroduce the retired staging-release-driver check"
+fi
+if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
+  h_t3=".github/workflows/release-hygiene.yml"
+  require_fixed "bash scripts/verify-promotion-release-driver.sh" "${h_t3}" \
+    "release intent must stay enforced at promotion time by the release-hygiene driver step"
+  require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h_t3}" \
+    "the release-hygiene driver step must cover staging -> premain promotion PRs"
 fi
 
 # TTSEC-M0-T4: pinned publish tooling installed before role assumption.
