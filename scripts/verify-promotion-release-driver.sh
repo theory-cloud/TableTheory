@@ -17,6 +17,12 @@ Options:
   --title TITLE         PR title fallback when --pr/gh is unavailable.
   --body BODY           PR body fallback when --pr/gh is unavailable.
   --commit-message MSG  Local/test fallback commit message; repeatable.
+  --published-baseline V
+                        Highest published release (X.Y.Z or vX.Y.Z). When set,
+                        every next-version candidate this driver derives must be
+                        strictly greater than it. A premain -> main promotion
+                        requires the baseline; an empty value means no release
+                        has been published yet.
   --dry-run             Print that local read-only mode is being used.
   -h, --help            Show this help.
 
@@ -33,6 +39,8 @@ title="${PR_TITLE:-}"
 body="${PR_BODY:-}"
 dry_run=0
 commit_messages=()
+published_baseline="${PUBLISHED_RELEASE_BASELINE:-}"
+published_baseline_provided=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -90,6 +98,15 @@ while [[ $# -gt 0 ]]; do
         exit 2
       fi
       commit_messages+=("$2")
+      shift 2
+      ;;
+    --published-baseline)
+      if [[ $# -lt 2 ]]; then
+        echo "promotion-release-driver: FAIL (--published-baseline requires a value)" >&2
+        exit 2
+      fi
+      published_baseline="$2"
+      published_baseline_provided=1
       shift 2
       ;;
     --dry-run)
@@ -179,7 +196,7 @@ PY
 
 metadata_arg="${metadata_file:-${fallback_file}}"
 
-BASE_REF="${base}" HEAD_REF="${head}" python3 - "${metadata_arg}" <<'PY'
+BASE_REF="${base}" HEAD_REF="${head}" PUBLISHED_BASELINE="${published_baseline}" PUBLISHED_BASELINE_PROVIDED="${published_baseline_provided}" python3 - "${metadata_arg}" <<'PY'
 import json
 import os
 import re
@@ -189,6 +206,8 @@ from pathlib import Path
 metadata_path = Path(sys.argv[1])
 base = os.environ["BASE_REF"]
 head = os.environ["HEAD_REF"]
+published_baseline = os.environ.get("PUBLISHED_BASELINE", "").strip()
+published_baseline_provided = os.environ.get("PUBLISHED_BASELINE_PROVIDED", "0") == "1"
 
 rc_version_re = re.compile(r"^v?\d+\.\d+\.\d+-rc(?:\.\d+)?$")
 stable_version_re = re.compile(r"^v?\d+\.\d+\.\d+$")
@@ -303,6 +322,28 @@ def parse_base(version: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in parts)
 
 
+def enforce_published_baseline(candidate: str, origin: str, *, required: bool) -> None:
+    """Reject any next-version candidate that is not strictly newer.
+
+    The highest published release is the monotonicity floor: an equal or lower
+    candidate would attempt immutable version reuse. `required` is set for the
+    premain -> main promotion, where the workflow always supplies the baseline.
+    """
+    if not published_baseline:
+        if required and not published_baseline_provided:
+            fail(
+                "premain -> main promotion requires the highest published release "
+                "baseline; pass --published-baseline (empty means nothing is published yet)"
+            )
+        return
+    if parse_base(candidate) <= parse_base(published_baseline):
+        fail(
+            f"{origin} candidate {candidate} must be strictly greater than the highest published release "
+            f"{published_baseline}; an equal or lower candidate would attempt to reuse "
+            "an already published version"
+        )
+
+
 def read_json(path: str) -> object:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -350,6 +391,10 @@ if base == "premain":
             f"X.Y.Z-rc or X.Y.Z-rc.N, got {', '.join(invalid)}"
         )
     if versions:
+        for version in versions:
+            enforce_published_baseline(
+                version, "staging -> premain Release-As footer", required=False
+            )
         superseded = ""
         if superseded_versions:
             superseded = (
@@ -405,6 +450,17 @@ if base == "main":
                 "premain -> main stable Release-As footer must match the pending "
                 f"RC base {pending_stable}, got {', '.join(mismatched)}"
             )
+    # The next-version candidate must be strictly greater than the highest
+    # published release, whatever its origin: the single manifest carries the
+    # premain RC, and an optional stable Release-As footer names the same base.
+    enforce_published_baseline(
+        pending_rc, "premain -> main manifest", required=True
+    )
+    for version in versions:
+        enforce_published_baseline(
+            version, "premain -> main stable Release-As footer", required=True
+        )
+    if versions:
         print(
             "promotion-release-driver: PASS "
             f"(premain -> main pending stable promotion {pending_rc} -> {pending_stable}; explicit stable Release-As)"

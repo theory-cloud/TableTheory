@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"time"
 
-	payment "github.com/theory-cloud/tabletheory/v4/examples/payment"
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
+	payment "github.com/theory-cloud/tabletheory/v5/examples/payment"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
 )
 
 // ErrDuplicateRequest indicates a duplicate request was detected

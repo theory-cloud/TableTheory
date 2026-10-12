@@ -191,3 +191,138 @@ def test_validate_deploy_authority_metadata_rejects_free_form_notes() -> None:
 
     with pytest.raises(ValidationError):
         validate_deploy_authority_metadata(item)
+
+
+@dataclass(frozen=True)
+class ReleaseStateOutbox:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    operation: str = theorydb_field(default="")
+
+
+def _outbox_table(client: FakeDynamoDBClient) -> Table[ReleaseStateOutbox]:
+    return Table(
+        ModelDefinition.from_dataclass(
+            ReleaseStateOutbox,
+            table_name="release_state_contract",
+            write_policy=WritePolicy(mode="write_once"),
+        ),
+        client=client,
+    )
+
+
+def test_transition_release_state_rejects_mismatched_event_partition() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+
+    with pytest.raises(ValidationError, match="does not match"):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-b", sk="EVENT#1"),
+        )
+
+    assert client.calls == []
+
+
+def test_transition_release_state_includes_outbox_in_one_transaction() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    outbox_table = _outbox_table(client)
+
+    def validate(req: dict[str, Any]) -> None:
+        items = req["TransactItems"]
+        assert len(items) == 3
+        outbox = items[2]["Put"]
+        assert outbox["TableName"] == "release_state_contract"
+        assert outbox["ConditionExpression"] == "attribute_not_exists(#pk)"
+        assert outbox["Item"]["PK"] == {"S": "RELEASE#service-a"}
+
+    client.expect("transact_write_items", validate, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+        outbox_item=ReleaseStateOutbox(pk="RELEASE#service-a", sk="OUTBOX#1"),
+        outbox_table=outbox_table,
+    )
+
+    client.assert_no_pending()
+
+
+def test_transition_release_state_propagates_rejected_transaction() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    outbox_table = _outbox_table(client)
+
+    client.expect(
+        "transact_write_items",
+        None,
+        error=RuntimeError("TransactionCanceledException"),
+    )
+
+    with pytest.raises(RuntimeError, match="TransactionCanceledException"):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+            outbox_item=ReleaseStateOutbox(pk="RELEASE#service-a", sk="OUTBOX#1"),
+            outbox_table=outbox_table,
+        )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_validate_deploy_authority_metadata_digest_conflict() -> None:
+    item = _valid_deploy_authority_item()
+    base = dict(item["provenance"]["evidence"][0])
+    item["provenance"]["evidence"] = [
+        {**base, "digest": "sha256:aaaaaaaa"},
+        {**base, "digest": "sha256:bbbbbbbb"},
+    ]
+
+    with pytest.raises(RejectedDeployAuthorityEvidenceError):
+        validate_deploy_authority_metadata(item)
+
+
+def test_validate_deploy_authority_metadata_identical_evidence_is_idempotent() -> None:
+    item = _valid_deploy_authority_item()
+    base = dict(item["provenance"]["evidence"][0])
+    item["provenance"]["evidence"] = [
+        {**base, "digest": "sha256:cccccccc"},
+        {**base, "digest": "sha256:cccccccc"},
+    ]
+
+    validate_deploy_authority_metadata(item)
+
+
+def test_validate_deploy_authority_metadata_rejects_unrelated_evidence() -> None:
+    item = _valid_deploy_authority_item()
+    item["provenance"]["ref"] = "operator://deploy/service-b/rel_999"
+
+    with pytest.raises(RejectedDeployAuthorityEvidenceError):
+        validate_deploy_authority_metadata(item)
+
+
+def test_validate_deploy_authority_metadata_aligns_top_level_digest() -> None:
+    item = _valid_deploy_authority_item()
+    base = dict(item["provenance"]["evidence"][0])
+    item["provenance"]["evidence"] = [{**base, "digest": "sha256:dddddddd"}]
+    item["provenance"]["digest"] = "sha256:dddddddd"
+
+    validate_deploy_authority_metadata(item)
+
+    item["provenance"]["digest"] = "sha256:eeeeeeee"
+    with pytest.raises(RejectedDeployAuthorityEvidenceError):
+        validate_deploy_authority_metadata(item)

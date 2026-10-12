@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
 )
 
 func (q *Query) writePolicy() model.WritePolicy {

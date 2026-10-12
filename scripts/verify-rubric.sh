@@ -35,5 +35,36 @@ python3 scripts/verify-gov-rubric-report.py gov-infra/evidence/gov-rubric-report
 
 bash ./scripts/verify-theorycloud-tabletheory-subtree.sh
 
+# TTSEC-M0-T2..T6 focused policy tests (release/publishing trust boundaries).
+# These exercise hostile fixtures against the real guards, so they run in the
+# full rubric on staging PRs rather than only as existence checks.
+bash ./scripts/test-release-pr-postcondition-policy.sh
+bash ./scripts/test-theorycloud-publish-policy.sh
+bash ./scripts/test-consumer-dependency-policy.sh
+
+# TTSEC2-M3-T2 Pages publication trust boundary: no workflow may deploy GitHub
+# Pages from a `staging` or `pull_request` trigger, and build-only runs must
+# never share the publication concurrency queue. The checker reviews the real
+# workflows and proves itself non-vacuous with hostile fixtures, an unreadable
+# shape failing closed, and a minimum-reviewed-deploy-job assertion.
+bash ./scripts/test-pages-publication-policy.sh
+
+# TTSEC2-M3-T3 released-baseline trust boundary: the promotion driver, the
+# stable Release PR generator, and both workflow baseline resolvers run against
+# hostile fixtures and a stubbed `gh`. Equal or lower next-version candidates,
+# truncated/out-of-order/draft-only baseline reads, and API, JSON, or semver
+# faults must all fail closed, with no release, network, or cloud call.
+bash ./scripts/test-release-hygiene-policy.sh
+
+# TTSEC2-M4-T1 generated-key verifier: its name-splitting state must be
+# initialized before the top-level await so contracts that omit optional
+# helper/input names do not throw (finding 1a300492).
+bash ./scripts/test-generated-ts-key-contract-tdz-policy.sh
+
+# TTSEC2-M4-T4 coverage package floors: a package built into several test
+# binaries repeats each source segment, so the aggregation must count unique
+# segments once, matching `go tool cover` (finding 033ccfd5).
+bash ./scripts/test-coverage-package-targets-policy.sh
+
 # Preserve legacy success line for scripts that grep for it.
 echo "rubric: PASS"

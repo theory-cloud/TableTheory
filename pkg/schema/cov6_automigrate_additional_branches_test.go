@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
 )
 
 func stubbedAWSError(errorType, message string) stubbedResponse {
@@ -100,13 +100,13 @@ func TestManager_copyDataIfRequested_TransformValidationAndEarlyReturns_COV6(t *
 	targetMeta := &model.Metadata{TableName: "target"}
 
 	opts := &AutoMigrateOptions{DataCopy: false, Context: context.Background(), BatchSize: 25}
-	require.NoError(t, mgr.copyDataIfRequested(opts, sourceMeta, targetMeta))
+	require.NoError(t, mgr.copyDataIfRequested(opts, sourceMeta, targetMeta, nil))
 
 	opts = &AutoMigrateOptions{DataCopy: true, Context: context.Background(), BatchSize: 25}
-	require.NoError(t, mgr.copyDataIfRequested(opts, sourceMeta, sourceMeta))
+	require.NoError(t, mgr.copyDataIfRequested(opts, sourceMeta, sourceMeta, nil))
 
 	opts = &AutoMigrateOptions{DataCopy: true, Context: context.Background(), BatchSize: 25, Transform: "not-a-function"}
-	err := mgr.copyDataIfRequested(opts, sourceMeta, targetMeta)
+	err := mgr.copyDataIfRequested(opts, sourceMeta, targetMeta, nil)
 	require.ErrorContains(t, err, "invalid transform function")
 }
 

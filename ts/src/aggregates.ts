@@ -1,3 +1,5 @@
+import { TheorydbError } from './errors.js';
+
 /** Result of an in-memory client-side aggregation over an already materialized item array. */
 export interface AggregateResult {
   min?: unknown;
@@ -121,13 +123,11 @@ export function sumField<T extends Record<string, unknown>>(
   items: T[],
   field: string,
 ): number {
-  let sum = 0;
+  const accumulator = new NumericAccumulator();
   for (const item of items) {
-    const value = extractNumericValue(item, field);
-    if (value === undefined) continue;
-    sum += value;
+    accumulator.add(item[field]);
   }
-  return sum;
+  return requireAggregateSum(accumulator);
 }
 
 /** Client-side average over an already materialized item array; use only for bounded result sets. */
@@ -135,18 +135,14 @@ export function averageField<T extends Record<string, unknown>>(
   items: T[],
   field: string,
 ): number {
-  if (items.length === 0) return 0;
-
-  let sum = 0;
-  let count = 0;
+  const accumulator = new NumericAccumulator();
   for (const item of items) {
-    const value = extractNumericValue(item, field);
-    if (value === undefined) continue;
-    sum += value;
-    count += 1;
+    accumulator.add(item[field]);
   }
+
+  const count = accumulator.count();
   if (count === 0) return 0;
-  return sum / count;
+  return requireAggregateAverage(accumulator, count);
 }
 
 /** Client-side minimum over an already materialized item array; use only for bounded result sets. */
@@ -178,17 +174,12 @@ export function aggregateField<T extends Record<string, unknown>>(
 
   if (!field) return result;
 
-  let sum = 0;
-  let numericCount = 0;
+  const accumulator = new NumericAccumulator();
   let min: unknown = undefined;
   let max: unknown = undefined;
 
   for (const item of items) {
-    const num = extractNumericValue(item, field);
-    if (num !== undefined) {
-      sum += num;
-      numericCount += 1;
-    }
+    accumulator.add(item[field]);
 
     const value = extractFieldValue(item, field);
     if (value === undefined) continue;
@@ -200,8 +191,11 @@ export function aggregateField<T extends Record<string, unknown>>(
     else if (compareValues(value, max) > 0) max = value;
   }
 
-  result.sum = sum;
-  if (numericCount > 0) result.average = sum / numericCount;
+  if (accumulator.count() > 0) {
+    result.sum = requireAggregateSum(accumulator);
+    result.average = requireAggregateAverage(accumulator, accumulator.count());
+  }
+
   if (min !== undefined) result.min = min;
   if (max !== undefined) result.max = max;
   return result;
@@ -256,6 +250,10 @@ function calculateAggregate<T extends Record<string, unknown>>(
   return result;
 }
 
+function assertWithinNumberRange(value: unknown): void {
+  classifyNumeric(value);
+}
+
 function extremeValue<T extends Record<string, unknown>>(
   items: T[],
   field: string,
@@ -269,6 +267,7 @@ function extremeValue<T extends Record<string, unknown>>(
   for (const item of items) {
     const value = extractFieldValue(item, field);
     if (value === undefined) continue;
+    assertWithinNumberRange(value);
 
     if (extreme === undefined) {
       extreme = value;
@@ -296,6 +295,7 @@ function extremeFieldValue<T extends Record<string, unknown>>(
   for (const item of items) {
     const value = extractFieldValue(item, field);
     if (value === undefined) continue;
+    assertWithinNumberRange(value);
 
     if (selected === undefined) {
       selected = value;
@@ -318,7 +318,7 @@ function evaluateHaving<T extends Record<string, unknown>>(
     const aggValue = aggregateValue(group, clause.aggregate);
     if (aggValue === undefined) return false;
 
-    const compareValue = toFloat(clause.value);
+    const compareValue = toComparableNumber(clause.value);
     if (compareValue === undefined) return false;
 
     if (!compareHaving(aggValue, clause.operator, compareValue)) return false;
@@ -342,8 +342,8 @@ function aggregateValue<T extends Record<string, unknown>>(
 }
 
 function aggregateResultValue(result: AggregateResult): number | undefined {
-  if (result.min !== undefined) return toFloat(result.min);
-  if (result.max !== undefined) return toFloat(result.max);
+  if (result.min !== undefined) return toComparableNumber(result.min);
+  if (result.max !== undefined) return toComparableNumber(result.max);
   if (result.count !== 0) return result.count;
   if (result.sum !== 0) return result.sum;
   if (result.average !== 0) return result.average;
@@ -373,14 +373,6 @@ function compareHaving(
   }
 }
 
-function extractNumericValue<T extends Record<string, unknown>>(
-  item: T,
-  field: string,
-): number | undefined {
-  const value = item[field];
-  return toFloat(value);
-}
-
 function extractFieldValue<T extends Record<string, unknown>>(
   item: T,
   field: string,
@@ -391,12 +383,10 @@ function extractFieldValue<T extends Record<string, unknown>>(
 }
 
 function compareValues(a: unknown, b: unknown): number {
-  const aFloat = toFloat(a);
-  const bFloat = toFloat(b);
-  if (aFloat !== undefined && bFloat !== undefined) {
-    if (aFloat < bFloat) return -1;
-    if (aFloat > bFloat) return 1;
-    return 0;
+  const aNum = classifyNumeric(a);
+  const bNum = classifyNumeric(b);
+  if (aNum !== undefined && bNum !== undefined) {
+    return compareNumericValues(aNum, bNum);
   }
 
   if (typeof a === 'string' && typeof b === 'string') {
@@ -412,17 +402,377 @@ function compareValues(a: unknown, b: unknown): number {
   return 0;
 }
 
-function toFloat(value: unknown): number | undefined {
+function compareNumericValues(a: NumericValue, b: NumericValue): number {
+  if (a.domain === 'lossy' && b.domain === 'lossy') {
+    if (a.value < b.value) return -1;
+    if (a.value > b.value) return 1;
+    return 0;
+  }
+
+  if (a.domain === 'exact' && b.domain === 'exact') {
+    return compareDecimalText(
+      canonicalFromDecimal(a.decimal),
+      canonicalFromDecimal(b.decimal),
+    );
+  }
+
+  throw mixedNumericDomainError(
+    a.domain === 'exact' ? describeNumeric(a) : describeNumeric(b),
+  );
+}
+
+// DynamoDB numbers span magnitudes whose most-significant-digit exponent
+// (adjusted exponent) is within [-130, 125] (1E-130 .. ~9.99E+125). Exponent
+// notation outside that range is rejected before any fixed-point expansion so a
+// tiny hostile string such as "1e2000000000" cannot drive an unbounded alloc.
+const DYNAMODB_MIN_ADJUSTED_EXPONENT = -130;
+const DYNAMODB_MAX_ADJUSTED_EXPONENT = 125;
+const DECIMAL_TEXT_PATTERN = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/;
+const MAX_EXACT_SIGNIFICAND = 9007199254740992n;
+const ZERO_CHAR_CODE = 48;
+
+interface ExactDecimal {
+  sign: 0 | 1 | -1;
+  mantissa: bigint;
+  exponent: number;
+}
+
+const ZERO_DECIMAL: ExactDecimal = { sign: 0, mantissa: 0n, exponent: 0 };
+
+// Already-materialized JavaScript numbers (and bigints coerced to finite
+// numbers, matching the historical client) form the lossy numeric domain: they
+// keep ordinary floating-point arithmetic and are never re-parsed as decimal
+// strings. DynamoDB decimal strings form the exact domain: they are accumulated
+// with exact decimal arithmetic and rejected when the public `number` result
+// cannot represent the exact value. A single aggregate must stay in one domain.
+interface LossyNumeric {
+  domain: 'lossy';
+  value: number;
+}
+
+interface ExactNumeric {
+  domain: 'exact';
+  decimal: ExactDecimal;
+}
+
+type NumericValue = LossyNumeric | ExactNumeric;
+type NumericDomain = NumericValue['domain'];
+
+function classifyNumeric(value: unknown): NumericValue | undefined {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) return undefined;
-    return value;
+    return { domain: 'lossy', value };
   }
   if (typeof value === 'bigint') {
-    const converted = Number(value);
-    if (!Number.isFinite(converted)) return undefined;
-    return converted;
+    const coerced = Number(value);
+    if (!Number.isFinite(coerced)) return undefined;
+    return { domain: 'lossy', value: coerced };
+  }
+  if (typeof value === 'string') {
+    const decimal = parseDecimalText(value, true);
+    if (decimal === undefined) return undefined;
+    return { domain: 'exact', decimal };
   }
   return undefined;
+}
+
+function describeNumeric(value: NumericValue): string {
+  return value.domain === 'lossy'
+    ? String(value.value)
+    : canonicalFromDecimal(value.decimal);
+}
+
+function precisionLossError(value: unknown): TheorydbError {
+  return new TheorydbError(
+    'ErrNumberPrecisionLoss',
+    'aggregate value cannot be represented exactly: ' + String(value),
+  );
+}
+
+function mixedNumericDomainError(value: string): TheorydbError {
+  return new TheorydbError(
+    'ErrNumberPrecisionLoss',
+    'aggregate input mixes exact decimal strings with JavaScript numbers: ' +
+      value,
+  );
+}
+
+function parseDecimalText(
+  text: string,
+  enforceDynamoRange: boolean,
+): ExactDecimal | undefined {
+  const match = DECIMAL_TEXT_PATTERN.exec(text);
+  if (!match) return undefined;
+
+  const sign = match[1] === '-' ? -1 : 1;
+  const intPart = match[2] ?? '';
+  const fracPart = match[3] ?? '';
+  const exponentText = match[4];
+  if (intPart.length === 0 && fracPart.length === 0) return undefined;
+
+  // Strip leading and trailing zeros with linear index scans. A trailing-zero
+  // regex such as /0+$/ backtracks across every start position and turns an
+  // attacker-controlled mantissa into quadratic work before the range check.
+  const digits = intPart + fracPart;
+  let firstSignificant = 0;
+  while (
+    firstSignificant < digits.length &&
+    digits.charCodeAt(firstSignificant) === ZERO_CHAR_CODE
+  ) {
+    firstSignificant += 1;
+  }
+  if (firstSignificant === digits.length) return ZERO_DECIMAL;
+
+  let lastSignificant = digits.length - 1;
+  while (
+    lastSignificant > firstSignificant &&
+    digits.charCodeAt(lastSignificant) === ZERO_CHAR_CODE
+  ) {
+    lastSignificant -= 1;
+  }
+
+  let baseExponent = 0;
+  if (exponentText !== undefined) {
+    const parsed = Number(exponentText);
+    if (!Number.isSafeInteger(parsed)) {
+      throw precisionLossError(text);
+    }
+    baseExponent = parsed;
+  }
+
+  const trailingZeros = digits.length - 1 - lastSignificant;
+  const significantLength = lastSignificant - firstSignificant + 1;
+  const exponent = baseExponent - fracPart.length + trailingZeros;
+  const adjustedExponent = exponent + significantLength - 1;
+  if (
+    enforceDynamoRange &&
+    (adjustedExponent > DYNAMODB_MAX_ADJUSTED_EXPONENT ||
+      adjustedExponent < DYNAMODB_MIN_ADJUSTED_EXPONENT)
+  ) {
+    throw precisionLossError(text);
+  }
+
+  const significant = digits.slice(firstSignificant, lastSignificant + 1);
+  return { sign, mantissa: BigInt(significant), exponent };
+}
+
+function canonicalFromDecimal(decimal: ExactDecimal): string {
+  if (decimal.sign === 0) return '0';
+
+  const digits = decimal.mantissa.toString();
+  let plain: string;
+  if (decimal.exponent >= 0) {
+    plain = digits + '0'.repeat(decimal.exponent);
+  } else {
+    const pointAt = digits.length + decimal.exponent;
+    if (pointAt > 0) {
+      plain = digits.slice(0, pointAt) + '.' + digits.slice(pointAt);
+    } else {
+      plain = '0.' + '0'.repeat(-pointAt) + digits;
+    }
+  }
+  return decimal.sign < 0 ? '-' + plain : plain;
+}
+
+function decimalFraction(decimal: ExactDecimal): { num: bigint; den: bigint } {
+  if (decimal.sign === 0) return { num: 0n, den: 1n };
+
+  const magnitude = BigInt(decimal.sign) * decimal.mantissa;
+  if (decimal.exponent >= 0) {
+    return { num: magnitude * 10n ** BigInt(decimal.exponent), den: 1n };
+  }
+  return { num: magnitude, den: 10n ** BigInt(-decimal.exponent) };
+}
+
+function gcdBigInt(a: bigint, b: bigint): bigint {
+  let left = a;
+  let right = b;
+  while (right !== 0n) {
+    const remainder = left % right;
+    left = right;
+    right = remainder;
+  }
+  return left;
+}
+
+// Returns the exact IEEE-754 double equal to num/den, or undefined when no double
+// represents the value exactly (a non-dyadic denominator, a significand wider
+// than 53 bits, or an exponent outside the finite double range).
+function fractionToNumber(num: bigint, den: bigint): number | undefined {
+  if (num === 0n) return 0;
+
+  const negative = num < 0n;
+  const common = gcdBigInt(negative ? -num : num, den);
+  let numerator = (negative ? -num : num) / common;
+  const denominator = den / common;
+
+  if ((denominator & (denominator - 1n)) !== 0n) return undefined;
+
+  let exponent = 0;
+  while ((numerator & 1n) === 0n) {
+    numerator >>= 1n;
+    exponent += 1;
+  }
+  let remaining = denominator;
+  while (remaining > 1n) {
+    remaining >>= 1n;
+    exponent -= 1;
+  }
+
+  if (
+    numerator >= MAX_EXACT_SIGNIFICAND ||
+    exponent < -1074 ||
+    exponent > 971
+  ) {
+    return undefined;
+  }
+
+  const value = Number(numerator) * 2 ** exponent;
+  return negative ? -value : value;
+}
+
+function exactNumberFromDecimal(decimal: ExactDecimal): number | undefined {
+  const { num, den } = decimalFraction(decimal);
+  return fractionToNumber(num, den);
+}
+
+function requireExactNumber(decimal: ExactDecimal): number {
+  const value = exactNumberFromDecimal(decimal);
+  if (value === undefined) {
+    throw precisionLossError(canonicalFromDecimal(decimal));
+  }
+  return value;
+}
+
+function toComparableNumber(value: unknown): number | undefined {
+  const numeric = classifyNumeric(value);
+  if (numeric === undefined) return undefined;
+  if (numeric.domain === 'lossy') return numeric.value;
+
+  const exact = exactNumberFromDecimal(numeric.decimal);
+  if (exact === undefined) {
+    throw precisionLossError(value);
+  }
+  return exact;
+}
+
+class NumericAccumulator {
+  private domain: NumericDomain | undefined = undefined;
+  private exactExponent: number | undefined = undefined;
+  private exactAccumulated = 0n;
+  private lossySum = 0;
+  private numericCount = 0;
+
+  add(value: unknown): void {
+    const numeric = classifyNumeric(value);
+    if (numeric === undefined) return;
+
+    if (this.domain !== undefined && this.domain !== numeric.domain) {
+      throw mixedNumericDomainError(String(value));
+    }
+    this.domain = numeric.domain;
+    this.numericCount += 1;
+
+    if (numeric.domain === 'lossy') {
+      this.lossySum += numeric.value;
+      return;
+    }
+
+    // Exact strings keep the round-1 contract: every value must be exactly an
+    // IEEE-754 double, not just the final result. (The lossy domain above is
+    // already a JavaScript number, so no such rejection applies.)
+    const { decimal } = numeric;
+    if (exactNumberFromDecimal(decimal) === undefined) {
+      throw precisionLossError(value);
+    }
+    if (decimal.sign === 0) return;
+
+    if (
+      this.exactExponent === undefined ||
+      decimal.exponent < this.exactExponent
+    ) {
+      if (this.exactExponent !== undefined) {
+        this.exactAccumulated *=
+          10n ** BigInt(this.exactExponent - decimal.exponent);
+      }
+      this.exactExponent = decimal.exponent;
+    }
+    this.exactAccumulated +=
+      BigInt(decimal.sign) *
+      decimal.mantissa *
+      10n ** BigInt(decimal.exponent - this.exactExponent);
+  }
+
+  count(): number {
+    return this.numericCount;
+  }
+
+  isLossy(): boolean {
+    return this.domain === 'lossy';
+  }
+
+  lossyTotal(): number {
+    return this.lossySum;
+  }
+
+  exactTotal(): ExactDecimal {
+    if (this.exactExponent === undefined || this.exactAccumulated === 0n) {
+      return ZERO_DECIMAL;
+    }
+    return {
+      sign: this.exactAccumulated < 0n ? -1 : 1,
+      mantissa:
+        this.exactAccumulated < 0n
+          ? -this.exactAccumulated
+          : this.exactAccumulated,
+      exponent: this.exactExponent,
+    };
+  }
+}
+
+function requireAggregateSum(accumulator: NumericAccumulator): number {
+  if (accumulator.isLossy()) return accumulator.lossyTotal();
+  return requireExactNumber(accumulator.exactTotal());
+}
+
+function requireAggregateAverage(
+  accumulator: NumericAccumulator,
+  count: number,
+): number {
+  if (accumulator.isLossy()) return accumulator.lossyTotal() / count;
+
+  const total = accumulator.exactTotal();
+  const { num, den } = decimalFraction(total);
+  const average = fractionToNumber(num, den * BigInt(count));
+  if (average === undefined) {
+    throw precisionLossError(canonicalFromDecimal(total) + '/' + count);
+  }
+  return average;
+}
+
+function compareDecimalText(a: string, b: string): number {
+  const aNeg = a.startsWith('-');
+  const bNeg = b.startsWith('-');
+  if (aNeg !== bNeg) return aNeg ? -1 : 1;
+
+  const aAbs = aNeg ? a.slice(1) : a;
+  const bAbs = bNeg ? b.slice(1) : b;
+  const cmp = compareAbsDecimalText(aAbs, bAbs);
+  return aNeg ? -cmp : cmp;
+}
+
+function compareAbsDecimalText(a: string, b: string): number {
+  const [aInt = '', aFrac = ''] = a.split('.');
+  const [bInt = '', bFrac = ''] = b.split('.');
+
+  if (aInt.length !== bInt.length) return aInt.length < bInt.length ? -1 : 1;
+  if (aInt !== bInt) return aInt < bInt ? -1 : 1;
+
+  const width = Math.max(aFrac.length, bFrac.length);
+  const aFracPadded = aFrac.padEnd(width, '0');
+  const bFracPadded = bFrac.padEnd(width, '0');
+  if (aFracPadded === bFracPadded) return 0;
+  return aFracPadded < bFracPadded ? -1 : 1;
 }
 
 function isZeroValue(value: unknown): boolean {

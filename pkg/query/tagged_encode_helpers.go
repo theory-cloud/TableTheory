@@ -6,10 +6,10 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v4/internal/expr"
-	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5/internal/expr"
+	"github.com/theory-cloud/tabletheory/v5/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v5/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
 )
 
 func (q *Query) marshalItemTaggedFlat(modelValue reflect.Value) (map[string]types.AttributeValue, error) {
@@ -21,6 +21,9 @@ func (q *Query) marshalItemTaggedFlat(modelValue reflect.Value) (map[string]type
 	out := make(map[string]types.AttributeValue, len(fieldPlans))
 	for _, fieldPlan := range fieldPlans {
 		field := fieldPlan.Field
+		if flatEmbedFieldExcluded(modelValue.Type(), fieldPlan.IndexPath) {
+			continue
+		}
 		tag := field.Tag.Get("theorydb")
 		if tag == "-" {
 			continue
@@ -56,6 +59,9 @@ func (q *Query) buildUpdateExpressionFromTaggedVisibleFields(
 
 	for _, fieldPlan := range fieldPlans {
 		field := fieldPlan.Field
+		if flatEmbedFieldExcluded(modelValue.Type(), fieldPlan.IndexPath) {
+			continue
+		}
 		tag := field.Tag.Get("theorydb")
 		if shouldSkipUpdateField(field, tag, primaryKey) {
 			continue
@@ -80,4 +86,19 @@ func (q *Query) buildUpdateExpressionFromTaggedVisibleFields(
 	}
 
 	return nil
+}
+
+// flatEmbedFieldExcluded reports whether any anonymous embedded struct container
+// on the path to a promoted field carries an exclusion tag. Flat tagged encoding
+// writes promoted fields straight into the root item map, so an exclusion tag on
+// the container must suppress the field even though no nested container is
+// written.
+func flatEmbedFieldExcluded(modelType reflect.Type, indexPath []int) bool {
+	for depth := 1; depth < len(indexPath); depth++ {
+		container := modelType.FieldByIndex(indexPath[:depth])
+		if container.Tag.Get("theorydb") == "-" || container.Tag.Get("json") == "-" {
+			return true
+		}
+	}
+	return false
 }

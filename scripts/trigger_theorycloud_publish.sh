@@ -195,14 +195,19 @@ fi
 command -v awscurl >/dev/null 2>&1 || fail "awscurl is required for publish invocation"
 
 response_file="$(mktemp)"
-if ! awscurl --service execute-api --region "${AWS_REGION}" --fail-with-body -X POST -H 'content-type: application/json' --data "${PAYLOAD}" -o "${response_file}" "${PUBLISH_URL}" >/dev/null; then
-  status=$?
+# Capture awscurl's real exit status. Testing it with `if ! awscurl ...` would
+# make `$?` reflect the shell's negation (always 0) and misreport failures.
+set +e
+awscurl --service execute-api --region "${AWS_REGION}" --fail-with-body -X POST -H 'content-type: application/json' --data "${PAYLOAD}" -o "${response_file}" "${PUBLISH_URL}" >/dev/null
+invoke_status=$?
+set -e
+if [[ "${invoke_status}" -ne 0 ]]; then
   body="$(cat "${response_file}" 2>/dev/null || true)"
   rm -f "${response_file}"
   if [[ -n "${body}" ]]; then
-    fail "publish invocation failed for ${PUBLISH_URL} (exit ${status}): ${body}"
+    fail "publish invocation failed for ${PUBLISH_URL} (exit ${invoke_status}): ${body}"
   fi
-  fail "publish invocation failed for ${PUBLISH_URL} (exit ${status})"
+  fail "publish invocation failed for ${PUBLISH_URL} (exit ${invoke_status})"
 fi
 
 body="$(cat "${response_file}")"

@@ -12,13 +12,14 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v4/internal/anonymous"
-	"github.com/theory-cloud/tabletheory/v4/internal/expr"
-	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
-	"github.com/theory-cloud/tabletheory/v4/pkg/naming"
-	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
+	"github.com/theory-cloud/tabletheory/v5/internal/anonymous"
+	"github.com/theory-cloud/tabletheory/v5/internal/expr"
+	"github.com/theory-cloud/tabletheory/v5/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v5/internal/numutil"
+	"github.com/theory-cloud/tabletheory/v5/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/naming"
+	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
 )
 
 // Marshaler provides high-performance marshaling to DynamoDB AttributeValues
@@ -635,6 +636,11 @@ func (m *Marshaler) marshalValue(v reflect.Value) (types.AttributeValue, error) 
 
 	if av, ok, err := m.marshalUsingCustomConverter(v); ok {
 		return av, err
+	}
+
+	if v.Type() == numutil.JSONNumberType {
+		// Preserve a decoded exact number as N rather than S on rewrite.
+		return &types.AttributeValueMemberN{Value: v.String()}, nil
 	}
 
 	switch v.Kind() {

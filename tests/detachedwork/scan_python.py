@@ -47,9 +47,13 @@ aliases resolved. A plain name is tracked inside the scope that binds it. An
 attribute or a container element is tracked across the whole file, because the
 target belongs to the instance or container rather than to the frame that
 assigned it: `self.worker` assigned in `__init__` and started in a sibling
-method names the same target. The join proof stays per function, though — a
-launch is reported unless a join in its own function dominates it, so such a
-start with no dominating join in the method that starts it is still reported.
+method names the same target. Each `.start()` and `x.daemon = True` resolves its
+target at the statement that performs it, so a later rebind of the same name
+does not rewrite an earlier start: `self.t.start()` before a same-scope
+`self.t = asyncio.create_task(...)` is still a thread start. The join proof
+stays per function, though — a launch is reported unless a join in its own
+function dominates it, so such a start with no dominating join in the method
+that starts it is still reported.
 
 A task or offload is joined by `await target` (or `await asyncio.gather`/`wait`
 over it); a thread by `target.join()`; `task.cancel()` is not a join, because
@@ -158,6 +162,11 @@ def key_of(expr: ast.AST) -> str:
         return ast.unparse(expr)
     except Exception:  # pragma: no cover - unparse is total for parsed input
         return ""
+
+
+def position_of(node: ast.AST) -> tuple[int, int]:
+    """Source position of a binding, used to resolve it at statement position."""
+    return (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
 
 
 def receiver_key(expr: ast.AST) -> str:
@@ -525,12 +534,14 @@ def direct_assign_target(stmt: ast.stmt | None, call: ast.AST) -> str:
 
 def collect_bindings(
     stmts: list[ast.stmt], thread_names: set[str], seed: dict[str, str] | None = None
-) -> tuple[dict[str, str], Callable[[str], str]]:
+) -> tuple[dict[str, str], Callable[[str], str], list[tuple[str, str, tuple[int, int]]]]:
     """Map key -> kind ('thread' | 'task' | 'offload') with `u = t` aliases.
 
     `seed` carries the file-wide attribute and container-element bindings from
     `collect_container_bindings`; every binding this scope makes itself, of any
-    form, is layered on top.
+    form, is layered on top. `events` records each binding with the position it
+    was made at, so a caller can resolve a target at one statement position
+    rather than over the whole scope.
     """
     pairs: list[tuple[ast.AST, ast.AST]] = []
     for node in iter_scope(stmts):
@@ -544,6 +555,7 @@ def collect_bindings(
 
     kinds: dict[str, str] = dict(seed) if seed else {}
     alias: dict[str, str] = {}
+    events: list[tuple[str, str, tuple[int, int]]] = []
 
     def resolve(k: str) -> str:
         seen: set[str] = set()
@@ -555,7 +567,9 @@ def collect_bindings(
     for tgt, value in pairs:
         kind = construct_kind(value, thread_names)
         if kind is not None:
-            kinds[key_of(tgt)] = kind
+            key = key_of(tgt)
+            kinds[key] = kind
+            events.append((key, kind, position_of(tgt)))
 
     for _ in range(32):
         changed = False
@@ -570,23 +584,29 @@ def collect_bindings(
                 continue
             alias[tk] = src
             kinds[tk] = kinds[src]
+            events.append((tk, kinds[src], position_of(tgt)))
             changed = True
         if not changed:
             break
 
-    return kinds, resolve
+    return kinds, resolve, events
 
 
-def collect_container_bindings(tree: ast.Module, thread_names: set[str]) -> dict[str, str]:
+def collect_container_bindings(
+    tree: ast.Module, thread_names: set[str]
+) -> tuple[dict[str, str], list[tuple[str, str, tuple[int, int]]]]:
     """Constructor bindings held on an attribute or a container element, file-wide.
 
     `self.worker = Thread(...)` in one method and `self.pool["a"] = Thread(...)`
     in another name targets an unrelated scope can start: the attribute belongs
     to the instance and the element to the container, not to the frame that
     assigned them. Plain names are not collected here, because a name bound in
-    one function is not necessarily the same object in another.
+    one function is not necessarily the same object in another. Each binding is
+    also returned with its source position, so a start can be resolved at the
+    statement that performs it.
     """
     kinds: dict[str, str] = {}
+    events: list[tuple[str, str, tuple[int, int]]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -601,8 +621,10 @@ def collect_container_bindings(tree: ast.Module, thread_names: set[str]) -> dict
             continue
         for tgt in targets:
             if isinstance(tgt, (ast.Attribute, ast.Subscript)):
-                kinds[key_of(tgt)] = kind
-    return kinds
+                key = key_of(tgt)
+                kinds[key] = kind
+                events.append((key, kind, position_of(tgt)))
+    return kinds, events
 
 
 def constructor_expression_scopes(tree: ast.Module) -> list[list[ast.stmt]]:
@@ -656,8 +678,10 @@ def analyze_scope(
     thread_names: set[str],
     lines: list[str],
     seed: dict[str, str] | None = None,
+    seed_events: list[tuple[str, str, tuple[int, int]]] | None = None,
 ):
-    kinds, canon = collect_bindings(body, thread_names, seed)
+    kinds, canon, local_events = collect_bindings(body, thread_names, seed)
+    all_events = list(seed_events or []) + list(local_events)
     scope_nodes = list(iter_scope(body))
     statements = [n for n in scope_nodes if isinstance(n, ast.stmt)]
     calls = [n for n in scope_nodes if isinstance(n, ast.Call)]
@@ -665,6 +689,28 @@ def analyze_scope(
 
     def report(lineno: int, rule: str) -> None:
         findings.append((lineno, rule))
+
+    def kind_at(target: str, pos: tuple[int, int]) -> str | None:
+        """The kind bound to `target` at `pos`, or None.
+
+        A scope-wide binding that is made after `pos` must not shadow an earlier
+        one: the later `self.t = asyncio.create_task(...)` does not turn an
+        earlier `self.t.start()` into a task start. When no binding precedes
+        `pos`, the scope-wide resolution still applies, so a target a sibling
+        method stored is reported even though its assignment sits later in the
+        file.
+        """
+        best: tuple[int, int] | None = None
+        result: str | None = None
+        for key, kind, event_pos in all_events:
+            if canon(key) != target:
+                continue
+            if event_pos <= pos and (best is None or event_pos >= best):
+                best = event_pos
+                result = kind
+        if result is not None:
+            return result
+        return kinds.get(target)
 
     def launch_joined(stmt: ast.stmt | None, kind: str, target: str) -> bool:
         if stmt is None or target == "":
@@ -715,7 +761,7 @@ def analyze_scope(
                 report(call.lineno, "thread-start")
                 continue
             target = canon(receiver_key(receiver))
-            if kinds.get(target) != "thread":
+            if kind_at(target, position_of(call)) != "thread":
                 continue
             if not launch_joined(enclosing_stmt(call), "thread", target):
                 report(call.lineno, "thread-start")
@@ -739,7 +785,7 @@ def analyze_scope(
             continue
         if not is_true_literal(node.value):
             continue
-        if kinds.get(canon(key_of(target.value))) == "thread":
+        if kind_at(canon(key_of(target.value)), position_of(node)) == "thread":
             report(node.lineno, "daemon-thread")
 
     out: list[dict[str, Any]] = []
@@ -775,12 +821,12 @@ def scan_file(path: str, source: str) -> dict[str, Any]:
     attach_parents(tree)
     lines = source.splitlines()
     thread_names = thread_names_from_imports(tree)
-    seed = collect_container_bindings(tree, thread_names)
+    seed, seed_events = collect_container_bindings(tree, thread_names)
     findings: list[dict[str, Any]] = []
     for body in scopes_of(tree) + constructor_expression_scopes(tree):
         graph = Graph()
         graph.seq(body, graph.exit, Ctx(graph.exit, graph.exit))
-        findings.extend(analyze_scope(graph, body, thread_names, lines, seed))
+        findings.extend(analyze_scope(graph, body, thread_names, lines, seed, seed_events))
     out: list[dict[str, Any]] = []
     seen_findings: set[tuple[int, str]] = set()
     for finding in sorted(findings, key=lambda f: (f["line"], f["rule"])):

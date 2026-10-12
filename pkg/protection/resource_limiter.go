@@ -148,7 +148,30 @@ func NewResourceProtector(config ResourceLimits) *ResourceProtector {
 	return rp
 }
 
-// SecureBodyReader provides secure HTTP body reading with size limits
+// SecureBodyReader reads an HTTP request body under a byte-size limit, a
+// per-request wall-clock timeout, and the protector's shared concurrency and
+// rate limits.
+//
+// It holds one request-concurrency slot while it reads the body, and releases
+// that slot no later than MaxRequestTimeout. On timeout the slot is released
+// before the body cleanup runs, so a client that declares a body and withholds
+// it cannot keep a slot past the timeout: the timeout path still closes the
+// body and joins its reader, but neither of those blocking operations may
+// extend the slot's lifetime. With the previous in-order release they did keep
+// the slot until the client disconnected, and MaxConcurrentReq stalled
+// connections rejected every other request.
+//
+// The trade-off is explicit. Go's HTTP/1 request body can block both Read and
+// Close on the same stalled socket, so on timeout this call — and the handler
+// goroutine running it — can stay blocked until the client disconnects or a
+// transport deadline fires; the reader goroutine is joined rather than
+// abandoned, so nothing outlives the call, but the call itself does not return
+// at the timeout. Lambda freezes the execution environment when the handler
+// returns; here the handler does not return, so the stalled invocation is held
+// until it times out while the shared concurrency slot is already free. An
+// application that serves live HTTP/1 requests through this helper should
+// impose a server- or upstream-level body-read deadline (for example net/http's
+// Server.ReadTimeout) so the read ends before this last-resort path is reached.
 func (rp *ResourceProtector) SecureBodyReader(r *http.Request) ([]byte, error) {
 	// Check rate limit first
 	if !rp.globalLimiter.Allow() {
@@ -162,7 +185,6 @@ func (rp *ResourceProtector) SecureBodyReader(r *http.Request) ([]byte, error) {
 	// Acquire request semaphore
 	select {
 	case rp.requestSemaphore <- struct{}{}:
-		defer func() { <-rp.requestSemaphore }()
 	default:
 		atomic.AddInt64(&rp.stats.RejectedRequests, 1)
 		return nil, &ProtectionError{
@@ -170,6 +192,12 @@ func (rp *ResourceProtector) SecureBodyReader(r *http.Request) ([]byte, error) {
 			Detail: "Maximum concurrent requests exceeded",
 		}
 	}
+
+	// Release the slot exactly once. The timeout path releases it early, ahead
+	// of the body cleanup, so cleanup cannot extend the slot's lifetime; the
+	// deferred call covers the normal path and any panic.
+	releaseSlot := sync.OnceFunc(func() { <-rp.requestSemaphore })
+	defer releaseSlot()
 
 	// Update stats
 	current := atomic.AddInt64(&rp.stats.ConcurrentRequests, 1)
@@ -205,11 +233,11 @@ func (rp *ResourceProtector) SecureBodyReader(r *http.Request) ([]byte, error) {
 	case <-done:
 		return bodyBytes, err
 	case <-ctx.Done():
-		// Unblock the reader before returning: closing the body makes ReadAll
-		// return, and done is then awaited so the reader goroutine cannot
-		// outlive this call. Lambda freezes the execution environment as soon
-		// as the handler returns, so a reader left mid-read would be frozen
-		// and could resume against an invocation that is already over.
+		// Release the request slot before the cleanup. Close and the reader join
+		// below can both block on a stalled client; releasing the slot first
+		// means those blocking operations no longer hold it. The join keeps the
+		// reader from outliving this call, so nothing is abandoned.
+		releaseSlot()
 		closeErr := body.Close()
 		<-done
 		atomic.AddInt64(&rp.stats.RejectedRequests, 1)

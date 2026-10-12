@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
-	"github.com/theory-cloud/tabletheory/v4/pkg/releasestate"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/releasestate"
 )
 
 // ReleaseStateActual is the mutable current-state row for one deployable
@@ -98,8 +98,9 @@ func main() {
 }
 
 // promoteRelease shows the transactional TableTheory write. The actual-state
-// update and event append commit together; Lambda alias or CodePipeline side
-// effects must be driven separately from outbox/reconciliation.
+// update, event append, and the conditional outbox create commit together;
+// Lambda alias or CodePipeline side effects must be driven separately from
+// outbox/reconciliation.
 func promoteRelease(ctx context.Context, db releasestate.TransactionWriter, cmd PromoteCommand) error {
 	provenance, confidence := deployAuthorityMetadata(cmd)
 	if err := releasestate.ValidateDeployAuthorityMetadata(map[string]any{
@@ -113,6 +114,7 @@ func promoteRelease(ctx context.Context, db releasestate.TransactionWriter, cmd 
 	return releasestate.TransitionAppendEvent(ctx, db, releasestate.TransitionAppendEventInput{
 		Actual:          actualKey(cmd.Service),
 		Event:           releaseEvent(cmd, provenance),
+		Outbox:          aliasOutbox(cmd),
 		ExpectedVersion: &expected,
 		Set: map[string]any{
 			"status":            "active",

@@ -17,7 +17,7 @@ make verify-api-reference
 ### `errors`
 
 ```ts
-export type ErrorCode = 'ErrItemNotFound' | 'ErrConditionFailed' | 'ErrVersionConflict' | 'ErrLeaseHeld' | 'ErrLeaseNotOwned' | 'ErrInvalidModel' | 'ErrMissingPrimaryKey' | 'ErrInvalidOperator' | 'ErrTableNotFound' | 'ErrEncryptedFieldNotQueryable' | 'ErrEncryptionNotConfigured' | 'ErrInvalidEncryptedEnvelope' | 'ErrImmutableModelMutation' | 'ErrProtectedFieldMutation' | 'ErrRejectedDeployAuthorityEvidence';
+export type ErrorCode = 'ErrItemNotFound' | 'ErrConditionFailed' | 'ErrVersionConflict' | 'ErrLeaseHeld' | 'ErrLeaseNotOwned' | 'ErrInvalidModel' | 'ErrMissingPrimaryKey' | 'ErrInvalidOperator' | 'ErrTableNotFound' | 'ErrEncryptedFieldNotQueryable' | 'ErrEncryptionNotConfigured' | 'ErrInvalidEncryptedEnvelope' | 'ErrNumberPrecisionLoss' | 'ErrMigrationEncryptionRequired' | 'ErrImmutableModelMutation' | 'ErrProtectedFieldMutation' | 'ErrRejectedDeployAuthorityEvidence';
 export declare class TheorydbError extends Error {
     readonly code: ErrorCode;
     readonly codes: readonly ErrorCode[];
@@ -36,9 +36,8 @@ export declare function hasTheorydbErrorCode(value: unknown, code: ErrorCode): b
 ```ts
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { type BatchGetResult, type BatchWriteResult, type RetryOptions } from './batch.js';
-import type { Model, ModelItem } from './model.js';
+import type { InferModelItemForMode, Model, ModelSchema, NumberUnmarshalMode } from './model.js';
 import type { SendOptions } from './send-options.js';
-import { type NumberUnmarshalMode } from './marshal.js';
 import { QueryBuilder, ScanBuilder } from './query.js';
 import type { TransactAction, TransactGetAction } from './transaction.js';
 import { UpdateBuilder } from './update-builder.js';
@@ -83,7 +82,7 @@ export declare class ModelRepository<TItem extends Record<string, unknown> = Rec
     scan(): ScanBuilder<TItem>;
     updateBuilder(key: ModelKey<TItem>): UpdateBuilder;
 }
-export declare class TheorydbClient {
+export declare class TheorydbClient<TNumberMode extends NumberUnmarshalMode = 'string'> {
     private readonly ddb;
     private readonly models;
     private encryption;
@@ -92,11 +91,30 @@ export declare class TheorydbClient {
     private readonly unmarshalOptions;
     constructor(ddb: DynamoDBClient, opts?: TheorydbClientOptions);
     withEncryption(provider: EncryptionProvider): this;
-    withSendOptions(sendOptions?: SendOptions): TheorydbClient;
-    withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient;
+    withSendOptions(sendOptions?: SendOptions): TheorydbClient<TNumberMode>;
+    withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient<TNumberMode>;
     register(...models: Model[]): this;
-    model<M extends Model>(model: M): ModelRepository<ModelItem<M>>;
+    /**
+     * Returns a new client with the same configuration as this one and its own
+     * empty model registry.
+     *
+     * `register()` writes into a registry keyed by model name. A component that
+     * registers fixed model names into a caller-owned client therefore rebinds
+     * any earlier component that registered the same names against a different
+     * table. `fork()` lets such a component hold a private binding while still
+     * inheriting the caller's encryption provider, clock, send options, and
+     * number-unmarshal mode instead of mutating the shared registry.
+     */
+    fork(): TheorydbClient<TNumberMode>;
+    model<M extends Model>(model: M): ModelRepository<InferModelItemForMode<M, TNumberMode>>;
     model(modelName: string): ModelRepository<Record<string, unknown>>;
+    /**
+     * Returns the registered schema for a model name.
+     *
+     * Release-state transition helpers use this to bind an appended event to the
+     * exact actual row it describes before any transaction is submitted.
+     */
+    modelSchema(modelName: string): Readonly<ModelSchema>;
     private requireModel;
     private requireEncryption;
     create(modelName: string, item: Record<string, unknown>, opts?: {
@@ -160,6 +178,13 @@ export declare function assertModelsEquivalent(got: Model | ModelSchema, want: M
 ```ts
 export type ScalarType = 'S' | 'N' | 'B' | 'BOOL' | 'NULL' | 'M' | 'L' | 'SS' | 'NS' | 'BS';
 export type KeyType = 'S' | 'N' | 'B';
+/**
+ * Controls how DynamoDB N/NS values are unmarshaled.
+ *
+ * 'string' (the client default) returns canonical DynamoDB decimal strings so
+ * reads are precision-safe; 'number' returns JavaScript numbers.
+ */
+export type NumberUnmarshalMode = 'number' | 'string';
 export interface ValueConverter {
     toDynamoValue(value: unknown): unknown;
     fromDynamoValue(value: unknown): unknown;
@@ -223,7 +248,7 @@ export interface ModelRoles {
     version?: string;
     ttl?: string;
 }
-export interface Model<TItem extends Record<string, unknown> = Record<string, unknown>> {
+export interface Model<TItem extends Record<string, unknown> = Record<string, unknown>, TSchema extends ModelSchema = ModelSchema, TNumberMode extends NumberUnmarshalMode = 'string'> {
     readonly name: string;
     readonly tableName: string;
     readonly schema: Readonly<ModelSchema>;
@@ -232,8 +257,10 @@ export interface Model<TItem extends Record<string, unknown> = Record<string, un
     readonly roles: Readonly<ModelRoles>;
     readonly writePolicy: Readonly<WritePolicy>;
     readonly __itemType?: TItem;
+    readonly __schemaType?: TSchema;
+    readonly __numberMode?: TNumberMode;
 }
-type AttributeValueFor<A extends AttributeSchema> = A['type'] extends 'S' ? string : A['type'] extends 'N' ? number : A['type'] extends 'B' ? Uint8Array : A['type'] extends 'BOOL' ? boolean : A['type'] extends 'NULL' ? null : A['type'] extends 'SS' ? string[] : A['type'] extends 'NS' ? number[] : A['type'] extends 'BS' ? Uint8Array[] : A['type'] extends 'L' ? unknown[] : A['type'] extends 'M' ? Record<string, unknown> : unknown;
+type AttributeValueFor<A extends AttributeSchema, N extends NumberUnmarshalMode> = A['type'] extends 'S' ? string : A['type'] extends 'N' ? N extends 'number' ? number : string : A['type'] extends 'B' ? Uint8Array : A['type'] extends 'BOOL' ? boolean : A['type'] extends 'NULL' ? null : A['type'] extends 'SS' ? string[] : A['type'] extends 'NS' ? N extends 'number' ? number[] : string[] : A['type'] extends 'BS' ? Uint8Array[] : A['type'] extends 'L' ? unknown[] : A['type'] extends 'M' ? Record<string, unknown> : unknown;
 type AttributeHasRole<A extends AttributeSchema, R extends string> = A['roles'] extends readonly string[] ? R extends A['roles'][number] ? true : false : false;
 type IsOptionalAttribute<A extends AttributeSchema> = A extends {
     optional: true;
@@ -241,15 +268,21 @@ type IsOptionalAttribute<A extends AttributeSchema> = A extends {
     omit_empty: true;
 } ? true : AttributeHasRole<A, 'created_at'> extends true ? true : AttributeHasRole<A, 'updated_at'> extends true ? true : AttributeHasRole<A, 'version'> extends true ? true : AttributeHasRole<A, 'ttl'> extends true ? true : false;
 type AttributeName<A extends AttributeSchema> = A['attribute'] extends string ? A['attribute'] : never;
-type RequiredAttributes<S extends ModelSchema> = {
-    [A in S['attributes'][number] as IsOptionalAttribute<A> extends true ? never : AttributeName<A>]: AttributeValueFor<A>;
+type RequiredAttributes<S extends ModelSchema, N extends NumberUnmarshalMode> = {
+    [A in S['attributes'][number] as IsOptionalAttribute<A> extends true ? never : AttributeName<A>]: AttributeValueFor<A, N>;
 };
-type OptionalAttributes<S extends ModelSchema> = {
-    [A in S['attributes'][number] as IsOptionalAttribute<A> extends true ? AttributeName<A> : never]?: AttributeValueFor<A>;
+type OptionalAttributes<S extends ModelSchema, N extends NumberUnmarshalMode> = {
+    [A in S['attributes'][number] as IsOptionalAttribute<A> extends true ? AttributeName<A> : never]?: AttributeValueFor<A, N>;
 };
-export type InferModelItem<S extends ModelSchema> = RequiredAttributes<S> & OptionalAttributes<S>;
-export type ModelItem<M extends Model> = M extends Model<infer TItem> ? TItem : Record<string, unknown>;
-export declare function defineModel<const S extends ModelSchema>(schema: S): Model<InferModelItem<S>>;
+export type InferModelItem<S extends ModelSchema, N extends NumberUnmarshalMode = 'string'> = RequiredAttributes<S, N> & OptionalAttributes<S, N>;
+export type ModelItem<M extends Model> = M extends Model<infer TItem, ModelSchema, NumberUnmarshalMode> ? TItem : Record<string, unknown>;
+/**
+ * The item type a model produces for a given number-unmarshal mode. Used by the
+ * typed repository so reads are declared with the representation the client is
+ * actually configured to return.
+ */
+export type InferModelItemForMode<M extends Model, N extends NumberUnmarshalMode> = M extends Model<Record<string, unknown>, infer S, NumberUnmarshalMode> ? InferModelItem<S, N> : never;
+export declare function defineModel<const S extends ModelSchema>(schema: S): Model<InferModelItem<S, 'string'>, S, 'string'>;
 export {};
 ```
 
@@ -761,6 +794,7 @@ export declare function updateTimeToLive(ddb: DynamoDBClient, model: Model, opts
 
 ```ts
 import { type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import type { EncryptionProvider } from './encryption.js';
 import type { Model } from './model.js';
 /** A raw DynamoDB item (attribute-name to AttributeValue). */
 export type MigrationItem = Record<string, AttributeValue>;
@@ -780,6 +814,8 @@ export interface AutoMigrateOptions {
     batchSize?: number;
     /** Copy data from the source table into the target table. */
     dataCopy?: boolean;
+    /** Provider used to encrypt plaintext attributes the target declares encrypted. */
+    encryption?: EncryptionProvider;
 }
 /**
  * autoMigrate ensures the target table exists and, when requested, copies data
@@ -1026,6 +1062,13 @@ export interface ReleaseStateTransitionInput {
     set: Record<string, unknown>;
     eventModel: string;
     eventItem: Record<string, unknown>;
+    /**
+     * Optional immutable write-once outbox row created in the same transaction as
+     * the actual-state update and event append. Provide `outboxModel` and
+     * `outboxItem` together.
+     */
+    outboxModel?: string;
+    outboxItem?: Record<string, unknown>;
     expectedVersion?: number;
     versionAttribute?: string;
 }

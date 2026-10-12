@@ -143,3 +143,36 @@ def test_lease_manager_release_is_best_effort() -> None:
     mgr = LeaseManager(client=client, table_name="tbl", now=lambda: 1000.0)
 
     mgr.release(Lease(key=LeaseKey(pk="CACHE#A", sk="LOCK"), token="tok", expires_at=0))
+
+
+def test_lease_manager_acquire_rounds_sub_second_expiration_up() -> None:
+    client = _StubClient()
+    mgr = LeaseManager(
+        client=client,
+        table_name="tbl",
+        now=lambda: 1000.9,
+        token=lambda: "tok",
+        ttl_buffer_seconds=0,
+    )
+
+    lease = mgr.acquire(LeaseKey(pk="CACHE#A", sk="LOCK"), lease_seconds=1)
+    assert lease.expires_at == 1002
+
+    req = client.calls[0][1]
+    assert req["ExpressionAttributeValues"][":now"] == {"N": "1000"}
+    assert req["Item"]["lease_expires_at"] == {"N": "1002"}
+
+
+def test_lease_manager_refresh_rounds_sub_second_expiration_up() -> None:
+    client = _StubClient()
+    mgr = LeaseManager(client=client, table_name="tbl", now=lambda: 1000.1, ttl_buffer_seconds=0)
+
+    out = mgr.refresh(
+        Lease(key=LeaseKey(pk="CACHE#A", sk="LOCK"), token="tok", expires_at=0),
+        lease_seconds=5,
+    )
+    assert out.expires_at == 1006
+
+    req = client.calls[0][1]
+    assert req["ExpressionAttributeValues"][":now"] == {"N": "1000"}
+    assert req["ExpressionAttributeValues"][":exp"] == {"N": "1006"}

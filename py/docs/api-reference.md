@@ -166,6 +166,12 @@ class LeaseHeldError(ConditionFailedError)
 class LeaseNotOwnedError(ConditionFailedError)
 ```
 
+#### `MigrationEncryptionError`
+
+```python
+class MigrationEncryptionError(TheorydbPyError)
+```
+
 #### `NotFoundError`
 
 ```python
@@ -531,7 +537,7 @@ def begins_with(prefix: Any) -> SortKeyCondition
 #### `transition_release_state`
 
 ```python
-def transition_release_state(actual_table: Table[Any], event_table: Table[Any], *, actual_key: Mapping[str, Any], set_values: Mapping[str, Any], event_item: Any, expected_version: int | None=None, version_field: str='version') -> None
+def transition_release_state(actual_table: Table[Any], event_table: Table[Any], *, actual_key: Mapping[str, Any], set_values: Mapping[str, Any], event_item: Any, outbox_item: Any | None=None, outbox_table: Table[Any] | None=None, expected_version: int | None=None, version_field: str='version') -> None
 ```
 
 #### `validate_deploy_authority_metadata`
@@ -662,7 +668,7 @@ def add_field(name: str, value: Any) -> MigrationTransform
 #### `auto_migrate`
 
 ```python
-def auto_migrate(source_model: ModelDefinition[Any], *, client: Any | None=None, target_model: ModelDefinition[Any] | None=None, transform: MigrationTransform | None=None, backup_table: str | None=None, batch_size: int | None=None, data_copy: bool=False, sleep: Callable[[float], None]=time.sleep) -> None
+def auto_migrate(source_model: ModelDefinition[Any], *, client: Any | None=None, target_model: ModelDefinition[Any] | None=None, transform: MigrationTransform | None=None, backup_table: str | None=None, batch_size: int | None=None, data_copy: bool=False, kms_key_arn: str | None=None, kms_client: Any | None=None, rand_bytes: Callable[[int], bytes] | None=None, sleep: Callable[[float], None]=time.sleep) -> None
 ```
 
 #### `chain_transforms`

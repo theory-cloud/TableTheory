@@ -5,7 +5,7 @@ description: TableTheory for Go — installation, Lambda init, and the canonical
 
 # Go runtime
 
-TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory/v4`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
+TableTheory's Go runtime is the root module at `github.com/theory-cloud/tabletheory/v5`. It targets the AWS SDK for Go v2 and uses the toolchain pinned in `go.mod`.
 
 The Go runtime is a peer implementation of the shared contract — not a
 reference implementation that TypeScript and Python port. Contract parity is
@@ -16,7 +16,7 @@ established by the shared scenarios, not by treating one runtime as canonical.
 TableTheory is distributed exclusively through immutable [GitHub Releases](https://github.com/theory-cloud/tabletheory/releases). Pin to a specific release tag:
 
 ```bash
-go get github.com/theory-cloud/tabletheory/v4@vX.Y.Z
+go get github.com/theory-cloud/tabletheory/v5@vX.Y.Z
 ```
 
 Never depend on a moving `latest`.
@@ -32,7 +32,7 @@ import (
     "log"
 
     "github.com/aws/aws-lambda-go/lambda"
-    "github.com/theory-cloud/tabletheory/v4"
+    "github.com/theory-cloud/tabletheory/v5"
 )
 
 type Note struct {
@@ -72,7 +72,7 @@ func main() { lambda.Start(handler) }
 
 Lambda freezes the execution environment as soon as the handler returns. A goroutine started during init is not guaranteed to run: it can be frozen mid-flight and later resume against an invocation that has already completed, and any network call it made is billed to an invocation that is already over. TableTheory therefore starts no goroutine that outlives its init or its operation.
 
-Parallel fan-out is allowed only when it is fully joined. `Query.ScanAllSegments` cancels the remaining segments as soon as one fails and then waits for every segment worker before it returns the first error; the parallel `BatchGet` and batch-update paths already waited for their workers on the same paths. Nothing in `pkg/query` returns while one of its workers is still running, on success, on error, or when the caller's context is cancelled. The exception-shaped piece is the request-body guard: `pkg/protection.SecureBodyReader` closes the body and joins its reader on the timeout path instead of returning while the read is still blocked.
+Parallel fan-out is allowed only when it is fully joined. `Query.ScanAllSegments` cancels the remaining segments as soon as one fails and then waits for every segment worker before it returns the first error; the parallel `BatchGet` and batch-update paths already waited for their workers on the same paths. Nothing in `pkg/query` returns while one of its workers is still running, on success, on error, or when the caller's context is cancelled. `pkg/protection.SecureBodyReader` keeps the join but releases its request-concurrency slot ahead of it: on the timeout path it frees the slot first, then closes the body and joins its reader. The slot is therefore free no later than `MaxRequestTimeout`, even for a client that declares a body and withholds it — a Go HTTP/1 request body whose reader and `Close` both wait on the stalled socket. The call itself can still block until the client disconnects or a transport deadline fires: the handler goroutine running it stays inside `SecureBodyReader`, so a Lambda invocation that reaches this path is held until it times out. The shared slot, however, is already free, so `MaxConcurrentReq` stalled connections can no longer reject every other request. An application that serves live HTTP/1 requests through this helper should impose a server- or upstream-level body-read deadline (for example `net/http`'s `Server.ReadTimeout`) so the read ends before this last-resort path is reached.
 
 `MultiAccountDB` follows the same rule: it refreshes expired partner sessions synchronously on the `Partner()` path rather than from a background ticker. That sweep is best-effort — it is not single-flighted, so concurrent calls may refresh the same partner twice, and a failed refresh leaves the expired entry in place to be retried — but it never leaves a refresh running past the call that started it.
 
@@ -86,7 +86,7 @@ A TableTheory Go model is an ordinary struct decorated with the `theorydb:` tag 
 |----------------------------|--------------------------------------------------------------|
 | `theorydb:"pk"`            | Partition key                                                |
 | `theorydb:"sk"`            | Sort key                                                     |
-| `theorydb:"gsi1pk"` etc.   | Global secondary index keys                                  |
+| `theorydb:"index:gsi1,pk"` etc. | Global secondary index keys                            |
 | `theorydb:"encrypted"`     | KMS-encrypted field, fail-closed                             |
 | `theorydb:"version"`       | Optimistic-lock version field                                |
 | `theorydb:"created_at"`    | Lifecycle timestamp populated on first write                 |

@@ -1,6 +1,11 @@
 // Package lease provides a small, correctness-first DynamoDB lease/lock helper.
 //
 // It is designed for ISR-style regeneration locks (FaceTheory) and similar distributed coordination needs.
+//
+// Lease expiration is stored and compared in whole Unix seconds. A successful
+// Acquire or Refresh rounds the expiry up to the whole second at or after
+// now+duration, so a lease is never eligible for takeover before the requested
+// positive duration has elapsed; whole-second clocks and durations are unchanged.
 package lease
 
 import (
@@ -197,7 +202,11 @@ func (m *Manager) AcquireKey(ctx context.Context, key Key, duration time.Duratio
 
 	now := m.now()
 	nowUnix := now.Unix()
-	expiresAt := now.Add(duration).Unix()
+	// Round the expiration up to the whole second at or after now+duration, so a
+	// successful acquisition always holds for at least the requested duration.
+	// Truncating here would let a sub-second lease expire within its creation
+	// second and be taken over immediately.
+	expiresAt := expiryUnix(now.Add(duration))
 	token := m.token()
 
 	item := map[string]types.AttributeValue{
@@ -265,7 +274,9 @@ func (m *Manager) Refresh(ctx context.Context, lease Lease, duration time.Durati
 
 	now := m.now()
 	nowUnix := now.Unix()
-	expiresAt := now.Add(duration).Unix()
+	// Round the refreshed expiration up for the same reason as Acquire: a refresh
+	// must not store an expiration that is already eligible for takeover.
+	expiresAt := expiryUnix(now.Add(duration))
 
 	key := map[string]types.AttributeValue{
 		m.pkAttr: &types.AttributeValueMemberS{Value: lease.Key.PK},
@@ -366,6 +377,19 @@ func (m *Manager) Release(ctx context.Context, lease Lease) error {
 func isConditionalCheckFailed(err error) bool {
 	var cfe *types.ConditionalCheckFailedException
 	return errors.As(err, &cfe)
+}
+
+// expiryUnix returns the whole-second Unix timestamp at or after t, rounding any
+// sub-second component up. Lease expiration is stored and compared in whole
+// seconds, so the requested duration must round up rather than truncate: a
+// truncated expiration can make a lease eligible for takeover inside the second
+// it was acquired, and can shorten a longer lease by almost a full second.
+func expiryUnix(t time.Time) int64 {
+	seconds := t.Unix()
+	if t.Nanosecond() != 0 {
+		seconds++
+	}
+	return seconds
 }
 
 func stringsEmpty(s string) bool {

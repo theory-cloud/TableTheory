@@ -150,6 +150,9 @@ function normalizeAttribute(attr: AttributeSchema): AttributeSchema {
   if (attr.encryption !== undefined && attr.encryption !== null) {
     normalized.encryption = { v: 1 };
   }
+  if (attr.format !== undefined && attr.format !== null) {
+    normalized.format = attr.format;
+  }
   return normalized;
 }
 

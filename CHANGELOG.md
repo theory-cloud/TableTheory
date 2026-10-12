@@ -4,6 +4,16 @@
 
 ### Breaking Changes
 
+* **go:** the Go module path moves to `github.com/theory-cloud/tabletheory/v5` with this major release. Go consumers must
+  change their module requirement and every TableTheory import from `github.com/theory-cloud/tabletheory/v4` to
+  `github.com/theory-cloud/tabletheory/v5`, then run `go get github.com/theory-cloud/tabletheory/v5@v5.0.0` and
+  `go mod tidy`. TypeScript and Python consumers are unaffected by this path move; see `docs/migration/v5.md`.
+* **ts:** on the default `TheorydbClient` (`numberUnmarshalMode` `'string'`), typed items now declare DynamoDB `N` fields
+  as `string` and `NS` fields as `string[]` instead of `number`/`number[]`. Runtime behavior is unchanged — the
+  documented default was already exact-string — so this is a compile-time-only break: consumer code that relied on the
+  previous incorrect `number` declaration must handle the decimal strings directly, or construct the client/repository
+  in `'number'` mode (`TheorydbClient<'number'>`) to obtain numbers. Semver decision: this public type correction is
+  release-major material and must not ship as a patch/minor.
 * **contract:** advance the shared model contract to DMS v0.2. High-level updates now distinguish field selection:
   unselected zero-valued `omitempty` fields remain unchanged, while explicitly selected empty `omitempty` fields remove
   the persisted DynamoDB attribute. TypeScript already had this behavior; Go and Python previously stored empty values.
@@ -51,9 +61,31 @@
 * **py:** add a stateful DynamoDB testkit fake and top-level re-exports
 * add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
 * add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage
+* **go:** generate `encoding/json.Number` for DMS `decimal_string` attributes so generated decimal fields round-trip
+  DynamoDB `N` through the default marshal paths, with no registered converter
+* **ts:** add `AutoMigrateOptions.encryption` so `autoMigrate` can encrypt attributes a target model declares
+  encrypted, and add the `ErrMigrationEncryptionRequired` and `ErrNumberPrecisionLoss` error codes
+* **py:** add `kms_key_arn`, `kms_client`, and `rand_bytes` to `auto_migrate` and export `MigrationEncryptionError`
 
 ### Bug Fixes
 
+* **go:** refuse data-copying `AutoMigrateWithOptions` migrations that would write plaintext into a target
+  `theorydb:"encrypted"` field, before any table is created or any row is copied, and encrypt plaintext through the
+  configured session KMS key when one is present
+* **py:** bound derived-key numeric coercion to DynamoDB's exponent range before fixed-point expansion, so a tiny
+  input such as `1e100000000` can no longer expand toward an unbounded allocation
+* **ts:** aggregate exact-decimal-string `N` values numerically: `sum`/`average`/`min`/`max`/`group by`/`having` no
+  longer silently return `0` or order lexicographically. DynamoDB decimal strings are the exact domain: `min`/`max`/
+  `group by` order by exact decimal text, and `sum`/`average`/`having` return a number only when every value and the
+  result is exactly representable as an IEEE-754 double, otherwise raising `ErrNumberPrecisionLoss`; exponent notation
+  outside DynamoDB's `[-130, 125]` adjusted-exponent range is rejected before any fixed-point expansion. Already
+  materialized JavaScript numbers (`numberUnmarshalMode: 'number'`) are the lossy domain and keep the historical
+  JavaScript-number arithmetic and comparison instead of being re-parsed as exact decimal strings; inputs that mix
+  exact decimal strings with JavaScript numbers raise `ErrNumberPrecisionLoss` rather than coercing the string through
+  `Number`. Decimal parsing strips mantissa zeros with linear index scans so a long attacker-controlled mantissa cannot
+  drive quadratic regular-expression work
+* **ts:** retain and compare DMS attribute `format` in normalization, equivalence, and model-to-DMS so format-only
+  drift is no longer reported equivalent
 * **go:** remove the detached cold-start pre-warm and the multi-account credential-refresh ticker, so no TableTheory
   init path leaves work running after it returns. Lambda freezes the execution environment as soon as the handler
   returns, so a pre-warm started in a goroutine could be frozen mid-flight and resume against an invocation that had
@@ -91,6 +123,112 @@
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
+* **go:** round lease expiry up to the whole second at or after `now+duration` in `pkg/lease`, so a sub-second lease cannot be taken over inside the second it was acquired and longer leases are never shortened; the TypeScript and Python lease managers round the same way. Whole-second clocks and durations are unchanged
+* **go:** bound `MultiAccountDB.Partner` to the requested partner with exponential failure backoff instead of synchronously refreshing every expired account, so unrelated expired or failing accounts can no longer block a request
+* **py:** treat `Table.query_count`/`scan_count` `limit` as a total evaluated-item budget instead of deleting it and scanning the whole remaining partition or table; `limit=None` still pages to exhaustion
+* **go/py/ts:** align the stateful fakes with DynamoDB: combined conditions whose outer parentheses do not form a matching pair and missing-attribute comparisons are enforced, `Count` is the matched count and `ScannedCount` the evaluated count, and `Limit` bounds evaluated items before the filter
+* **ts:** stop `QueryOptimizer.explain` from reporting an executable index — and suppressing the missing-partition-key error — when a filter condition only resembles an index key
+* **go:** classify a condition failure as `ErrVersionConflict` only on case-sensitive whole-token placeholders or attribute names, so `#value`, `#n10`, and case-variant names no longer misclassify a generic conditional failure
+* **go:** carry `Config.CredentialsProvider`/`Config.AWSConfigOptions` into the KMS AWS config in `NewSessionWithClient`, and fail early with `ErrEncryptionNotConfigured` when a KMS key ARN has no usable credential source; callers that set `KMSKeyARN` without a `KMSClient` must now supply credentials or an explicit KMS client
+* **go/py/ts:** release-state transition helpers now bind the immutable event to the actual row they update: an event whose partition key does not match the actual-state row is rejected before any transaction is submitted, so an event can no longer describe a different release than the one that changed
+* **go/py/ts:** deploy-authority provenance validation now includes the optional evidence `digest` in the evidence conflict identity, so identical evidence stays idempotent while the same kind/source/ref with a different digest conflicts; the top-level `provenance.system`/`kind`/`ref` (and `digest` when present) must now align with the evidence entry that earned deploy authority, so unrelated evidence can no longer bless a different top-level artifact
+* **go/py/ts:** the release-state examples commit the actual-state update, the immutable event append, and the conditional outbox create in one DynamoDB transaction instead of printing an unused outbox
+* **docs:** the canonical vocabulary and runtime docs describe Go GSI tags with the supported indexed form `theorydb:"index:<name>,pk"` / `theorydb:"index:<name>,sk"` instead of the rejected bare `theorydb:"gsi1pk"` / `theorydb:"gsi1sk"`; the generative-artifacts verifier now rejects the bare form and a Go test proves the documented tags register
+* **py:** the copyable GSI core-pattern uses Python dataclass field names in `IndexSpec`/`gsi(...)` instead of persisted storage names, and the Python scaffold README no longer claims the removed `theorydb_py` compatibility shim exists
+* **docs:** the FaceTheory ISR idempotency recipe no longer documents an invalid transaction that issued both a `ConditionCheck` and a `Delete` against the same lease item; it documents the single conditional lease `Delete` the shipped helper uses
+* **examples:** the multi-language TTL archive fails closed when a TTL-expiry `REMOVE` record eligible for archival has no `OldImage`, reporting it as a batch item failure instead of a successful skip, and the archive construct rejects a table whose stream view is knowably not `NEW_AND_OLD_IMAGES`
+* **cli:** `generate-ts`/`gen --out` and `tabletheory init` (including `--force`) no longer follow a symlink at the output path or an escaping parent directory, so they cannot truncate or overwrite a file outside the intended root; output is replaced atomically and the victim file is left untouched
+* **examples:** the local `contacts`/`notes`/`todo` setup checks DynamoDB Local with an explicit DynamoDB protocol call instead of generic HTTP reachability, so any non-DynamoDB HTTP listener on the local endpoint is refused
+* **go:** release `pkg/protection.SecureBodyReader`'s request-concurrency slot before its timeout cleanup instead of after it. A client that declares a body and withholds it leaves a Go HTTP/1 request body whose reader and `Close` both wait on the stalled socket; the timeout path previously closed the body and joined the reader before releasing the slot, so the slot was held until the client disconnected and `MaxConcurrentReq` stalled connections rejected every other request. The slot is now released no later than `MaxRequestTimeout`, ahead of the close and join, which can still block the calling handler (the reader is joined, not abandoned) until the client disconnects or a transport deadline fires; a server- or upstream-level body-read deadline remains the robust fix for live HTTP/1 requests. A regression test drives a real HTTP/1 server and a client that withholds its declared body, alongside a complete-body success control
+* **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
+* **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
+
+## [5.0.0-rc](https://github.com/theory-cloud/TableTheory/compare/v4.0.2...v5.0.0-rc) (2026-10-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **module:** Go consumers must update their module requirement and every TableTheory import from github.com/theory-cloud/tabletheory/v4 to github.com/theory-cloud/tabletheory/v5; see docs/migration/v5.md.
+* **ts:** On the default TheorydbClient (numberUnmarshalMode 'string'), typed items now declare DynamoDB N fields as string and NS fields as string[] instead of number/number[]. Consumer code that relied on the previous number declaration must handle the decimal strings directly, or construct the client/repository in 'number' mode (TheorydbClient<'number'>).
+
+### Bug Fixes
+
+* **ci:** bump theorycloud publish awscurl pin to 0.44 ([485eb98](https://github.com/theory-cloud/TableTheory/commit/485eb98a80b2059b14e8822b223207dd0e1c6b29))
+* **ci:** bump theorycloud publish awscurl pin to 0.44 for --fail-with-body ([e26a07f](https://github.com/theory-cloud/TableTheory/commit/e26a07f234bb12738e55cf2dbd1fcc89e6f6dda3))
+* **ci:** make Lambda runtime discovery comment-aware ([d9fe7f4](https://github.com/theory-cloud/TableTheory/commit/d9fe7f4266d427bb7d5a20c62a69d9b3f0927da9))
+* **ci:** remove reusable release-hygiene bootstrap and PR-head verifier bypasses ([520d502](https://github.com/theory-cloud/TableTheory/commit/520d50298436ffd8393e2b791bdadbdd596a9d1a))
+* **ci:** run release hygiene from a single head checkout ([92eeb2c](https://github.com/theory-cloud/TableTheory/commit/92eeb2ca85b0964435ec3dd8059320cf6c233323))
+* **ci:** run release hygiene from a single head checkout ([cd67bbc](https://github.com/theory-cloud/TableTheory/commit/cd67bbc1f048e293ff579d537c68aed14d38e7bd))
+* **ci:** stage release pages in temp files instead of jq arguments ([6ea0e9a](https://github.com/theory-cloud/TableTheory/commit/6ea0e9a389a6f05c3a55e919b831df25200a7cc4))
+* **ci:** stage release pages in temp files instead of jq arguments ([6f426e3](https://github.com/theory-cloud/TableTheory/commit/6f426e3c12422df470fbc96ed15c6020849a49ca))
+* **cli:** refuse symlinked output paths and unsafe parents ([11e7316](https://github.com/theory-cloud/TableTheory/commit/11e731600873debb711649362c31e2890ea3522d))
+* **contract:** fail item_absent closed on unexpected operation errors ([e976ad3](https://github.com/theory-cloud/TableTheory/commit/e976ad33ebb0e27cb4db70d00f8def8318f79a40))
+* **count:** bound Python count helpers and keep optimizer diagnostics honest ([b57f54b](https://github.com/theory-cloud/TableTheory/commit/b57f54bceda9ba87966c3284c1fd24d78aeadbca))
+* **deps:** bump AWS SDKs to 3.1146.0, eslint, and aws-cdk-lib 2.273.0 ([ed1d5cb](https://github.com/theory-cloud/TableTheory/commit/ed1d5cb9069a037a9447406d94b524cfc50518c7))
+* **deps:** bump contract runner client-dynamodb to ^3.1146.0 ([84a4cdb](https://github.com/theory-cloud/TableTheory/commit/84a4cdbc032e3ac5372d928b07854202aadd068a))
+* **deps:** bump example SDKs and aws-cdk-lib; retire brace exception ([b9b6e12](https://github.com/theory-cloud/TableTheory/commit/b9b6e122930a805258e5410ae90fa96bceec69da))
+* **deps:** bump ts runtime AWS SDKs, eslint, and @types/node ([f97d74d](https://github.com/theory-cloud/TableTheory/commit/f97d74d6a4307c181a2849211c244d9d000dd7d9))
+* **dms:** emit json.Number for decimal_string so N round-trips ([b449191](https://github.com/theory-cloud/TableTheory/commit/b449191e4fc07714f22be8d81c60e8585c364105))
+* **docs:** document supported Go GSI index tags in the vocabulary ([a48cf27](https://github.com/theory-cloud/TableTheory/commit/a48cf27aaf5a9e23e52361445544ab0580e98ff0))
+* **examples:** bind DynamoDB Local to loopback ([5983bd4](https://github.com/theory-cloud/TableTheory/commit/5983bd42d5e0f84dc860b9a162c8915c7f0e71e9))
+* **examples:** bound blog SMTP delivery by the caller context ([29ff63d](https://github.com/theory-cloud/TableTheory/commit/29ff63d77a23c8adc23614a331fca4191b514377))
+* **examples:** bound pre-auth API-key work, loopback local server ([6b53aa9](https://github.com/theory-cloud/TableTheory/commit/6b53aa916a89d2d0a8e30b03ad11362accaa449a))
+* **examples:** fail closed on unarchivable TTL stream records ([9c63c8f](https://github.com/theory-cloud/TableTheory/commit/9c63c8ff9e73fd9b037a83c8d9b12601b3d10733))
+* **examples:** verify DynamoDB Local with a protocol check ([ac39545](https://github.com/theory-cloud/TableTheory/commit/ac3954555b70452539b68dcad146934123c21e0b))
+* **fakes:** enforce combined conditions and DynamoDB COUNT/Limit semantics ([92d991e](https://github.com/theory-cloud/TableTheory/commit/92d991e17feaafebf5796ac7fa847b91593a7469))
+* **guard:** M2 detector and contract-harness integrity (TTSEC2-M2) ([10b1aa4](https://github.com/theory-cloud/TableTheory/commit/10b1aa404e69262cb505b1e4c96602c7f0648ef0))
+* **guard:** resolve Python launch bindings at statement position ([ccb40bc](https://github.com/theory-cloud/TableTheory/commit/ccb40bc434c620d74b13bde964ce76da4d99c4a9))
+* **guard:** run a labeled transfer's finally in the TS detector ([c7f21b6](https://github.com/theory-cloud/TableTheory/commit/c7f21b69f8de3e29e756769f3453abcd2277c397))
+* **guard:** stop awaiting a timer handle from joining it in the TS detector ([b08a7c3](https://github.com/theory-cloud/TableTheory/commit/b08a7c3088c1df12aa0bf10318a79f00109dc536))
+* **lease:** round lease expiry up so a lease holds for its full duration ([7c691d3](https://github.com/theory-cloud/TableTheory/commit/7c691d3ff0e2b19688d93fb1333adcf410758875))
+* **marshal:** honor anonymous-embed exclusion tags on encode and decode ([c685185](https://github.com/theory-cloud/TableTheory/commit/c685185b9af1113c45314c037862baeaa2566b75))
+* **model:** reject present-but-empty attribute-name overrides ([e446b21](https://github.com/theory-cloud/TableTheory/commit/e446b21ceac74315389ed8838a47b861df8fb984))
+* **model:** resolve protected attributes canonically ([30c1a74](https://github.com/theory-cloud/TableTheory/commit/30c1a746b95e9cea2cb9d3f09135032fd0d18606))
+* **module:** adopt the /v5 Go module path ([946a47e](https://github.com/theory-cloud/TableTheory/commit/946a47e74df1d96f79a9ca3806cb8e9cf7ee5fe7))
+* **multiaccount:** bound partner refresh to the requested partner with backoff ([29d1e0e](https://github.com/theory-cloud/TableTheory/commit/29d1e0e7f7d5055c3045ec166c586093800db132))
+* **multiaccount:** harden partner refresh failure path ([9f87d5e](https://github.com/theory-cloud/TableTheory/commit/9f87d5e6e6098fcc9daba492a26e440f335f96e4))
+* **protection:** free the request slot before body cleanup ([550b251](https://github.com/theory-cloud/TableTheory/commit/550b25156e66049c777963a9189418d06e7252a0))
+* **py:** bound derived-key numeric coercion to DynamoDB bounds ([68b1709](https://github.com/theory-cloud/TableTheory/commit/68b170982296b24e0685fb7e0957db53d566a802))
+* **py:** make auto_migrate target-encryption aware ([4f83dd4](https://github.com/theory-cloud/TableTheory/commit/4f83dd45dab5e47c07d763ed7620829ef36372c5))
+* **py:** return from the bounded count loop to satisfy the type checker ([82cbdb5](https://github.com/theory-cloud/TableTheory/commit/82cbdb55b2a9b1d50e8c6faf4b9dccee93cf5db4))
+* **py:** use field names in the GSI pattern and correct scaffold docs ([643c961](https://github.com/theory-cloud/TableTheory/commit/643c961726b9f989e972439d7ad8f92ea040afef))
+* **query:** keep a live base context across QueryTimeout changes ([5f4cb39](https://github.com/theory-cloud/TableTheory/commit/5f4cb394bf566b19714f9db0ba972ee4f12d8523))
+* **query:** keep cancellation live across QueryTimeout changes ([d3c2fcf](https://github.com/theory-cloud/TableTheory/commit/d3c2fcf2b4d62d0905493115dd3a8df1cde1934d))
+* **query:** preserve QueryTimeout deadline across WithCancellation ([f8574d4](https://github.com/theory-cloud/TableTheory/commit/f8574d4b6c822062ee7ec99f680fa967855ac905))
+* **query:** report only unprocessed batch requests as failed ([b32c544](https://github.com/theory-cloud/TableTheory/commit/b32c54483095dabd1e2153f29d821249836784a5))
+* **query:** tokenize version-conflict classification ([03ffedd](https://github.com/theory-cloud/TableTheory/commit/03ffedd842425b18daa301bf1ec213a44973ecb1))
+* **query:** use the deadline zero value instead of a companion flag ([46f6f68](https://github.com/theory-cloud/TableTheory/commit/46f6f68c660f3681094b20c54705eac1d50c93e9))
+* **release:** harden release and publishing trust boundaries ([87d7ef5](https://github.com/theory-cloud/TableTheory/commit/87d7ef5e32d05a432b7ca480f6d77dc5747fccfe))
+* **release:** harden release and publishing trust boundaries (P-THE-109 M0 / THE-3226–THE-3230) ([73d930e](https://github.com/theory-cloud/TableTheory/commit/73d930eeeb1db388d6336f6549f1f9e8c2539846))
+* **releasestate:** bind release-state events and evidence digests ([d716f2c](https://github.com/theory-cloud/TableTheory/commit/d716f2cb46d10d5548cf4ff205fd05fe8825c956))
+* **schema:** refuse unsafe encryption in data-copying migrations ([26797a7](https://github.com/theory-cloud/TableTheory/commit/26797a7c99df412e644163ea3daf873c8979c989))
+* **scripts:** aggregate coverage by unique source segment ([4b420ca](https://github.com/theory-cloud/TableTheory/commit/4b420ca84bf5f644a8231ade0efd67492bd177a5))
+* **scripts:** init generated-key verifier before top-level await ([98a4f78](https://github.com/theory-cloud/TableTheory/commit/98a4f78e47e633986eccd2d0efe9db1d9498abda))
+* **scripts:** make npm audit range comparator strict and fail-closed ([88df877](https://github.com/theory-cloud/TableTheory/commit/88df877a2a68a3a1aef6e06f83ae7e5644036202))
+* **security:** fail closed in the Pages gate and released baseline ([bc9f98c](https://github.com/theory-cloud/TableTheory/commit/bc9f98cb5c12d541bc89e446df66bd58cf51ba50))
+* **security:** fail closed on encrypted json:"-" fields and preserve exact numbers ([4b70a7a](https://github.com/theory-cloud/TableTheory/commit/4b70a7a0641b07be203fc62a5fb66e480dc5a827))
+* **security:** harden release and Pages publication trust boundaries ([3e5b6f4](https://github.com/theory-cloud/TableTheory/commit/3e5b6f40c71271b4f753f0a11cf19359babdcf27))
+* **security:** harden release and Pages publication trust boundaries ([f80ebc0](https://github.com/theory-cloud/TableTheory/commit/f80ebc0ef8d8ae6c16656943fd84df6eb01b7702))
+* **security:** M3 transaction, lease, query and fake semantics ([3295d7e](https://github.com/theory-cloud/TableTheory/commit/3295d7ebff974f9829c09cfe5f9dca667471d549))
+* **security:** P-THE-109 M1 data and authorization boundaries (THE-3231–THE-3235) ([3d2dc6b](https://github.com/theory-cloud/TableTheory/commit/3d2dc6b730b44eefe67c7ec85a344a6e0841f8e1))
+* **security:** P-THE-109 M2 cross-runtime encryption and exact-number semantics (THE-3236–THE-3240) ([5362fdc](https://github.com/theory-cloud/TableTheory/commit/5362fdceb5d41720a84aac9ee5ff7603ecb2b5f3))
+* **security:** preserve registered custom converters on struct and transaction reads ([585db63](https://github.com/theory-cloud/TableTheory/commit/585db63e29f5fb250023e6a443a839519a7ca8b1))
+* **security:** reject unsafe DMS names before Go code generation ([ab45ead](https://github.com/theory-cloud/TableTheory/commit/ab45ead051e5673174365e5be5eca73ed35317a2))
+* **security:** TableTheory M4 release-state parity, documentation and local safety ([571b7ab](https://github.com/theory-cloud/TableTheory/commit/571b7abf0c8b0563552f02f3dd869284f95b4cbd))
+* **security:** TTSEC2-M0 bound slot cleanup, immutable ISR binding, canonical write policy ([c179a5d](https://github.com/theory-cloud/TableTheory/commit/c179a5d4cbdee770eb325fe10641427a9b070537))
+* **security:** TTSEC2-M1 runtime result and type integrity (5 findings) ([0bed24d](https://github.com/theory-cloud/TableTheory/commit/0bed24def432d44ca181a0f28056237b7e183fe2))
+* **security:** TTSEC2-M4 tooling, example, and local-development safety ([99385da](https://github.com/theory-cloud/TableTheory/commit/99385dafdd29370f947151acb6db053fc4fad85a))
+* **security:** verify signed tokens and bind org access in multi-tenant example ([9a743c7](https://github.com/theory-cloud/TableTheory/commit/9a743c7a1a2f8a3eda46b2be84244eaf80804fa0))
+* **session:** preserve KMS credentials for injected-client sessions ([fcb44ee](https://github.com/theory-cloud/TableTheory/commit/fcb44ee676e92e48bf129fbc04ba6e168ad9adf2))
+* **testkit:** make stateful fake composite keys injective ([581636d](https://github.com/theory-cloud/TableTheory/commit/581636d9b8029de3ec63a80b8005602a9009a615))
+* **ts:** aggregate exact decimal-string numbers numerically ([43d6419](https://github.com/theory-cloud/TableTheory/commit/43d6419857c5c2e571995eb8a0ad56e1c8145fee))
+* **ts:** align typed numeric reads with the number-unmarshal mode ([1ad13a3](https://github.com/theory-cloud/TableTheory/commit/1ad13a36432c386898a57370cb08b01fba2f0201))
+* **ts:** bind ISR store models to a private client ([78c4457](https://github.com/theory-cloud/TableTheory/commit/78c4457be3377dc0329171de132ff202d2a4a10f))
+* **ts:** bound aggregate decimals and require exact results ([96c2773](https://github.com/theory-cloud/TableTheory/commit/96c277322215d3ca34a189a6629b23e43195f856))
+* **ts:** declare default typed N/NS reads as string ([eccae47](https://github.com/theory-cloud/TableTheory/commit/eccae47ddc2905b63ec65d0b3696f7b5a53bf832))
+* **ts:** linear decimal parsing and lossy-number aggregate parity ([5a40a7e](https://github.com/theory-cloud/TableTheory/commit/5a40a7e22ad9bedcf9c40b8bf975f850f94725af))
+* **ts:** make autoMigrate target-encryption aware ([4fd0d90](https://github.com/theory-cloud/TableTheory/commit/4fd0d9051a9b56ed3a30ff934a800c56440feee6))
+* **ts:** retain and compare DMS attribute format ([16b2d13](https://github.com/theory-cloud/TableTheory/commit/16b2d1372ee9d9a02ca131b4f2d463e74c7aa909))
 
 ## [4.0.2](https://github.com/theory-cloud/TableTheory/compare/v4.0.2-rc...v4.0.2) (2026-10-09)
 

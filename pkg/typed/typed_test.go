@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v4/pkg/mocks"
-	"github.com/theory-cloud/tabletheory/v4/pkg/query"
-	"github.com/theory-cloud/tabletheory/v4/pkg/typed"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v5/pkg/mocks"
+	"github.com/theory-cloud/tabletheory/v5/pkg/query"
+	"github.com/theory-cloud/tabletheory/v5/pkg/typed"
 )
 
 type typedUser struct {

@@ -137,3 +137,44 @@ class StubDdb {
   });
   assert.ok(ddb.sent[0] instanceof DeleteItemCommand);
 }
+
+{
+  // A fractional-second acquire must round the expiration up so a lease is
+  // never takeover-eligible inside the requested duration.
+  const ddb = new StubDdb(() => ({}));
+  const mgr = new LeaseManager(ddb as unknown as DynamoDBClient, 'tbl', {
+    now: () => 1000.1,
+    token: () => 'tok',
+    ttlBufferSeconds: 0,
+  });
+
+  const lease = await mgr.acquire(
+    { pk: 'CACHE#A', sk: 'LOCK' },
+    { leaseSeconds: 0.1 },
+  );
+  assert.equal(lease.expiresAt, 1001);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof PutItemCommand);
+  assert.equal(cmd.input.ExpressionAttributeValues?.[':now']?.N, '1000');
+  assert.equal(cmd.input.Item?.lease_expires_at?.N, '1001');
+}
+
+{
+  const ddb = new StubDdb(() => ({}));
+  const mgr = new LeaseManager(ddb as unknown as DynamoDBClient, 'tbl', {
+    now: () => 1000.9,
+    ttlBufferSeconds: 0,
+  });
+
+  const lease = await mgr.refresh(
+    { key: { pk: 'CACHE#A', sk: 'LOCK' }, token: 'tok', expiresAt: 0 },
+    { leaseSeconds: 5 },
+  );
+  assert.equal(lease.expiresAt, 1006);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof UpdateItemCommand);
+  assert.equal(cmd.input.ExpressionAttributeValues?.[':now']?.N, '1000');
+  assert.equal(cmd.input.ExpressionAttributeValues?.[':exp']?.N, '1006');
+}

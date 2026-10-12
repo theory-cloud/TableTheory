@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/theory-cloud/tabletheory/v4"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
 )
 
 // DemoItem is the shared, un-encrypted subset of the cdk-multilang DemoItem

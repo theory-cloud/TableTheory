@@ -440,7 +440,7 @@ run_go_semantic_import_fixture \
 
 run_go_semantic_import_fixture \
   "2.0.6" \
-  "github.com/theory-cloud/tabletheory/v4" \
+  "github.com/theory-cloud/tabletheory/v5" \
   1 \
   "manifest 2.0.6 requires module github.com/theory-cloud/tabletheory/v2"
 

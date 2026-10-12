@@ -258,6 +258,16 @@ if [[ "${base_repo}" != "${repo}" || "${head_repo}" != "${repo}" ]]; then
   fail "release-lane PRs must be same-repository (${head_repo} -> ${base_repo}, expected ${repo})"
 fi
 
+# The historical fix/release-hygiene-main-bootstrap-* lane let a same-repository
+# PR skip this guard by branch prefix. No reusable branch prefix may skip
+# release-lane provenance, so the retired prefix fails closed here too, even if a
+# future workflow edit reintroduces the exemption.
+case "${head}" in
+  fix/release-hygiene-main-bootstrap-*)
+    fail "release-hygiene bootstrap branch prefixes are retired and may not skip release-lane provenance; land release-hygiene changes through the normal release lane"
+    ;;
+esac
+
 require_sha "base SHA" "${base_sha}"
 require_sha "head SHA" "${head_sha}"
 

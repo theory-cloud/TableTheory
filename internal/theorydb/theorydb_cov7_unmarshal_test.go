@@ -6,8 +6,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
-	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
 )
 
 func TestQueryExecutor_WriteItemsToDest_COV7(t *testing.T) {
@@ -137,7 +137,7 @@ func TestQueryExecutor_unmarshalItem_MapAny_DecodesCommonTypes_COV7(t *testing.T
 		require.Nil(t, dest["null"])
 		require.Equal(t, []byte{0x01}, dest["b"])
 		require.Equal(t, []string{"a", "b"}, dest["ss"])
-		require.Equal(t, []float64{1.5, 2}, dest["ns"])
+		require.Equal(t, []any{1.5, int64(2)}, dest["ns"])
 
 		list, ok := dest["l"].([]interface{})
 		require.True(t, ok)

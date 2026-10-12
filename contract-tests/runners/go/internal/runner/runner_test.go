@@ -9,7 +9,7 @@ import (
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/driver"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/scenario"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/spec"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
 )
 
 type requireCaptureT struct {
@@ -108,6 +108,72 @@ func TestAssertStepResult_RejectsRawAssertionsWithErrorExpectations(t *testing.T
 	})
 }
 
+func TestAssertStepResult_FailsClosedWhenItemAbsentHasUnexpectedError(t *testing.T) {
+	r := &Runner{vars: map[string]any{}}
+	model := spec.Model{
+		Name: "User",
+		Attributes: []spec.Attribute{
+			{Attribute: "PK", Type: "S"},
+		},
+	}
+
+	requireFails(t, func(requireT *requireCaptureT) {
+		r.assertStepResult(
+			requireT,
+			scenario.Expectation{ItemAbsent: boolPtr(true)},
+			nil,
+			errors.New("unexpected operation error"),
+			nil,
+			model,
+		)
+	})
+}
+
+func TestAssertStepResult_AcceptsAbsentItemOnSuccess(t *testing.T) {
+	r := &Runner{vars: map[string]any{}}
+	model := spec.Model{
+		Name: "User",
+		Attributes: []spec.Attribute{
+			{Attribute: "PK", Type: "S"},
+		},
+	}
+
+	r.assertStepResult(t, scenario.Expectation{ItemAbsent: boolPtr(true)}, nil, nil, nil, model)
+}
+
+func TestAssertStepResult_AcceptsPresentItemWhenNotAbsent(t *testing.T) {
+	r := &Runner{vars: map[string]any{}}
+	model := spec.Model{
+		Name: "User",
+		Attributes: []spec.Attribute{
+			{Attribute: "PK", Type: "S"},
+		},
+	}
+
+	r.assertStepResult(t, scenario.Expectation{ItemAbsent: boolPtr(false)}, map[string]any{"PK": "USER#1"}, nil, nil, model)
+}
+
+func TestAssertStepResult_RejectsItemAbsentWithErrorExpectation(t *testing.T) {
+	r := &Runner{vars: map[string]any{}}
+	model := spec.Model{
+		Name: "User",
+		Attributes: []spec.Attribute{
+			{Attribute: "PK", Type: "S"},
+		},
+	}
+
+	requireFails(t, func(requireT *requireCaptureT) {
+		r.assertStepResult(
+			requireT,
+			scenario.Expectation{Error: string(driver.ErrItemNotFound), ItemAbsent: boolPtr(true)},
+			nil,
+			theorydbErrors.ErrItemNotFound,
+			nil,
+			model,
+		)
+	})
+}
+
 func TestAssertReadResult_FailsClosedWhenReadAssertionHasErrorWithoutOk(t *testing.T) {
 	r := &Runner{vars: map[string]any{}}
 	model := spec.Model{
@@ -192,5 +258,9 @@ func numberPrecisionModel() spec.Model {
 }
 
 func intPtr(value int) *int {
+	return &value
+}
+
+func boolPtr(value bool) *bool {
 	return &value
 }

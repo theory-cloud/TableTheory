@@ -493,6 +493,74 @@ function runtimeIdentifierFromLiteral(value) {
   return LAMBDA_RUNTIME_FAMILIES.includes(match[1]) ? value : null;
 }
 
+// Blanks out `//` line comments and `/* ... */` block comments in code position,
+// while leaving string and template literals untouched. A runtime declaration can
+// hide a comment between `fromString(` and its quoted argument, so the literal
+// rule must see through it; and a declaration that is entirely commented out must
+// not count, so the enum rule must not. The blanking is character-for-character
+// and preserves newlines, so every match index and every `lineOf` line still point
+// at the same place in the original source. String and template literals are
+// skipped rather than blanked: `'cp -R /asset-input/* /asset-output/'` and
+// `"https://example.com"` keep their content, so a `//` or `/*` inside a literal
+// is never mistaken for a comment.
+function stripComments(text) {
+  const out = text.split("");
+  const length = text.length;
+  const blank = (from, to) => {
+    for (let k = from; k < to; k += 1) {
+      if (out[k] !== "\n") out[k] = " ";
+    }
+  };
+  let i = 0;
+  while (i < length) {
+    const ch = text[i];
+    const next = i + 1 < length ? text[i + 1] : "";
+    if (ch === "'" || ch === "\"") {
+      let j = i + 1;
+      while (j < length) {
+        if (text[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        j += 1;
+        if (text[j - 1] === ch || text[j - 1] === "\n") break;
+      }
+      i = j;
+      continue;
+    }
+    if (ch === "`") {
+      let j = i + 1;
+      while (j < length) {
+        if (text[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        j += 1;
+        if (text[j - 1] === "`") break;
+      }
+      i = j;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      let j = i + 2;
+      while (j < length && text[j] !== "\n") j += 1;
+      blank(i, j);
+      i = j;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      let j = i + 2;
+      while (j < length && !(text[j] === "*" && text[j + 1] === "/")) j += 1;
+      j = j < length ? j + 2 : length;
+      blank(i, j);
+      i = j;
+      continue;
+    }
+    i += 1;
+  }
+  return out.join("");
+}
+
 function lineOf(text, index) {
   let line = 1;
   for (let cursor = 0; cursor < index; cursor += 1) {
@@ -518,6 +586,9 @@ function lineOf(text, index) {
 // because two different runtimes, two different unreadable members, or two
 // different unmodelled literals resolve to two different keys.
 function collectDeclarations(text) {
+  // Comments are invisible to both declaration rules: a `fromString` argument can
+  // be preceded by a comment, and a declaration can be commented out.
+  text = stripComments(text);
   const byKey = new Map();
 
   const record = (index, form, enumName, literal, identifier) => {
@@ -904,6 +975,42 @@ const CLASSIFIER_CASES = [
     text: "import * as lambda from 'aws-cdk-lib/aws-lambda';\nconst { Runtime: RT } = lambda;\nruntime: RT.NODEJS_24_X,\n",
     expected: [],
   },
+  // A comment between `fromString(` and its argument must not hide the
+  // declaration, in either comment form. The original hostile wrote the block
+  // form in code position inside an otherwise-clean surface.
+  {
+    name: "deprecated-literal-behind-a-block-comment",
+    text: "runtime: lambda.Runtime.fromString(/* pinned */ 'nodejs18.x'),\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "deprecated-literal-behind-a-line-comment",
+    text: "runtime: lambda.Runtime.fromString(// pinned\n  'nodejs18.x'),\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "unmodelled-literal-behind-a-block-comment",
+    text: "runtime: lambda.Runtime.fromString(/* preview */ 'nodejs26.x'),\n",
+    expected: ["unmodelled-runtime"],
+  },
+  // The ordinary shapes stay unaffected: a supported literal behind a comment, a
+  // supported enum with a trailing comment, and a URL inside a string that must
+  // not be read as a comment.
+  {
+    name: "supported-literal-behind-a-block-comment",
+    text: "runtime: lambda.Runtime.fromString(/* keep */ 'nodejs24.x'),\n",
+    expected: [],
+  },
+  {
+    name: "supported-enum-with-a-trailing-line-comment",
+    text: "runtime: lambda.Runtime.NODEJS_24_X, // current\n",
+    expected: [],
+  },
+  {
+    name: "url-string-before-a-supported-runtime",
+    text: 'const endpoint = "https://runtime.example.com/path";\nruntime: lambda.Runtime.NODEJS_24_X,\n',
+    expected: [],
+  },
 ];
 
 const FAIL_CLOSED_CASES = [
@@ -951,6 +1058,18 @@ const FAIL_CLOSED_CASES = [
   {
     name: "dynamic-fromString-rescued-by-a-stray-runtime-literal",
     text: "runtime: lambda.Runtime.fromString(config.runtime),\nconst releaseNote = 'nodejs22.x';\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  // A declaration that is entirely commented out is not a declaration, in either
+  // comment form: the surface is left with nothing readable and must fail closed.
+  {
+    name: "surface-with-only-a-line-commented-declaration",
+    text: "// runtime: lambda.Runtime.NODEJS_20_X,\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  {
+    name: "surface-with-only-a-block-commented-declaration",
+    text: "/* runtime: lambda.Runtime.PYTHON_3_8, */\n",
     expectFailureReason: "declares no modelled Lambda runtime",
   },
 ];

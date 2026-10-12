@@ -73,13 +73,18 @@ def canonical_attribute_name(model: ModelDefinition[Any], field: str) -> str:
     if not root:
         return field
 
-    attr_def = model.attributes.get(root)
-    if attr_def is not None:
-        return _replace_root_attribute(field, attr_def.attribute_name)
-
+    # Canonical DynamoDB attribute names are the authoritative namespace. Resolve
+    # them before Python field names so that a name which is both a canonical
+    # attribute and another field's Python name canonicalizes to the attribute it
+    # names, rather than to the colliding Python field. Python field names remain
+    # accepted when no canonical name matches.
     for candidate in model.attributes.values():
         if candidate.attribute_name == root:
             return field
+
+    attr_def = model.attributes.get(root)
+    if attr_def is not None:
+        return _replace_root_attribute(field, attr_def.attribute_name)
 
     return field
 

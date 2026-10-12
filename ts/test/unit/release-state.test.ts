@@ -52,6 +52,24 @@ const ReleaseStateEvent = defineModel({
   ],
 });
 
+const ReleaseStateOutbox = defineModel({
+  name: 'ReleaseStateOutbox',
+  table: { name: 'release_state_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  write_policy: {
+    mode: 'write_once',
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'operation', type: 'S', optional: true },
+    { attribute: 'idempotencyKey', type: 'S', optional: true },
+  ],
+});
+
 class StubDdb {
   sent: unknown[] = [];
 
@@ -193,5 +211,152 @@ function validDeployAuthorityItem(): Record<string, unknown> {
   assert.throws(
     () => validateDeployAuthorityMetadata(item),
     (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+}
+
+function provenanceOf(item: Record<string, unknown>): Record<string, unknown> {
+  return item.provenance as Record<string, unknown>;
+}
+
+function evidenceOf(
+  item: Record<string, unknown>,
+): Array<Record<string, unknown>> {
+  return provenanceOf(item).evidence as Array<Record<string, unknown>>;
+}
+
+{
+  // An event may only describe the actual row it transitions.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+    ReleaseStateEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        set: { status: 'active' },
+        eventModel: 'ReleaseStateEvent',
+        eventItem: { PK: 'RELEASE#service-b', SK: 'EVENT#1' },
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  // Actual update, event append, and conditional outbox create are one transaction.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+    ReleaseStateEvent,
+    ReleaseStateOutbox,
+  );
+
+  await transitionReleaseState(client, {
+    actualModel: 'ReleaseStateActual',
+    actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+    set: { status: 'active' },
+    eventModel: 'ReleaseStateEvent',
+    eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+    outboxModel: 'ReleaseStateOutbox',
+    outboxItem: { PK: 'RELEASE#service-a', SK: 'OUTBOX#1' },
+  });
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  assert.equal(cmd.input.TransactItems?.length, 3);
+  assert.equal(
+    cmd.input.TransactItems?.[2]?.Put?.ConditionExpression,
+    'attribute_not_exists(#pk)',
+  );
+}
+
+{
+  // A rejected transaction surfaces the failure and issues no second write.
+  class FailingDdb {
+    sent: unknown[] = [];
+    async send(cmd: unknown): Promise<unknown> {
+      this.sent.push(cmd);
+      throw new Error('TransactionCanceledException');
+    }
+  }
+
+  const ddb = new FailingDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+    ReleaseStateEvent,
+    ReleaseStateOutbox,
+  );
+
+  await assert.rejects(() =>
+    transitionReleaseState(client, {
+      actualModel: 'ReleaseStateActual',
+      actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+      set: { status: 'active' },
+      eventModel: 'ReleaseStateEvent',
+      eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+      outboxModel: 'ReleaseStateOutbox',
+      outboxItem: { PK: 'RELEASE#service-a', SK: 'OUTBOX#1' },
+    }),
+  );
+  assert.equal(ddb.sent.length, 1);
+}
+
+{
+  // Same kind/source/ref with different digests conflicts.
+  const item = validDeployAuthorityItem();
+  const base = evidenceOf(item)[0]!;
+  provenanceOf(item).evidence = [
+    { ...base, digest: 'sha256:aaaaaaaa' },
+    { ...base, digest: 'sha256:bbbbbbbb' },
+  ];
+  assert.throws(
+    () => validateDeployAuthorityMetadata(item),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrRejectedDeployAuthorityEvidence',
+  );
+}
+
+{
+  // Byte-for-byte identical evidence (including digest) stays idempotent.
+  const item = validDeployAuthorityItem();
+  const base = evidenceOf(item)[0]!;
+  provenanceOf(item).evidence = [
+    { ...base, digest: 'sha256:cccccccc' },
+    { ...base, digest: 'sha256:cccccccc' },
+  ];
+  assert.doesNotThrow(() => validateDeployAuthorityMetadata(item));
+}
+
+{
+  // Unrelated evidence may not bless a different top-level artifact.
+  const item = validDeployAuthorityItem();
+  provenanceOf(item).ref = 'operator://deploy/service-b/rel_999';
+  assert.throws(
+    () => validateDeployAuthorityMetadata(item),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrRejectedDeployAuthorityEvidence',
+  );
+}
+
+{
+  // A top-level digest must align with the evidence digest.
+  const item = validDeployAuthorityItem();
+  const base = evidenceOf(item)[0]!;
+  provenanceOf(item).evidence = [{ ...base, digest: 'sha256:dddddddd' }];
+  provenanceOf(item).digest = 'sha256:dddddddd';
+  assert.doesNotThrow(() => validateDeployAuthorityMetadata(item));
+
+  provenanceOf(item).digest = 'sha256:eeeeeeee';
+  assert.throws(
+    () => validateDeployAuthorityMetadata(item),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrRejectedDeployAuthorityEvidence',
   );
 }

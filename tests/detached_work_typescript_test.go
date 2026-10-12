@@ -113,6 +113,11 @@ var typescriptDetectorFlagged = []struct{ name, src, rule string }{
 	{"bracket timer", "globalThis[\"setTimeout\"](() => flush(), 1000);", "floating-setTimeout"},
 	{"bracket interval", "window[\"setInterval\"](poll, 5000);", "floating-setInterval"},
 	{"bracket immediate", "global[\"setImmediate\"](work);", "floating-setImmediate"},
+	// Awaiting a timer handle does not wait for the callback, so it is not a join:
+	// the handle must be cleared or unrefed instead.
+	{"awaited timer handle", "const t = setTimeout(() => write(), 5);\nawait t;", "floating-setTimeout"},
+	{"awaited interval handle", "const t = setInterval(poll, 5000);\nawait t;", "floating-setInterval"},
+	{"reassigned awaited timer handle", "let t;\nt = setTimeout(() => write(), 5);\nawait t;", "floating-setTimeout"},
 	// A bound promise is a launch; a join that does not dominate is not one.
 	{"bound chain returned on one path only", "async function run(cond) {\n  const p = load(id).then((u) => render(u));\n  if (cond) return;\n  await p;\n}", "floating-then"},
 	{"bound chain awaited inside a conditional", "async function run(cond) {\n  const p = load(id).then((u) => render(u));\n  if (cond) {\n    await p;\n  }\n}", "floating-then"},
@@ -147,6 +152,11 @@ var typescriptDetectorFlagged = []struct{ name, src, rule string }{
 	// re-enters it; neither leaves the function, so a launch after the loop is
 	// still reported when no join reaches it.
 	{"labeled break leaves no join behind", "async function run() {\n  const p = load(id).then((u) => render(u));\n  outer: for (const x of xs) {\n    break outer;\n  }\n}", "floating-then"},
+	// A labeled transfer out of a `try` runs that `try`'s `finally` first, so a
+	// `finally` that returns before the held promise is awaited leaves the promise
+	// unjoined even though the labeled edge skips the `await` textually.
+	{"labeled break runs a returns-finally before the await", "const p = debit().then(audit);\ndone: {\n  try {\n    break done;\n  } finally {\n    return;\n  }\n}\nawait p;", "floating-then"},
+	{"labeled continue runs a returns-finally before the await", "const p = debit().then(audit);\ndone: for (const x of xs) {\n  try {\n    continue done;\n  } finally {\n    return;\n  }\n}\nawait p;", "floating-then"},
 }
 
 // typescriptDetectorClean are the shapes the TypeScript detector must accept.
@@ -187,6 +197,11 @@ var typescriptDetectorClean = []struct{ name, src string }{
 	// loop is joined by an await the labeled branch still reaches.
 	{"labeled break is not a function exit", "async function run() {\n  const p = load(id).then((u) => render(u));\n  outer: for (const x of xs) {\n    break outer;\n  }\n  await p;\n}"},
 	{"labeled continue is not a function exit", "async function run() {\n  const p = load(id).then((u) => render(u));\n  outer: for (const x of xs) {\n    for (const y of ys) {\n      continue outer;\n    }\n  }\n  await p;\n}"},
+	// The labeled transfer runs the `finally` on its way to the label's target,
+	// so a real promise join inside that `finally` dominates a labeled exit just
+	// as it dominates a `return`.
+	{"join in finally dominates a labeled break", "async function run(c) {\n  const p = load(id).then((u) => render(u));\n  done: {\n    try {\n      if (c) break done;\n    } finally {\n      await p;\n    }\n  }\n}"},
+	{"join in finally dominates a labeled continue", "async function run(c) {\n  done: for (const x of xs) {\n    const p = load(id).then((u) => render(u));\n    try {\n      if (c) continue done;\n    } finally {\n      await p;\n    }\n  }\n}"},
 }
 
 // TestTypeScriptDetachedWorkDetectorIsNotVacuous proves the TypeScript detector

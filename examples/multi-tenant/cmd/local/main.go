@@ -12,11 +12,12 @@ import (
 	"time"
 
 	"github.com/rs/cors"
-	"github.com/theory-cloud/tabletheory/v4"
-	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/handlers"
-	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/models"
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5"
+	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/auth"
+	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/handlers"
+	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
 )
 
 func main() {
@@ -58,7 +59,7 @@ func main() {
 
 	// Setup server
 	srv := &http.Server{
-		Addr:         ":8080",
+		Addr:         localListenAddr,
 		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
@@ -67,7 +68,7 @@ func main() {
 
 	// Start server
 	go func() {
-		fmt.Println("Multi-tenant SaaS API starting on :8080")
+		fmt.Printf("Multi-tenant SaaS API starting on %s\n", localListenAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("Server failed to start:", err)
 		}
@@ -90,6 +91,11 @@ func main() {
 
 	fmt.Println("Server exited")
 }
+
+// localListenAddr binds the example's local server to loopback only. The local
+// server relies on JWT_SECRET and API keys but is not a hardened edge, so it must
+// never listen on every network interface.
+const localListenAddr = "127.0.0.1:8080"
 
 // createTables creates the necessary DynamoDB tables for local development
 func createTables(db core.ExtendedDB) error {
@@ -186,28 +192,34 @@ func authMiddleware(db core.ExtendedDB) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Check for Bearer token (simplified - in production use proper JWT)
-			auth := r.Header.Get("Authorization")
-			if auth == "" {
+			// Check for a signed Bearer token. It must carry the tenant's user
+			// and organization and verify against JWT_SECRET; anything else is
+			// rejected before the request reaches a handler.
+			authorization := r.Header.Get("Authorization")
+			if authorization == "" {
 				http.Error(w, "Missing authorization", http.StatusUnauthorized)
 				return
 			}
 
-			// Extract token
-			if len(auth) < 7 || auth[:7] != "Bearer " {
+			if !strings.HasPrefix(authorization, "Bearer ") {
 				http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
 				return
 			}
 
-			token := auth[7:]
+			token := strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
 
-			// In production, validate JWT and extract user info
-			// For this example, we'll use a simple token format: "user_id:org_id"
-			// This is NOT secure and should not be used in production
+			claims, err := auth.Verify(strings.TrimSpace(os.Getenv("JWT_SECRET")), token)
+			if err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 
-			// Add user info to context (simplified)
-			ctx := context.WithValue(r.Context(), "user_id", "user#"+token)
-			ctx = context.WithValue(ctx, "org_id", "org#demo")
+			userID := "user#" + strings.TrimPrefix(strings.TrimSpace(claims.Subject), "user#")
+			orgID := "org#" + strings.TrimPrefix(strings.TrimSpace(claims.OrgID), "org#")
+
+			// Add user info to context
+			ctx := context.WithValue(r.Context(), "user_id", userID)
+			ctx = context.WithValue(ctx, "org_id", orgID)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

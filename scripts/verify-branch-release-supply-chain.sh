@@ -202,14 +202,21 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must target premain and main PRs"
   forbid_fixed "merge_group:" "${h}" \
     "release-hygiene must not use the prohibited merge-queue event"
-  require_fixed "trusted-release/scripts/verify-release-lane-provenance.sh" "${h}" \
-    "release-hygiene must verify release-lane same-repository provenance from trusted scripts"
+  # Single-source gate (operator ruling 2026-10-12): every check in the workflow
+  # executes from ONE checkout of the promoted head. The retired base-SHA second
+  # checkout, the verifier-source selector, and its marker negotiation must not
+  # come back, so the workflow can no longer be blocked by an older base-branch
+  # copy of its own verifiers.
+  require_fixed "scripts/verify-release-lane-provenance.sh" "${h}" \
+    "release-hygiene must verify release-lane same-repository provenance"
+  forbid_fixed "trusted-release" "${h}" \
+    "release-hygiene must not reintroduce the retired second checkout"
+  forbid_fixed "VERIFIER_ROOT" "${h}" \
+    "release-hygiene must not reintroduce verifier-source indirection"
   forbid_fixed "--queue-freshness" "${h}" \
     "release-hygiene must not bypass strict live-ref freshness"
-  require_fixed "github.event.pull_request.base.sha" "${h}" \
-    "release-hygiene must check out trusted release scripts from the PR base SHA"
   require_fixed "github.event.pull_request.head.sha" "${h}" \
-    "release-hygiene must check out the PR head by exact SHA after provenance verification"
+    "release-hygiene must check out the PR head by exact SHA"
   require_fixed "persist-credentials: false" "${h}" \
     "release-hygiene checkouts must not persist GitHub credentials"
   require_fixed 'HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}' "${h}" \
@@ -222,8 +229,8 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must explicitly gate generated main release-please PRs"
   require_fixed "scripts/verify-release-cycle-state.sh" "${h}" \
     "release-hygiene must verify release-cycle state"
-  require_fixed 'RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr' "${h}" \
-    "release-hygiene must point trusted release-cycle verifier at the checked-out PR head"
+  require_fixed 'RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}' "${h}" \
+    "release-hygiene must point the release-cycle verifier at the single head checkout"
   require_fixed "RELEASE_CYCLE_REPO_ROOT" "scripts/verify-release-cycle-state.sh" \
     "release-cycle-state verifier must support an explicit target repo root"
   require_fixed "scripts/verify-branch-release-supply-chain.sh" "${h}" \
@@ -232,28 +239,12 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must forbid RC-shaped main Release PRs"
   require_fixed "scripts/verify-promotion-release-driver.sh" "${h}" \
     "release-hygiene must verify human promotion release drivers"
-  require_fixed "manifest-derived stable Release-As" "${h}" \
-    "release-hygiene verifier selector must detect manifest-derived stable promotion driver support"
-  require_fixed "resolved promotion-driver supply-chain marker" "${h}" \
-    "release-hygiene verifier selector must detect resolved promotion-driver supply-chain support"
-  require_fixed "deterministic stable Release PR marker" "${h}" \
-    "release-hygiene verifier selector must detect deterministic stable Release PR support"
-  require_fixed "direct protected-PR verifier marker" "${h}" \
-    "release-hygiene verifier selector must detect direct protected-PR support"
-  require_fixed "Go semantic import verifier marker" "${h}" \
-    "release-hygiene verifier selector must detect Go semantic import verifier support"
-  require_fixed "Go semantic import supply-chain marker" "${h}" \
-    "release-hygiene verifier selector must detect Go semantic import supply-chain support"
-  require_fixed "pending-major-transition support marker" "${h}" \
-    "release-hygiene verifier selector must detect pending major transition support"
   require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
     "release-hygiene must run the release driver guard on staging -> premain PRs"
   require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \
     "release-hygiene must run the release driver guard on premain -> main PRs"
-  require_fixed 'bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh"' "${h}" \
-    "release-hygiene must run the promotion driver from the resolved verifier source"
-  require_fixed "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${h}" \
-    "release-hygiene must log the promotion-driver verifier source"
+  require_fixed "bash scripts/verify-promotion-release-driver.sh" "${h}" \
+    "release-hygiene must run the promotion driver from the head checkout"
   require_fixed "github.event_name == 'workflow_dispatch'" "${h}" \
     "release-hygiene must retain read-only manual dispatch validation"
   if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${h}"; then
@@ -634,6 +625,161 @@ if [[ -f "py/pyproject.toml" ]]; then
       fail "${cfg}: must not bump py/src/tabletheory_py/version.json through release-please"
     fi
   done
+fi
+
+# --- Release/publishing trust boundaries (TTSEC-M0-T2..T6) --------------------
+# These are grep/py assertions only. This verifier runs against the PR head in
+# release-hygiene, so it must never execute a PR-head script; behavioral
+# coverage for the same guards lives in the focused test scripts referenced
+# below and runs in the staging rubric (scripts/verify-rubric.sh).
+
+# TTSEC-M0-T2: same-repository head ownership + deterministic commit identity.
+if [[ -f "scripts/create-stable-release-pr.py" ]]; then
+  gen_t2="scripts/create-stable-release-pr.py"
+  require_fixed "deterministic_expected_tree" "${gen_t2}" \
+    "stable Release PR generator must derive a deterministic tree for a reused commit"
+  require_fixed "commit_signer_is_automation" "${gen_t2}" \
+    "stable Release PR generator must bind a reused commit to the expected automation signer"
+  require_fixed "is_same_repository_pr" "${gen_t2}" \
+    "stable Release PR generator must require same-repository head ownership for candidate PRs"
+  require_fixed "headRepositoryOwner" "${gen_t2}" \
+    "stable Release PR generator must request head repository ownership metadata"
+  require_fixed "isCrossRepository" "${gen_t2}" \
+    "stable Release PR generator must request cross-repository status"
+fi
+if [[ -f "scripts/verify-main-release-pr-postcondition.sh" ]]; then
+  post_t2="scripts/verify-main-release-pr-postcondition.sh"
+  require_fixed "isCrossRepository" "${post_t2}" \
+    "main Release PR postcondition must reject cross-repository release PRs"
+  require_fixed "headRepositoryOwner" "${post_t2}" \
+    "main Release PR postcondition must verify same-repository head ownership"
+fi
+require_file "scripts/test-release-pr-postcondition-policy.sh"
+require_file "scripts/test-release-pr-tool-policy.sh"
+
+# TTSEC-M0-T3: prerelease errexit + manual-dispatch gates.
+for wf in ".github/workflows/prerelease.yml" ".github/workflows/prerelease-pr.yml"; do
+  [[ -f "${wf}" ]] || continue
+  require_fixed "verify-branch-version-sync.sh &&" "${wf}" \
+    "${wf} must join the strict verifiers with && so either failure reaches the classifier"
+done
+if [[ -f ".github/workflows/quality-gates.yml" ]]; then
+  q_t3=".github/workflows/quality-gates.yml"
+  require_fixed "name: Verify staged PR is release-eligible" "${q_t3}" \
+    "quality-gates must keep the release-eligibility step"
+  if ! python3 - "${q_t3}" <<'PY'
+import sys
+from pathlib import Path
+
+lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+for i, line in enumerate(lines):
+    if line.strip() == "- name: Verify staged PR is release-eligible":
+        window = "\n".join(lines[i:i + 8])
+        raise SystemExit(0 if "if: github.event_name == 'pull_request'" in window else 1)
+raise SystemExit(1)
+PY
+  then
+    fail "quality-gates release-eligibility step must be gated to pull_request so workflow_dispatch reaches the rubric"
+  fi
+fi
+
+# TTSEC-M0-T4: pinned publish tooling installed before role assumption.
+if [[ -f ".github/workflows/theorycloud-tabletheory-publish.yml" ]]; then
+  pub_t4=".github/workflows/theorycloud-tabletheory-publish.yml"
+  require_fixed "scripts/requirements/theorycloud-publish.txt" "${pub_t4}" \
+    "publish workflow must install the hash-pinned tooling lock"
+  require_fixed "--require-hashes" "${pub_t4}" \
+    "publish workflow must verify dependency hashes"
+  if ! python3 - "${pub_t4}" <<'PY'
+import sys
+from pathlib import Path
+
+lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+
+
+def step_index(name):
+    for i, line in enumerate(lines):
+        if line.strip() == f"- name: {name}":
+            return i
+    raise SystemExit(1)
+
+
+if step_index("Install pinned publish tooling (before role assumption)") > step_index(
+    "Assume stage-scoped theorycloud publish role"
+):
+    raise SystemExit(1)
+if any("--upgrade pip" in line for line in lines):
+    raise SystemExit(1)
+PY
+  then
+    fail "publish tooling must install before role assumption and must not upgrade pip unpinned"
+  fi
+  require_file "scripts/requirements/theorycloud-publish.txt"
+fi
+require_fixed "invoke_status=\$?" "scripts/trigger_theorycloud_publish.sh" \
+  "publish trigger helper must capture awscurl's actual exit status"
+
+# TTSEC-M0-T6: branch-up-to-date freshness evidence + private staged manifests.
+policy_t6="docs/development/planning/theorydb-branch-release-policy.md"
+if [[ -f "${policy_t6}" ]]; then
+  require_fixed "Require branches to be up to date before merging" "${policy_t6}" \
+    "branch release policy must require the GitHub branch-up-to-date setting"
+fi
+if [[ -f "scripts/watch-release-cycle.sh" ]]; then
+  require_fixed "required_status_checks" "scripts/watch-release-cycle.sh" \
+    "watch-release-cycle must read branch-protection required status checks"
+  require_fixed "requires up-to-date (strict)" "scripts/watch-release-cycle.sh" \
+    "watch-release-cycle must report whether up-to-date (strict) checks are required"
+fi
+for staging_script in "scripts/stage_theorycloud_tabletheory_subtree.sh" "scripts/verify-theorycloud-tabletheory-subtree.sh"; do
+  [[ -f "${staging_script}" ]] || continue
+  require_fixed "parse_remote_identity" "${staging_script}" \
+    "${staging_script} must parse remote identity instead of prefix-stripping"
+  require_fixed "userinfo" "${staging_script}" \
+    "${staging_script} must reject/strip URL userinfo so credentials never enter the manifest"
+done
+if [[ -f "scripts/stage_theorycloud_tabletheory_subtree.sh" ]]; then
+  require_fixed "0o700" "scripts/stage_theorycloud_tabletheory_subtree.sh" \
+    "staging helper must create private directories"
+  require_fixed "0o600" "scripts/stage_theorycloud_tabletheory_subtree.sh" \
+    "staging helper must create a private manifest file"
+fi
+
+# TTSEC2-M3-T3: every next-version candidate must be strictly greater than the
+# highest published release, whatever its origin. The promotion driver derives
+# candidates from a Release-As footer and the single manifest; the stable
+# Release PR generator consumes the release-please computation. A dropped
+# baseline flag would silently disable the check, so pin both the guard text and
+# both workflow call sites.
+if [[ -f "scripts/verify-promotion-release-driver.sh" ]]; then
+  require_fixed "strictly greater than the highest published release" \
+    "scripts/verify-promotion-release-driver.sh" \
+    "promotion release driver must reject a candidate that is not strictly newer than the highest published release"
+fi
+require_fixed "--published-baseline" ".github/workflows/release-hygiene.yml" \
+  "release-hygiene must pass the highest published release baseline to the promotion driver"
+require_fixed "--published-baseline" ".github/workflows/release-pr.yml" \
+  "release-pr must pass the highest published release baseline to the stable Release PR generator"
+# A truncated, newest-created-first, draft-including read under-reports the
+# baseline and lets an already published version pass `> baseline`, so pin the
+# resolver's behavior — drafts and prereleases excluded, semver maximum, paged
+# REST read — at both call sites, not just the flag name.
+require_fixed "Resolve highest published release" ".github/workflows/release-hygiene.yml" \
+  "release-hygiene must resolve the highest published release through the resolver step"
+require_fixed "Resolve highest published release" ".github/workflows/release-pr.yml" \
+  "release-pr must resolve the highest published release through the resolver step"
+for release_workflow in "release-hygiene.yml" "release-pr.yml"; do
+  require_fixed 'select(.draft == false and .prerelease == false)' ".github/workflows/${release_workflow}" \
+    "${release_workflow} baseline resolver must exclude drafts and prereleases"
+  require_fixed 'sort_by(split(".") | map(tonumber))' ".github/workflows/${release_workflow}" \
+    "${release_workflow} baseline resolver must take the semver maximum over published stable releases"
+  require_fixed 'per_page=100&page=${page}' ".github/workflows/${release_workflow}" \
+    "${release_workflow} baseline resolver must page the releases API"
+done
+if [[ -f "scripts/create-stable-release-pr.py" ]]; then
+  require_fixed "strictly greater than the highest published release" \
+    "scripts/create-stable-release-pr.py" \
+    "stable Release PR generator must reject a computed version that is not strictly newer than the highest published release"
 fi
 
 if [[ "${failures}" -ne 0 ]]; then

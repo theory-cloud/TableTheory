@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v4/pkg/query"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v5/pkg/query"
 )
 
 // Model is a generic handle for one TableTheory model type.

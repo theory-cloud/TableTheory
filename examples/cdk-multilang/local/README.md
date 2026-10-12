@@ -40,6 +40,10 @@ The script needs Docker (for DynamoDB Local), the Go toolchain, Node.js 24, and
 `uv` for Python — the same tools the contract suite uses. It installs the
 TypeScript runtime dev dependencies (`npm --prefix ts ci`) on first run if needed.
 
+DynamoDB Local enforces no authentication, so `run-local.sh` publishes its port
+on loopback only (`127.0.0.1:${CDK_LOCAL_PORT:-8020}`); it is not reachable from
+other network interfaces.
+
 ## What is intentionally not covered locally
 
 **Encryption.** The parent demo encrypts the `secret` attribute through a KMS

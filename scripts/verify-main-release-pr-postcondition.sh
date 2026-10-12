@@ -121,16 +121,17 @@ gh pr list \
   --repo "${repo}" \
   --base "${base}" \
   --state open \
-  --json number,title,headRefName,url >"${open_prs}"
+  --json number,title,headRefName,url,headRepository,headRepositoryOwner,isCrossRepository >"${open_prs}"
 
 if [[ "${forbid_rc_only}" -eq 1 ]]; then
-  python3 - "${open_prs}" "${base}" <<'PY'
+  python3 - "${open_prs}" "${base}" "${repo}" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
-path, base = sys.argv[1:3]
+path, base, repo = sys.argv[1:4]
+owner, name = repo.split("/", 1)
 prs = json.loads(Path(path).read_text(encoding="utf-8"))
 
 
@@ -139,10 +140,19 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def is_same_repository_pr(pr: dict) -> bool:
+    if pr.get("isCrossRepository"):
+        return False
+    head_owner = pr.get("headRepositoryOwner") or {}
+    head_repo = pr.get("headRepository") or {}
+    return head_owner.get("login") == owner and head_repo.get("name") == name
+
+
 rc_release_prs = [
     pr
     for pr in prs
-    if "release" in pr.get("title", "").lower()
+    if is_same_repository_pr(pr)
+    and "release" in pr.get("title", "").lower()
     and re.search(r"\d+\.\d+\.\d+-rc(?:[.\-\w]*)?", pr.get("title", ""))
 ]
 if rc_release_prs:
@@ -157,13 +167,14 @@ PY
   exit 0
 fi
 
-python3 - "${open_prs}" "${expected_version}" "${base}" "${head}" >"${candidate_number_file}" <<'PY'
+python3 - "${open_prs}" "${expected_version}" "${base}" "${head}" "${repo}" >"${candidate_number_file}" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
-path, expected_version, base, head = sys.argv[1:5]
+path, expected_version, base, head, repo = sys.argv[1:6]
+owner, name = repo.split("/", 1)
 prs = json.loads(Path(path).read_text(encoding="utf-8"))
 expected_title = f"chore({base}): release {expected_version}"
 
@@ -173,10 +184,19 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def is_same_repository_pr(pr: dict) -> bool:
+    if pr.get("isCrossRepository"):
+        return False
+    head_owner = pr.get("headRepositoryOwner") or {}
+    head_repo = pr.get("headRepository") or {}
+    return head_owner.get("login") == owner and head_repo.get("name") == name
+
+
 rc_release_prs = [
     pr
     for pr in prs
-    if "release" in pr.get("title", "").lower()
+    if is_same_repository_pr(pr)
+    and "release" in pr.get("title", "").lower()
     and re.search(r"\d+\.\d+\.\d+-rc(?:[.\-\w]*)?", pr.get("title", ""))
 ]
 if rc_release_prs:
@@ -186,8 +206,9 @@ if rc_release_prs:
     )
     fail(f"open {base} release PR advertises an RC version: {details}")
 
-head_matches = [pr for pr in prs if pr.get("headRefName") == head]
-title_matches = [pr for pr in prs if pr.get("title") == expected_title]
+same_repo_prs = [pr for pr in prs if is_same_repository_pr(pr)]
+head_matches = [pr for pr in same_repo_prs if pr.get("headRefName") == head]
+title_matches = [pr for pr in same_repo_prs if pr.get("title") == expected_title]
 candidates = head_matches or title_matches
 if not candidates:
     fail(
@@ -221,15 +242,16 @@ candidate_number="$(cat "${candidate_number_file}")"
 
 gh pr view "${candidate_number}" \
   --repo "${repo}" \
-  --json number,title,headRefName,baseRefName,url,files,labels,body >"${details}"
+  --json number,title,headRefName,baseRefName,url,files,labels,body,headRepository,headRepositoryOwner,isCrossRepository >"${details}"
 
-python3 - "${details}" "${expected_version}" "${base}" "${head}" <<'PY'
+python3 - "${details}" "${expected_version}" "${base}" "${head}" "${repo}" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
-path, expected_version, base, head = sys.argv[1:5]
+path, expected_version, base, head, repo = sys.argv[1:6]
+owner, name = repo.split("/", 1)
 pr = json.loads(Path(path).read_text(encoding="utf-8"))
 expected_title = f"chore({base}): release {expected_version}"
 required_paths = {
@@ -246,6 +268,19 @@ def fail(message: str) -> None:
 
 if pr.get("baseRefName") != base:
     fail(f"PR #{pr.get('number')} base {pr.get('baseRefName')!r} != {base!r}")
+
+# Same-repository head ownership: the head branch name is not identity. A fork
+# PR named like the generated release branch must not be attested as the
+# same-repository generated release PR.
+if pr.get("isCrossRepository"):
+    fail(f"PR #{pr.get('number')} head is cross-repository; release PRs must be same-repository")
+
+head_owner = (pr.get("headRepositoryOwner") or {}).get("login")
+head_repo = (pr.get("headRepository") or {}).get("name")
+if head_owner != owner or head_repo != name:
+    fail(
+        f"PR #{pr.get('number')} head repository {head_owner!r}/{head_repo!r} != {owner!r}/{name!r}"
+    )
 
 if pr.get("headRefName") != head:
     fail(f"PR #{pr.get('number')} head {pr.get('headRefName')!r} != {head!r}")

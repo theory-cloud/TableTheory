@@ -31,8 +31,8 @@ jobs:
           trap cleanup EXIT
 
           if {
-            bash scripts/verify-branch-version-sync.sh
-            bash scripts/verify-release-cycle-state.sh
+            bash scripts/verify-branch-version-sync.sh &&
+              bash scripts/verify-release-cycle-state.sh
           } >"${strict_log}" 2>&1; then
             cat "${strict_log}"
             echo "pending_stable_repair=false" >> "${GITHUB_OUTPUT}"
@@ -41,9 +41,9 @@ jobs:
           fi
 
           if {
-            bash scripts/verify-branch-version-sync.sh
-            TABLETHEORY_PENDING_MAJOR_PREMAIN_CONTEXT=publication-skip \
-              bash scripts/verify-release-cycle-state.sh
+            bash scripts/verify-branch-version-sync.sh &&
+              TABLETHEORY_PENDING_MAJOR_PREMAIN_CONTEXT=publication-skip \
+                bash scripts/verify-release-cycle-state.sh
           } >"${pending_major_log}" 2>&1; then
             cat "${pending_major_log}"
             echo "prerelease: pending semantic import major accepted only to skip v2-numbered publication"

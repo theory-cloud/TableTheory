@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v4"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
 )
 
 // BaseModel represents common fields for a single-table design pattern
