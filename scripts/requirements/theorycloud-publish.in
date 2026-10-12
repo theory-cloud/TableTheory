@@ -4,4 +4,4 @@
 # sha256 hashes and is installed with `pip install --require-hashes
 # --only-binary=:all:` so no mutable PyPI dependency executes in the
 # privileged job.
-awscurl==0.34
+awscurl==0.44
