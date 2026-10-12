@@ -199,20 +199,31 @@ jobs:
           # which out-of-order publication can mis-rank, and not a draft, which
           # `--exclude-pre-releases` alone does not drop. `gh release list` also
           # truncates at --limit, so page the REST API until a short page ends the
-          # list. An empty result means nothing has been published yet (bootstrap);
-          # any API, JSON, or semver failure aborts here instead of passing an
-          # unchecked baseline downstream.
+          # list. Each page body is staged in a temp file and combined with
+          # `jq -s 'add'`, so a full 100-release page never travels as a process
+          # argument (a full page can exceed the Linux per-argument limit). An
+          # empty result means nothing has been published yet (bootstrap); any API,
+          # JSON, or semver failure aborts here instead of passing an unchecked
+          # baseline downstream.
+          page_dir="$(mktemp -d)"
+          cleanup_pages() {
+            rm -rf "${page_dir}"
+          }
+          trap cleanup_pages EXIT
+
           page=1
-          releases='[]'
+          page_files=()
           while :; do
-            body="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=${page}")"
-            jq -e 'type == "array"' <<<"${body}" >/dev/null
-            releases="$(jq -c --argjson page "${body}" '. + $page' <<<"${releases}")"
-            if (( $(jq -r 'length' <<<"${body}") < 100 )); then
+            body_file="${page_dir}/page-${page}.json"
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100&page=${page}" >"${body_file}"
+            jq -e 'type == "array"' "${body_file}" >/dev/null
+            page_files+=("${body_file}")
+            if (( $(jq -r 'length' "${body_file}") < 100 )); then
               break
             fi
             page=$((page + 1))
           done
+          releases="$(jq -sc 'add' "${page_files[@]}")"
           baseline="$(
             jq -er '
               [ .[] | select(.draft == false and .prerelease == false) | .tag_name ]
