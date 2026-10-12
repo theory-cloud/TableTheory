@@ -271,305 +271,11 @@ raise SystemExit(1)
 PY
 }
 
-write_v1_verifier_fixture() {
-  local root="$1"
-
-  mkdir -p "${root}/scripts"
-  cat >"${root}/scripts/verify-release-cycle-state.sh" <<'SH'
-#!/usr/bin/env bash
-required_files=(
-  "scripts/prepare-stable-promotion"".sh"
-  ".release-please-manifest.premain.json"
-  "py/src/theorydb_py/version.json"
-)
-SH
-  cat >"${root}/scripts/verify-branch-release-supply-chain.sh" <<'SH'
-#!/usr/bin/env bash
-require_fixed '.release-please-manifest.premain.json' "${p}" \
-  "prerelease workflow must reference .release-please-manifest.premain.json"
-require_regex '"path"\s*:\s*"py/src/theorydb_py/version\.json"' "${cfg}" \
-  "${cfg}: must bump py/src/theorydb_py/version.json version"
-SH
-}
-
-write_v2_verifier_fixture() {
-  local root="$1"
-
-  mkdir -p "${root}/scripts"
-  cat >"${root}/scripts/verify-release-cycle-state.sh" <<'SH'
-#!/usr/bin/env bash
-required_files=(
-  "scripts/prepare-release-package-versions.py"
-  "py/src/tabletheory_py/version.json"
-  "scripts/verify-go-semantic-import-version.sh"
-)
-SH
-  cat >"${root}/scripts/verify-branch-release-supply-chain.sh" <<'SH'
-#!/usr/bin/env bash
-required_files=(
-  "scripts/prepare-release-package-versions.py"
-  "scripts/verify-go-semantic-import-version.sh"
-)
-require_fixed "manifest-file:\s*\.release-please-manifest\.json" "${p}" \
-  "prerelease workflow must reference the single release-please manifest"
-require_fixed "-rc(\\.[0-9]+)?" "${provenance}" \
-  "release-lane provenance guard must accept release-please first RC and numbered later RC PR titles"
-require_fixed "-rc(?:\\.\\d+)?" "${prerelease_postcondition}" \
-  "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"
-require_regex 'googleapis/release-please-action@[0-9a-fA-F]{40}.*\bv5\b' "${p}" \
-  "prerelease workflow must pin release-please v5 by commit SHA"
-require_fixed "release-hygiene must run the promotion driver from the resolved verifier source" "${h}" \
-  "release-hygiene supply-chain verifier must require resolved promotion verifier source"
-require_fixed "scripts/create-stable-release-pr.py" "${rp}" \
-  "release-pr workflow must create the stable Release PR deterministically"
-forbid_fixed "merge_group:" "${h}" \
-  "release-hygiene must not use the prohibited merge-queue event"
-require_fixed 'node-version: "22"' "${q}" \
-  "quality-gates must cover Node 22 before staging merge"
-require_fixed "Run Node 22 pre-merge compatibility" "${q}" \
-  "quality-gates must name the Node 22 pre-merge compatibility step"
-# TACTICAL (replaced-by-wave): materialization fidelity fixture marker.
-SH
-  cat >"${root}/scripts/verify-promotion-release-driver.sh" <<'SH'
-#!/usr/bin/env bash
-echo "manifest-derived stable Release-As"
-echo "newest Release-As footer wins"
-SH
-  cat >"${root}/scripts/verify-go-semantic-import-version.sh" <<'SH'
-#!/usr/bin/env bash
-echo "go-semantic-import: PASS (pending-major-transition=2->3)"
-SH
-}
-
-write_v2_node20_verifier_fixture() {
-  local root="$1"
-
-  write_v2_verifier_fixture "${root}"
-  sed -i 's/Node 22/Node 20/g; s/node-version: "22"/node-version: "20"/g' \
-    "${root}/scripts/verify-branch-release-supply-chain.sh"
-}
-
-write_v2_pre_pending_major_transition_verifier_fixture() {
-  local root="$1"
-
-  write_v2_verifier_fixture "${root}"
-  cat >"${root}/scripts/verify-go-semantic-import-version.sh" <<'SH'
-#!/usr/bin/env bash
-echo "go-semantic-import: PASS"
-SH
-}
-
-write_v2_pre_release_as_supersession_verifier_fixture() {
-  local root="$1"
-
-  write_v2_verifier_fixture "${root}"
-  sed -i '/newest Release-As footer wins/d' \
-    "${root}/scripts/verify-promotion-release-driver.sh"
-}
-
-write_v2_merge_queue_verifier_fixture() {
-  local root="$1"
-
-  write_v2_verifier_fixture "${root}"
-  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-text = text.replace(
-    'forbid_fixed "merge_group:" "${h}" \\\n'
-    '  "release-hygiene must not use the prohibited merge-queue event"\n',
-    'require_fixed "merge_group:" "${h}" \\\n'
-    '  "release-hygiene must run on merge_group for premain/main queues"\n',
-)
-path.write_text(text, encoding="utf-8")
-PY
-}
-
-write_v2_legacy_promotion_source_verifier_fixture() {
-  local root="$1"
-
-  write_v2_verifier_fixture "${root}"
-  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-text = text.replace(
-    'require_fixed "release-hygiene must run the promotion driver from the resolved verifier source" "${h}" \\\n'
-    '  "release-hygiene supply-chain verifier must require resolved promotion verifier source"\n',
-    "",
-)
-path.write_text(text, encoding="utf-8")
-PY
-}
-
-write_v2_release_please_v4_verifier_fixture() {
-  local root="$1"
-
-  write_v2_verifier_fixture "${root}"
-  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-text = text.replace(r"\bv5\b", r"\bv4\b")
-text = text.replace("release-please v5", "release-please v4")
-path.write_text(text, encoding="utf-8")
-PY
-}
-
-write_v2_numbered_rc_verifier_fixture() {
-  local root="$1"
-
-  write_v2_verifier_fixture "${root}"
-  cat >>"${root}/scripts/verify-branch-release-supply-chain.sh" <<'SH'
-require_fixed "-rc\.[0-9]+" "${provenance}" \
-  "release-lane provenance guard must require numbered RC release-please PR titles"
-require_fixed "-rc\\.\\d+" "${prerelease_postcondition}" \
-  "prerelease PR postcondition must require numbered RC version syntax"
-SH
-  python3 - "${root}/scripts/verify-branch-release-supply-chain.sh" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-text = text.replace(
-    'require_fixed "-rc(\\\\.[0-9]+)?" "${provenance}" \\\n'
-    '  "release-lane provenance guard must accept release-please first RC and numbered later RC PR titles"\n',
-    "",
-)
-text = text.replace(
-    'require_fixed "-rc(?:\\\\.\\\\d+)?" "${prerelease_postcondition}" \\\n'
-    '  "prerelease PR postcondition must accept release-please first RC and numbered later RC version syntax"\n',
-    "",
-)
-path.write_text(text, encoding="utf-8")
-PY
-}
-
-run_verifier_source_selector_fixture() {
-  local trusted_shape="$1"
-  local head_shape="$2"
-  local base_ref="$3"
-  local head_ref="$4"
-  local base_repo="$5"
-  local head_repo="$6"
-
-  local fixture
-  fixture="$(mktemp -d)"
-  tmpdirs+=("${fixture}")
-
-  mkdir -p "${fixture}/trusted-release" "${fixture}/pr"
-  case "${trusted_shape}" in
-    v1) write_v1_verifier_fixture "${fixture}/trusted-release" ;;
-    v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/trusted-release" ;;
-    v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/trusted-release" ;;
-    v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/trusted-release" ;;
-    v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/trusted-release" ;;
-    v2-pre-pending-major-transition) write_v2_pre_pending_major_transition_verifier_fixture "${fixture}/trusted-release" ;;
-    v2-pre-release-as-supersession) write_v2_pre_release_as_supersession_verifier_fixture "${fixture}/trusted-release" ;;
-    v2-node20) write_v2_node20_verifier_fixture "${fixture}/trusted-release" ;;
-    v2) write_v2_verifier_fixture "${fixture}/trusted-release" ;;
-    *) echo "release-hygiene-policy-test: unknown trusted fixture ${trusted_shape}" >&2; exit 1 ;;
-  esac
-  case "${head_shape}" in
-    v1) write_v1_verifier_fixture "${fixture}/pr" ;;
-    v2-release-please-v4) write_v2_release_please_v4_verifier_fixture "${fixture}/pr" ;;
-    v2-numbered-rc) write_v2_numbered_rc_verifier_fixture "${fixture}/pr" ;;
-    v2-legacy-promotion-source) write_v2_legacy_promotion_source_verifier_fixture "${fixture}/pr" ;;
-    v2-merge-queue) write_v2_merge_queue_verifier_fixture "${fixture}/pr" ;;
-    v2-pre-pending-major-transition) write_v2_pre_pending_major_transition_verifier_fixture "${fixture}/pr" ;;
-    v2-pre-release-as-supersession) write_v2_pre_release_as_supersession_verifier_fixture "${fixture}/pr" ;;
-    v2-node20) write_v2_node20_verifier_fixture "${fixture}/pr" ;;
-    v2) write_v2_verifier_fixture "${fixture}/pr" ;;
-    *) echo "release-hygiene-policy-test: unknown head fixture ${head_shape}" >&2; exit 1 ;;
-  esac
-
-  local selector_script="${fixture}/selector.sh"
-  extract_workflow_step_run "Resolve release verifier source" >"${selector_script}"
-
-  local output_file="${fixture}/selector.out"
-  local github_output="${fixture}/github-output"
-  set +e
-  (
-    cd "${fixture}/pr"
-    env \
-      BASE_REF="${base_ref}" \
-      HEAD_REF="${head_ref}" \
-      BASE_REPOSITORY="${base_repo}" \
-      HEAD_REPOSITORY="${head_repo}" \
-      EXPECTED_REPOSITORY="${repo}" \
-      GITHUB_OUTPUT="${github_output}" \
-      bash "${selector_script}"
-  ) >"${output_file}" 2>&1
-  local status=$?
-  set -e
-
-  printf '%s\n' "${output_file}:${github_output}:${status}"
-}
-
-assert_selector_result() {
-  local output_pair="$1"
-  local expected_root="$2"
-  local expected_label="$3"
-  local expected_output="$4"
-
-  local output_file="${output_pair%%:*}"
-  local remainder="${output_pair#*:}"
-  local github_output="${remainder%%:*}"
-  local status="${remainder#*:}"
-
-  if [[ "${status}" -ne 0 ]]; then
-    cat "${output_file}"
-    echo "release-hygiene-policy-test: selector expected success, got ${status}"
-    exit 1
-  fi
-
-  if ! grep -Fxq "root=${expected_root}" "${github_output}"; then
-    cat "${output_file}"
-    cat "${github_output}"
-    echo "release-hygiene-policy-test: selector root mismatch; expected ${expected_root}"
-    exit 1
-  fi
-  if ! grep -Fxq "label=${expected_label}" "${github_output}"; then
-    cat "${output_file}"
-    cat "${github_output}"
-    echo "release-hygiene-policy-test: selector label mismatch; expected ${expected_label}"
-    exit 1
-  fi
-  if ! grep -Fq "${expected_output}" "${output_file}"; then
-    cat "${output_file}"
-    echo "release-hygiene-policy-test: selector output missing: ${expected_output}"
-    exit 1
-  fi
-}
-
-assert_selector_failure() {
-  local output_pair="$1"
-  local expected_output="$2"
-
-  local output_file="${output_pair%%:*}"
-  local remainder="${output_pair#*:}"
-  local github_output="${remainder%%:*}"
-  local status="${remainder#*:}"
-
-  if [[ "${status}" -eq 0 ]]; then
-    cat "${output_file}"
-    cat "${github_output}"
-    echo "release-hygiene-policy-test: selector expected failure"
-    exit 1
-  fi
-  if ! grep -Fq "${expected_output}" "${output_file}"; then
-    cat "${output_file}"
-    echo "release-hygiene-policy-test: selector failure output missing: ${expected_output}"
-    exit 1
-  fi
-}
+# The retired trusted-base verifier-source selector and its capability-marker
+# fixtures were removed with the single-source gate (operator ruling
+# 2026-10-12). Their behavioral coverage now lives in the direct
+# provenance/promotion-driver/release-cycle-state/release-baseline fixtures
+# below, and in the single-source structural assertions at the end of this file.
 
 common_args=(
   --repo "${repo}"
@@ -1498,8 +1204,8 @@ if grep -Fq -- "--queue-freshness" "${repo_root}/scripts/verify-release-lane-pro
   exit 1
 fi
 
-grep -Fq 'bash trusted-release/scripts/verify-release-lane-provenance.sh "${provenance_args[@]}"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: release hygiene must run strict trusted-base provenance"
+grep -Fq 'bash scripts/verify-release-lane-provenance.sh "${provenance_args[@]}"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release hygiene must run same-repository provenance from the single head checkout"
   exit 1
 }
 
@@ -1508,240 +1214,116 @@ grep -Fq "does not match same-repository refs/heads" "${repo_root}/scripts/verif
   exit 1
 }
 
-grep -Fq "Resolve release verifier source" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: release hygiene must resolve verifier source for PR checks"
+# Single-source gate (operator ruling 2026-10-12). Every check executes from ONE
+# checkout of the promoted head; the retired verifier-source selector, its
+# capability-marker negotiation, and the base-SHA second checkout are gone. Each
+# trusted-base assertion below is replaced by an exact head invocation, a
+# structural single-source prohibition, or a direct fixture against the real
+# verifier that the selector used to feature-negotiate.
+hygiene_workflow="${repo_root}/.github/workflows/release-hygiene.yml"
+
+# Replaces the "Resolve release verifier source" presence check: there is no
+# verifier source to resolve any more.
+if grep -Fq "Resolve release verifier source" "${hygiene_workflow}"; then
+  echo "release-hygiene-policy-test: the release verifier source selector must be removed"
   exit 1
-}
+fi
 
-grep -Fq "newest Release-As footer wins" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect Release-As supersession support"
-  exit 1
-}
-
-grep -Fq "trusted base lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must document every trusted-base feature-detection reason"
-  exit 1
-}
-
-grep -Fq "scripts/prepare-release-package-versions.py" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect the v2 package-version marker"
-  exit 1
-}
-
-grep -Fq "single release-please manifest" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect the v2 single-manifest marker"
-  exit 1
-}
-
-grep -Fq "accept release-please first RC and numbered later RC PR titles" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect the RC-first PR-title marker"
-  exit 1
-}
-
-grep -Fq "accept release-please first RC and numbered later RC version syntax" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect the RC-first version marker"
-  exit 1
-}
-
-grep -Fq "release-please v5" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect the release-please-action v5 policy marker"
-  exit 1
-}
-
-
-grep -Fq "scripts/create-stable-release-pr.py" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect the deterministic stable Release PR marker"
-  exit 1
-}
-
-grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-release-cycle-state.sh"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: release-cycle state must use the resolved verifier source"
-  exit 1
-}
-
-grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-branch-release-supply-chain.sh"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: branch release supply-chain must use the resolved verifier source"
-  exit 1
-}
-
-grep -Fq 'bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh"' "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: promotion driver must use the resolved verifier source"
-  exit 1
-}
-
-grep -Fq "manifest-derived stable Release-As" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect the manifest-derived stable promotion marker"
-  exit 1
-}
-
-grep -Fq "resolved promotion-driver supply-chain marker" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect the resolved promotion-driver supply-chain marker"
-  exit 1
-}
-
-grep -Fq "direct protected-PR verifier marker" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must detect direct protected-PR support"
-  exit 1
-}
-
-grep -Fq "pending-major-transition" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: verifier selector must feature-detect pending major transition support"
-  exit 1
-}
-
-# R3/9c3b9371: the release verifier source is always the trusted base. The PR
-# head is never executed as required-check authority, for any head shape.
-
-# Positive controls: a trusted base that carries the current capability markers
-# is the single deterministic verifier source for both protected promotion lanes.
-for lane in "premain staging" "main premain"; do
-  read -r selector_base selector_head <<<"${lane}"
-  selector_result="$(
-    run_verifier_source_selector_fixture \
-      v2 v2 "${selector_base}" "${selector_head}" "${repo}" "${repo}"
-  )"
-  assert_selector_result "${selector_result}" "../trusted-release" "trusted-base" \
-    "trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, and AGENTS.md materialization-aware verifier markers"
+# Replaces the trusted-base capability-marker probes ("newest Release-As footer
+# wins", "v2 single-manifest", "RC-first PR titles/versions", "release-please
+# v5", "deterministic stable Release PR", "direct protected-PR", "Go semantic
+# import", "pending-major-transition"). Each capability is now verified by the
+# real verifier the workflow runs from the head checkout, and by the direct
+# fixtures in this file, instead of by marker strings in a trusted base.
+for marker_negotiation in \
+  "release-verifier-source:" \
+  "collect_v2_marker_reasons" \
+  "newest Release-As footer wins" \
+  "trusted base lacks v2 single-manifest" \
+  "single release-please manifest" \
+  "accept release-please first RC and numbered later RC PR titles" \
+  "accept release-please first RC and numbered later RC version syntax" \
+  "release-please v5" \
+  "manifest-derived stable Release-As" \
+  "resolved promotion-driver supply-chain marker" \
+  "deterministic stable Release PR marker" \
+  "direct protected-PR verifier marker" \
+  "Go semantic import verifier marker" \
+  "Go semantic import supply-chain marker" \
+  "pending-major-transition"; do
+  if grep -Fq -- "${marker_negotiation}" "${hygiene_workflow}"; then
+    echo "release-hygiene-policy-test: release hygiene must not negotiate verifier capability markers (${marker_negotiation})"
+    exit 1
+  fi
 done
 
-# R3: the head shape is irrelevant. A head that carries the marker strings (or an
-# arbitrary command, or nothing) never becomes the verifier source.
-for head_shape in v1 v2 v2-node20 v2-numbered-rc v2-merge-queue; do
-  selector_result="$(
-    run_verifier_source_selector_fixture \
-      v2 "${head_shape}" premain staging "${repo}" "${repo}"
-  )"
-  assert_selector_result "${selector_result}" "../trusted-release" "trusted-base" \
-    "trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, and AGENTS.md materialization-aware verifier markers"
+# Replaces the VERIFIER_ROOT/VERIFIER_LABEL invocations and source-log pins: every
+# verifier now runs from the single head checkout by plain relative path.
+grep -Fq 'bash scripts/verify-release-cycle-state.sh' "${hygiene_workflow}" || {
+  echo "release-hygiene-policy-test: release-cycle state must run from the single head checkout"
+  exit 1
+}
+
+grep -Fq 'bash scripts/verify-branch-release-supply-chain.sh' "${hygiene_workflow}" || {
+  echo "release-hygiene-policy-test: branch release supply-chain must run from the single head checkout"
+  exit 1
+}
+
+grep -Fq 'bash scripts/verify-promotion-release-driver.sh' "${hygiene_workflow}" || {
+  echo "release-hygiene-policy-test: promotion driver must run from the single head checkout"
+  exit 1
+}
+
+grep -Fq 'bash scripts/verify-main-release-pr-postcondition.sh' "${hygiene_workflow}" || {
+  echo "release-hygiene-policy-test: the main RC postcondition must run from the single head checkout"
+  exit 1
+}
+
+# Replaces the trusted-base checkout pins: exactly one checkout, of the promoted
+# head, without persisted credentials, and nothing from a second checkout.
+checkout_count="$(grep -Fc 'uses: actions/checkout@' "${hygiene_workflow}")"
+if [[ "${checkout_count}" -ne 1 ]]; then
+  echo "release-hygiene-policy-test: release hygiene must perform exactly one checkout (found ${checkout_count})"
+  exit 1
+fi
+
+grep -Fq "github.event.pull_request.head.sha" "${hygiene_workflow}" || {
+  echo "release-hygiene-policy-test: the single checkout must use the exact PR head SHA"
+  exit 1
+}
+
+grep -Fq "persist-credentials: false" "${hygiene_workflow}" || {
+  echo "release-hygiene-policy-test: the single checkout must not persist credentials"
+  exit 1
+}
+
+# Replaces the R3 selector/no-op/hostile-head probe fixtures: no second checkout,
+# no verifier-source indirection, no PR-head-relative verifier path, and no
+# fail-closed "base lacks markers" branch may exist anywhere in the workflow.
+for single_source_violation in \
+  "trusted-release" \
+  "path: pr" \
+  "VERIFIER_ROOT" \
+  "VERIFIER_LABEL" \
+  "protected-pr-head-v2" \
+  "land the verifier update on" \
+  'verifier_root="."' \
+  "root=\${trusted_root}" \
+  "label=trusted-base"; do
+  if grep -Fq -- "${single_source_violation}" "${hygiene_workflow}"; then
+    echo "release-hygiene-policy-test: release hygiene must be a single-source gate (${single_source_violation})"
+    exit 1
+  fi
 done
 
-# R3: a marker-only/no-op PR-head verifier carries the marker strings but does
-# no work; it is never the verifier source either.
-noop_fixture="$(mktemp -d)"
-tmpdirs+=("${noop_fixture}")
-mkdir -p "${noop_fixture}/trusted-release" "${noop_fixture}/pr/scripts"
-write_v2_verifier_fixture "${noop_fixture}/trusted-release"
-cat >"${noop_fixture}/pr/scripts/verify-release-cycle-state.sh" <<'SH'
-#!/usr/bin/env bash
-# Marker strings present; no verification performed.
-: "scripts/prepare-release-package-versions.py"
-: "py/src/tabletheory_py/version.json"
-: "scripts/verify-go-semantic-import-version.sh"
-SH
-noop_selector="${noop_fixture}/selector.sh"
-extract_workflow_step_run "Resolve release verifier source" >"${noop_selector}"
-noop_selector_out="${noop_fixture}/selector.out"
-noop_gh_output="${noop_fixture}/github-output"
-set +e
-(
-  cd "${noop_fixture}/pr"
-  env BASE_REF=premain GITHUB_OUTPUT="${noop_gh_output}" bash "${noop_selector}"
-) >"${noop_selector_out}" 2>&1
-noop_status=$?
-set -e
-if [[ "${noop_status}" -ne 0 ]]; then
-  cat "${noop_selector_out}"
-  echo "release-hygiene-policy-test: selector must succeed when the trusted base can evaluate the proposal"
-  exit 1
-fi
-grep -Fxq "root=../trusted-release" "${noop_gh_output}" || {
-  cat "${noop_selector_out}"
-  cat "${noop_gh_output}"
-  echo "release-hygiene-policy-test: a marker-only/no-op PR head must not become the verifier source"
-  exit 1
-}
-grep -Fxq "label=trusted-base" "${noop_gh_output}" || {
-  cat "${noop_selector_out}"
-  cat "${noop_gh_output}"
-  echo "release-hygiene-policy-test: a marker-only/no-op PR head must not become the verifier source"
+# The workflow documents the ruled trust-model change in plain terms.
+grep -Fq "Single-source gate (operator ruling 2026-10-12)" "${hygiene_workflow}" || {
+  echo "release-hygiene-policy-test: release hygiene must document the single-source trust model"
   exit 1
 }
 
-# R3: when the trusted base cannot evaluate the proposal, the selector fails
-# closed. It must never fall back to executing PR-head verifier scripts.
-for trusted_shape in \
-  v1 \
-  v2-node20 \
-  v2-numbered-rc \
-  v2-merge-queue \
-  v2-pre-pending-major-transition \
-  v2-pre-release-as-supersession \
-  v2-legacy-promotion-source \
-  v2-release-please-v4; do
-  selector_result="$(
-    run_verifier_source_selector_fixture \
-      "${trusted_shape}" v2 premain staging "${repo}" "${repo}"
-  )"
-  assert_selector_failure "${selector_result}" \
-    "trusted base lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support"
-done
-
-# R3: a marker-only/no-op or arbitrary-command PR-head verifier must never run.
-# Build a hostile head, resolve the verifier source, then run the resolved
-# verifier exactly as the workflow does.
-probe_fixture="$(mktemp -d)"
-tmpdirs+=("${probe_fixture}")
-mkdir -p "${probe_fixture}/trusted-release" "${probe_fixture}/pr"
-write_v2_verifier_fixture "${probe_fixture}/trusted-release"
-cat >>"${probe_fixture}/trusted-release/scripts/verify-release-cycle-state.sh" <<'SH'
-echo "trusted-base-probe: EXECUTED"
-SH
-cp -R "${probe_fixture}/trusted-release/." "${probe_fixture}/pr/"
-probe_sentinel="${probe_fixture}/pr-head-executed"
-cat >"${probe_fixture}/pr/scripts/verify-release-cycle-state.sh" <<SH
-#!/usr/bin/env bash
-set -euo pipefail
-: "scripts/prepare-release-package-versions.py"
-: "py/src/tabletheory_py/version.json"
-: "scripts/verify-go-semantic-import-version.sh"
-echo "pr-head-probe: EXECUTED"
-touch "${probe_sentinel}"
-SH
-probe_selector="${probe_fixture}/selector.sh"
-extract_workflow_step_run "Resolve release verifier source" >"${probe_selector}"
-probe_selector_out="${probe_fixture}/selector.out"
-probe_gh_output="${probe_fixture}/github-output"
-set +e
-(
-  cd "${probe_fixture}/pr"
-  env BASE_REF=premain GITHUB_OUTPUT="${probe_gh_output}" bash "${probe_selector}"
-) >"${probe_selector_out}" 2>&1
-probe_status=$?
-set -e
-if [[ "${probe_status}" -ne 0 ]]; then
-  cat "${probe_selector_out}"
-  echo "release-hygiene-policy-test: selector must succeed when the trusted base can evaluate the proposal"
-  exit 1
-fi
-grep -Fxq "root=../trusted-release" "${probe_gh_output}" || {
-  cat "${probe_selector_out}"
-  cat "${probe_gh_output}"
-  echo "release-hygiene-policy-test: selector must resolve to the trusted base, not the PR head"
-  exit 1
-}
-probe_verifier_root="$(sed -n 's/^root=//p' "${probe_gh_output}")"
-probe_run_out="${probe_fixture}/run.out"
-(
-  cd "${probe_fixture}/pr"
-  bash "${probe_verifier_root}/scripts/verify-release-cycle-state.sh"
-) >"${probe_run_out}" 2>&1
-grep -Fq "trusted-base-probe: EXECUTED" "${probe_run_out}" || {
-  cat "${probe_run_out}"
-  echo "release-hygiene-policy-test: the deterministic path must run the trusted-base verifier"
-  exit 1
-}
-if grep -Fq "pr-head-probe: EXECUTED" "${probe_run_out}"; then
-  cat "${probe_run_out}"
-  echo "release-hygiene-policy-test: a PR-head verifier script must never execute"
-  exit 1
-fi
-if [[ -e "${probe_sentinel}" ]]; then
-  echo "release-hygiene-policy-test: a PR-head verifier side effect must never run"
-  exit 1
-fi
-
-grep -Fq "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: promotion driver must log the selected verifier source"
+grep -Fq "PR #681" "${hygiene_workflow}" || {
+  echo "release-hygiene-policy-test: release hygiene must record why the trusted-base design was replaced"
   exit 1
 }
 
@@ -1767,40 +1349,14 @@ grep -Fq "name: Verify release-lane same-repository provenance" "${repo_root}/.g
   exit 1
 }
 
-# R3/9c3b9371: no PR-head verifier source may exist in the workflow.
-if grep -Fq "protected-pr-head-v2" "${repo_root}/.github/workflows/release-hygiene.yml"; then
-  echo "release-hygiene-policy-test: the workflow must not label a PR-head verifier source"
-  exit 1
-fi
-
-if grep -Fq 'verifier_root="."' "${repo_root}/.github/workflows/release-hygiene.yml"; then
-  echo "release-hygiene-policy-test: the workflow must never point the verifier at the PR head"
-  exit 1
-fi
-
-grep -Fq 'root=${trusted_root}' "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: the workflow must always emit the trusted-base verifier root"
-  exit 1
-}
-
-grep -Fq "label=trusted-base" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: the workflow must always emit the trusted-base verifier label"
-  exit 1
-}
-
-grep -Fq "land the verifier update on" "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: the workflow must fail closed when the trusted base cannot evaluate the proposal"
-  exit 1
-}
-
 # R2/5d26307c: the provenance guard itself must reject the retired bootstrap prefix.
 grep -Fq "bootstrap branch prefixes are retired" "${repo_root}/scripts/verify-release-lane-provenance.sh" || {
   echo "release-hygiene-policy-test: provenance must reject the retired bootstrap branch prefix"
   exit 1
 }
 
-grep -Fq 'RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr' "${repo_root}/.github/workflows/release-hygiene.yml" || {
-  echo "release-hygiene-policy-test: release cycle state must validate the checked-out PR head"
+grep -Fq 'RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}' "${repo_root}/.github/workflows/release-hygiene.yml" || {
+  echo "release-hygiene-policy-test: release cycle state must validate the single head checkout"
   exit 1
 }
 

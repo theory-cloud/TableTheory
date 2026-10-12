@@ -202,14 +202,21 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must target premain and main PRs"
   forbid_fixed "merge_group:" "${h}" \
     "release-hygiene must not use the prohibited merge-queue event"
-  require_fixed "trusted-release/scripts/verify-release-lane-provenance.sh" "${h}" \
-    "release-hygiene must verify release-lane same-repository provenance from trusted scripts"
+  # Single-source gate (operator ruling 2026-10-12): every check in the workflow
+  # executes from ONE checkout of the promoted head. The retired base-SHA second
+  # checkout, the verifier-source selector, and its marker negotiation must not
+  # come back, so the workflow can no longer be blocked by an older base-branch
+  # copy of its own verifiers.
+  require_fixed "scripts/verify-release-lane-provenance.sh" "${h}" \
+    "release-hygiene must verify release-lane same-repository provenance"
+  forbid_fixed "trusted-release" "${h}" \
+    "release-hygiene must not reintroduce the retired second checkout"
+  forbid_fixed "VERIFIER_ROOT" "${h}" \
+    "release-hygiene must not reintroduce verifier-source indirection"
   forbid_fixed "--queue-freshness" "${h}" \
     "release-hygiene must not bypass strict live-ref freshness"
-  require_fixed "github.event.pull_request.base.sha" "${h}" \
-    "release-hygiene must check out trusted release scripts from the PR base SHA"
   require_fixed "github.event.pull_request.head.sha" "${h}" \
-    "release-hygiene must check out the PR head by exact SHA after provenance verification"
+    "release-hygiene must check out the PR head by exact SHA"
   require_fixed "persist-credentials: false" "${h}" \
     "release-hygiene checkouts must not persist GitHub credentials"
   require_fixed 'HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}' "${h}" \
@@ -222,8 +229,8 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must explicitly gate generated main release-please PRs"
   require_fixed "scripts/verify-release-cycle-state.sh" "${h}" \
     "release-hygiene must verify release-cycle state"
-  require_fixed 'RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr' "${h}" \
-    "release-hygiene must point trusted release-cycle verifier at the checked-out PR head"
+  require_fixed 'RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}' "${h}" \
+    "release-hygiene must point the release-cycle verifier at the single head checkout"
   require_fixed "RELEASE_CYCLE_REPO_ROOT" "scripts/verify-release-cycle-state.sh" \
     "release-cycle-state verifier must support an explicit target repo root"
   require_fixed "scripts/verify-branch-release-supply-chain.sh" "${h}" \
@@ -232,28 +239,12 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must forbid RC-shaped main Release PRs"
   require_fixed "scripts/verify-promotion-release-driver.sh" "${h}" \
     "release-hygiene must verify human promotion release drivers"
-  require_fixed "manifest-derived stable Release-As" "${h}" \
-    "release-hygiene verifier selector must detect manifest-derived stable promotion driver support"
-  require_fixed "resolved promotion-driver supply-chain marker" "${h}" \
-    "release-hygiene verifier selector must detect resolved promotion-driver supply-chain support"
-  require_fixed "deterministic stable Release PR marker" "${h}" \
-    "release-hygiene verifier selector must detect deterministic stable Release PR support"
-  require_fixed "direct protected-PR verifier marker" "${h}" \
-    "release-hygiene verifier selector must detect direct protected-PR support"
-  require_fixed "Go semantic import verifier marker" "${h}" \
-    "release-hygiene verifier selector must detect Go semantic import verifier support"
-  require_fixed "Go semantic import supply-chain marker" "${h}" \
-    "release-hygiene verifier selector must detect Go semantic import supply-chain support"
-  require_fixed "pending-major-transition support marker" "${h}" \
-    "release-hygiene verifier selector must detect pending major transition support"
   require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
     "release-hygiene must run the release driver guard on staging -> premain PRs"
   require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \
     "release-hygiene must run the release driver guard on premain -> main PRs"
-  require_fixed 'bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh"' "${h}" \
-    "release-hygiene must run the promotion driver from the resolved verifier source"
-  require_fixed "promotion-release-driver: using \${VERIFIER_LABEL} verifier source" "${h}" \
-    "release-hygiene must log the promotion-driver verifier source"
+  require_fixed "bash scripts/verify-promotion-release-driver.sh" "${h}" \
+    "release-hygiene must run the promotion driver from the head checkout"
   require_fixed "github.event_name == 'workflow_dispatch'" "${h}" \
     "release-hygiene must retain read-only manual dispatch validation"
   if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${h}"; then

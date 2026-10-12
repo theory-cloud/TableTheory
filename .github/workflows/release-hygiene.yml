@@ -1,5 +1,30 @@
 name: Release Hygiene
 
+# Single-source gate (operator ruling 2026-10-12).
+#
+# Every check in this workflow executes from ONE checkout of the promoted head:
+# github.event.pull_request.head.sha for pull requests, the dispatch ref for
+# workflow_dispatch. There is no second checkout and no verifier-source
+# negotiation; the gate code rides with the head being promoted.
+#
+# Why: this workflow previously ran provenance from a checkout pinned to the PR
+# base SHA and then feature-negotiated the remaining verifiers against
+# capability markers in that base checkout. That design deadlocked on its own
+# verifier upgrade on 2026-10-12 (PR #681, staging -> premain): the workflow ran
+# from the PR head while executing verifiers from the base checkout, whose older
+# scripts did not accept the arguments the head workflow passed
+# (`--published-baseline`), and the base branch could only receive the newer
+# scripts through the very promotion that was blocked. A gate must never be able
+# to block the change that fixes it.
+#
+# Trust-model change, stated plainly: the trusted source of this workflow's code
+# is the promoted head instead of the base branch. Controls against gate
+# weakening therefore live outside this file: branch protection on `premain` and
+# `main` (required status checks, required review, no direct pushes, no merge
+# queue), the mandatory human review on every promotion PR, and the visible CI
+# on every `staging` PR, which runs this same verifier suite from the head before
+# promotion. Nothing here is advisory: every step fails closed.
+
 on:
   pull_request:
     branches: ["premain", "main"]
@@ -13,12 +38,10 @@ jobs:
   hygiene:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout trusted release scripts
-        if: github.event_name == 'pull_request'
+      - name: Checkout release hygiene source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: trusted-release
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
           persist-credentials: false
 
       - name: Verify release-lane same-repository provenance
@@ -49,21 +72,7 @@ jobs:
             --title "${PR_TITLE}"
           )
 
-          bash trusted-release/scripts/verify-release-lane-provenance.sh "${provenance_args[@]}"
-
-      - name: Checkout pull request head after provenance verification
-        if: github.event_name == 'pull_request'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: pr
-          persist-credentials: false
-
-      - name: Checkout workflow dispatch ref
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+          bash scripts/verify-release-lane-provenance.sh "${provenance_args[@]}"
 
       - name: Resolve release hygiene target branch
         if: github.event_name == 'workflow_dispatch'
@@ -82,107 +91,6 @@ jobs:
           esac
 
           echo "branch=${target}" >> "${GITHUB_OUTPUT}"
-
-      - name: Resolve release verifier source
-        if: github.event_name == 'pull_request'
-        id: verifier-source
-        working-directory: pr
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-
-          # Release-hygiene authority is the trusted base only. A branch prefix,
-          # comment, or marker-string scaffold must never turn contributor-run
-          # code into required-check authority, so the PR head is never used as a
-          # verifier source. When the trusted base cannot evaluate the proposal,
-          # fail closed instead of falling back to the PR head.
-          trusted_root="../trusted-release"
-
-          add_v2_marker_reason() {
-            local root="$1"
-            local path="$2"
-            local marker="$3"
-            local description="$4"
-            local -n reasons_ref="$5"
-
-            if [[ ! -f "${root}/${path}" ]]; then
-              reasons_ref+=("missing ${path}")
-              return
-            fi
-            if ! grep -Fq -- "${marker}" "${root}/${path}"; then
-              reasons_ref+=("${path} lacks ${description}")
-            fi
-          }
-
-          collect_v2_marker_reasons() {
-            local root="$1"
-            local reasons_name="$2"
-            local -n reasons_ref="${reasons_name}"
-            reasons_ref=()
-
-            # These markers distinguish the current single-manifest release lane from
-            # older trusted verifier shapes that either required the retired premain
-            # manifest/helper/Python path, still assumed numbered-only RC syntax,
-            # had not moved the release-please-action policy from v4 to v5, or still
-            # enforced the retired merge-queue lane or Node 20 compatibility floor.
-            add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
-              "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
-              "py/src/tabletheory_py/version.json" "canonical Python version marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-release-cycle-state.sh" \
-              "scripts/verify-go-semantic-import-version.sh" "Go semantic import verifier marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-go-semantic-import-version.sh" \
-              "pending-major-transition" "pending-major-transition support marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "scripts/prepare-release-package-versions.py" "package-version stamping marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "scripts/verify-go-semantic-import-version.sh" "Go semantic import supply-chain marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "single release-please manifest" "single-manifest policy marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "accept release-please first RC and numbered later RC PR titles" "release-please first-RC PR-title marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "accept release-please first RC and numbered later RC version syntax" "release-please first-RC version marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "release-please v5" "release-please-action v5 policy marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-promotion-release-driver.sh" \
-              "manifest-derived stable Release-As" "manifest-derived stable promotion marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-promotion-release-driver.sh" \
-              "newest Release-As footer wins" "Release-As supersession marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "release-hygiene must run the promotion driver from the resolved verifier source" \
-              "resolved promotion-driver supply-chain marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "scripts/create-stable-release-pr.py" \
-              "deterministic stable Release PR marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "must not use the prohibited merge-queue event" \
-              "direct protected-PR verifier marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "require_fixed 'node-version: \"22\"'" "Node 22 compatibility policy marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              'require_fixed "Run Node 22 pre-merge compatibility"' "Node 22 compatibility step marker" "${reasons_name}"
-            add_v2_marker_reason "${root}" "scripts/verify-branch-release-supply-chain.sh" \
-              "replaced-by-wave" \
-              "AGENTS.md materialization-aware verifier marker" "${reasons_name}"
-          }
-
-          trusted_reasons=()
-          collect_v2_marker_reasons "${trusted_root}" trusted_reasons
-
-          if [[ "${#trusted_reasons[@]}" -ne 0 ]]; then
-            printf 'release-verifier-source: FAIL (trusted base lacks v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, or AGENTS.md materialization-aware verifier support: %s; land the verifier update on %s through the normal release lane before promoting)\n' \
-              "$(IFS='; '; echo "${trusted_reasons[*]}")" "${BASE_REF:-the base branch}" >&2
-            exit 1
-          fi
-
-          echo "release-verifier-source: trusted base supports v2 single-manifest, RC-first, release-please v5, deterministic stable Release PR, Release-As supersession, and AGENTS.md materialization-aware verifier markers"
-          {
-            echo "root=${trusted_root}"
-            echo "label=trusted-base"
-          } >> "${GITHUB_OUTPUT}"
-          echo "release-verifier-source: selected trusted-base (${trusted_root})"
 
       - name: Resolve highest published release
         id: published
@@ -241,21 +149,17 @@ jobs:
 
       - name: Verify human promotion release driver
         if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
-        working-directory: pr
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLISHED_BASELINE: ${{ steps.published.outputs.baseline }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
-          VERIFIER_ROOT: ${{ steps.verifier-source.outputs.root }}
-          VERIFIER_LABEL: ${{ steps.verifier-source.outputs.label }}
         run: |
           set -euo pipefail
-          echo "promotion-release-driver: using ${VERIFIER_LABEL} verifier source (${VERIFIER_ROOT})"
           echo "promotion-release-driver: highest published release baseline: ${PUBLISHED_BASELINE:-<none>}"
 
-          bash "${VERIFIER_ROOT}/scripts/verify-promotion-release-driver.sh" \
+          bash scripts/verify-promotion-release-driver.sh \
             --repo "${GITHUB_REPOSITORY}" \
             --base "${GITHUB_BASE_REF}" \
             --head "${GITHUB_HEAD_REF}" \
@@ -264,16 +168,12 @@ jobs:
 
       - name: Verify release cycle state
         if: github.event_name == 'pull_request'
-        working-directory: pr
         env:
           RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
-          RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}/pr
-          VERIFIER_ROOT: ${{ steps.verifier-source.outputs.root }}
-          VERIFIER_LABEL: ${{ steps.verifier-source.outputs.label }}
+          RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          echo "release-cycle-state: using ${VERIFIER_LABEL} verifier source (${VERIFIER_ROOT})"
-          bash "${VERIFIER_ROOT}/scripts/verify-release-cycle-state.sh"
+          bash scripts/verify-release-cycle-state.sh
 
       - name: Verify release cycle state
         if: github.event_name == 'workflow_dispatch'
@@ -286,14 +186,9 @@ jobs:
 
       - name: Verify release supply-chain scaffolding
         if: github.event_name == 'pull_request'
-        working-directory: pr
-        env:
-          VERIFIER_ROOT: ${{ steps.verifier-source.outputs.root }}
-          VERIFIER_LABEL: ${{ steps.verifier-source.outputs.label }}
         run: |
           set -euo pipefail
-          echo "branch-release: using ${VERIFIER_LABEL} verifier source (${VERIFIER_ROOT})"
-          bash "${VERIFIER_ROOT}/scripts/verify-branch-release-supply-chain.sh"
+          bash scripts/verify-branch-release-supply-chain.sh
 
       - name: Verify release supply-chain scaffolding
         if: github.event_name == 'workflow_dispatch'
@@ -301,13 +196,12 @@ jobs:
 
       - name: Forbid RC-shaped main Release PRs
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
-        working-directory: pr
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          bash ../trusted-release/scripts/verify-main-release-pr-postcondition.sh \
+          bash scripts/verify-main-release-pr-postcondition.sh \
             --repo "${GITHUB_REPOSITORY}" \
             --base main \
             --forbid-rc-only
