@@ -4,6 +4,10 @@
 
 ### Breaking Changes
 
+* **go:** the Go module path moves to `github.com/theory-cloud/tabletheory/v5` with this major release. Go consumers must
+  change their module requirement and every TableTheory import from `github.com/theory-cloud/tabletheory/v4` to
+  `github.com/theory-cloud/tabletheory/v5`, then run `go get github.com/theory-cloud/tabletheory/v5@v5.0.0` and
+  `go mod tidy`. TypeScript and Python consumers are unaffected by this path move; see `docs/migration/v5.md`.
 * **ts:** on the default `TheorydbClient` (`numberUnmarshalMode` `'string'`), typed items now declare DynamoDB `N` fields
   as `string` and `NS` fields as `string[]` instead of `number`/`number[]`. Runtime behavior is unchanged — the
   documented default was already exact-string — so this is a compile-time-only break: consumer code that relied on the

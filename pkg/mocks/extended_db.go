@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	"github.com/theory-cloud/tabletheory/v4/pkg/schema"
-	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5/pkg/schema"
+	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
 )
 
 // MockExtendedDB is a complete mock implementation of core.ExtendedDB.

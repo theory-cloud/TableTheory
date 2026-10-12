@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
-	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
 )
 
 //nolint:govet // Field order mirrors the production fixture under test.

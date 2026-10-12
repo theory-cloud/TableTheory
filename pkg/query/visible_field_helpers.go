@@ -7,9 +7,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v4/internal/expr"
-	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v5/internal/expr"
+	"github.com/theory-cloud/tabletheory/v5/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v5/internal/reflectutil"
 )
 
 type flatAnonymousEmbedEncodingLookup interface {

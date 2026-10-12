@@ -5,7 +5,7 @@ package driver
 import (
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
 )
 
 type ReleaseStateActual struct {

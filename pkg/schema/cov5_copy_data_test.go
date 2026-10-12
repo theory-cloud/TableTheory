@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
 )
 
 func TestManager_copyData_ScansAndProcessesItems(t *testing.T) {

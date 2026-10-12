@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
-	"github.com/theory-cloud/tabletheory/v4/pkg/schema"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/schema"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
 )
 
 // errorQuery is a query that always returns an error.

@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/theory-cloud/tabletheory/v4/internal/expr"
+	"github.com/theory-cloud/tabletheory/v5/internal/expr"
 )
 
 func main() {

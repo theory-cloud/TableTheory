@@ -3,7 +3,7 @@ package index
 import (
 	"testing"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
 )
 
 // TestCoreImport verifies that the core package can be imported and used

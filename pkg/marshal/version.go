@@ -3,7 +3,7 @@ package marshal
 import (
 	"reflect"
 
-	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v5/internal/reflectutil"
 )
 
 const maxInt64AsUint64 = ^uint64(0) >> 1

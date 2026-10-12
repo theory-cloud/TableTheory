@@ -8,10 +8,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/theory-cloud/tabletheory/v4/pkg/dms"
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/dms"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
 
-	demogo "github.com/theory-cloud/tabletheory/v4/examples/cdk-multilang/lambdas/go/demo"
+	demogo "github.com/theory-cloud/tabletheory/v5/examples/cdk-multilang/lambdas/go/demo"
 )
 
 func main() {

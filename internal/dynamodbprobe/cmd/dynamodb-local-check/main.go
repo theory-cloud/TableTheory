@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v4/internal/dynamodbprobe"
+	"github.com/theory-cloud/tabletheory/v5/internal/dynamodbprobe"
 )
 
 const checkTimeout = 3 * time.Second

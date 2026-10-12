@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
-	"github.com/theory-cloud/tabletheory/v4/tests"
+	"github.com/theory-cloud/tabletheory/v5"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5/tests"
 )
 
 // BatchTestItem represents a test item for batch operations

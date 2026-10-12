@@ -12,12 +12,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	theorydberrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
-	"github.com/theory-cloud/tabletheory/v4/pkg/query"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
-	"github.com/theory-cloud/tabletheory/v4/pkg/transaction"
-	pkgTypes "github.com/theory-cloud/tabletheory/v4/pkg/types"
+	theorydberrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/query"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5/pkg/transaction"
+	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
 )
 
 // legacyTransactionTableName is assigned a unique value per test run so two
