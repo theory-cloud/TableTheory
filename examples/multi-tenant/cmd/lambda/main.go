@@ -25,11 +25,11 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 
-	"github.com/theory-cloud/tabletheory/v4"
-	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/auth"
-	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/handlers"
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5"
+	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/auth"
+	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/handlers"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
 )
 
 // db opens the shared TableTheory handle once per execution environment and

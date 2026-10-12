@@ -3,9 +3,9 @@ package encryption
 import (
 	"fmt"
 
-	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v4/pkg/model"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
 )
 
 func MetadataHasEncryptedFields(metadata *model.Metadata) bool {

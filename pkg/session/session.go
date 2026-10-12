@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 
-	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
+	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
 )
 
 // configLoadFunc is a variable to allow mocking config.LoadDefaultConfig in tests

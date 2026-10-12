@@ -16,11 +16,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v4"
-	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/handlers"
-	"github.com/theory-cloud/tabletheory/v4/examples/multi-tenant/models"
-	"github.com/theory-cloud/tabletheory/v4/pkg/core"
-	"github.com/theory-cloud/tabletheory/v4/pkg/session"
+	"github.com/theory-cloud/tabletheory/v5"
+	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/handlers"
+	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v5/pkg/session"
 )
 
 func setupTestDB(t *testing.T) core.ExtendedDB {

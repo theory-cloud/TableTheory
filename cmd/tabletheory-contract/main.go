@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/theory-cloud/tabletheory/v4/internal/safeoutput"
-	"github.com/theory-cloud/tabletheory/v4/pkg/keycontract"
+	"github.com/theory-cloud/tabletheory/v5/internal/safeoutput"
+	"github.com/theory-cloud/tabletheory/v5/pkg/keycontract"
 )
 
 func main() {
