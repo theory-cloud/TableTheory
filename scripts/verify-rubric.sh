@@ -43,7 +43,7 @@ bash ./scripts/test-theorycloud-publish-policy.sh
 bash ./scripts/test-consumer-dependency-policy.sh
 
 # TTSEC2-M3-T2 Pages publication trust boundary: no workflow may deploy GitHub
-# Pages from a `staging` or `pull_request` trigger, and build-only runs must
+# Pages from a `pull_request` trigger, and build-only runs must
 # never share the publication concurrency queue. The checker reviews the real
 # workflows and proves itself non-vacuous with hostile fixtures, an unreadable
 # shape failing closed, and a minimum-reviewed-deploy-job assertion.
