@@ -22,7 +22,7 @@ func TestUnmarshalItem_UnmarshalBoolAttribute_COV5(t *testing.T) {
 func TestAttributeValueToInterface_NumberSet_COV5(t *testing.T) {
 	val, err := attributeValueToInterface(&types.AttributeValueMemberNS{Value: []string{"1.5", "2"}})
 	require.NoError(t, err)
-	require.Equal(t, []float64{1.5, 2}, val)
+	require.Equal(t, []any{1.5, int64(2)}, val)
 
 	_, err = attributeValueToInterface(&types.AttributeValueMemberNS{Value: []string{"not-a-number"}})
 	require.Error(t, err)

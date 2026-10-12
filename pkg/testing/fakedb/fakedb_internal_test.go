@@ -170,3 +170,39 @@ func TestErrorBranchesAndScalarHelpers(t *testing.T) {
 	require.NotEmpty(t, avKeyComponent(&types.AttributeValueMemberL{Value: []types.AttributeValue{&types.AttributeValueMemberS{Value: "a"}}}))
 	require.Nil(t, cloneAV(nil))
 }
+
+func TestEvalConditionCombinedParensAndMissingAttributes(t *testing.T) {
+	item := map[string]types.AttributeValue{
+		"PK": &types.AttributeValueMemberS{Value: "USER#1"},
+	}
+	names := map[string]string{"#missing": "missing", "#pk": "PK"}
+	values := map[string]types.AttributeValue{
+		":expected": &types.AttributeValueMemberS{Value: "keep"},
+		":lo":       &types.AttributeValueMemberN{Value: "1"},
+		":hi":       &types.AttributeValueMemberN{Value: "9"},
+	}
+
+	// A compound expression whose leading paren is not a matching outer pair must
+	// still enforce both clauses: the item exists, so the write-once clause fails.
+	compound := "(#missing = :expected) AND attribute_not_exists(#pk)"
+	require.False(t, evalCondition(&compound, item, names, values))
+
+	// A genuinely matching outer pair evaluates normally.
+	matched := "(attribute_not_exists(#missing))"
+	require.True(t, evalCondition(&matched, item, names, values))
+
+	// A missing attribute never satisfies a comparison, regardless of operator.
+	for _, expr := range []string{
+		"#missing = :expected",
+		"#missing <> :expected",
+		"#missing < :hi",
+		"#missing <= :hi",
+		"#missing > :lo",
+		"#missing >= :lo",
+		"#missing BETWEEN :lo AND :hi",
+		"#missing IN (:expected, :lo)",
+	} {
+		expression := expr
+		require.Falsef(t, evalCondition(&expression, item, names, values), "%s", expr)
+	}
+}

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
+	"github.com/theory-cloud/tabletheory/v4/internal/safeoutput"
 	"github.com/theory-cloud/tabletheory/v4/pkg/keycontract"
 )
 
@@ -56,10 +56,7 @@ func generateTS(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(*outPath), 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(*outPath, []byte(module), 0o600)
+	return safeoutput.WriteFileAtomic(*outPath, []byte(module), 0o600)
 }
 
 func usageError(message string) error {

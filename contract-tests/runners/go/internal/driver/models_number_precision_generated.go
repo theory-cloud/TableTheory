@@ -2,13 +2,15 @@
 
 package driver
 
-type DecimalString string
+import (
+	"encoding/json"
+)
 
 type NumberPrecision struct {
-	PK             string        `theorydb:"pk,attr:PK" json:"PK"`
-	SK             string        `theorydb:"sk,attr:SK" json:"SK"`
-	LargeInteger   DecimalString `theorydb:"attr:largeInteger" json:"largeInteger"`
-	PreciseDecimal DecimalString `theorydb:"attr:preciseDecimal" json:"preciseDecimal"`
+	PK             string      `theorydb:"pk,attr:PK" json:"PK"`
+	SK             string      `theorydb:"sk,attr:SK" json:"SK"`
+	LargeInteger   json.Number `theorydb:"attr:largeInteger" json:"largeInteger"`
+	PreciseDecimal json.Number `theorydb:"attr:preciseDecimal" json:"preciseDecimal"`
 }
 
 func (NumberPrecision) TableName() string { return "number_precision_contract" }

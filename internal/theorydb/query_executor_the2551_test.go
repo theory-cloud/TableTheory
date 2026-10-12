@@ -43,10 +43,52 @@ func TestCompiledConditionReferencesVersion_TokenBoundaries_THE2551(t *testing.T
 			want:        false,
 		},
 		{
-			name:        "case insensitive bare token",
+			name:        "case sensitive bare token does not match different case",
 			compiled:    &core.CompiledQuery{ConditionExpression: "Version >= :expected"},
 			versionAttr: "version",
+			want:        false,
+		},
+		{
+			name:        "case sensitive bare token matches exact case",
+			compiled:    &core.CompiledQuery{ConditionExpression: "version >= :expected"},
+			versionAttr: "version",
 			want:        true,
+		},
+		{
+			name: "placeholder prefix is not a whole token",
+			compiled: &core.CompiledQuery{
+				ConditionExpression:      "#value = :expected",
+				ExpressionAttributeNames: map[string]string{"#v": "version", "#value": "status"},
+			},
+			versionAttr: "version",
+			want:        false,
+		},
+		{
+			name: "numbered placeholder prefix is not a whole token",
+			compiled: &core.CompiledQuery{
+				ConditionExpression:      "#n10 = :expected",
+				ExpressionAttributeNames: map[string]string{"#n1": "version", "#n10": "status"},
+			},
+			versionAttr: "version",
+			want:        false,
+		},
+		{
+			name: "numbered placeholder exact token matches",
+			compiled: &core.CompiledQuery{
+				ConditionExpression:      "#n1 = :expected",
+				ExpressionAttributeNames: map[string]string{"#n1": "version"},
+			},
+			versionAttr: "version",
+			want:        true,
+		},
+		{
+			name: "placeholder attribute name case must match",
+			compiled: &core.CompiledQuery{
+				ConditionExpression:      "#v = :expected",
+				ExpressionAttributeNames: map[string]string{"#v": "Version"},
+			},
+			versionAttr: "version",
+			want:        false,
 		},
 	}
 

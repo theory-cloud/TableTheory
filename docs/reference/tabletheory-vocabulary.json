@@ -29,7 +29,7 @@
     },
     {
       "tag": "gsiNpk",
-      "go": "theorydb:\"gsi1pk\" / theorydb:\"gsi2pk\" / ...",
+      "go": "theorydb:\"index:gsi1,pk\" / theorydb:\"index:gsi2,pk\"",
       "typescript": "roles: ['gsi1pk'] plus indexes[]",
       "python": "theorydb_field(roles=['gsi1pk']) plus IndexSpec",
       "dms_role": "gsi1pk",
@@ -37,7 +37,7 @@
     },
     {
       "tag": "gsiNsk",
-      "go": "theorydb:\"gsi1sk\" / theorydb:\"gsi2sk\" / ...",
+      "go": "theorydb:\"index:gsi1,sk\" / theorydb:\"index:gsi2,sk\"",
       "typescript": "roles: ['gsi1sk'] plus indexes[]",
       "python": "theorydb_field(roles=['gsi1sk']) plus IndexSpec",
       "dms_role": "gsi1sk",

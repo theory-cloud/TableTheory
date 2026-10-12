@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   BatchGetItemCommand,
   BatchWriteItemCommand,
+  ConditionalCheckFailedException,
   CreateTableCommand,
   DeleteItemCommand,
   DeleteTableCommand,
@@ -294,9 +295,15 @@ void test('StatefulDynamoDBFake supports admin, batches, scans, and transactions
     }),
   )) as {
     Items?: Array<Record<string, AttributeValue>>;
+    Count?: number;
+    ScannedCount?: number;
     LastEvaluatedKey?: Record<string, AttributeValue>;
   };
-  assert.equal(scanned.Items?.length, 1);
+  // DynamoDB Limit bounds evaluated items, before the filter: the first evaluated
+  // item does not match, so Count is 0 with a continuation key.
+  assert.equal(scanned.Count, 0);
+  assert.deepEqual(scanned.Items, []);
+  assert.equal(scanned.ScannedCount, 1);
   assert.ok(scanned.LastEvaluatedKey);
 
   const counted = (await client.send(
@@ -443,4 +450,190 @@ void test('StatefulDynamoDBFake supports admin, batches, scans, and transactions
   );
   fake.reset();
   assert.deepEqual(fake.items(tableName), []);
+});
+
+void test('StatefulDynamoDBFake does not bypass combined write-once conditions', async () => {
+  const { client, fake } = createStatefulDynamoDBClient();
+  const tableName = 'stateful_conditions';
+  await client.send(
+    new CreateTableCommand({
+      TableName: tableName,
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+    }),
+  );
+  fake.seed(tableName, statefulItem('USER#1', 'A', 'one', '10'));
+
+  // The outer parens are not a matching pair for the whole string, so both
+  // clauses must still be enforced: the item exists, so the write-once clause
+  // fails and the put is rejected.
+  await assert.rejects(
+    () =>
+      client.send(
+        new PutItemCommand({
+          TableName: tableName,
+          Item: statefulItem('USER#1', 'A', 'hijacked', '99'),
+          ConditionExpression:
+            '(#missing = :expected) AND attribute_not_exists(#pk)',
+          ExpressionAttributeNames: { '#missing': 'missing', '#pk': 'PK' },
+          ExpressionAttributeValues: { ':expected': avS('keep') },
+        }),
+      ),
+    ConditionalCheckFailedException,
+  );
+  assert.deepEqual(fake.items(tableName)[0]?.name, avS('one'));
+
+  // A genuinely matching outer pair and a satisfied clause still succeeds.
+  await client.send(
+    new PutItemCommand({
+      TableName: tableName,
+      Item: statefulItem('USER#2', 'A', 'fresh', '5'),
+      ConditionExpression: '(attribute_not_exists(#pk))',
+      ExpressionAttributeNames: { '#pk': 'PK' },
+    }),
+  );
+  const got = (await client.send(
+    new GetItemCommand({
+      TableName: tableName,
+      Key: statefulKey('USER#2', 'A'),
+    }),
+  )) as { Item?: Record<string, AttributeValue> };
+  assert.deepEqual(got.Item?.name, avS('fresh'));
+});
+
+void test('StatefulDynamoDBFake COUNT and Limit follow DynamoDB semantics', async () => {
+  const { client, fake } = createStatefulDynamoDBClient();
+  const tableName = 'stateful_counts';
+  await client.send(
+    new CreateTableCommand({
+      TableName: tableName,
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+    }),
+  );
+  fake.seed(
+    tableName,
+    statefulItem('USER#1', 'A', 'one', '10'),
+    statefulItem('USER#1', 'B', 'two', '20'),
+    statefulItem('USER#2', 'A', 'three', '30'),
+  );
+
+  const filtered = (await client.send(
+    new ScanCommand({
+      TableName: tableName,
+      FilterExpression: '#score >= :min',
+      ExpressionAttributeNames: { '#score': 'score' },
+      ExpressionAttributeValues: { ':min': avN('20') },
+    }),
+  )) as { Count?: number; ScannedCount?: number };
+  assert.equal(filtered.Count, 2);
+  assert.equal(filtered.ScannedCount, 3);
+
+  const counted = (await client.send(
+    new ScanCommand({ TableName: tableName, Select: 'COUNT' }),
+  )) as { Count?: number; ScannedCount?: number };
+  assert.equal(counted.Count, 3);
+  assert.equal(counted.ScannedCount, 3);
+});
+
+void test('StatefulDynamoDBFake keeps distinct composite keys distinct', async () => {
+  const { client, fake } = createStatefulDynamoDBClient();
+  const tableName = 'stateful_composite_keys';
+  await client.send(
+    new CreateTableCommand({
+      TableName: tableName,
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+    }),
+  );
+
+  // These two DynamoDB key tuples both naive-concatenate to "S:a|S:b|S:c".
+  // They must remain two independent items.
+  const first = statefulItem('a|S:b', 'c', 'first', '10');
+  const second = statefulItem('a', 'b|S:c', 'second', '20');
+  const firstKey = statefulKey('a|S:b', 'c');
+  const secondKey = statefulKey('a', 'b|S:c');
+
+  await client.send(
+    new BatchWriteItemCommand({
+      RequestItems: {
+        [tableName]: [
+          { PutRequest: { Item: first } },
+          { PutRequest: { Item: second } },
+        ],
+      },
+    }),
+  );
+  await client.send(
+    new TransactWriteItemsCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: tableName,
+            Item: statefulItem('tx|S:1', 'tail', 'tx', '30'),
+          },
+        },
+      ],
+    }),
+  );
+
+  assert.equal(fake.items(tableName).length, 3, 'no key alias collapse');
+
+  // get: each key resolves to its own item.
+  const gotFirst = (await client.send(
+    new GetItemCommand({ TableName: tableName, Key: firstKey }),
+  )) as { Item?: Record<string, AttributeValue> };
+  const gotSecond = (await client.send(
+    new GetItemCommand({ TableName: tableName, Key: secondKey }),
+  )) as { Item?: Record<string, AttributeValue> };
+  assert.deepEqual(gotFirst.Item?.name, avS('first'));
+  assert.deepEqual(gotSecond.Item?.name, avS('second'));
+
+  // batch get: both keys return, one item each.
+  const batch = (await client.send(
+    new BatchGetItemCommand({
+      RequestItems: {
+        [tableName]: { Keys: [firstKey, secondKey] },
+      },
+    }),
+  )) as { Responses?: Record<string, unknown[]> };
+  assert.equal(batch.Responses?.[tableName]?.length, 2);
+
+  // transaction get: the second item is still addressable.
+  const transact = (await client.send(
+    new TransactGetItemsCommand({
+      TransactItems: [{ Get: { TableName: tableName, Key: secondKey } }],
+    }),
+  )) as { Responses?: Array<{ Item?: Record<string, AttributeValue> }> };
+  assert.deepEqual(transact.Responses?.[0]?.Item?.name, avS('second'));
+
+  // delete: only the addressed item disappears.
+  await client.send(
+    new DeleteItemCommand({ TableName: tableName, Key: firstKey }),
+  );
+  const afterDelete = (await client.send(
+    new GetItemCommand({ TableName: tableName, Key: secondKey }),
+  )) as { Item?: Record<string, AttributeValue> };
+  assert.deepEqual(afterDelete.Item?.name, avS('second'));
+
+  // Ordinary delimiter-free keys are unchanged.
+  await client.send(
+    new PutItemCommand({
+      TableName: tableName,
+      Item: statefulItem('USER#1', 'A', 'ordinary', '1'),
+    }),
+  );
+  const ordinary = (await client.send(
+    new GetItemCommand({
+      TableName: tableName,
+      Key: statefulKey('USER#1', 'A'),
+    }),
+  )) as { Item?: Record<string, AttributeValue> };
+  assert.deepEqual(ordinary.Item?.name, avS('ordinary'));
 });

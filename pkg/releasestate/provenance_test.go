@@ -253,11 +253,93 @@ func TestValidateDeployAuthorityMetadata_AcceptsOtherDeterministicAuthorities(t 
 			evidence := firstEvidence(t, item)
 			evidence["kind"] = tt.kind
 			evidence["source"] = tt.source
+			provenance := requireMapValue(t, item, "provenance")
+			provenance["kind"] = tt.kind
+			provenance["system"] = tt.source
+			provenance["ref"] = evidence["ref"]
 			requireMapValue(t, item, "confidence")["reasons"] = []string{tt.reason}
 
 			require.NoError(t, ValidateDeployAuthorityMetadata(item))
 		})
 	}
+}
+
+func TestValidateDeployAuthorityMetadataDigestConflict(t *testing.T) {
+	item := validDeployAuthorityItem()
+	provenance := requireMapValue(t, item, "provenance")
+	provenance["evidence"] = []any{
+		evidenceWithDigest(t, item, "sha256:aaaaaaaa"),
+		evidenceWithDigest(t, item, "sha256:bbbbbbbb"),
+	}
+
+	err := ValidateDeployAuthorityMetadata(item)
+	require.ErrorIs(t, err, theorydbErrors.ErrRejectedDeployAuthorityEvidence)
+}
+
+func TestValidateDeployAuthorityMetadataIdenticalEvidenceIsIdempotent(t *testing.T) {
+	item := validDeployAuthorityItem()
+	first := cloneEvidence(t, item)
+	requireMapValue(t, item, "provenance")["evidence"] = []any{first, cloneEvidence(t, item)}
+	require.NoError(t, ValidateDeployAuthorityMetadata(item))
+
+	item = validDeployAuthorityItem()
+	first = evidenceWithDigest(t, item, "sha256:cccccccc")
+	requireMapValue(t, item, "provenance")["evidence"] = []any{first, evidenceWithDigest(t, item, "sha256:cccccccc")}
+	require.NoError(t, ValidateDeployAuthorityMetadata(item))
+}
+
+func TestValidateDeployAuthorityMetadataRejectsUnrelatedEvidenceBlessingTopLevel(t *testing.T) {
+	for _, tt := range []struct {
+		mutate func(provenance map[string]any)
+		name   string
+	}{
+		{name: "ref mismatch", mutate: func(p map[string]any) { p["ref"] = "operator://deploy/service-b/rel_999" }},
+		{name: "kind mismatch", mutate: func(p map[string]any) { p["kind"] = "submodule_pin" }},
+		{name: "system mismatch", mutate: func(p map[string]any) { p["system"] = "partner-factory" }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			item := validDeployAuthorityItem()
+			tt.mutate(requireMapValue(t, item, "provenance"))
+			err := ValidateDeployAuthorityMetadata(item)
+			require.ErrorIs(t, err, theorydbErrors.ErrRejectedDeployAuthorityEvidence)
+		})
+	}
+}
+
+func TestValidateDeployAuthorityMetadataAlignsTopLevelDigest(t *testing.T) {
+	item := validDeployAuthorityItem()
+	evidence := evidenceWithDigest(t, item, "sha256:dddddddd")
+	requireMapValue(t, item, "provenance")["evidence"] = []any{evidence}
+	requireMapValue(t, item, "provenance")["digest"] = "sha256:dddddddd"
+	require.Equal(t, "sha256:dddddddd", evidence["digest"])
+	require.NoError(t, ValidateDeployAuthorityMetadata(item))
+
+	item = validDeployAuthorityItem()
+	requireMapValue(t, item, "provenance")["evidence"] = []any{evidenceWithDigest(t, item, "sha256:dddddddd")}
+	requireMapValue(t, item, "provenance")["digest"] = "sha256:eeeeeeee"
+	err := ValidateDeployAuthorityMetadata(item)
+	require.ErrorIs(t, err, theorydbErrors.ErrRejectedDeployAuthorityEvidence)
+
+	item = validDeployAuthorityItem()
+	requireMapValue(t, item, "provenance")["digest"] = "sha256:ffffffff"
+	err = ValidateDeployAuthorityMetadata(item)
+	require.ErrorIs(t, err, theorydbErrors.ErrRejectedDeployAuthorityEvidence)
+}
+
+func evidenceWithDigest(t *testing.T, item map[string]any, digest string) map[string]any {
+	t.Helper()
+	evidence := cloneEvidence(t, item)
+	evidence["digest"] = digest
+	return evidence
+}
+
+func cloneEvidence(t *testing.T, item map[string]any) map[string]any {
+	t.Helper()
+	clone := map[string]any{}
+	for key, value := range firstEvidence(t, item) {
+		clone[key] = value
+	}
+	return clone
 }
 
 func TestInternalValueHelpers(t *testing.T) {

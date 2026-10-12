@@ -208,6 +208,79 @@ test("error expectations reject raw item assertions", async () => {
   );
 });
 
+test("item_absent fails closed on an unexpected operation error", async () => {
+  await assert.rejects(
+    () =>
+      runScenario({
+        ddb: {} as never,
+        driver: stubDriver({
+          getOptional: async () => {
+            throw new Error("unexpected operation error");
+          },
+        }),
+        scenario: scenarioWithReadStep({
+          op: "get_optional",
+          key: { PK: "USER#absent", SK: "PROFILE#missing" },
+          expect: { item_absent: true },
+        }),
+        models: new Map([[userModel.name, userModel]]),
+      }),
+    /expected successful operation for item_absent assertions/,
+  );
+});
+
+test("item_absent passes on a successful absent item", async () => {
+  await runScenario({
+    ddb: {} as never,
+    driver: stubDriver({ getOptional: async () => undefined }),
+    scenario: scenarioWithReadStep({
+      op: "get_optional",
+      key: { PK: "USER#absent", SK: "PROFILE#missing" },
+      expect: { item_absent: true },
+    }),
+    models: new Map([[userModel.name, userModel]]),
+  });
+});
+
+test("item_absent false passes on a present item", async () => {
+  await runScenario({
+    ddb: stubDdbWithRawItem({
+      PK: { S: "USER#present" },
+      SK: { S: "PROFILE#1" },
+    }),
+    driver: stubDriver({
+      getOptional: async () => ({ PK: "USER#present", SK: "PROFILE#1" }),
+    }),
+    scenario: scenarioWithReadStep({
+      op: "get_optional",
+      key: { PK: "USER#present", SK: "PROFILE#1" },
+      expect: { item_absent: false },
+    }),
+    models: new Map([[userModel.name, userModel]]),
+  });
+});
+
+test("item_absent cannot be combined with an error expectation", async () => {
+  await assert.rejects(
+    () =>
+      runScenario({
+        ddb: {} as never,
+        driver: stubDriver({
+          getOptional: async () => {
+            throw new TheorydbError("ErrItemNotFound", "missing seeded item");
+          },
+        }),
+        scenario: scenarioWithReadStep({
+          op: "get_optional",
+          key: { PK: "USER#absent", SK: "PROFILE#missing" },
+          expect: { error: "ErrItemNotFound", item_absent: true },
+        }),
+        models: new Map([[userModel.name, userModel]]),
+      }),
+    /item assertions cannot be combined with error expectations/,
+  );
+});
+
 test("scenario loading rejects empty assertion maps", async () => {
   const filePath = await writeScenarioFixture(`
 name: "unit.empty_assertion"

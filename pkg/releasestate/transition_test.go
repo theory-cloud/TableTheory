@@ -21,6 +21,31 @@ type transitionEvent struct {
 	SK string `theorydb:"sk"`
 }
 
+type transitionOutbox struct {
+	PK string `theorydb:"pk"`
+	SK string `theorydb:"sk"`
+}
+
+type transitionNoPartition struct {
+	SK string `theorydb:"sk"`
+}
+
+type transitionNonStringPartition struct {
+	SK string `theorydb:"sk"`
+	PK int64  `theorydb:"pk"`
+}
+
+type transitionIndexedActual struct {
+	PK   string `theorydb:"pk"`
+	GSI1 string `theorydb:"index:gsi1,pk"`
+	SK   string `theorydb:"sk"`
+}
+
+type transitionIndexOnly struct {
+	GSI1 string `theorydb:"index:gsi1,pk"`
+	SK   string `theorydb:"sk"`
+}
+
 type fakeTransactionWriter struct {
 	builder *fakeTransactionBuilder
 	called  bool
@@ -176,5 +201,91 @@ func TestAddTransitionAppendEventValidatesInput(t *testing.T) {
 		Event:  &transitionEvent{PK: "RELEASE#svc", SK: "EVENT#1"},
 		Set:    map[string]any{"version": 2},
 	})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+}
+
+func TestTransitionAppendEventRejectsMismatchedEventPartition(t *testing.T) {
+	writer := &fakeTransactionWriter{builder: &fakeTransactionBuilder{}}
+
+	err := TransitionAppendEvent(context.Background(), writer, TransitionAppendEventInput{
+		Actual: &transitionActual{PK: "RELEASE#service-a", SK: "ACTUAL"},
+		Event:  &transitionEvent{PK: "RELEASE#service-b", SK: "EVENT#1"},
+		Set:    map[string]any{"status": "active"},
+	})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+	require.False(t, writer.called)
+	require.Empty(t, writer.builder.ops)
+
+	builder := &fakeTransactionBuilder{}
+	err = AddTransitionAppendEvent(builder, TransitionAppendEventInput{
+		Actual: &transitionActual{PK: "RELEASE#service-a", SK: "ACTUAL"},
+		Event:  &transitionEvent{PK: "RELEASE#service-b", SK: "EVENT#1"},
+		Set:    map[string]any{"status": "active"},
+	})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+	require.Empty(t, builder.ops)
+}
+
+func TestTransitionAppendEventBindsEventToActualPartitionAcrossRetry(t *testing.T) {
+	expectedVersion := int64(3)
+	writer := &fakeTransactionWriter{builder: &fakeTransactionBuilder{}}
+	input := TransitionAppendEventInput{
+		Actual:          &transitionActual{PK: "RELEASE#service-a", SK: "ACTUAL"},
+		Event:           &transitionEvent{PK: "RELEASE#service-a", SK: "EVENT#2026-04-24T19:05:00Z"},
+		Set:             map[string]any{"status": "active"},
+		ExpectedVersion: &expectedVersion,
+	}
+
+	require.NoError(t, TransitionAppendEvent(context.Background(), writer, input))
+	require.Equal(t, []string{"update_builder", "create"}, writer.builder.ops)
+
+	// A retry re-submits the same deterministic transaction, and the
+	// optimistic-conflict condition is preserved.
+	retry := &fakeTransactionWriter{builder: &fakeTransactionBuilder{}}
+	require.NoError(t, TransitionAppendEvent(context.Background(), retry, input))
+	require.Equal(t, writer.builder.ops, retry.builder.ops)
+
+	builder := &fakeTransactionBuilder{}
+	require.NoError(t, AddTransitionAppendEvent(builder, input))
+	ub := newFakeUpdateBuilder()
+	require.NoError(t, builder.updateFn(ub))
+	require.NotNil(t, ub.versionChecked)
+	require.Equal(t, expectedVersion, *ub.versionChecked)
+}
+
+func TestTransitionAppendEventIncludesOutboxInOneTransaction(t *testing.T) {
+	writer := &fakeTransactionWriter{builder: &fakeTransactionBuilder{}}
+
+	err := TransitionAppendEvent(context.Background(), writer, TransitionAppendEventInput{
+		Actual: &transitionActual{PK: "RELEASE#service-a", SK: "ACTUAL"},
+		Event:  &transitionEvent{PK: "RELEASE#service-a", SK: "EVENT#1"},
+		Outbox: &transitionOutbox{PK: "RELEASE#service-a", SK: "OUTBOX#lambda-alias#rel_002"},
+		Set:    map[string]any{"status": "active"},
+	})
+	require.NoError(t, err)
+	require.True(t, writer.called)
+	require.Equal(t, []string{"update_builder", "create", "create"}, writer.builder.ops)
+}
+
+func TestPartitionKeyValueFailsClosed(t *testing.T) {
+	value, err := partitionKeyValue(&transitionActual{PK: "RELEASE#service-a", SK: "ACTUAL"})
+	require.NoError(t, err)
+	require.Equal(t, "RELEASE#service-a", value)
+
+	_, err = partitionKeyValue(&transitionNoPartition{SK: "ACTUAL"})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+
+	_, err = partitionKeyValue(&transitionNonStringPartition{PK: 7, SK: "ACTUAL"})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+
+	var nilActual *transitionActual
+	_, err = partitionKeyValue(nilActual)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+
+	value, err = partitionKeyValue(&transitionIndexedActual{PK: "RELEASE#service-a", GSI1: "gsi-value"})
+	require.NoError(t, err)
+	require.Equal(t, "RELEASE#service-a", value)
+
+	_, err = partitionKeyValue(&transitionIndexOnly{GSI1: "gsi-value"})
 	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
 }

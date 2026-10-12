@@ -23,6 +23,7 @@ _PROVENANCE_KEYS = {
     "observed_at",
     "recorded_at",
     "import_run_id",
+    "digest",
     "evidence",
 }
 _EVIDENCE_KEYS = {"kind", "source", "ref", "observed_at", "digest"}
@@ -37,13 +38,17 @@ def transition_release_state(
     actual_key: Mapping[str, Any],
     set_values: Mapping[str, Any],
     event_item: Any,
+    outbox_item: Any | None = None,
+    outbox_table: Table[Any] | None = None,
     expected_version: int | None = None,
     version_field: str = "version",
 ) -> None:
     """Transactionally update a release-state actual row and append an event.
 
     The two DynamoDB rows are written through a single TransactWriteItems call
-    when both Table instances share the same local client/table context.
+    when both Table instances share the same local client/table context. When an
+    ``outbox_item`` is supplied, its immutable write-once create joins the same
+    transaction.
 
     External side effects such as Lambda alias flips or CodePipeline executions
     are intentionally outside this helper's atomicity boundary. Callers should
@@ -57,6 +62,14 @@ def transition_release_state(
         raise ValidationError("set_values is required")
     if event_item is None:
         raise ValidationError("event_item is required")
+
+    event_item_map = event_table._to_item(event_item)
+    _assert_event_binds_to_actual(actual_table, actual_key, event_table, event_item_map)
+
+    outbox_target: Table[Any] | None = None
+    if outbox_item is not None:
+        outbox_target = outbox_table if outbox_table is not None else event_table
+        _assert_same_transaction_context(actual_table, outbox_target)
 
     version_attr = _resolve_attribute(actual_table._model, version_field, role="version")
     updates = _canonical_updates(actual_table._model, set_values)
@@ -86,19 +99,50 @@ def transition_release_state(
 
     put_req: dict[str, Any] = {
         "TableName": event_table._table_name,
-        "Item": event_table._to_item(event_item),
+        "Item": event_item_map,
     }
     _apply_create_condition(event_table._model, put_req)
 
+    transact_items: list[dict[str, Any]] = [
+        {"Update": update_req},
+        {"Put": put_req},
+    ]
+    if outbox_target is not None:
+        outbox_req: dict[str, Any] = {
+            "TableName": outbox_target._table_name,
+            "Item": outbox_target._to_item(outbox_item),
+        }
+        _apply_create_condition(outbox_target._model, outbox_req)
+        transact_items.append({"Put": outbox_req})
+
     try:
-        actual_table._client.transact_write_items(
-            TransactItems=[
-                {"Update": update_req},
-                {"Put": put_req},
-            ]
-        )
+        actual_table._client.transact_write_items(TransactItems=transact_items)
     except ClientError as err:  # pragma: no cover
         raise _map_transaction_error(err) from err
+
+
+def _assert_event_binds_to_actual(
+    actual_table: Table[Any],
+    actual_key: Mapping[str, Any],
+    event_table: Table[Any],
+    event_item: Mapping[str, Any],
+) -> None:
+    """Reject an event that does not describe the actual row being transitioned."""
+
+    actual_pk = actual_table._model.pk
+    event_pk = event_table._model.pk
+    if actual_pk.attribute_name != event_pk.attribute_name:
+        raise ValidationError("release-state event partition does not match the actual row partition")
+
+    expected = actual_table._serialize_attr_value(
+        actual_pk,
+        _key_value(actual_pk, actual_key),
+    )
+    actual = event_item.get(event_pk.attribute_name)
+    if actual is None:
+        raise ValidationError(f"event item is missing partition key: {event_pk.attribute_name}")
+    if expected != actual:
+        raise ValidationError("release-state event partition does not match the actual row partition")
 
 
 def validate_deploy_authority_metadata(item: Mapping[str, Any]) -> None:
@@ -122,8 +166,42 @@ def validate_deploy_authority_metadata(item: Mapping[str, Any]) -> None:
     _validate_allowed_keys("confidence", confidence, _CONFIDENCE_KEYS)
     _validate_provenance_shape(provenance)
 
-    expected_reason = _derive_deploy_authority_reason(provenance)
-    _validate_confidence(confidence, expected_reason)
+    reason, authority = _derive_deploy_authority(provenance)
+    _validate_provenance_evidence_alignment(provenance, authority)
+    _validate_confidence(confidence, reason)
+
+
+def _validate_provenance_evidence_alignment(
+    provenance: Mapping[str, Any],
+    authority: Mapping[str, Any],
+) -> None:
+    """Require the top-level provenance identity to describe the same artifact.
+
+    Unrelated evidence must not bless a different top-level artifact.
+    """
+
+    kind = _required_string(provenance, "kind")
+    system = _required_string(provenance, "system")
+    ref = _required_string(provenance, "ref")
+    authority_digest = authority.get("digest")
+    if not isinstance(authority_digest, str):
+        authority_digest = ""
+
+    if (
+        kind != _required_string(authority, "kind")
+        or system != _required_string(authority, "source")
+        or ref != _required_string(authority, "ref")
+    ):
+        raise RejectedDeployAuthorityEvidenceError(
+            "provenance identity does not match the deploy authority evidence"
+        )
+
+    if "digest" in provenance:
+        digest = _evidence_digest(provenance)
+        if not digest or digest != authority_digest:
+            raise RejectedDeployAuthorityEvidenceError(
+                "provenance digest does not match the deploy authority evidence"
+            )
 
 
 def _assert_same_transaction_context(actual_table: Table[Any], event_table: Table[Any]) -> None:
@@ -161,12 +239,12 @@ def _validate_provenance_shape(provenance: Mapping[str, Any]) -> None:
         _required_string(provenance, key)
     for key in ("observed_at", "recorded_at"):
         _validate_rfc3339(key, _required_string(provenance, key))
-    for key in ("commit_sha", "import_run_id"):
+    for key in ("commit_sha", "import_run_id", "digest"):
         if key in provenance and not isinstance(provenance[key], str):
             raise ValidationError(f"provenance.{key} must be a string")
 
 
-def _derive_deploy_authority_reason(provenance: Mapping[str, Any]) -> str:
+def _derive_deploy_authority(provenance: Mapping[str, Any]) -> tuple[str, Mapping[str, Any]]:
     evidence = _evidence_values(provenance.get("evidence"))
     if not evidence:
         raise RejectedDeployAuthorityEvidenceError("deploy authority requires evidence")
@@ -179,10 +257,8 @@ def _derive_deploy_authority_reason(provenance: Mapping[str, Any]) -> str:
         source = _required_string(entry, "source")
         ref = _required_string(entry, "ref")
         _validate_rfc3339("evidence.observed_at", _required_string(entry, "observed_at"))
-        if "digest" in entry and not isinstance(entry["digest"], str):
-            raise ValidationError("evidence.digest must be a string")
 
-        current_signature = f"{kind}|{source}|{ref}"
+        current_signature = f"{kind}|{source}|{ref}|{_evidence_digest(entry)}"
         if signature is None:
             signature = current_signature
             first = entry
@@ -193,6 +269,18 @@ def _derive_deploy_authority_reason(provenance: Mapping[str, Any]) -> str:
     assert first is not None
     kind = _required_string(first, "kind")
     source = _required_string(first, "source")
+    return _authority_reason(kind, source), first
+
+
+def _evidence_digest(entry: Mapping[str, Any]) -> str:
+    if "digest" not in entry:
+        return ""
+    if not isinstance(entry["digest"], str):
+        raise ValidationError("evidence.digest must be a string")
+    return entry["digest"]
+
+
+def _authority_reason(kind: str, source: str) -> str:
     if kind == "operator_command" and source == "release-control-plane":
         return "operator_command_authority"
     if kind == "factory_batch_manifest" and source == "partner-factory":

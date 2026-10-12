@@ -27,7 +27,12 @@ import {
 } from './batch.js';
 import { mapDynamoError } from './dynamo-error.js';
 import { hasTheorydbErrorCode, TheorydbError } from './errors.js';
-import type { Model, ModelItem } from './model.js';
+import type {
+  InferModelItemForMode,
+  Model,
+  ModelSchema,
+  NumberUnmarshalMode,
+} from './model.js';
 import type { SendOptions } from './send-options.js';
 import {
   isEmptyAttribute,
@@ -36,7 +41,6 @@ import {
   marshalScalar,
   nowRfc3339Nano,
   unmarshalItem,
-  type NumberUnmarshalMode,
   type UnmarshalOptions,
 } from './marshal.js';
 import { QueryBuilder, ScanBuilder } from './query.js';
@@ -152,7 +156,9 @@ export class ModelRepository<
   }
 }
 
-export class TheorydbClient {
+export class TheorydbClient<
+  TNumberMode extends NumberUnmarshalMode = 'string',
+> {
   private readonly models = new Map<string, Model>();
   private encryption: EncryptionProvider | undefined;
   private readonly now: () => string;
@@ -176,8 +182,8 @@ export class TheorydbClient {
     return this;
   }
 
-  withSendOptions(sendOptions?: SendOptions): TheorydbClient {
-    const next = new TheorydbClient(this.ddb, {
+  withSendOptions(sendOptions?: SendOptions): TheorydbClient<TNumberMode> {
+    const next = new TheorydbClient<TNumberMode>(this.ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(sendOptions ? { sendOptions } : {}),
@@ -187,8 +193,8 @@ export class TheorydbClient {
     return next;
   }
 
-  withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient {
-    const next = new TheorydbClient(ddb, {
+  withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient<TNumberMode> {
+    const next = new TheorydbClient<TNumberMode>(ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
@@ -205,7 +211,29 @@ export class TheorydbClient {
     return this;
   }
 
-  model<M extends Model>(model: M): ModelRepository<ModelItem<M>>;
+  /**
+   * Returns a new client with the same configuration as this one and its own
+   * empty model registry.
+   *
+   * `register()` writes into a registry keyed by model name. A component that
+   * registers fixed model names into a caller-owned client therefore rebinds
+   * any earlier component that registered the same names against a different
+   * table. `fork()` lets such a component hold a private binding while still
+   * inheriting the caller's encryption provider, clock, send options, and
+   * number-unmarshal mode instead of mutating the shared registry.
+   */
+  fork(): TheorydbClient<TNumberMode> {
+    return new TheorydbClient<TNumberMode>(this.ddb, {
+      now: this.now,
+      ...(this.encryption ? { encryption: this.encryption } : {}),
+      ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
+      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+    });
+  }
+
+  model<M extends Model>(
+    model: M,
+  ): ModelRepository<InferModelItemForMode<M, TNumberMode>>;
   model(modelName: string): ModelRepository<Record<string, unknown>>;
   model(modelOrName: string | Model): ModelRepository<Record<string, unknown>> {
     const model =
@@ -213,6 +241,16 @@ export class TheorydbClient {
         ? this.requireModel(modelOrName)
         : this.register(modelOrName).requireModel(modelOrName.name);
     return new ModelRepository(this, model);
+  }
+
+  /**
+   * Returns the registered schema for a model name.
+   *
+   * Release-state transition helpers use this to bind an appended event to the
+   * exact actual row it describes before any transaction is submitted.
+   */
+  modelSchema(modelName: string): Readonly<ModelSchema> {
+    return this.requireModel(modelName).schema;
   }
 
   private requireModel(name: string): Model {

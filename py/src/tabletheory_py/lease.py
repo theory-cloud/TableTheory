@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 import uuid
 from collections.abc import Callable
@@ -67,8 +68,12 @@ class LeaseManager:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be > 0")
 
-        now = int(self._now())
-        expires_at = now + int(lease_seconds)
+        now_seconds = float(self._now())
+        # Lease expiration is stored in whole seconds. Compare against the whole
+        # second that has elapsed and round the expiration up, so a successful
+        # acquire always holds for at least the requested duration.
+        now = math.floor(now_seconds)
+        expires_at = math.ceil(now_seconds + lease_seconds)
         token = self._token()
 
         item: dict[str, Any] = {
@@ -105,8 +110,9 @@ class LeaseManager:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be > 0")
 
-        now = int(self._now())
-        expires_at = now + int(lease_seconds)
+        now_seconds = float(self._now())
+        now = math.floor(now_seconds)
+        expires_at = math.ceil(now_seconds + lease_seconds)
 
         names: dict[str, str] = {
             "#tok": self._token_attr,

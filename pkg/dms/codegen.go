@@ -100,9 +100,6 @@ func generateGo(models []Model, opts GenerateOptions) ([]byte, error) {
 		}
 		fmt.Fprintf(&out, ")\n\n")
 	}
-	if goNeedsDecimalString(models) {
-		fmt.Fprintf(&out, "type DecimalString string\n\n")
-	}
 	out.Write(body.Bytes())
 
 	formatted, err := format.Source(out.Bytes())
@@ -116,6 +113,9 @@ func generateGoModel(out *bytes.Buffer, m Model, imports map[string]struct{}) er
 	modelName := exportName(m.Name)
 	if modelName == "" {
 		return fmt.Errorf("DMS model %q cannot be converted to a Go identifier", m.Name)
+	}
+	if err := validateGoModelNames(m); err != nil {
+		return err
 	}
 
 	fieldNames := map[string]int{}
@@ -160,6 +160,24 @@ func generateGoModel(out *bytes.Buffer, m Model, imports map[string]struct{}) er
 			fmt.Fprintf(out, "\t\t%q: {Type: %q, Fields: []string{%s}},\n", idx.Name, proj.Type, quotedStringList(proj.Fields))
 		}
 		fmt.Fprintf(out, "\t}\n}\n\n")
+	}
+	return nil
+}
+
+// validateGoModelNames rejects DMS attribute and index names that are unsafe to
+// interpolate into Go struct tags. It guards callers that build a *Document
+// directly and skip ParseDocument, so rejection happens before any code is
+// emitted.
+func validateGoModelNames(m Model) error {
+	for _, attr := range m.Attributes {
+		if err := validateDMSName("attribute", attr.Attribute); err != nil {
+			return fmt.Errorf("DMS model %s: %w", m.Name, err)
+		}
+	}
+	for _, idx := range m.Indexes {
+		if err := validateDMSName("index", idx.Name); err != nil {
+			return fmt.Errorf("DMS model %s: %w", m.Name, err)
+		}
 	}
 	return nil
 }
@@ -217,7 +235,10 @@ func goTypeForAttribute(attr Attribute, imports map[string]struct{}) (string, er
 		return "string", nil
 	case "N":
 		if attr.Format == formatDecimalString {
-			return "DecimalString", nil
+			// Exact numbers use encoding/json.Number, which the framework's
+			// default marshal paths already encode and decode as DynamoDB N.
+			imports["encoding/json"] = struct{}{}
+			return "json.Number", nil
 		}
 		return "int64", nil
 	case "B":
@@ -934,17 +955,6 @@ func tsString(value string) string {
 	}
 	b.WriteByte('\'')
 	return b.String()
-}
-
-func goNeedsDecimalString(models []Model) bool {
-	for _, m := range models {
-		for _, attr := range m.Attributes {
-			if attr.Type == "N" && attr.Format == formatDecimalString {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func pythonNeedsDecimal(models []Model) bool {

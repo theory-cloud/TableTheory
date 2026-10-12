@@ -44,7 +44,7 @@ Copy this Renovate regex manager into the consuming repository's `renovate.json`
     {
       "customType": "regex",
       "description": "Update TableTheory TypeScript GitHub Release asset URLs",
-      "managerFilePatterns": ["/(^|/)package\\.json$/", "/(^|/)package-lock\\.json$/", "/(^|/)docs/.+\\.md$/"],
+      "managerFilePatterns": ["/(^|/)package\\.json$/", "/(^|/)docs/.+\\.md$/"],
       "matchStrings": [
         "https://github\\.com/theory-cloud/[Tt]able[Tt]heory/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/theory-cloud-tabletheory-ts-(?<assetVersion>\\d+\\.\\d+\\.\\d+)\\.tgz"
       ],
@@ -107,7 +107,7 @@ Every `role` accepted by `defineModel` attributes maps one-to-one onto the canon
 | ----------------------- | -------------------------------- |
 | `theorydb:"pk"`         | `roles: ['pk']`                  |
 | `theorydb:"sk"`         | `roles: ['sk']`                  |
-| `theorydb:"gsi1pk"`     | `roles: ['gsi1pk']` + `indexes:` |
+| `theorydb:"index:gsi1,pk"` | `roles: ['gsi1pk']` + `indexes:` |
 | `theorydb:"encrypted"`  | `encryption: { v: 1 }`           |
 | `theorydb:"version"`    | `roles: ['version']`             |
 | `theorydb:"created_at"` | `roles: ['created_at']`          |

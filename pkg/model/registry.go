@@ -272,9 +272,14 @@ func resolveProtectedAttributes(attributes []string, metadata *Metadata) ([]stri
 			return nil, fmt.Errorf("%w: write_policy protected attributes must be non-empty", errors.ErrInvalidModel)
 		}
 
-		fieldMeta := metadata.Fields[attr]
+		// Canonical DynamoDB attribute names are the authoritative namespace for
+		// write-policy declarations. Resolving them first means a protected name
+		// that is also some other field's Go name still selects the canonical
+		// attribute it names, instead of silently protecting the colliding Go
+		// field. Go field names remain accepted when no canonical name matches.
+		fieldMeta := metadata.FieldsByDBName[attr]
 		if fieldMeta == nil {
-			fieldMeta = metadata.FieldsByDBName[attr]
+			fieldMeta = metadata.Fields[attr]
 		}
 		if fieldMeta == nil {
 			return nil, fmt.Errorf("%w: write_policy protected attribute not found: %s", errors.ErrInvalidModel, attr)
@@ -394,6 +399,12 @@ func parseField(field reflect.StructField, indexPath []int, metadata *Metadata, 
 	}
 
 	if isEmbeddedStruct(field) {
+		if hasAnonymousEmbedExclusionTag(field) {
+			// An exclusion tag on an anonymous embedded container suppresses the
+			// entire promoted subtree, matching the field-plan marshal/unmarshal
+			// paths, so its fields are neither written nor read.
+			return nil
+		}
 		return parseFields(field.Type, metadata, indexMap, indexPath)
 	}
 
@@ -441,6 +452,13 @@ func (m *Metadata) addWarning(warning string) {
 
 func isEmbeddedStruct(field reflect.StructField) bool {
 	return field.Anonymous && field.Type.Kind() == reflect.Struct
+}
+
+// hasAnonymousEmbedExclusionTag reports whether an anonymous embedded struct
+// carries an exclusion tag. Either a theorydb or json "-" tag excludes the whole
+// promoted subtree, so the container's fields must not enter model metadata.
+func hasAnonymousEmbedExclusionTag(field reflect.StructField) bool {
+	return field.Tag.Get("theorydb") == "-" || field.Tag.Get("json") == "-"
 }
 
 func registerField(metadata *Metadata, fieldMeta *FieldMetadata) error {
@@ -655,6 +673,12 @@ func applyTagPart(meta *FieldMetadata, part string) error {
 func applyKeyValueTag(meta *FieldMetadata, key, value string) error {
 	switch key {
 	case "attr":
+		// A present-but-empty override is malformed. It must fail here, before
+		// naming-convention resolution can replace the empty value with an
+		// inferred name and register the model under an unintended attribute.
+		if value == "" {
+			return fmt.Errorf("%w: attr: requires a non-empty attribute name", errors.ErrInvalidTag)
+		}
 		meta.DBName = value
 		return nil
 	case "index":

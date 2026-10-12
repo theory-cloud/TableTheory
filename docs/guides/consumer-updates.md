@@ -35,7 +35,13 @@ Release tags include the leading `v` (`vX.Y.Z`). TypeScript asset names use the 
 
 Renovate's built-in npm and pip managers cannot see TableTheory's direct GitHub Release asset URLs as registry
 packages. Use regex custom managers backed by the `github-releases` datasource instead. The config below updates stable
-TypeScript tarball and Python wheel URLs in Markdown docs, package manifests, lockfiles, and requirements files.
+TypeScript tarball and Python wheel URLs in prose Markdown docs and package manifests.
+
+Do **not** point a URL-only manager at an integrity-bearing file (`package-lock.json`, a `pip --hash` requirements
+file, or any lockfile that records a resolved URL together with an SRI/hash). The manager replaces the URL string but
+cannot regenerate the adjacent integrity value, so the update PR would fail `npm ci` / `pip install --require-hashes`
+with an integrity error. Regenerate those files with their own package manager (`npm install --save-exact <url>`,
+`pip install --require-hashes`) instead.
 
 ```json
 {
@@ -47,7 +53,6 @@ TypeScript tarball and Python wheel URLs in Markdown docs, package manifests, lo
       "description": "Update TableTheory TypeScript GitHub Release asset URLs",
       "managerFilePatterns": [
         "/(^|/)package\\.json$/",
-        "/(^|/)package-lock\\.json$/",
         "/(^|/)README\\.md$/",
         "/(^|/)docs/.+\\.md$/"
       ],
@@ -64,7 +69,6 @@ TypeScript tarball and Python wheel URLs in Markdown docs, package manifests, lo
       "customType": "regex",
       "description": "Update TableTheory Python wheel GitHub Release asset URLs",
       "managerFilePatterns": [
-        "/(^|/)requirements.*\\.txt$/",
         "/(^|/)README\\.md$/",
         "/(^|/)docs/.+\\.md$/"
       ],
@@ -87,3 +91,7 @@ Notes:
   validation choices and should be advanced deliberately.
 - If your Renovate configuration restricts enabled managers, include `"custom.regex"` in `enabledManagers`.
 - Keep `--save-exact` for TypeScript installs and `==X.Y.Z` constraints for Python when you want reproducible builds.
+- `package-lock.json` and hashed `requirements*.txt` files are deliberately excluded from the managers above: a
+  URL-only regex manager would rewrite the release URL while leaving the adjacent SRI/hash stale, so `npm ci` /
+  `pip install --require-hashes` would fail with an integrity error. Update those files with their native package
+  manager (`npm install --save-exact <url>`, `pip install --require-hashes`) so the URL and integrity change together.

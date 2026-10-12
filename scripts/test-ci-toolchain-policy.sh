@@ -142,6 +142,24 @@ YAML
 run_verifier
 expect_status PASS "SHA-pinned action"
 
+# 4b. A SHA hidden in a YAML comment does not pin the action: the executable ref
+#     is the mutable tag, so the guard must reject it.
+begin_case
+write_workflow ci.yml <<'YAML'
+name: fixture
+on:
+  pull_request:
+    branches: ["staging"]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7 # @0123456789abcdef0123456789abcdef01234567
+YAML
+run_verifier
+expect_status FAIL "comment-only SHA pin"
+expect_message "is not pinned to a full commit SHA" "comment-only SHA pin"
+
 # 5. R-F1 rule A: push to staging without any staging pull-request coverage.
 begin_case
 write_workflow ci.yml <<'YAML'

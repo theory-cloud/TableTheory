@@ -77,6 +77,11 @@ func (m *Manager) AutoMigrateWithOptions(sourceModel any, options ...AutoMigrate
 		return err
 	}
 
+	migrationPlan, err := m.prepareMigrationPlan(opts, sourceMetadata, targetMetadata)
+	if err != nil {
+		return err
+	}
+
 	if err := m.createBackupIfRequested(opts.Context, sourceMetadata.TableName, opts.BackupTable); err != nil {
 		return err
 	}
@@ -85,7 +90,22 @@ func (m *Manager) AutoMigrateWithOptions(sourceModel any, options ...AutoMigrate
 		return err
 	}
 
-	return m.copyDataIfRequested(opts, sourceMetadata, targetMetadata)
+	return m.copyDataIfRequested(opts, sourceMetadata, targetMetadata, migrationPlan)
+}
+
+// prepareMigrationPlan refuses an unsafe encryption transition before any target
+// table is created or any row is copied, and returns the plan that guards each
+// copied item. A migration that copies no data cannot leak plaintext, so it is
+// exempt from the encryption preflight.
+func (m *Manager) prepareMigrationPlan(opts *AutoMigrateOptions, sourceMetadata, targetMetadata *model.Metadata) (*migrationEncryptionPlan, error) {
+	if !opts.DataCopy || sourceMetadata.TableName == targetMetadata.TableName {
+		return nil, nil
+	}
+	encryptor := m.migrationEncryptor()
+	if err := preflightMigrationEncryption(sourceMetadata, targetMetadata, encryptor != nil, targetMetadata.TableName); err != nil {
+		return nil, err
+	}
+	return newMigrationEncryptionPlan(sourceMetadata, targetMetadata, encryptor, targetMetadata.TableName), nil
 }
 
 func newAutoMigrateOptions(options []AutoMigrateOption) *AutoMigrateOptions {
@@ -150,7 +170,7 @@ func (m *Manager) ensureTargetTable(targetModel any, tableName string) error {
 	return nil
 }
 
-func (m *Manager) copyDataIfRequested(opts *AutoMigrateOptions, sourceMetadata, targetMetadata *model.Metadata) error {
+func (m *Manager) copyDataIfRequested(opts *AutoMigrateOptions, sourceMetadata, targetMetadata *model.Metadata, migrationPlan *migrationEncryptionPlan) error {
 	if !opts.DataCopy || sourceMetadata.TableName == targetMetadata.TableName {
 		return nil
 	}
@@ -164,7 +184,7 @@ func (m *Manager) copyDataIfRequested(opts *AutoMigrateOptions, sourceMetadata, 
 		}
 	}
 
-	if err := m.copyData(opts, sourceMetadata, targetMetadata, transformFunc); err != nil {
+	if err := m.copyData(opts, sourceMetadata, targetMetadata, transformFunc, migrationPlan); err != nil {
 		return fmt.Errorf("failed to copy data: %w", err)
 	}
 
@@ -305,7 +325,7 @@ func (m *Manager) copyTable(ctx context.Context, sourceTable, targetTable string
 }
 
 // copyData copies data from source to target table with optional transformation
-func (m *Manager) copyData(opts *AutoMigrateOptions, sourceMetadata, targetMetadata *model.Metadata, transformFunc TransformFunc) error {
+func (m *Manager) copyData(opts *AutoMigrateOptions, sourceMetadata, targetMetadata *model.Metadata, transformFunc TransformFunc, migrationPlan *migrationEncryptionPlan) error {
 	ctx := opts.Context
 
 	// Get client once for the entire operation
@@ -332,7 +352,7 @@ func (m *Manager) copyData(opts *AutoMigrateOptions, sourceMetadata, targetMetad
 
 		// Process items
 		if len(result.Items) > 0 {
-			if err := m.processItems(ctx, client, result.Items, targetMetadata.TableName, transformFunc, sourceMetadata, targetMetadata); err != nil {
+			if err := m.processItems(ctx, client, result.Items, targetMetadata.TableName, transformFunc, sourceMetadata, targetMetadata, migrationPlan); err != nil {
 				return fmt.Errorf("failed to process items: %w", err)
 			}
 		}
@@ -352,10 +372,22 @@ func (m *Manager) processItems(ctx context.Context, client session.DynamoDBAPI, 
 	targetTable string,
 	transformFunc TransformFunc,
 	sourceMetadata, targetMetadata *model.Metadata,
+	migrationPlan *migrationEncryptionPlan,
 ) error {
 	writeRequests, err := buildPutWriteRequestsWithTransform(items, transformFunc, sourceMetadata, targetMetadata)
 	if err != nil {
 		return err
+	}
+
+	// Enforce the target encryption contract for the whole page before any of it
+	// is written, so an unsafe item cannot leave a partially written batch.
+	for i := range writeRequests {
+		if writeRequests[i].PutRequest == nil {
+			continue
+		}
+		if err := migrationPlan.guardItem(ctx, writeRequests[i].PutRequest.Item); err != nil {
+			return err
+		}
 	}
 
 	const (

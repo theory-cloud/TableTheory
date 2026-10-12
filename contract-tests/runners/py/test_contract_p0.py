@@ -985,16 +985,24 @@ def _assert_expectation(
     has_raw_assertion = _expectation_has_any_key(
         expect, {"item_missing_fields", "raw_attribute_types", "raw_item_contains"}
     )
+    # item_absent requires the operation to succeed, but not a present item, so it
+    # is neither an item assertion (which needs a non-nil item) nor one it can be
+    # combined with an error expectation.
+    has_absence_assertion = "item_absent" in expect
 
     if "error" in expect:
         assert error is not None
         assert _map_error(error) == expect["error"]
-        assert not has_item_assertion, "item assertions cannot be combined with error expectations"
+        assert not has_item_assertion and not has_absence_assertion, (
+            "item assertions cannot be combined with error expectations"
+        )
         return
     if "errors" in expect:
         assert error is not None
         assert sorted(_map_errors(error)) == sorted(expect["errors"])
-        assert not has_item_assertion, "item assertions cannot be combined with error expectations"
+        assert not has_item_assertion and not has_absence_assertion, (
+            "item assertions cannot be combined with error expectations"
+        )
         return
 
     if has_item_assertion:
@@ -1002,6 +1010,8 @@ def _assert_expectation(
         assert item is not None, "expected item for item assertions"
     if has_raw_assertion:
         assert raw is not None, "expected raw item for raw assertions"
+    if has_absence_assertion:
+        assert error is None, "expected successful operation for item_absent assertions"
 
     if "ok" in expect:
         if expect["ok"]:
@@ -1174,6 +1184,52 @@ def test_assert_expectation_rejects_raw_assertions_with_error_expectations() -> 
     with pytest.raises(AssertionError, match="item assertions cannot be combined with error expectations"):
         _assert_expectation(
             {"error": "ErrItemNotFound", "raw_item_contains": {"PK": "USER#fail-closed"}},
+            error=NotFoundError("missing seeded item"),
+            item=None,
+            raw=None,
+            model=_minimal_user_model(),
+            variables={},
+        )
+
+
+def test_assert_expectation_fails_closed_on_item_absent_error() -> None:
+    with pytest.raises(AssertionError, match="expected successful operation for item_absent assertions"):
+        _assert_expectation(
+            {"item_absent": True},
+            error=RuntimeError("unexpected operation error"),
+            item=None,
+            raw=None,
+            model=_minimal_user_model(),
+            variables={},
+        )
+
+
+def test_assert_expectation_accepts_absent_item_on_success() -> None:
+    _assert_expectation(
+        {"item_absent": True},
+        error=None,
+        item=None,
+        raw=None,
+        model=_minimal_user_model(),
+        variables={},
+    )
+
+
+def test_assert_expectation_accepts_present_item_when_not_absent() -> None:
+    _assert_expectation(
+        {"item_absent": False},
+        error=None,
+        item={"PK": "USER#present"},
+        raw=None,
+        model=_minimal_user_model(),
+        variables={},
+    )
+
+
+def test_assert_expectation_rejects_item_absent_with_error_expectation() -> None:
+    with pytest.raises(AssertionError, match="item assertions cannot be combined with error expectations"):
+        _assert_expectation(
+            {"error": "ErrItemNotFound", "item_absent": True},
             error=NotFoundError("missing seeded item"),
             item=None,
             raw=None,

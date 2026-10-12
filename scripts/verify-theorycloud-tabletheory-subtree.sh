@@ -12,7 +12,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 MODULE_NAME = "theorycloud"
 SUBTREE_NAME = "tabletheory"
@@ -102,23 +102,41 @@ def run_git(repo_root: Path, *args: str) -> str:
     return run(repo_root, "git", *args).stdout.strip()
 
 
-def normalize_remote_url(value: str | None) -> str:
-    if not value:
-        return DEFAULT_SOURCE_REPO
+GITHUB_IDENTITY_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 
-    url = value.strip()
-    prefixes = (
-        "https://github.com/",
-        "http://github.com/",
-        "ssh://git@github.com/",
-        "git@github.com:",
-    )
-    for prefix in prefixes:
-        if url.startswith(prefix):
-            url = url[len(prefix) :]
-            break
-    url = url.removesuffix(".git").strip("/")
-    return url or DEFAULT_SOURCE_REPO
+
+def parse_remote_identity(value: str | None, default: str = DEFAULT_SOURCE_REPO) -> str:
+    """Return a validated ``owner/repository`` identity from a git remote URL.
+
+    Any URL userinfo (``https://user:token@github.com/...``) is parsed and then
+    discarded, so a credential embedded in the remote URL can never reach the
+    staged manifest. An unrecognized remote falls back to ``default`` rather
+    than echoing the raw value.
+    """
+    if not value:
+        return default
+
+    raw = value.strip()
+    if not raw:
+        return default
+
+    if "://" not in raw:
+        # scp-like syntax: [user@]host:owner/repo(.git)
+        scp = re.match(r"^(?:[^@/]+@)?(?P<host>[^:/]+):(?P<path>.+)$", raw)
+        if scp is None or scp.group("host").lower() != "github.com":
+            return default
+        path = scp.group("path")
+    else:
+        parsed = urlsplit(raw)
+        if parsed.hostname is None or parsed.hostname.lower() != "github.com":
+            return default
+        # parsed.username / parsed.password (userinfo) are intentionally ignored.
+        path = parsed.path.lstrip("/")
+
+    path = unquote(path).strip().removesuffix(".git").strip("/")
+    if GITHUB_IDENTITY_RE.match(path):
+        return path
+    return default
 
 
 def is_excluded(rel_path: str, exclusions: tuple[str, ...]) -> bool:
@@ -404,7 +422,7 @@ def main() -> None:
         remote_url = run_git(repo_root, "config", "--get", "remote.origin.url")
     except subprocess.CalledProcessError:
         remote_url = DEFAULT_SOURCE_REPO
-    expected_source_repo = normalize_remote_url(os.environ.get("SOURCE_REPO") or remote_url)
+    expected_source_repo = parse_remote_identity(os.environ.get("SOURCE_REPO") or remote_url)
     if manifest["source_repo"] != expected_source_repo:
         fail(f"manifest source_repo={manifest['source_repo']!r} want {expected_source_repo!r}")
 
@@ -431,6 +449,32 @@ def main() -> None:
             "manifest exclusion_rules do not match expected value: "
             f"{sorted(manifest['exclusion_rules'])!r} want {sorted(EXPECTED_EXCLUSION_RULES)!r}"
         )
+
+    # TTSEC-M0-T6: the manifest must carry only a validated owner/repository
+    # identity (never a credential), and the shared staged tree must be private.
+    manifest_repo = manifest["source_repo"]
+    if "@" in manifest_repo or "://" in manifest_repo or not GITHUB_IDENTITY_RE.match(manifest_repo):
+        fail(f"manifest source_repo={manifest_repo!r} is not a validated owner/repository identity")
+    manifest_mode = manifest_path.stat().st_mode & 0o777
+    if manifest_mode != 0o600:
+        fail(f"manifest {manifest_path} mode {oct(manifest_mode)} must be 0o600")
+    subtree_mode = subtree_root.stat().st_mode & 0o777
+    if subtree_mode != 0o700:
+        fail(f"staged subtree {subtree_root} mode {oct(subtree_mode)} must be 0o700")
+
+    # Credential-bearing and foreign remotes must never leak userinfo into the
+    # identity, and an unrecognized remote must fall back to the default.
+    for hostile, expected in (
+        ("https://user:token@github.com/theory-cloud/TableTheory.git", "theory-cloud/TableTheory"),
+        ("https://ghp_secret@github.com/theory-cloud/TableTheory", "theory-cloud/TableTheory"),
+        ("ssh://git@github.com/theory-cloud/TableTheory.git", "theory-cloud/TableTheory"),
+        ("git@github.com:theory-cloud/TableTheory.git", "theory-cloud/TableTheory"),
+        ("https://github.com/theory-cloud/TableTheory", "theory-cloud/TableTheory"),
+        ("git@gitlab.com:someone/else.git", DEFAULT_SOURCE_REPO),
+    ):
+        identity = parse_remote_identity(hostile)
+        if identity != expected:
+            fail(f"parse_remote_identity({hostile!r}) = {identity!r}, expected {expected!r}")
 
     verify_doc_links(subtree_root)
 

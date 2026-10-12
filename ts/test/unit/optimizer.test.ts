@@ -118,7 +118,7 @@ void test('optimizer selects indexes using Go-compatible condition analysis', ()
   assert.equal(selected?.name, 'gsi-email');
 });
 
-void test('optimizer explain selects GSI from query filter conditions', () => {
+void test('optimizer explain keeps the missing-partition-key diagnostic for a filter-shaped index match', async () => {
   const client = new TheorydbClient(new StubDdb() as unknown as DynamoDBClient)
     .register(User)
     .withSendOptions(undefined);
@@ -128,10 +128,20 @@ void test('optimizer explain selects GSI from query filter conditions', () => {
   const plan = optimizer.explain(query.describe());
 
   assert.equal(plan.operation, 'Query');
-  assert.equal(plan.indexName, 'gsi-email');
+  // A filter that merely resembles an index key must not be reported as the
+  // executed index: without partitionKey() the query cannot run against it.
+  assert.equal(plan.indexName, undefined);
   assert.ok(
-    plan.optimizationHints.some((h) => h.includes('selected GSI gsi-email')),
+    plan.optimizationHints.some((h) => h.includes('partitionKey() is not set')),
   );
+  assert.ok(
+    plan.optimizationHints.some((h) =>
+      h.includes('partitionKey() is not set, so the query cannot use it'),
+    ),
+  );
+
+  // Explain and execution agree: the same builder still fails.
+  await assert.rejects(() => query.page(), /partitionKey\(\) is required/);
 });
 
 void test('optimizer explain keeps primary index when partition key is set', () => {

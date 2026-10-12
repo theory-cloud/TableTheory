@@ -40,26 +40,32 @@ Additional endpoints:
 
 ## Dependency audit note
 
-The current pin is `aws-cdk-lib@2.271.0`. `npm audit` reports three brace-expansion advisories (one medium, two high)
-against the copy `aws-cdk-lib` publishes bundled, `node_modules/aws-cdk-lib/node_modules/brace-expansion@5.0.9`. Because
-AWS publishes that dependency inside `aws-cdk-lib`, npm overrides cannot replace it and the finding is not fixable from
-this repo.
+The current pin is `aws-cdk-lib@2.273.0`, which publishes bundled `brace-expansion@5.0.12` — the fixed version for the
+three brace-expansion advisories earlier `aws-cdk-lib` releases shipped. The retired copies were `5.0.9`, bundled under
+`node_modules/aws-cdk-lib/node_modules/brace-expansion`, which npm overrides cannot replace because AWS publishes that
+dependency inside `aws-cdk-lib`.
 
-SEC-2 therefore records all three advisories in `gov-infra/planning/theorydb-visible-npm-audit-findings.json` (reviewed
-2026-10-03, self-expiring 2026-11-02), never in the supply-chain suppression allowlist. The findings stay explicitly
-printed in SEC-2 evidence and are never described as allowlisted.
+With the fixed bundle in place `npm audit` reports no findings for this example, so
+`gov-infra/planning/theorydb-visible-npm-audit-findings.json` now carries an empty `findings` list. The three visible
+entries recorded on 2026-10-03 were retired on 2026-10-11 under their documented `remove_when` condition (aws-cdk-lib
+bundles brace-expansion `>= 5.0.12`). They were only ever recorded in that visible-findings file, never in the
+supply-chain suppression allowlist, and no allowlist suppression was added in their place.
 
-`scripts/test-npm-audit-policy.sh` is the guard that keeps that state honest, and it fails in both directions:
+`scripts/test-npm-audit-policy.sh` is the guard that keeps the retired state honest. It asserts the fixed graph directly
+and fails closed in every direction:
 
-- While `aws-cdk-lib` bundles a vulnerable brace-expansion, the bundled version must still be exactly `5.0.9` and all
-  three visible entries must still be present. Removing the entries early, or moving to a different bundled version,
-  fails the guard and forces a re-review.
-- Once `aws-cdk-lib` bundles a fixed brace-expansion (`>= 5.0.12`), the visible entries must be removed rather than left
-  in place; keeping the retired exception fails the guard.
+- `aws-cdk-lib` must be `>= 2.273.0`, with a resolved tarball URL and a `sha512-` integrity hash.
+- The bundled `node_modules/aws-cdk-lib/node_modules/brace-expansion` entry must exist, be marked `inBundle: true`, and
+  resolve to `>= 5.0.12`; the bundled `minimatch` must be `inBundle: true` and its declared brace-expansion range must be
+  satisfied by the actual bundled version.
+- No `brace-expansion` below `5.0.12` may exist anywhere in the lockfile, and no residual visible policy entry may
+  reference the retired exception.
 
-The verifier is therefore green only while the exception is still required, and stops being green once it goes stale.
-When AWS publishes a fixed bundle, take the version bump and delete the visible policy entries — do not add an allowlist
-suppression.
+Synthetic negative controls (an old `5.0.9` bundle, a missing path/entry/integrity/resolved field, a new vulnerable root
+entry, a mismatched minimatch range, a residual policy entry in the wrong advisory/package/node shape, a malformed
+lockfile or policy, and a failed or empty audit transport) all fail closed, so the guard is green only while the fixed
+bundle and the retired policy state agree. When AWS publishes a future bundle, take the version bump and record the new
+bundle — do not re-add a visible entry or an allowlist suppression to mask a bundled advisory.
 
 ## Smoke test
 

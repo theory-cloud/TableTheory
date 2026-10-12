@@ -119,6 +119,15 @@ const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
   ReleaseStateOutbox,
 );
 
+const outbox = {
+  PK: `RELEASE#${service}`,
+  SK: `OUTBOX#lambda-alias#${releaseId}`,
+  operation: 'lambda_alias_update',
+  idempotencyKey: `${service}:${releaseId}`,
+  requestedState: 'active',
+  nextAttemptAt: observedAt,
+};
+
 await transitionReleaseState(client, {
   actualModel: 'ReleaseStateActual',
   actualKey: { PK: `RELEASE#${service}`, SK: 'ACTUAL' },
@@ -140,22 +149,20 @@ await transitionReleaseState(client, {
     actor: 'operator@example.com',
     evidence: provenance,
   },
+  outboxModel: 'ReleaseStateOutbox',
+  outboxItem: outbox,
 });
-
-const outbox = {
-  PK: `RELEASE#${service}`,
-  SK: `OUTBOX#lambda-alias#${releaseId}`,
-  operation: 'lambda_alias_update',
-  idempotencyKey: `${service}:${releaseId}`,
-  requestedState: 'active',
-  nextAttemptAt: observedAt,
-};
 
 const command = ddb.sent[0];
 if (!(command instanceof TransactWriteItemsCommand)) {
   throw new Error('expected release-state helper to emit TransactWriteItems');
 }
 
-console.log(
-  `transactionItems=${command.input.TransactItems?.length ?? 0} outbox=${outbox.SK}`,
-);
+const items = command.input.TransactItems ?? [];
+if (items.length !== 3) {
+  throw new Error(
+    `expected actual update, event append, and outbox create in one transaction, got ${items.length}`,
+  );
+}
+
+console.log(`transactionItems=${items.length} outbox=${outbox.SK}`);

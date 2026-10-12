@@ -4,6 +4,12 @@
 
 ### Breaking Changes
 
+* **ts:** on the default `TheorydbClient` (`numberUnmarshalMode` `'string'`), typed items now declare DynamoDB `N` fields
+  as `string` and `NS` fields as `string[]` instead of `number`/`number[]`. Runtime behavior is unchanged — the
+  documented default was already exact-string — so this is a compile-time-only break: consumer code that relied on the
+  previous incorrect `number` declaration must handle the decimal strings directly, or construct the client/repository
+  in `'number'` mode (`TheorydbClient<'number'>`) to obtain numbers. Semver decision: this public type correction is
+  release-major material and must not ship as a patch/minor.
 * **contract:** advance the shared model contract to DMS v0.2. High-level updates now distinguish field selection:
   unselected zero-valued `omitempty` fields remain unchanged, while explicitly selected empty `omitempty` fields remove
   the persisted DynamoDB attribute. TypeScript already had this behavior; Go and Python previously stored empty values.
@@ -51,9 +57,31 @@
 * **py:** add a stateful DynamoDB testkit fake and top-level re-exports
 * add TTL-aware schema provisioning across Go, TypeScript, and Python helpers
 * add CDK archival construct for DynamoDB TTL expirations to S3 Glacier lifecycle storage
+* **go:** generate `encoding/json.Number` for DMS `decimal_string` attributes so generated decimal fields round-trip
+  DynamoDB `N` through the default marshal paths, with no registered converter
+* **ts:** add `AutoMigrateOptions.encryption` so `autoMigrate` can encrypt attributes a target model declares
+  encrypted, and add the `ErrMigrationEncryptionRequired` and `ErrNumberPrecisionLoss` error codes
+* **py:** add `kms_key_arn`, `kms_client`, and `rand_bytes` to `auto_migrate` and export `MigrationEncryptionError`
 
 ### Bug Fixes
 
+* **go:** refuse data-copying `AutoMigrateWithOptions` migrations that would write plaintext into a target
+  `theorydb:"encrypted"` field, before any table is created or any row is copied, and encrypt plaintext through the
+  configured session KMS key when one is present
+* **py:** bound derived-key numeric coercion to DynamoDB's exponent range before fixed-point expansion, so a tiny
+  input such as `1e100000000` can no longer expand toward an unbounded allocation
+* **ts:** aggregate exact-decimal-string `N` values numerically: `sum`/`average`/`min`/`max`/`group by`/`having` no
+  longer silently return `0` or order lexicographically. DynamoDB decimal strings are the exact domain: `min`/`max`/
+  `group by` order by exact decimal text, and `sum`/`average`/`having` return a number only when every value and the
+  result is exactly representable as an IEEE-754 double, otherwise raising `ErrNumberPrecisionLoss`; exponent notation
+  outside DynamoDB's `[-130, 125]` adjusted-exponent range is rejected before any fixed-point expansion. Already
+  materialized JavaScript numbers (`numberUnmarshalMode: 'number'`) are the lossy domain and keep the historical
+  JavaScript-number arithmetic and comparison instead of being re-parsed as exact decimal strings; inputs that mix
+  exact decimal strings with JavaScript numbers raise `ErrNumberPrecisionLoss` rather than coercing the string through
+  `Number`. Decimal parsing strips mantissa zeros with linear index scans so a long attacker-controlled mantissa cannot
+  drive quadratic regular-expression work
+* **ts:** retain and compare DMS attribute `format` in normalization, equivalence, and model-to-DMS so format-only
+  drift is no longer reported equivalent
 * **go:** remove the detached cold-start pre-warm and the multi-account credential-refresh ticker, so no TableTheory
   init path leaves work running after it returns. Lambda freezes the execution environment as soon as the handler
   returns, so a pre-warm started in a goroutine could be frozen mid-flight and resume against an invocation that had
@@ -91,6 +119,30 @@
 * update Python lockfile security baseline and remove stale pip-audit exception
 * prevent Python Lambda timeout guards from being retried by query and scan helpers
 * align Python lifecycle and optimistic-lock writes with the shared P0 contract fixtures
+* **go:** round lease expiry up to the whole second at or after `now+duration` in `pkg/lease`, so a sub-second lease cannot be taken over inside the second it was acquired and longer leases are never shortened; the TypeScript and Python lease managers round the same way. Whole-second clocks and durations are unchanged
+* **go:** bound `MultiAccountDB.Partner` to the requested partner with exponential failure backoff instead of synchronously refreshing every expired account, so unrelated expired or failing accounts can no longer block a request
+* **py:** treat `Table.query_count`/`scan_count` `limit` as a total evaluated-item budget instead of deleting it and scanning the whole remaining partition or table; `limit=None` still pages to exhaustion
+* **go/py/ts:** align the stateful fakes with DynamoDB: combined conditions whose outer parentheses do not form a matching pair and missing-attribute comparisons are enforced, `Count` is the matched count and `ScannedCount` the evaluated count, and `Limit` bounds evaluated items before the filter
+* **ts:** stop `QueryOptimizer.explain` from reporting an executable index — and suppressing the missing-partition-key error — when a filter condition only resembles an index key
+* **go:** classify a condition failure as `ErrVersionConflict` only on case-sensitive whole-token placeholders or attribute names, so `#value`, `#n10`, and case-variant names no longer misclassify a generic conditional failure
+* **go:** carry `Config.CredentialsProvider`/`Config.AWSConfigOptions` into the KMS AWS config in `NewSessionWithClient`, and fail early with `ErrEncryptionNotConfigured` when a KMS key ARN has no usable credential source; callers that set `KMSKeyARN` without a `KMSClient` must now supply credentials or an explicit KMS client
+* **go/py/ts:** release-state transition helpers now bind the immutable event to the actual row they update: an event whose partition key does not match the actual-state row is rejected before any transaction is submitted, so an event can no longer describe a different release than the one that changed
+* **go/py/ts:** deploy-authority provenance validation now includes the optional evidence `digest` in the evidence conflict identity, so identical evidence stays idempotent while the same kind/source/ref with a different digest conflicts; the top-level `provenance.system`/`kind`/`ref` (and `digest` when present) must now align with the evidence entry that earned deploy authority, so unrelated evidence can no longer bless a different top-level artifact
+* **go/py/ts:** the release-state examples commit the actual-state update, the immutable event append, and the conditional outbox create in one DynamoDB transaction instead of printing an unused outbox
+* **docs:** the canonical vocabulary and runtime docs describe Go GSI tags with the supported indexed form `theorydb:"index:<name>,pk"` / `theorydb:"index:<name>,sk"` instead of the rejected bare `theorydb:"gsi1pk"` / `theorydb:"gsi1sk"`; the generative-artifacts verifier now rejects the bare form and a Go test proves the documented tags register
+* **py:** the copyable GSI core-pattern uses Python dataclass field names in `IndexSpec`/`gsi(...)` instead of persisted storage names, and the Python scaffold README no longer claims the removed `theorydb_py` compatibility shim exists
+* **docs:** the FaceTheory ISR idempotency recipe no longer documents an invalid transaction that issued both a `ConditionCheck` and a `Delete` against the same lease item; it documents the single conditional lease `Delete` the shipped helper uses
+* **examples:** the multi-language TTL archive fails closed when a TTL-expiry `REMOVE` record eligible for archival has no `OldImage`, reporting it as a batch item failure instead of a successful skip, and the archive construct rejects a table whose stream view is knowably not `NEW_AND_OLD_IMAGES`
+* **cli:** `generate-ts`/`gen --out` and `tabletheory init` (including `--force`) no longer follow a symlink at the output path or an escaping parent directory, so they cannot truncate or overwrite a file outside the intended root; output is replaced atomically and the victim file is left untouched
+* **examples:** the local `contacts`/`notes`/`todo` setup checks DynamoDB Local with an explicit DynamoDB protocol call instead of generic HTTP reachability, so any non-DynamoDB HTTP listener on the local endpoint is refused
+* **go:** release `pkg/protection.SecureBodyReader`'s request-concurrency slot before its timeout cleanup instead of after it. A client that declares a body and withholds it leaves a Go HTTP/1 request body whose reader and `Close` both wait on the stalled socket; the timeout path previously closed the body and joined the reader before releasing the slot, so the slot was held until the client disconnected and `MaxConcurrentReq` stalled connections rejected every other request. The slot is now released no later than `MaxRequestTimeout`, ahead of the close and join, which can still block the calling handler (the reader is joined, not abandoned) until the client disconnects or a transport deadline fires; a server- or upstream-level body-read deadline remains the robust fix for live HTTP/1 requests. A regression test drives a real HTTP/1 server and a client that withholds its declared body, alongside a complete-body success control
+* **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
+* **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
+
+## [4.0.2](https://github.com/theory-cloud/TableTheory/compare/v4.0.2-rc...v4.0.2) (2026-10-09)
+
+Stable promotion of `v4.0.2-rc`.
+
 
 ## [4.0.2-rc](https://github.com/theory-cloud/TableTheory/compare/v4.0.1...v4.0.2-rc) (2026-10-09)
 

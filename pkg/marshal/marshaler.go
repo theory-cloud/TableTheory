@@ -15,6 +15,7 @@ import (
 	"github.com/theory-cloud/tabletheory/v4/internal/anonymous"
 	"github.com/theory-cloud/tabletheory/v4/internal/expr"
 	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
 	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/v4/pkg/model"
 	"github.com/theory-cloud/tabletheory/v4/pkg/naming"
@@ -635,6 +636,11 @@ func (m *Marshaler) marshalValue(v reflect.Value) (types.AttributeValue, error) 
 
 	if av, ok, err := m.marshalUsingCustomConverter(v); ok {
 		return av, err
+	}
+
+	if v.Type() == numutil.JSONNumberType {
+		// Preserve a decoded exact number as N rather than S on rewrite.
+		return &types.AttributeValueMemberN{Value: v.String()}, nil
 	}
 
 	switch v.Kind() {

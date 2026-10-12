@@ -1,0 +1,7 @@
+# Publishing tools installed by .github/workflows/theorycloud-tabletheory-publish.yml
+# BEFORE the stage-scoped AWS role is assumed. The compiled lock
+# (scripts/requirements/theorycloud-publish.txt) pins exact versions with
+# sha256 hashes and is installed with `pip install --require-hashes
+# --only-binary=:all:` so no mutable PyPI dependency executes in the
+# privileged job.
+awscurl==0.34

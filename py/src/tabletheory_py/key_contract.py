@@ -18,6 +18,11 @@ TRANSFORM_LOWERCASE = "lowercase"
 TRANSFORM_URL_ENCODE = "url_encode"
 
 SUPPORTED_CONTRACT_VERSIONS = {"0.1", "0.2"}
+
+# A DynamoDB number supports magnitudes whose most-significant-digit exponent
+# (``Decimal.adjusted()``) falls within [-130, 125] (1E-130 .. ~9.99E+125).
+_DYNAMODB_MIN_ADJUSTED_EXPONENT = -130
+_DYNAMODB_MAX_ADJUSTED_EXPONENT = 125
 SUPPORTED_TRANSFORMS = {
     TRANSFORM_TRIM,
     TRANSFORM_WILDCARD_EMPTY,
@@ -316,7 +321,7 @@ def _scalar_to_string(value: Any, input_name: str, input_type: str = "") -> str:
                 raise ValidationError(f"derived key input {input_name} must be a finite number")
             if decimal == 0:
                 return "0"
-            return format(decimal, "f")
+            return _bounded_fixed(decimal, input_name)
         return value
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -327,14 +332,21 @@ def _scalar_to_string(value: Any, input_name: str, input_type: str = "") -> str:
             raise ValidationError(f"derived key input {input_name} must be a finite number")
         if value == 0:
             return "0"
-        return _expand_exponent_decimal(str(value))
+        return _expand_exponent_decimal(str(value), input_name)
     if isinstance(value, Decimal):
         if not value.is_finite():
             raise ValidationError(f"derived key input {input_name} must be a finite number")
         if value == 0:
             return "0"
-        return format(value, "f")
+        return _bounded_fixed(value, input_name)
     raise ValidationError(f"derived key input {input_name} must be a scalar")
+
+
+def _bounded_fixed(value: Decimal, input_name: str) -> str:
+    adjusted = value.adjusted()
+    if adjusted > _DYNAMODB_MAX_ADJUSTED_EXPONENT or adjusted < _DYNAMODB_MIN_ADJUSTED_EXPONENT:
+        raise ValidationError(f"derived key input {input_name} must be within DynamoDB number bounds")
+    return format(value, "f")
 
 
 _UNRESERVED_BYTES = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
@@ -394,7 +406,7 @@ def _trim_contract_whitespace(value: str) -> str:
     return value[start:end]
 
 
-def _expand_exponent_decimal(value: str) -> str:
+def _expand_exponent_decimal(value: str, input_name: str) -> str:
     if "e" not in value and "E" not in value:
         return value
-    return format(Decimal(value), "f")
+    return _bounded_fixed(Decimal(value), input_name)

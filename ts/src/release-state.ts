@@ -13,6 +13,7 @@ const PROVENANCE_KEYS = new Set([
   'observed_at',
   'recorded_at',
   'import_run_id',
+  'digest',
   'evidence',
 ]);
 const EVIDENCE_KEYS = new Set([
@@ -40,6 +41,13 @@ export interface ReleaseStateTransitionInput {
   set: Record<string, unknown>;
   eventModel: string;
   eventItem: Record<string, unknown>;
+  /**
+   * Optional immutable write-once outbox row created in the same transaction as
+   * the actual-state update and event append. Provide `outboxModel` and
+   * `outboxItem` together.
+   */
+  outboxModel?: string;
+  outboxItem?: Record<string, unknown>;
   expectedVersion?: number;
   versionAttribute?: string;
 }
@@ -54,6 +62,15 @@ export async function transitionReleaseState(
 ): Promise<void> {
   validateTransitionInput(client, input);
   const versionAttribute = input.versionAttribute ?? DEFAULT_VERSION_ATTRIBUTE;
+  const outbox =
+    input.outboxItem !== undefined && input.outboxModel !== undefined
+      ? {
+          kind: 'put' as const,
+          model: input.outboxModel,
+          item: input.outboxItem,
+          ifNotExists: true,
+        }
+      : undefined;
 
   await client.transactWrite([
     {
@@ -76,6 +93,7 @@ export async function transitionReleaseState(
       item: input.eventItem,
       ifNotExists: true,
     },
+    ...(outbox ? [outbox] : []),
   ]);
 }
 
@@ -127,6 +145,64 @@ function validateTransitionInput(
       'release-state transition set must not mutate version directly',
     );
   }
+
+  if ((input.outboxModel === undefined) !== (input.outboxItem === undefined)) {
+    invalidModel(
+      'release-state outboxModel and outboxItem must be provided together',
+    );
+  }
+  if (
+    input.outboxItem !== undefined &&
+    Object.keys(input.outboxItem).length === 0
+  ) {
+    invalidModel('release-state outboxItem is required');
+  }
+
+  validateEventBindsToActual(client, input);
+}
+
+/**
+ * Rejects an event whose canonical partition-key identity does not match the
+ * actual-state row the transition updates, so an event can only ever describe
+ * the exact release row that changed.
+ */
+function validateEventBindsToActual(
+  client: TheorydbClient,
+  input: ReleaseStateTransitionInput,
+): void {
+  const actualPartition = client.modelSchema(input.actualModel).keys.partition
+    .attribute;
+  const eventPartition = client.modelSchema(input.eventModel).keys.partition
+    .attribute;
+  const actualValue = input.actualKey[actualPartition];
+  if (actualValue === undefined) {
+    invalidModel(
+      `release-state actualKey is missing partition key ${actualPartition}`,
+    );
+  }
+  const eventValue = input.eventItem[eventPartition];
+  if (eventValue === undefined) {
+    invalidModel(
+      `release-state eventItem is missing partition key ${eventPartition}`,
+    );
+  }
+  if (
+    actualPartition !== eventPartition ||
+    !sameKeyValue(actualValue, eventValue)
+  ) {
+    invalidModel(
+      `release-state event partition ${eventPartition} does not match actual row partition ${actualPartition}`,
+    );
+  }
+}
+
+function sameKeyValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left instanceof Uint8Array && right instanceof Uint8Array) {
+    if (left.length !== right.length) return false;
+    return left.every((byte, index) => byte === right[index]);
+  }
+  return false;
 }
 
 /**
@@ -153,8 +229,42 @@ export function validateDeployAuthorityMetadata(
   validateAllowedKeys('confidence', confidence, CONFIDENCE_KEYS);
   validateProvenanceShape(provenance);
 
-  const expectedReason = deriveDeployAuthorityReason(provenance);
-  validateConfidence(confidence, expectedReason);
+  const { reason, authority } = deriveDeployAuthority(provenance);
+  validateProvenanceEvidenceAlignment(provenance, authority);
+  validateConfidence(confidence, reason);
+}
+
+/**
+ * Requires the top-level provenance identity to describe the same artifact as
+ * the evidence entry that grants deploy authority. Unrelated evidence must not
+ * bless a different top-level artifact.
+ */
+function validateProvenanceEvidenceAlignment(
+  provenance: Record<string, unknown>,
+  authority: Record<string, unknown>,
+): void {
+  const kind = requiredString(provenance, 'kind');
+  const system = requiredString(provenance, 'system');
+  const ref = requiredString(provenance, 'ref');
+  const authorityDigest =
+    typeof authority.digest === 'string' ? authority.digest : '';
+  if (
+    kind !== requiredString(authority, 'kind') ||
+    system !== requiredString(authority, 'source') ||
+    ref !== requiredString(authority, 'ref')
+  ) {
+    rejected(
+      'provenance identity does not match the deploy authority evidence',
+    );
+  }
+  if (Object.hasOwn(provenance, 'digest')) {
+    const digest = evidenceDigest(provenance);
+    if (digest === '' || digest !== authorityDigest) {
+      rejected(
+        'provenance digest does not match the deploy authority evidence',
+      );
+    }
+  }
 }
 
 function validateProvenanceShape(provenance: Record<string, unknown>): void {
@@ -168,16 +278,17 @@ function validateProvenanceShape(provenance: Record<string, unknown>): void {
   for (const key of ['observed_at', 'recorded_at']) {
     validateRfc3339(key, requiredString(provenance, key));
   }
-  for (const key of ['commit_sha', 'import_run_id']) {
+  for (const key of ['commit_sha', 'import_run_id', 'digest']) {
     if (Object.hasOwn(provenance, key) && typeof provenance[key] !== 'string') {
       invalidModel(`provenance.${key} must be a string`);
     }
   }
 }
 
-function deriveDeployAuthorityReason(
-  provenance: Record<string, unknown>,
-): string {
+function deriveDeployAuthority(provenance: Record<string, unknown>): {
+  reason: string;
+  authority: Record<string, unknown>;
+} {
   const evidence = evidenceValues(provenance.evidence);
   if (evidence.length === 0) {
     rejected('deploy authority requires evidence');
@@ -194,11 +305,8 @@ function deriveDeployAuthorityReason(
       'evidence.observed_at',
       requiredString(entry, 'observed_at'),
     );
-    if (Object.hasOwn(entry, 'digest') && typeof entry.digest !== 'string') {
-      invalidModel('evidence.digest must be a string');
-    }
 
-    const currentSignature = `${kind}|${source}|${ref}`;
+    const currentSignature = `${kind}|${source}|${ref}|${evidenceDigest(entry)}`;
     if (signature === undefined) {
       signature = currentSignature;
       first = entry;
@@ -212,6 +320,18 @@ function deriveDeployAuthorityReason(
   if (!first) rejected('deploy authority requires evidence');
   const kind = requiredString(first, 'kind');
   const source = requiredString(first, 'source');
+  return { reason: authorityReason(kind, source), authority: first };
+}
+
+function evidenceDigest(entry: Record<string, unknown>): string {
+  if (!Object.hasOwn(entry, 'digest')) return '';
+  if (typeof entry.digest !== 'string') {
+    invalidModel('evidence.digest must be a string');
+  }
+  return entry.digest;
+}
+
+function authorityReason(kind: string, source: string): string {
   if (kind === 'operator_command' && source === 'release-control-plane') {
     return 'operator_command_authority';
   }

@@ -24,14 +24,17 @@ func RequestsFlatEncoding(value any) bool {
 }
 
 // MarshalContainerNamesForField resolves legacy anonymous-container names for a
-// promoted field unless flat encoding is enabled.
+// promoted field. Every ancestor container is examined for an exclusion tag even
+// when flat encoding is enabled: flat encoding writes the promoted field
+// directly into the root map, so a skipped container must suppress the field
+// rather than merely omitting the nested container names.
 func MarshalContainerNamesForField(
 	modelType reflect.Type,
 	indexPath []int,
 	resolve func(reflect.StructField) (string, bool),
 	flatten bool,
 ) ([]string, bool) {
-	if flatten || len(indexPath) <= 1 {
+	if len(indexPath) <= 1 {
 		return nil, false
 	}
 
@@ -42,9 +45,14 @@ func MarshalContainerNamesForField(
 		if skip {
 			return nil, true
 		}
-		names = append(names, name)
+		if !flatten {
+			names = append(names, name)
+		}
 	}
 
+	if flatten {
+		return nil, false
+	}
 	return names, false
 }
 

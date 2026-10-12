@@ -119,7 +119,12 @@ def _resolve_write_policy(
     protected: set[str] = set()
     by_attribute_name = {attr.attribute_name: attr for attr in attributes.values()}
     for attr in resolved.protected_attributes:
-        attr_def = attributes.get(attr) or by_attribute_name.get(attr)
+        # Canonical DynamoDB attribute names are the authoritative namespace.
+        # Resolving them first means a protected name that is also another
+        # field's Python name still selects the canonical attribute it names,
+        # rather than silently protecting the colliding Python field. Python
+        # field names remain accepted when no canonical name matches.
+        attr_def = by_attribute_name.get(attr) or attributes.get(attr)
         if attr_def is None:
             raise ModelDefinitionError(f"write_policy protected attribute not found: {attr}")
         protected.add(attr_def.attribute_name)
@@ -282,6 +287,11 @@ class ModelDefinition[T]:
 
             converter = cast(AttributeConverter | None, opts.get("converter"))
             attribute_name = cast(str, opts.get("name", dc_field.name))
+            # A present-but-empty (or whitespace-only) override is malformed:
+            # reject it rather than register the field under a blank (or, in Go,
+            # unintended inferred) database attribute name.
+            if not isinstance(attribute_name, str) or not attribute_name.strip():
+                raise ModelDefinitionError(f"field {dc_field.name} attribute name must be a non-empty string")
             if previous_field := attribute_names.get(attribute_name):
                 # Python has no distinct duplicate-primary-key exception sentinel;
                 # all model-shape failures use ModelDefinitionError.

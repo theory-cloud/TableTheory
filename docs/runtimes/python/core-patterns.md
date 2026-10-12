@@ -116,6 +116,9 @@ fake.expect("put_item", {"TableName": "notes", "Item": {"PK": ANY, "SK": ANY}})
 
 Keep key attributes explicit in the dataclass metadata. PK/SK and GSI key fields must be stable plaintext values;
 encrypted fields are rejected for keys because DynamoDB must be able to route and compare key attributes.
+`IndexSpec` (and `gsi(...)`/`lsi(...)`) take **Python dataclass field names**; the persisted DynamoDB attribute
+names come from each field's `theorydb_field(name=...)`. Passing a storage name such as `"GSI1PK"` raises
+`ModelDefinitionError: index <name>: unknown partition field`.
 
 ```python
 from dataclasses import dataclass
@@ -135,7 +138,7 @@ class User:
 model = ModelDefinition.from_dataclass(
     User,
     table_name="users_contract",
-    indexes=[IndexSpec(name="gsi_email", type="GSI", partition="GSI1PK", sort="GSI1SK")],
+    indexes=[IndexSpec(name="gsi_email", type="GSI", partition="gsi1pk", sort="gsi1sk")],
 )
 table = Table(model, client=client)
 page = table.query("EMAIL#ada@example.com", index_name="gsi_email", limit=25)

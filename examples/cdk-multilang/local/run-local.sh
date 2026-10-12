@@ -45,7 +45,9 @@ if [[ ! -x "${REPO_ROOT}/ts/node_modules/.bin/tsx" ]]; then
 fi
 
 echo "==> starting throwaway DynamoDB Local on port ${PORT}"
-CID="$(docker run -d --rm -p "${PORT}:8000" amazon/dynamodb-local:3.1.0 \
+# Publish on loopback only: DynamoDB Local enforces no authentication, so the
+# throwaway instance must not be reachable from other network interfaces.
+CID="$(docker run -d --rm -p "127.0.0.1:${PORT}:8000" amazon/dynamodb-local:3.1.0 \
   -jar DynamoDBLocal.jar -sharedDb -inMemory)"
 
 echo "==> waiting for DynamoDB Local"

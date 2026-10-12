@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -576,7 +578,10 @@ func validateModel(m Model) error {
 	if err := validateWritePolicy(m, seen); err != nil {
 		return err
 	}
-	return validateModelKeyAttributesPresent(m, seen)
+	if err := validateModelKeyAttributesPresent(m, seen); err != nil {
+		return err
+	}
+	return validateModelIndexes(m, seen)
 }
 
 func validateModelNaming(m Model) error {
@@ -620,11 +625,17 @@ func validateModelKeys(m Model) error {
 	if isBlank(m.Keys.Partition.Attribute) || isBlank(m.Keys.Partition.Type) {
 		return fmt.Errorf("DMS model %s: missing keys.partition", m.Name)
 	}
+	if err := validateDMSName("partition key attribute", m.Keys.Partition.Attribute); err != nil {
+		return fmt.Errorf("DMS model %s: %w", m.Name, err)
+	}
 	if m.Keys.Sort == nil {
 		return nil
 	}
 	if isBlank(m.Keys.Sort.Attribute) || isBlank(m.Keys.Sort.Type) {
 		return fmt.Errorf("DMS model %s: invalid keys.sort", m.Name)
+	}
+	if err := validateDMSName("sort key attribute", m.Keys.Sort.Attribute); err != nil {
+		return fmt.Errorf("DMS model %s: %w", m.Name, err)
 	}
 	return nil
 }
@@ -634,6 +645,9 @@ func validateModelAttributes(m Model) (map[string]struct{}, error) {
 	for _, a := range m.Attributes {
 		if isBlank(a.Attribute) || isBlank(a.Type) {
 			return nil, fmt.Errorf("DMS model %s: attribute missing attribute/type", m.Name)
+		}
+		if err := validateDMSName("attribute", a.Attribute); err != nil {
+			return nil, fmt.Errorf("DMS model %s: %w", m.Name, err)
 		}
 		if _, ok := seen[a.Attribute]; ok {
 			return nil, fmt.Errorf("DMS model %s: duplicate attribute %s", m.Name, a.Attribute)
@@ -681,6 +695,82 @@ func validateModelKeyAttributesPresent(m Model, seen map[string]struct{}) error 
 		return fmt.Errorf("DMS model %s: missing sort key attribute %s", m.Name, m.Keys.Sort.Attribute)
 	}
 	return nil
+}
+
+func validateModelIndexes(m Model, seen map[string]struct{}) error {
+	names := make(map[string]struct{}, len(m.Indexes))
+	for _, idx := range m.Indexes {
+		if isBlank(idx.Name) {
+			return fmt.Errorf("DMS model %s: index missing name", m.Name)
+		}
+		if err := validateDMSName("index", idx.Name); err != nil {
+			return fmt.Errorf("DMS model %s: %w", m.Name, err)
+		}
+		if _, ok := names[idx.Name]; ok {
+			return fmt.Errorf("DMS model %s: duplicate index %s", m.Name, idx.Name)
+		}
+		names[idx.Name] = struct{}{}
+
+		if err := validateIndexKeyAttribute(m, idx.Name, "partition", idx.Partition.Attribute, seen); err != nil {
+			return err
+		}
+		if idx.Sort != nil {
+			if err := validateIndexKeyAttribute(m, idx.Name, "sort", idx.Sort.Attribute, seen); err != nil {
+				return err
+			}
+		}
+		for _, field := range idx.Projection.Fields {
+			if isBlank(field) {
+				return fmt.Errorf("DMS model %s: index %s projection field missing name", m.Name, idx.Name)
+			}
+			if err := validateDMSName("projection field", field); err != nil {
+				return fmt.Errorf("DMS model %s: index %s: %w", m.Name, idx.Name, err)
+			}
+			if _, ok := seen[field]; !ok {
+				return fmt.Errorf("DMS model %s: index %s projection field not found: %s", m.Name, idx.Name, field)
+			}
+		}
+	}
+	return nil
+}
+
+func validateIndexKeyAttribute(m Model, indexName, role, attr string, seen map[string]struct{}) error {
+	if isBlank(attr) {
+		return fmt.Errorf("DMS model %s: index %s missing %s key attribute", m.Name, indexName, role)
+	}
+	if err := validateDMSName(role+" key attribute", attr); err != nil {
+		return fmt.Errorf("DMS model %s: index %s: %w", m.Name, indexName, err)
+	}
+	if _, ok := seen[attr]; !ok {
+		return fmt.Errorf("DMS model %s: index %s %s key attribute not found: %s", m.Name, indexName, role, attr)
+	}
+	return nil
+}
+
+// validateDMSName rejects DMS names that are unsafe to interpolate into
+// generated source code or metadata. Names are restricted to an allowlist of
+// identifier characters so names containing backticks, quotes, backslashes,
+// commas, control characters, or invalid UTF-8 cannot break out of generated
+// Go struct tags or JSON literals.
+func validateDMSName(kind, name string) error {
+	if !utf8.ValidString(name) {
+		return fmt.Errorf("%s name is not valid UTF-8", kind)
+	}
+	for _, r := range name {
+		if isAllowedDMSNameRune(r) {
+			continue
+		}
+		return fmt.Errorf("%s name %q contains disallowed character %q", kind, name, r)
+	}
+	return nil
+}
+
+func isAllowedDMSNameRune(r rune) bool {
+	switch r {
+	case '_', '-', '.', '#', ':':
+		return true
+	}
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 func isBlank(s string) bool {

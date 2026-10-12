@@ -198,3 +198,37 @@ func TestFieldsMutatedByTransactionUpdateSkipsZeroStructuredOmitEmptyFields(t *t
 	require.NoError(t, tx.Update(&record),
 		"zero omitempty struct and array fields must not trigger protected-field rejection")
 }
+
+// writePolicyAliasCollisionTransactionRecord uses the PascalCase naming
+// convention, under which a canonical attribute name can equal another field's
+// Go name: the Go field "Authority" is stored as "Description", while the field
+// "ProtectedValue" is stored as "Authority".
+type writePolicyAliasCollisionTransactionRecord struct {
+	_ struct{} `theorydb:"naming:pascal_case"`
+
+	PK             string `theorydb:"pk"`
+	SK             string `theorydb:"sk"`
+	ProtectedValue string `theorydb:"attr:Authority"`
+	Authority      string `theorydb:"attr:Description"`
+}
+
+func (writePolicyAliasCollisionTransactionRecord) WritePolicy() model.WritePolicy {
+	return model.WritePolicy{
+		Mode:                model.WritePolicyModeMutable,
+		ProtectedAttributes: []string{"Authority"},
+	}
+}
+
+func TestWritePolicyAliasCollision_ProtectedAttributeResolvesCanonically(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&writePolicyAliasCollisionTransactionRecord{}))
+	metadata, err := registry.GetMetadata(&writePolicyAliasCollisionTransactionRecord{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"Authority"}, metadata.WritePolicy.ProtectedAttributes)
+
+	// A transaction update touching the protected canonical attribute is
+	// rejected even though another field's Go name is the same string.
+	err = rejectProtectedFieldMutation(metadata, []string{"Authority"})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, theorydbErrors.ErrProtectedFieldMutation))
+}

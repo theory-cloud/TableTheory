@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/v4/internal/encryption"
 	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
 	"github.com/theory-cloud/tabletheory/v4/pkg/core"
 	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v4/pkg/model"
@@ -272,7 +272,7 @@ func attributeValueToInterface(av types.AttributeValue) (interface{}, error) {
 	case *types.AttributeValueMemberSS:
 		return typed.Value, nil
 	case *types.AttributeValueMemberNS:
-		return attributeValueNumberSetToFloat64(typed.Value)
+		return numutil.ParseNumberSet(typed.Value)
 	case *types.AttributeValueMemberBS:
 		return typed.Value, nil
 	case *types.AttributeValueMemberB:
@@ -283,13 +283,7 @@ func attributeValueToInterface(av types.AttributeValue) (interface{}, error) {
 }
 
 func parseNumberToInterface(value string) (interface{}, error) {
-	if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return intVal, nil
-	}
-	if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
-		return floatVal, nil
-	}
-	return nil, fmt.Errorf("invalid number format: %s", value)
+	return numutil.ParseNumber(value)
 }
 
 func attributeValueListToInterface(values []types.AttributeValue) ([]interface{}, error) {
@@ -312,18 +306,6 @@ func attributeValueMapToInterface(values map[string]types.AttributeValue) (map[s
 			return nil, err
 		}
 		out[key] = converted
-	}
-	return out, nil
-}
-
-func attributeValueNumberSetToFloat64(values []string) ([]float64, error) {
-	out := make([]float64, len(values))
-	for i, numStr := range values {
-		f, err := strconv.ParseFloat(numStr, 64)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = f
 	}
 	return out, nil
 }
@@ -1441,9 +1423,11 @@ func compiledConditionReferencesVersion(input *core.CompiledQuery, versionAttr s
 		return false
 	}
 
-	versionAttr = strings.ToLower(versionAttr)
+	// DynamoDB attribute names and expression placeholders are case-sensitive and
+	// must match as whole tokens: "#v" must not match "#value", and "#n1" must not
+	// match "#n10".
 	for placeholder, attr := range input.ExpressionAttributeNames {
-		if strings.ToLower(attr) == versionAttr && strings.Contains(input.ConditionExpression, placeholder) {
+		if attr == versionAttr && containsExpressionToken(input.ConditionExpression, placeholder) {
 			return true
 		}
 	}
@@ -1455,25 +1439,32 @@ func containsExpressionToken(expr string, token string) bool {
 	if token == "" {
 		return false
 	}
-	expr = strings.ToLower(expr)
-	token = strings.ToLower(token)
-	for {
-		idx := strings.Index(expr, token)
+	for offset := 0; offset <= len(expr); {
+		idx := strings.Index(expr[offset:], token)
 		if idx < 0 {
 			return false
 		}
-		beforeOK := idx == 0 || !isExpressionIdentifierRune(rune(expr[idx-1]))
+		idx += offset
+		beforeOK := idx == 0 || isExpressionTokenBoundary(rune(expr[idx-1]))
 		afterIdx := idx + len(token)
-		afterOK := afterIdx == len(expr) || !isExpressionIdentifierRune(rune(expr[afterIdx]))
+		afterOK := afterIdx == len(expr) || isExpressionTokenBoundary(rune(expr[afterIdx]))
 		if beforeOK && afterOK {
 			return true
 		}
-		expr = expr[afterIdx:]
+		offset = afterIdx
 	}
+	return false
 }
 
 func isExpressionIdentifierRune(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_'
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+}
+
+// isExpressionTokenBoundary reports whether r separates a token from adjacent
+// text. '#' is not a boundary so a bare attribute name is never matched inside a
+// "#name" placeholder.
+func isExpressionTokenBoundary(r rune) bool {
+	return !isExpressionIdentifierRune(r) && r != '#'
 }
 
 func buildKeysAndAttributes(input *query.CompiledBatchGet) types.KeysAndAttributes {

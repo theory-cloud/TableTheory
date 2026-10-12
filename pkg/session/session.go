@@ -13,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+
+	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 )
 
 // configLoadFunc is a variable to allow mocking config.LoadDefaultConfig in tests
@@ -181,9 +183,15 @@ func NewSession(cfg *Config) (*Session, error) {
 }
 
 // NewSessionWithClient creates a session backed by an injected DynamoDBAPI.
-// It does not create a DynamoDB client or contact AWS for DynamoDB setup. If
-// encrypted fields are used without Config.KMSClient, the normal KMS behavior
-// still applies via AWSConfig().
+// It does not create a DynamoDB client or contact AWS for DynamoDB setup.
+//
+// When encrypted fields are used without Config.KMSClient, KMS is built from the
+// session's AWS config. Because this constructor never contacts AWS, it carries
+// the caller's Config.CredentialsProvider and Config.AWSConfigOptions into that
+// config so KMS requests can authenticate. If KMSKeyARN is set without a
+// KMSClient and without a CredentialsProvider or AWSConfigOptions, construction
+// fails with ErrEncryptionNotConfigured instead of silently discarding
+// credentials and building a KMS client that cannot authenticate.
 func NewSessionWithClient(cfg *Config, client DynamoDBAPI) (*Session, error) {
 	if client == nil {
 		return nil, fmt.Errorf("DynamoDB client is nil")
@@ -195,13 +203,46 @@ func NewSessionWithClient(cfg *Config, client DynamoDBAPI) (*Session, error) {
 	if region == "" {
 		region = "us-east-1"
 	}
+
+	awsConfig, err := injectedClientAWSConfig(cfg, region)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Session{
-		config: cfg,
-		api:    client,
-		awsConfig: aws.Config{
-			Region: region,
-		},
+		config:    cfg,
+		api:       client,
+		awsConfig: awsConfig,
 	}, nil
+}
+
+// injectedClientAWSConfig builds the AWS config an injected-client session
+// exposes to KMS. Encryption without an explicit KMS client needs real AWS
+// credentials, so it loads the caller-supplied credentials/options; everything
+// else keeps the minimal region-only config and contacts nothing.
+func injectedClientAWSConfig(cfg *Config, region string) (aws.Config, error) {
+	if cfg.KMSKeyARN == "" || cfg.KMSClient != nil {
+		return aws.Config{Region: region}, nil
+	}
+	if cfg.CredentialsProvider == nil && len(cfg.AWSConfigOptions) == 0 {
+		return aws.Config{}, fmt.Errorf(
+			"%w: Config.KMSKeyARN is set without Config.KMSClient; provide Config.KMSClient or Config.CredentialsProvider/Config.AWSConfigOptions so KMS can authenticate",
+			customerrors.ErrEncryptionNotConfigured,
+		)
+	}
+
+	options := make([]func(*config.LoadOptions) error, 0, len(cfg.AWSConfigOptions)+1)
+	options = append(options, config.WithRegion(region))
+	if cfg.CredentialsProvider != nil {
+		options = append(options, config.WithCredentialsProvider(cfg.CredentialsProvider))
+	}
+	options = append(options, cfg.AWSConfigOptions...)
+
+	loaded, err := configLoadFunc(context.Background(), options...)
+	if err != nil {
+		return aws.Config{}, fmt.Errorf("failed to load AWS config for KMS: %w", err)
+	}
+	return loaded, nil
 }
 
 // Client returns the DynamoDB client

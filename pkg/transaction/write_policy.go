@@ -62,10 +62,15 @@ func resolveMetadataAttributeName(metadata *model.Metadata, field string) string
 	if metadata == nil || field == "" {
 		return field
 	}
-	if meta := metadata.Fields[field]; meta != nil && meta.DBName != "" {
+	// Prefer the canonical DynamoDB attribute name. A field string that is both
+	// a canonical attribute name and another field's Go name must resolve to the
+	// canonical attribute; otherwise a protected-attribute check can compare the
+	// wrong name and let the protected attribute through. Go field names are
+	// still honored when no canonical name matches.
+	if meta := metadata.FieldsByDBName[field]; meta != nil && meta.DBName != "" {
 		return meta.DBName
 	}
-	if meta := metadata.FieldsByDBName[field]; meta != nil && meta.DBName != "" {
+	if meta := metadata.Fields[field]; meta != nil && meta.DBName != "" {
 		return meta.DBName
 	}
 	return field

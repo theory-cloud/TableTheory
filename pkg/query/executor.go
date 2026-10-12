@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/v4/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
 	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
 	customerrors "github.com/theory-cloud/tabletheory/v4/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v4/pkg/naming"
@@ -154,7 +155,13 @@ func resolveUnmarshalFieldLookupNames(field reflect.StructField, convention nami
 	dynamodbTag := field.Tag.Get("dynamodb")
 	theorydbTag := field.Tag.Get("theorydb")
 	jsonTag := field.Tag.Get("json")
-	if dynamodbTag == "-" || theorydbTag == "-" || jsonTag == "-" {
+	if dynamodbTag == "-" || theorydbTag == "-" {
+		return nil, true
+	}
+	// A json:"-" tag normally omits a field from DynamoDB decoding, but an
+	// encrypted field must still be resolved so the fail-closed envelope check
+	// runs instead of silently returning a zero value.
+	if jsonTag == "-" && !fieldHasEncryptedTag(field) {
 		return nil, true
 	}
 
@@ -527,6 +534,13 @@ func unmarshalMapIntoStructWithConvention(values map[string]types.AttributeValue
 		if !ok {
 			continue
 		}
+		if fieldHasEncryptedTag(fieldPlan.Field) && looksLikeEncryptedEnvelope(structVal) {
+			return &customerrors.EncryptedFieldError{
+				Operation: "decrypt",
+				Field:     fieldPlan.Field.Name,
+				Err:       customerrors.ErrEncryptionNotConfigured,
+			}
+		}
 		if err := unmarshalAttributeValueWithConvention(structVal, dest.FieldByIndex(fieldPlan.IndexPath), convention, true); err != nil {
 			return err
 		}
@@ -735,7 +749,7 @@ func attributeValueToInterface(av types.AttributeValue) (interface{}, error) {
 	case *types.AttributeValueMemberSS:
 		return v.Value, nil
 	case *types.AttributeValueMemberNS:
-		return attributeValueNumberSetToFloat64(v.Value)
+		return numutil.ParseNumberSet(v.Value)
 	case *types.AttributeValueMemberBS:
 		return v.Value, nil
 	case *types.AttributeValueMemberB:
@@ -746,13 +760,7 @@ func attributeValueToInterface(av types.AttributeValue) (interface{}, error) {
 }
 
 func parseNumberToInterface(value string) (interface{}, error) {
-	if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return intVal, nil
-	}
-	if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
-		return floatVal, nil
-	}
-	return nil, fmt.Errorf("invalid number format: %s", value)
+	return numutil.ParseNumber(value)
 }
 
 func attributeValueListToInterface(values []types.AttributeValue) ([]interface{}, error) {
@@ -775,18 +783,6 @@ func attributeValueMapToInterface(values map[string]types.AttributeValue) (map[s
 			return nil, err
 		}
 		result[k] = converted
-	}
-	return result, nil
-}
-
-func attributeValueNumberSetToFloat64(values []string) ([]float64, error) {
-	result := make([]float64, len(values))
-	for i, numStr := range values {
-		f, err := strconv.ParseFloat(numStr, 64)
-		if err != nil {
-			return nil, err
-		}
-		result[i] = f
 	}
 	return result, nil
 }

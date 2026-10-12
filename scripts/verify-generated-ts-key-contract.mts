@@ -28,6 +28,15 @@ interface GoFixtureRow {
 // failure stops the process with the error printed. tsx compiles a `.ts` file
 // in this tree as CommonJS (there is no package.json above scripts/), where a
 // top-level await cannot be expressed at all.
+//
+// A top-level await suspends module evaluation, so every lexical binding that
+// `main` (or the helpers it calls during that suspension) reads must already be
+// initialized. `splitNamePattern` is declared here, ahead of the await, because
+// `lowerCamel` reads it whenever a derived key omits `helper` or an input omits
+// `ts_name`; declaring it below the await leaves it in the temporal dead zone and
+// throws a ReferenceError for those valid contracts.
+const splitNamePattern = /[^A-Za-z0-9]+/u;
+
 try {
   await main();
 } catch (err: unknown) {
@@ -121,8 +130,6 @@ function helperInput(
 function tsPropertyName(input: DerivedKeyInput): string {
   return input.ts_name ?? lowerCamel(input.name);
 }
-
-const splitNamePattern = /[^A-Za-z0-9]+/u;
 
 function lowerCamel(value: string): string {
   const parts = value.split(splitNamePattern).filter((part) => part !== '');

@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/theory-cloud/tabletheory/v4/internal/expr"
+	"github.com/theory-cloud/tabletheory/v4/internal/numutil"
 	"github.com/theory-cloud/tabletheory/v4/internal/reflectutil"
 	"github.com/theory-cloud/tabletheory/v4/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v4/pkg/naming"
@@ -276,6 +277,16 @@ func (c *Converter) stringToValue(s string, target reflect.Value) error {
 
 // numberToValue converts number AttributeValue to various Go types
 func (c *Converter) numberToValue(n string, target reflect.Value) error {
+	if target.Type() == numutil.JSONNumberType {
+		// A generated exact-number field keeps the persisted decimal text and
+		// fails closed when the wire value is not a valid number.
+		if _, err := numutil.ParseNumber(n); err != nil {
+			return fmt.Errorf("invalid number: %w", err)
+		}
+		target.SetString(n)
+		return nil
+	}
+
 	switch target.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		i, err := strconv.ParseInt(n, 10, 64)
@@ -541,7 +552,7 @@ func attributeValueToAny(av types.AttributeValue) (any, error) {
 	case *types.AttributeValueMemberS:
 		return v.Value, nil
 	case *types.AttributeValueMemberN:
-		return parseNumberToAny(v.Value)
+		return numutil.ParseNumber(v.Value)
 	case *types.AttributeValueMemberBOOL:
 		return v.Value, nil
 	case *types.AttributeValueMemberNULL:
@@ -553,7 +564,7 @@ func attributeValueToAny(av types.AttributeValue) (any, error) {
 	case *types.AttributeValueMemberSS:
 		return v.Value, nil
 	case *types.AttributeValueMemberNS:
-		return attributeValueNumberSetToFloat64(v.Value)
+		return numutil.ParseNumberSet(v.Value)
 	case *types.AttributeValueMemberBS:
 		return v.Value, nil
 	case *types.AttributeValueMemberB:
@@ -561,16 +572,6 @@ func attributeValueToAny(av types.AttributeValue) (any, error) {
 	default:
 		return nil, fmt.Errorf("unsupported AttributeValue type: %T", av)
 	}
-}
-
-func parseNumberToAny(value string) (any, error) {
-	if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return intVal, nil
-	}
-	if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
-		return floatVal, nil
-	}
-	return nil, fmt.Errorf("invalid number: %s", value)
 }
 
 func attributeValueListToAny(values []types.AttributeValue) ([]any, error) {
@@ -593,18 +594,6 @@ func attributeValueMapToAny(values map[string]types.AttributeValue) (map[string]
 			return nil, fmt.Errorf("key %s: %w", key, err)
 		}
 		out[key] = converted
-	}
-	return out, nil
-}
-
-func attributeValueNumberSetToFloat64(values []string) ([]float64, error) {
-	out := make([]float64, len(values))
-	for i, value := range values {
-		converted, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			return nil, fmt.Errorf("index %d: %w", i, err)
-		}
-		out[i] = converted
 	}
 	return out, nil
 }

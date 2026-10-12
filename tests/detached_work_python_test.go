@@ -139,6 +139,11 @@ var pythonDetectorFlagged = []struct{ name, src, rule string }{
 	{"thread held on self, started in a sibling method", "class W:\n    def __init__(self):\n        self.worker = threading.Thread(target=work)\n    def go(self):\n        self.worker.start()\n", "thread-start"},
 	{"container element started in a sibling method", "class W:\n    def __init__(self):\n        self.pool = {}\n        self.pool[\"a\"] = threading.Thread(target=work)\n    def go(self):\n        self.pool[\"a\"].start()\n", "thread-start"},
 	{"attribute bound in one function and started in another", "mod = object()\n\ndef setup():\n    mod.worker = threading.Thread(target=work)\n\ndef go():\n    mod.worker.start()\n", "thread-start"},
+	// A same-scope rebind after the start must not rewrite an earlier start: at
+	// the start statement the target is still the thread, not the task the later
+	// line rebinds it to.
+	{"later task rebind does not hide an earlier attribute thread start", "class W:\n    def __init__(self):\n        self.t = threading.Thread(target=work)\n    async def go(self):\n        self.t.start()\n        self.t = asyncio.create_task(work())\n", "thread-start"},
+	{"later task rebind does not hide an earlier element thread start", "class W:\n    def __init__(self):\n        self.pool = {}\n        self.pool[\"a\"] = threading.Thread(target=work)\n    async def go(self):\n        self.pool[\"a\"].start()\n        self.pool[\"a\"] = asyncio.create_task(work())\n", "thread-start"},
 	// A walrus binding names a target like any other assignment.
 	{"one-line walrus thread start", "def run():\n    (t := threading.Thread(target=work)).start()\n", "thread-start"},
 	{"two-line walrus thread start", "def run():\n    (t := threading.Thread(target=work))\n    t.start()\n", "thread-start"},

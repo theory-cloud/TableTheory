@@ -569,6 +569,7 @@ func TestTransactGetBuildsItemsAndCollectsResponses(t *testing.T) {
 	results, err := collectTransactGetResults(
 		context.Background(),
 		nil,
+		converter,
 		requests,
 		metas,
 		[]types.ItemResponse{
@@ -610,7 +611,7 @@ func TestTransactGetWithClientExecutesRequest(t *testing.T) {
 		},
 	}
 
-	results, err := transactGetWithClient(context.Background(), client, nil, requests, metas, items)
+	results, err := transactGetWithClient(context.Background(), client, nil, converter, requests, metas, items)
 	require.NoError(t, err)
 	require.NotNil(t, client.input)
 	assert.Len(t, client.input.TransactItems, 1)
@@ -657,6 +658,7 @@ func TestTransactGetWithClientPropagatesErrors(t *testing.T) {
 	_, err := transactGetWithClient(
 		context.Background(),
 		&mockTransactGetClient{err: want},
+		nil,
 		nil,
 		nil,
 		nil,
@@ -861,6 +863,68 @@ func TestTransactionBuilderUpdateWithBuilder(t *testing.T) {
 		}
 	}
 	assert.True(t, foundBalance, "condition should reference balance attribute")
+}
+
+// TestTransactionBuilderGuardedVersionRecipe locks in the guarded optimistic-locking recipe used by
+// docs/migration/v2.md. The unguarded field-update form carries no version guard; UpdateWithBuilder
+// with ConditionVersion plus an increment on the version attribute emits both the expected-version
+// condition and the atomic increment.
+func TestTransactionBuilderGuardedVersionRecipe(t *testing.T) {
+	registry := model.NewRegistry()
+	require.NoError(t, registry.Register(&User{}))
+	converter := pkgTypes.NewConverter()
+
+	t.Run("unguarded field update carries no version guard", func(t *testing.T) {
+		builder := NewBuilder(nil, registry, converter)
+		mockClient := newMockTransactClient(t, nil)
+		builder.client = mockClient
+
+		account := &User{ID: "acct-unguarded", Balance: 100, Version: 3}
+		require.NoError(t, builder.Update(account, []string{"Balance"}).Execute())
+
+		require.Equal(t, 1, mockClient.callCount)
+		update := mockClient.inputs[0].TransactItems[0].Update
+		require.NotNil(t, update)
+		assert.Empty(t, aws.ToString(update.ConditionExpression),
+			"the field-update form must not add a version condition")
+		assert.NotContains(t, aws.ToString(update.UpdateExpression), "ADD")
+	})
+
+	t.Run("UpdateWithBuilder emits the version condition and increment", func(t *testing.T) {
+		builder := NewBuilder(nil, registry, converter)
+		mockClient := newMockTransactClient(t, nil)
+		builder.client = mockClient
+
+		account := &User{ID: "acct-guarded", Balance: 100, Version: 3}
+		err := builder.UpdateWithBuilder(account, func(ub core.UpdateBuilder) error {
+			ub.Set("Balance", 90.0)
+			ub.Add("Version", int64(1))
+			ub.ConditionVersion(3)
+			return nil
+		}).Execute()
+		require.NoError(t, err)
+
+		require.Equal(t, 1, mockClient.callCount)
+		update := mockClient.inputs[0].TransactItems[0].Update
+		require.NotNil(t, update)
+
+		updateExpr := aws.ToString(update.UpdateExpression)
+		assert.Contains(t, updateExpr, "ADD")
+		assert.Contains(t, updateExpr, "SET")
+
+		condExpr := aws.ToString(update.ConditionExpression)
+		require.NotEmpty(t, condExpr)
+
+		versionPlaceholder := ""
+		for placeholder, attr := range update.ExpressionAttributeNames {
+			if attr == "version" {
+				versionPlaceholder = placeholder
+			}
+		}
+		require.NotEmpty(t, versionPlaceholder, "version attribute must be bound")
+		assert.Contains(t, condExpr, versionPlaceholder)
+		assert.Contains(t, updateExpr, versionPlaceholder)
+	})
 }
 
 type mockTransactClient struct {

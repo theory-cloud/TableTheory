@@ -121,6 +121,7 @@ func TestCollectTransactGetResultsRoundTripsFixedArray(t *testing.T) {
 	results, err := collectTransactGetResults(
 		t.Context(),
 		&session.Session{},
+		converter,
 		[]core.TransactGetRequest{{Model: &fixedArrayTransactGetRecord{}, Dest: &out}},
 		[]*model.Metadata{metadata},
 		[]types.ItemResponse{{Item: map[string]types.AttributeValue{

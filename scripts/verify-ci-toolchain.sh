@@ -147,17 +147,24 @@ check_action_pins() {
     while IFS= read -r line; do
       [[ -n "${line}" ]] || continue
       ref="$(sed -E 's/^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*//' <<< "${line}")"
+      # Drop a YAML inline comment and surrounding whitespace. A SHA that
+      # appears only inside a comment (e.g. `uses: owner/action@v6 # @<sha>`)
+      # must not satisfy the pin check: the actual action ref is what GitHub
+      # executes, and a comment carries no authority.
+      ref="${ref%%#*}"
+      ref="$(printf '%s' "${ref}" | sed -E 's/[[:space:]]+$//')"
       case "${ref}" in
         ./*) continue ;;
         docker://*)
-          if [[ ! "${ref}" =~ @sha256:[0-9a-f]{64} ]]; then
+          if [[ ! "${ref}" =~ @sha256:[0-9a-f]{64}$ ]]; then
             echo "${wf}: container action '${ref}' must pin an image digest"
             failures=$((failures + 1))
           fi
           continue
           ;;
       esac
-      if [[ ! "${ref}" =~ @[0-9a-f]{40}([[:space:]]|$) ]]; then
+      # The SHA must be the action's actual ref, not merely present on the line.
+      if [[ ! "${ref}" =~ ^[^@[:space:]]+@[0-9a-f]{40}$ ]]; then
         echo "${wf}: action reference '${ref}' is not pinned to a full commit SHA"
         failures=$((failures + 1))
       fi

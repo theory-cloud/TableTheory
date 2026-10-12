@@ -29,7 +29,7 @@ Core roles/tags:
 
 - `pk` / `theorydb:"pk"` — DynamoDB partition key.
 - `sk` / `theorydb:"sk"` — DynamoDB sort key.
-- `gsi1pk`, `gsi1sk`, ... — GSI keys.
+- `gsi1pk` / `theorydb:"index:gsi1,pk"`, `gsi1sk` / `theorydb:"index:gsi1,sk"`, ... — GSI keys.
 - `encrypted` — KMS-backed encrypted attribute; fail closed.
 - `version` — optimistic-lock version field.
 - `created_at`, `updated_at` — lifecycle timestamps.

@@ -7,9 +7,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,23 +78,41 @@ def run_git(repo_root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def normalize_remote_url(value: str | None) -> str:
-    if not value:
-        return DEFAULT_SOURCE_REPO
+GITHUB_IDENTITY_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 
-    url = value.strip()
-    prefixes = (
-        "https://github.com/",
-        "http://github.com/",
-        "ssh://git@github.com/",
-        "git@github.com:",
-    )
-    for prefix in prefixes:
-        if url.startswith(prefix):
-            url = url[len(prefix) :]
-            break
-    url = url.removesuffix(".git").strip("/")
-    return url or DEFAULT_SOURCE_REPO
+
+def parse_remote_identity(value: str | None, default: str = DEFAULT_SOURCE_REPO) -> str:
+    """Return a validated ``owner/repository`` identity from a git remote URL.
+
+    Any URL userinfo (``https://user:token@github.com/...``) is parsed and then
+    discarded, so a credential embedded in the remote URL can never reach the
+    staged manifest. An unrecognized remote falls back to ``default`` rather
+    than echoing the raw value.
+    """
+    if not value:
+        return default
+
+    raw = value.strip()
+    if not raw:
+        return default
+
+    if "://" not in raw:
+        # scp-like syntax: [user@]host:owner/repo(.git)
+        scp = re.match(r"^(?:[^@/]+@)?(?P<host>[^:/]+):(?P<path>.+)$", raw)
+        if scp is None or scp.group("host").lower() != "github.com":
+            return default
+        path = scp.group("path")
+    else:
+        parsed = urllib.parse.urlsplit(raw)
+        if parsed.hostname is None or parsed.hostname.lower() != "github.com":
+            return default
+        # parsed.username / parsed.password (userinfo) are intentionally ignored.
+        path = parsed.path.lstrip("/")
+
+    path = urllib.parse.unquote(path).strip().removesuffix(".git").strip("/")
+    if GITHUB_IDENTITY_RE.match(path):
+        return path
+    return default
 
 
 def is_excluded(rel_path: str, exclusions: tuple[str, ...]) -> bool:
@@ -219,7 +239,7 @@ def main() -> None:
         remote_url = run_git(repo_root, "config", "--get", "remote.origin.url")
     except subprocess.CalledProcessError:
         remote_url = DEFAULT_SOURCE_REPO
-    source_repo = normalize_remote_url(args.source_repo or os.environ.get("SOURCE_REPO") or remote_url)
+    source_repo = parse_remote_identity(args.source_repo or os.environ.get("SOURCE_REPO") or remote_url)
 
     try:
         source_revision = args.source_revision or os.environ.get("SOURCE_REVISION") or run_git(repo_root, "rev-parse", "HEAD")
@@ -228,14 +248,23 @@ def main() -> None:
 
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
+    # The staging root is a predictable shared path (default
+    # /tmp/theorycloud-tabletheory-source). Create it and everything under it
+    # private (0o700 dirs, 0o600 files) so no other local user can read the
+    # manifest, which must never carry a credential.
     subtree_root = output_root / SUBTREE_NAME
     shutil.rmtree(subtree_root, ignore_errors=True)
+    output_root.mkdir(parents=True, exist_ok=True)
+    os.chmod(output_root, 0o700)
     subtree_root.mkdir(parents=True, exist_ok=True)
+    os.chmod(subtree_root, 0o700)
 
     for source_path, staged_rel in included:
         destination_path = subtree_root / staged_rel
         destination_path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(destination_path.parent, 0o700)
         shutil.copy2(source_path, destination_path, follow_symlinks=False)
+        os.chmod(destination_path, 0o600)
 
     manifest = OrderedDict(
         [
@@ -264,7 +293,9 @@ def main() -> None:
             ),
         ]
     )
-    (subtree_root / "source-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    manifest_path = subtree_root / "source-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    os.chmod(manifest_path, 0o600)
 
     print(
         f"stage-theorycloud-tabletheory-subtree: PASS (output={subtree_root}; included={len(included)}; excluded={len(excluded)})"

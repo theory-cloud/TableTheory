@@ -79,6 +79,18 @@ docker-compose up -d
 make test
 ```
 
+4. **Run the server and authenticate**:
+```bash
+make run                              # starts the server with a local JWT_SECRET
+make token USER=user123 ORG=orgabc    # prints an HS256 bearer token
+curl -H "Authorization: Bearer <token>" "http://localhost:8080/organizations/org%23orgabc"
+```
+
+Every request is authenticated: the server verifies the bearer token's HS256
+signature with `JWT_SECRET` and derives the caller's user and organization from
+it. A caller may only reach the organization its token is bound to, so a token
+for one organization cannot read or change another organization's resources.
+
 ## API Reference
 
 ### Organization Management

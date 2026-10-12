@@ -8,10 +8,11 @@ import (
 // LegacyAliasResolver resolves the legacy container aliases that older helper
 // surfaces used when anonymous embedded structs were encoded as nested maps.
 //
-// When skip is true, no legacy container aliases are recorded for the field.
-// This is useful for callers that treat tag-based skips (for example "-") as
-// ineligible for compatibility lookup while still wanting the promoted leaf
-// fields themselves to remain visible.
+// When skip is true, the anonymous embedded container is excluded: the promoted
+// leaf field reachable through it is dropped from the visible field plan and
+// must neither be written nor read. Callers return skip for containers that
+// carry an exclusion tag (for example "-"), which must suppress the entire
+// promoted subtree, not just the container's compatibility aliases.
 type LegacyAliasResolver func(field reflect.StructField) (aliases []string, skip bool, err error)
 
 // VisibleFieldPlan describes one exported visible field on a struct,
@@ -104,7 +105,9 @@ func buildLegacyContainerPlan(modelType reflect.Type, indexPath []int, aliasReso
 			return nil, false, err
 		}
 		if skip {
-			continue
+			// An exclusion tag on the container suppresses every promoted leaf
+			// reachable through it, so the field is not part of the plan at all.
+			return nil, false, nil
 		}
 
 		containers = append(containers, LegacyContainerPlan{

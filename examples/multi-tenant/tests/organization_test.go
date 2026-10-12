@@ -180,6 +180,10 @@ func TestGetOrganization(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/organizations/"+tt.orgID, nil)
 			req = mux.SetURLVars(req, map[string]string{"org_id": tt.orgID})
+			// The caller's token is bound to the organization it is fetching;
+			// the handler refuses requests for any other organization.
+			ctx := context.WithValue(req.Context(), "org_id", "org#"+tt.orgID)
+			req = req.WithContext(ctx)
 
 			rr := httptest.NewRecorder()
 			handler.GetOrganization(rr, req)
@@ -228,8 +232,10 @@ func TestUpdateOrganizationSettings(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req = mux.SetURLVars(req, map[string]string{"org_id": "test-456"})
 
-	// Add user context
+	// Add user and organization context. The caller's token is bound to the
+	// organization it is updating.
 	ctx := context.WithValue(req.Context(), "user_id", "user#admin")
+	ctx = context.WithValue(ctx, "org_id", "org#test-456")
 	req = req.WithContext(ctx)
 
 	rr := httptest.NewRecorder()

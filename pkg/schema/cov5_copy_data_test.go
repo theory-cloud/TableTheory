@@ -26,7 +26,7 @@ func TestManager_copyData_ScansAndProcessesItems(t *testing.T) {
 	sourceMeta := &model.Metadata{TableName: "source"}
 	targetMeta := &model.Metadata{TableName: "target"}
 
-	require.NoError(t, mgr.copyData(opts, sourceMeta, targetMeta, nil))
+	require.NoError(t, mgr.copyData(opts, sourceMeta, targetMeta, nil, nil))
 
 	reqs := httpClient.Requests()
 	require.Equal(t, 2, countRequestsByTarget(reqs, "DynamoDB_20120810.Scan"))

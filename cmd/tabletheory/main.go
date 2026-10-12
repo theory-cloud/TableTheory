@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/theory-cloud/tabletheory/v4/internal/safeoutput"
 	"github.com/theory-cloud/tabletheory/v4/pkg/dms"
 	"github.com/theory-cloud/tabletheory/v4/pkg/keycontract"
 )
@@ -112,10 +112,7 @@ func generate(args []string, stdout io.Writer, stderr io.Writer) error {
 		_, err = stdout.Write(generated)
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(*outPath), 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(*outPath, generated, 0o600) // #nosec G703 -- CLI intentionally writes generated output to the user-provided -out path.
+	return safeoutput.WriteFileAtomic(*outPath, generated, 0o600)
 }
 
 func contract(args []string, stdout io.Writer, stderr io.Writer) error {
@@ -157,10 +154,7 @@ func generateContractTS(args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(*outPath), 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(*outPath, []byte(module), 0o600)
+	return safeoutput.WriteFileAtomic(*outPath, []byte(module), 0o600)
 }
 
 func formatDmsError(path string, data []byte, err error) error {
