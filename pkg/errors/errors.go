@@ -247,6 +247,12 @@ type TransactionError struct {
 	// to iterate only the genuine failures.
 	Reasons []CancellationReason
 
+	// OperationIndex is the position of the first genuine per-operation failure.
+	// It is -1 for a cancellation with no genuine per-operation failure — an empty
+	// reason list, or every reason missing its code or carrying the "None"
+	// placeholder. That deliberate marker keeps the case distinct from a real
+	// failure at operation 0; see
+	// TestTransactionCancellationAllNoneIsGenericNotConditional in pkg/transaction.
 	OperationIndex int
 }
 

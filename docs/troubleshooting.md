@@ -105,6 +105,12 @@ ambiguous transport error (a timeout, a `dial tcp` failure, a connection reset)
 is never turned into a transaction or condition error — it passes through
 unchanged.
 
+A cancellation with **no genuine per-operation failure** — an empty reason list,
+or every reason missing its code or carrying the `"None"` placeholder — reports
+`errors.ErrTransactionFailed` and carries `OperationIndex: -1`. That deliberate
+marker keeps it distinct from a real failure at operation 0 (where
+`OperationIndex` is `0`); `Operation` and `Reason` are empty on that path.
+
 **Inspect the cause and every reason.** Use `errors.Is` to match a sentinel and
 `errors.As` to recover structure and the original AWS exception.
 
