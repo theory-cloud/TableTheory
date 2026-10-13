@@ -27,6 +27,7 @@ from .errors import (
     ValidationError,
 )
 from .model import AttributeDefinition, ModelDefinition
+from .preflight import ItemWriterPath
 from .protocols import DynamoDBClientProtocol as DynamoDBClientProtocol
 from .query import (
     FilterCondition,
@@ -896,6 +897,36 @@ class Table[T]:
             self._client.transact_write_items(TransactItems=transact_items)
         except ClientError as err:  # pragma: no cover
             raise _map_transaction_error(err) from err
+
+    def marshal_item_for_writer_path(self, item: T, path: ItemWriterPath) -> dict[str, Any]:
+        """Return the DynamoDB item that the named writer path stores for ``item``.
+
+        The returned mapping is byte-equal to the payload the real writer sends.
+        ``ItemWriterPath.PUT`` matches a ``put``, ``save`` or ``batch_write``
+        capture, and ``ItemWriterPath.TRANSACT_WRITE`` matches a
+        ``transact_write`` put capture; both call the same item serializer this
+        method delegates to. A caller can therefore measure the attributes it is
+        about to write instead of predicting them from the model.
+
+        ``item`` is the same dataclass instance ``put`` would receive. Both
+        writer paths are pinned by regression tests that capture live payloads
+        through the stateful fake client, so neither answer can drift from its
+        writer without failing the build.
+
+        Scope:
+
+        - Models that declare ``encrypted`` attributes are refused. An encrypted
+          attribute is stored as a KMS-wrapped envelope whose bytes depend on key
+          material and envelope randomness, so no static preflight can predict
+          them.
+        - The preflight reproduces attribute serialization with the boto3 type
+          serializer this table uses. Serialization is not identical across
+          boto3 versions for some edge inputs.
+
+        An unrecognized path is refused. The preflight has no side effects and
+        never contacts DynamoDB.
+        """
+        raise NotImplementedError(f"Table.marshal_item_for_writer_path is not implemented (path: {path!s})")
 
     def put(
         self,
