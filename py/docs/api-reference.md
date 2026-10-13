@@ -136,6 +136,15 @@ class AwsError(TheorydbPyError)
 class BatchRetryExceededError(TheorydbPyError)
 ```
 
+#### `CancellationReason`
+
+```python
+class CancellationReason
+index: int
+code: str
+message: str
+```
+
 #### `ConditionFailedError`
 
 ```python
@@ -196,10 +205,22 @@ class RejectedDeployAuthorityEvidenceError(TheorydbPyError)
 class TheorydbPyError(Exception)
 ```
 
+#### `ThrottledError`
+
+```python
+class ThrottledError(TransactionCanceledError)
+```
+
 #### `TransactionCanceledError`
 
 ```python
 class TransactionCanceledError(TheorydbPyError)
+```
+
+#### `TransactionConflictError`
+
+```python
+class TransactionConflictError(TransactionCanceledError)
 ```
 
 #### `ValidationError`
@@ -221,6 +242,8 @@ class VersionConflictError(ConditionFailedError)
 ```python
 class StatefulDynamoDBClient
 def reset(self) -> None
+def queue_transaction_cancellation(self, reasons: Sequence[dict[str, Any]] | None=None) -> None
+def queue_transaction_error(self, err: Exception | None=None) -> None
 def seed(self, table_name: str, *items: Item) -> None
 def items(self, table_name: str) -> list[Item]
 def create_table(self, **kwargs: Any) -> dict[str, Any]

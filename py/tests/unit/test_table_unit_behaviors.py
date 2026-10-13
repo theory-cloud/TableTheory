@@ -6,12 +6,14 @@ import pytest
 from botocore.exceptions import ClientError
 
 from tabletheory_py import (
+    ConditionFailedError,
     EncryptionNotConfiguredError,
     FilterCondition,
     ModelDefinition,
     NotFoundError,
     SortKeyCondition,
     Table,
+    TransactionCanceledError,
     ValidationError,
     VersionConflictError,
     theorydb_field,
@@ -387,8 +389,20 @@ def test_error_mapping_helpers() -> None:
     assert version_mapped.__class__.__name__ == "VersionConflictError"
 
     tx_err = ClientError(
-        {"Error": {"Code": "TransactionCanceledException", "Message": "ConditionalCheckFailed"}},
+        {
+            "Error": {"Code": "TransactionCanceledException", "Message": "ConditionalCheckFailed"},
+            "CancellationReasons": [{"Code": "ConditionalCheckFailed", "Message": "no"}],
+        },
         "TransactWriteItems",
     )
     mapped_tx = _map_transaction_error(tx_err)
     assert mapped_tx.__class__.__name__ == "ConditionFailedError"
+
+    # A message that merely mentions ConditionalCheckFailed must not be
+    # reclassified: only reason codes classify a cancellation.
+    message_only = ClientError(
+        {"Error": {"Code": "TransactionCanceledException", "Message": "ConditionalCheckFailed"}},
+        "TransactWriteItems",
+    )
+    assert isinstance(_map_transaction_error(message_only), TransactionCanceledError)
+    assert not isinstance(_map_transaction_error(message_only), ConditionFailedError)
