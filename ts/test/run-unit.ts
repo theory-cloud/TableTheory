@@ -9,6 +9,7 @@ await import('./unit/batch.test.js');
 await import('./unit/dynamo-json.test.js');
 await import('./unit/marshal.test.js');
 await import('./unit/client.test.js');
+await import('./unit/dynamo-error-cancellation.test.js');
 await import('./unit/query-builder.test.js');
 await import('./unit/update-builder.test.js');
 await import('./unit/streams.test.js');

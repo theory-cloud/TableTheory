@@ -92,6 +92,51 @@ compare encrypted envelopes as plaintext.
 **Fix:** query by stable plaintext keys (for example `PK`, `SK`, `GSI1PK`, `GSI1SK`) and store secrets in non-key
 encrypted attributes.
 
+## Error: transaction canceled (`TransactionCanceledException`)
+
+**Cause:** a DynamoDB transaction is atomic. When any operation's condition fails, nothing is committed and DynamoDB
+returns a `TransactionCanceledException` with one cancellation reason per operation, in order (`"None"` for the
+operations that did not fail). TableTheory classifies that exception by the FIRST genuine failure — the first reason
+whose code is neither missing nor `"None"`:
+
+| DynamoDB reason code                                                                                                        | `TheorydbError.code`     |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| `ConditionalCheckFailed`                                                                                                    | `ErrConditionFailed`     |
+| `TransactionConflict`                                                                                                       | `ErrTransactionConflict` |
+| `ThrottlingException`, `ProvisionedThroughputExceeded`, `RequestLimitExceeded`, `InternalServerError`, `ServiceUnavailable` | `ErrThrottled`           |
+| anything else, no genuine failure, or an empty reason list                                                                  | `ErrTransactionFailed`   |
+
+An unknown or missing code is never reported as a condition failure, and an ambiguous transport error (a timeout, a
+connection reset) is returned unchanged rather than being reclassified.
+
+**Fix:** switch on the specific code and read the ordered reasons and original exception:
+
+```ts
+try {
+  await client.transactWrite([...]);
+} catch (err) {
+  if (hasTheorydbErrorCode(err, 'ErrConditionFailed')) {
+    // A conditional write lost; nothing was committed.
+  }
+  if (err instanceof TheorydbError) {
+    for (const reason of err.cancellationReasons) {
+      // index / code / message only — never item images.
+      console.log(reason.index, reason.code, reason.message);
+    }
+    const original = err.cause; // the SDK TransactionCanceledException
+  }
+}
+```
+
+`cancellationReasons` is ordered and position-preserving. **Item images are never exposed:** a cancellation reason
+carries only `index`, `code` and `message`, so error messages and logs never include item data or attribute values;
+the original exception (which may) is only reachable through `err.cause`.
+
+**Compatibility note:** TypeScript previously reported EVERY transaction cancellation as `ErrConditionFailed`.
+Throttling and conflict cancellations now report `ErrThrottled` / `ErrTransactionConflict`, and a cancellation with no
+genuine failure reports `ErrTransactionFailed`. Code that switched on `ErrConditionFailed` should switch on the
+specific code, or on `hasTheorydbErrorCode`.
+
 ## Pagination surprise: `all()` loads too much data
 
 **Cause:** `all()` follows every cursor and materializes the full result set.
