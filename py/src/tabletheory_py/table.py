@@ -926,7 +926,15 @@ class Table[T]:
         An unrecognized path is refused. The preflight has no side effects and
         never contacts DynamoDB.
         """
-        raise NotImplementedError(f"Table.marshal_item_for_writer_path is not implemented (path: {path!s})")
+        if path not in (ItemWriterPath.PUT, ItemWriterPath.TRANSACT_WRITE):
+            raise ValidationError(f"unknown item writer path: {path!r}")
+
+        if any(attr.encrypted for attr in self._model.attributes.values()):
+            raise ValidationError(
+                f"item preflight does not cover the encrypted attributes of {self._table_name}"
+            )
+
+        return self._to_item(item)
 
     def put(
         self,
