@@ -32,8 +32,11 @@ var _ session.DynamoDBAPI = (*Fake)(nil)
 
 // Fake is an in-memory implementation of the TableTheory DynamoDBAPI seam.
 type Fake struct {
-	tables map[string]*tableState
-	mu     sync.RWMutex
+	transactErr  error
+	tables       map[string]*tableState
+	cancelReason []types.CancellationReason
+	cancelQueued bool
+	mu           sync.RWMutex
 }
 
 type tableState struct {
@@ -57,11 +60,42 @@ func New() *Fake {
 	return &Fake{tables: make(map[string]*tableState)}
 }
 
-// Reset removes all fake tables and items.
+// Reset removes all fake tables and items and clears any queued transaction
+// failure.
 func (f *Fake) Reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.tables = make(map[string]*tableState)
+	f.cancelQueued = false
+	f.cancelReason = nil
+	f.transactErr = nil
+}
+
+// QueueTransactionCancellation makes every TransactWriteItems call fail with a
+// synthesized TransactionCanceledException carrying the supplied reasons in
+// position, until it is cleared. A nil slice clears any queued cancellation; an
+// empty (non-nil) slice queues a cancellation with no reasons. It is a test seam
+// for exercising the cancellation taxonomy without real DynamoDB.
+func (f *Fake) QueueTransactionCancellation(reasons []types.CancellationReason) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if reasons == nil {
+		f.cancelQueued = false
+		f.cancelReason = nil
+		return
+	}
+	f.cancelQueued = true
+	f.cancelReason = cloneCancellationReasons(reasons)
+}
+
+// QueueTransactionError makes every TransactWriteItems call fail with err,
+// returned unchanged, until it is cleared. A nil err clears any queued failure.
+// It is a test seam for exercising non-cancellation (transport) failures against
+// the same path.
+func (f *Fake) QueueTransactionError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.transactErr = err
 }
 
 // Seed stores items in a table, creating a PK/SK shaped table when needed.
@@ -460,10 +494,21 @@ func (f *Fake) TransactWriteItems(_ context.Context, params *dynamodb.TransactWr
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if f.cancelQueued {
+		return nil, &types.TransactionCanceledException{
+			Message:             aws.String("transaction canceled"),
+			CancellationReasons: cloneCancellationReasons(f.cancelReason),
+		}
+	}
+
+	if f.transactErr != nil {
+		return nil, f.transactErr
+	}
+
 	snapshot := f.cloneTablesLocked()
 	for i, op := range params.TransactItems {
 		if err := applyTransactWrite(snapshot, op); err != nil {
-			return nil, transactionCanceled(i, err)
+			return nil, transactionCanceled(len(params.TransactItems), i, err)
 		}
 	}
 	f.tables = snapshot
@@ -1468,19 +1513,49 @@ func conditionalFailed() error {
 	return &types.ConditionalCheckFailedException{Message: aws.String("conditional request failed")}
 }
 
-func transactionCanceled(index int, err error) error {
+// transactionCanceled synthesizes a DynamoDB-shaped cancellation: one reason per
+// transaction item, in order, with "None" for the items that did not fail. Real
+// DynamoDB always returns a reason entry for every item.
+func transactionCanceled(total, index int, err error) error {
 	if err == nil {
 		return nil
 	}
-	code := "ConditionalCheckFailed"
-	message := err.Error()
-	return &types.TransactionCanceledException{
-		Message: aws.String("transaction canceled"),
-		CancellationReasons: []types.CancellationReason{
-			{
-				Code:    aws.String(code),
-				Message: aws.String(fmt.Sprintf("operation %d: %s", index, message)),
-			},
-		},
+	if total < index+1 {
+		total = index + 1
 	}
+	reasons := make([]types.CancellationReason, 0, total)
+	for i := 0; i < total; i++ {
+		if i == index {
+			reasons = append(reasons, types.CancellationReason{
+				Code:    aws.String("ConditionalCheckFailed"),
+				Message: aws.String(err.Error()),
+			})
+			continue
+		}
+		reasons = append(reasons, types.CancellationReason{Code: aws.String("None")})
+	}
+	return &types.TransactionCanceledException{
+		Message:             aws.String("transaction canceled"),
+		CancellationReasons: reasons,
+	}
+}
+
+// cloneCancellationReasons copies only the code and message of each reason:
+// item images must never be propagated.
+func cloneCancellationReasons(reasons []types.CancellationReason) []types.CancellationReason {
+	if len(reasons) == 0 {
+		return nil
+	}
+	out := make([]types.CancellationReason, 0, len(reasons))
+	for _, reason := range reasons {
+		cloned := types.CancellationReason{}
+		if reason.Code != nil {
+			cloned.Code = aws.String(*reason.Code)
+		}
+		if reason.Message != nil {
+			cloned.Message = aws.String(*reason.Message)
+		}
+		out = append(out, cloned)
+	}
+	return out
 }

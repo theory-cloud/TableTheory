@@ -492,12 +492,18 @@ func TestBuilder_executeWithRetry_AndErrorTranslation_COV6(t *testing.T) {
 		base := errors.New("boom")
 
 		err := builder.buildTransactionError(&types.TransactionCanceledException{}, base)
-		require.ErrorContains(t, err, "transaction canceled")
+		require.ErrorIs(t, err, customerrors.ErrTransactionFailed)
+		var txErr *customerrors.TransactionError
+		require.ErrorAs(t, err, &txErr)
+		require.Empty(t, txErr.Reasons)
 
 		err = builder.buildTransactionError(&types.TransactionCanceledException{
 			CancellationReasons: []types.CancellationReason{{Message: aws.String("ignored")}},
 		}, base)
-		require.ErrorContains(t, err, "transaction canceled")
+		require.ErrorIs(t, err, customerrors.ErrTransactionFailed)
+		require.ErrorAs(t, err, &txErr)
+		require.Len(t, txErr.Reasons, 1)
+		require.Equal(t, "", txErr.Reasons[0].Code)
 	})
 
 	t.Run("translateError marks non-retryable reasons", func(t *testing.T) {

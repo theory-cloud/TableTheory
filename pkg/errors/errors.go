@@ -211,12 +211,42 @@ func IsConditionFailed(err error) bool {
 	return errors.Is(err, ErrConditionFailed)
 }
 
+// CancellationReason captures a single entry of a DynamoDB transaction
+// cancellation reason list in its original position.
+//
+// It deliberately carries only the classification code and the service message:
+// the DynamoDB item image (the cancellation reason's Item attribute map) is never
+// copied here, so reasons are always safe to log. Entries whose code is missing
+// or the "None" placeholder keep their position with an empty Code so Index stays
+// aligned with the transaction operations.
+type CancellationReason struct {
+	Code    string
+	Message string
+	Index   int
+}
+
 // TransactionError provides context for transactional failures.
 type TransactionError struct {
-	Err            error
-	Operation      string
-	Model          string
-	Reason         string
+	Err error
+
+	// Cause is the original error that produced the transaction failure. For a
+	// DynamoDB transaction cancellation it is the SDK's
+	// *types.TransactionCanceledException (wrapped errors preserved), so callers
+	// can recover the exception and its ordered CancellationReasons with
+	// errors.As. Error() never consults Cause, so logging stays free of item
+	// images; a caller that inspects Cause directly owns that decision.
+	Cause error
+
+	Operation string
+	Model     string
+	Reason    string
+
+	// Reasons carries every entry of the DynamoDB cancellation reason list in
+	// its original order, including entries with a missing or "None" code, so
+	// positions stay aligned with the transaction operations. Use RealFailures
+	// to iterate only the genuine failures.
+	Reasons []CancellationReason
+
 	OperationIndex int
 }
 
@@ -239,10 +269,43 @@ func (e *TransactionError) Error() string {
 	return fmt.Sprintf("theorydb: %s failed", op)
 }
 
-// Unwrap returns the underlying error.
+// Unwrap returns the underlying classified error. It stays a single-error
+// Unwrap (not the []error form) so errors.Unwrap keeps returning the sentinel
+// for existing callers.
 func (e *TransactionError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
 	return e.Err
+}
+
+// As lets errors.As recover the original failure stored in Cause and therefore
+// the AWS exception (with its ordered CancellationReasons). It delegates to
+// errors.As on Cause and guards nil and a self-referential cause so it can never
+// recurse into itself. errors.Is sentinel matching is unaffected.
+func (e *TransactionError) As(target any) bool {
+	if e == nil || e.Cause == nil {
+		return false
+	}
+	if cause, ok := e.Cause.(*TransactionError); ok && cause == e {
+		return false
+	}
+	return errors.As(e.Cause, target)
+}
+
+// RealFailures returns the cancellation reasons that represent genuine
+// failures, in original order: every entry with a non-empty code that is not
+// DynamoDB's "None" placeholder. The returned slice may be empty.
+func (e *TransactionError) RealFailures() []CancellationReason {
+	if e == nil {
+		return nil
+	}
+	failures := make([]CancellationReason, 0, len(e.Reasons))
+	for _, reason := range e.Reasons {
+		if reason.Code == "" || reason.Code == "None" {
+			continue
+		}
+		failures = append(failures, reason)
+	}
+	return failures
 }
