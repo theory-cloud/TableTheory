@@ -245,6 +245,7 @@ var ErrItemNotFound = errors.New("item not found") ...
 func IsConditionFailed(err error) bool
 func IsInvalidModel(err error) bool
 func IsNotFound(err error) bool
+type CancellationReason struct{ ... }
 type EncryptedFieldError struct{ ... }
 type TheorydbError struct{ ... }
     func NewError(op, model string, err error) *TheorydbError

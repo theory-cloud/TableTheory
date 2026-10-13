@@ -30,13 +30,27 @@ make verify-api-reference
 ### `errors`
 
 ```ts
-export type ErrorCode = 'ErrItemNotFound' | 'ErrConditionFailed' | 'ErrVersionConflict' | 'ErrLeaseHeld' | 'ErrLeaseNotOwned' | 'ErrInvalidModel' | 'ErrMissingPrimaryKey' | 'ErrInvalidOperator' | 'ErrTableNotFound' | 'ErrEncryptedFieldNotQueryable' | 'ErrEncryptionNotConfigured' | 'ErrInvalidEncryptedEnvelope' | 'ErrNumberPrecisionLoss' | 'ErrMigrationEncryptionRequired' | 'ErrImmutableModelMutation' | 'ErrProtectedFieldMutation' | 'ErrRejectedDeployAuthorityEvidence';
+export type ErrorCode = 'ErrItemNotFound' | 'ErrConditionFailed' | 'ErrVersionConflict' | 'ErrLeaseHeld' | 'ErrLeaseNotOwned' | 'ErrInvalidModel' | 'ErrMissingPrimaryKey' | 'ErrInvalidOperator' | 'ErrTableNotFound' | 'ErrEncryptedFieldNotQueryable' | 'ErrEncryptionNotConfigured' | 'ErrInvalidEncryptedEnvelope' | 'ErrNumberPrecisionLoss' | 'ErrMigrationEncryptionRequired' | 'ErrImmutableModelMutation' | 'ErrProtectedFieldMutation' | 'ErrRejectedDeployAuthorityEvidence' | 'ErrTransactionFailed' | 'ErrTransactionConflict' | 'ErrThrottled';
+/**
+ * One entry of a DynamoDB transaction cancellation reason list, in its original
+ * position. It carries only the classification code and the service message: the
+ * DynamoDB item image is never copied here, so cancellation reasons are always
+ * safe to log. Entries whose code is missing keep their position with an empty
+ * `code`; DynamoDB's "None" placeholder is kept verbatim.
+ */
+export interface CancellationReason {
+    readonly index: number;
+    readonly code: string;
+    readonly message: string;
+}
 export declare class TheorydbError extends Error {
     readonly code: ErrorCode;
     readonly codes: readonly ErrorCode[];
+    readonly cancellationReasons: readonly CancellationReason[];
     constructor(code: ErrorCode, message: string, options?: {
         cause?: unknown;
         codes?: readonly ErrorCode[];
+        cancellationReasons?: readonly CancellationReason[];
     });
 }
 export declare function isTheorydbError(value: unknown): value is TheorydbError;

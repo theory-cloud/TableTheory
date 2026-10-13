@@ -100,6 +100,54 @@ local test pass.
 
 **Fix:** query by plaintext PK/SK/GSI attributes and keep secrets in non-key encrypted fields.
 
+## Error: transaction canceled (`TransactionCanceledException`)
+
+**Cause:** a DynamoDB transaction is atomic. When any operation's condition fails, nothing is committed and DynamoDB
+returns a `TransactionCanceledException` with one cancellation reason per operation, in order (`"None"` for the
+operations that did not fail). TableTheory classifies that exception by the FIRST genuine failure — the first reason
+whose code is neither missing nor `"None"`:
+
+| DynamoDB reason code | raised class |
+| --- | --- |
+| `ConditionalCheckFailed` | `ConditionFailedError` |
+| `TransactionConflict` | `TransactionConflictError` |
+| `ThrottlingException`, `ProvisionedThroughputExceeded`, `RequestLimitExceeded`, `InternalServerError`, `ServiceUnavailable` | `ThrottledError` |
+| anything else, no genuine failure, or an empty reason list | `TransactionCanceledError` |
+
+`TransactionConflictError` and `ThrottledError` subclass `TransactionCanceledError`, so existing `except
+TransactionCanceledError` handlers keep matching. An unknown or missing code is never reported as a condition failure,
+and an ambiguous transport error is mapped through `map_client_error` rather than being reclassified.
+
+**Fix:** catch the specific class and read the ordered reasons and the original error:
+
+```python
+from tabletheory_py import ConditionFailedError, TransactionConflictError, ThrottledError
+
+try:
+    table.transact_write(actions)
+except ConditionFailedError as err:
+    # A conditional write lost; nothing was committed.
+    for reason in err.reasons:  # index / code / message, position-preserving
+        print(reason.index, reason.code, reason.message)
+except TransactionConflictError:
+    ...
+except ThrottledError:
+    ...
+# The original botocore ClientError stays recoverable:
+#   except ... as err: isinstance(err.__cause__, ClientError)
+```
+
+`.reasons` is a tuple of `CancellationReason(index, code, message)` in original order. `.reason_codes` is kept for
+backward compatibility and is position-preserving (a missing code becomes `""`). **Item images are never exposed:** a
+cancellation reason carries only its code and message, so messages and logs never include item data or attribute
+values; the original error is only reachable through `__cause__`.
+
+**Compatibility note:** Python previously raised `ConditionFailedError` whenever ANY reason was
+`ConditionalCheckFailed`, or when the message merely mentioned it. Classification now follows the FIRST genuine
+failure and never reads the message text, so a message-only mention no longer turns an unknown failure into a
+condition failure. `TransactionCanceledError.reason_codes` now keeps every position instead of dropping entries
+without a code.
+
 ## Pagination surprise: `query_all` or `scan_all` loads too much data
 
 **Cause:** `query_all`, `scan_all`, and `scan_all_segments` follow every cursor and materialize the full result set.
