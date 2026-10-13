@@ -138,9 +138,24 @@ except ThrottledError:
 ```
 
 `.reasons` is a tuple of `CancellationReason(index, code, message)` in original order. `.reason_codes` is kept for
-backward compatibility and is position-preserving (a missing code becomes `""`). **Item images are never exposed:** a
-cancellation reason carries only its code and message, so messages and logs never include item data or attribute
-values; the original error is only reachable through `__cause__`.
+backward compatibility and is position-preserving (a missing code becomes `""`). **The typed cancellation fields
+never carry item images:** each reason holds only `index`, `code` and `message`, and `str(err)` and the exception
+message never include item data or attribute values.
+
+The original botocore `ClientError` is retained as `err.__cause__`. When the request returned item images (for
+example with `ReturnValuesOnConditionCheckFailure`) its `.response` still holds them. A plain `logging.exception`
+or `exc_info` traceback prints only the exception messages and stays clean, but serializing or dumping the retained
+error — `err.__cause__.response`, a structured logger that renders exception attributes, or an error-tracking SDK —
+includes the item image. Log the typed fields instead:
+
+```python
+except TransactionCanceledError as err:
+    # Safe: reasons carry only index / code / message — never item images.
+    logger.warning(
+        "transaction canceled",
+        extra={"reasons": [(r.index, r.code, r.message) for r in err.reasons]},
+    )
+```
 
 **Compatibility note:** Python previously raised `ConditionFailedError` whenever ANY reason was
 `ConditionalCheckFailed`, or when the message merely mentioned it. Classification now follows the FIRST genuine

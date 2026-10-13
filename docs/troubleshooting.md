@@ -151,11 +151,15 @@ if errors.As(err, &awsCanceled) {
 with `==`: the transaction entry points return a structured error that unwraps
 to the sentinel.
 
-**Item images are never exposed.** A cancellation reason carries only its code
-and message. TableTheory never copies the DynamoDB `Item` attribute map into
-`TransactionError`, so `Error()`, `fmt` formatting and logs never include item
-data or attribute values. The original exception (which may carry items) is only
-reachable when you deliberately call `errors.As` for it.
+**Item images are never exposed on the typed surface.** A cancellation reason
+carries only its code and message. TableTheory never copies the DynamoDB `Item`
+attribute map into `TransactionError`, so `Error()`, `fmt` formatting and logs of
+the structured error never include item data or attribute values. The original
+exception is retained on the exported `Cause` field (and recoverable with
+`errors.As`); when the request returned item images (for example with
+`ReturnValuesOnConditionCheckFailure`) a reflective or serializing dump of that
+raw exception — `%#v`, a JSON/reflection dump of the SDK error — can include
+them. Log the typed fields as shown above.
 
 ---
 

@@ -141,9 +141,26 @@ try {
 }
 ```
 
-`cancellationReasons` is ordered and position-preserving. **Item images are never exposed:** a cancellation reason
-carries only `index`, `code` and `message`, so error messages and logs never include item data or attribute values;
-the original exception (which may) is only reachable through `err.cause`.
+`cancellationReasons` is ordered and position-preserving. **The typed cancellation fields never carry item
+images:** each reason holds only `index`, `code` and `message`, and `err.code`, `err.message` and `String(err)`
+never include item data or attribute values.
+
+The original SDK `TransactionCanceledException` is retained as `err.cause`. When the request returned item images
+(for example with `ReturnValuesOnConditionCheckFailure`) that exception still holds them, and `cause` is a plain
+enumerable property — so `JSON.stringify(err)`, `console.log(err)` (`util.inspect`) and any logger that walks the
+error object serializes them too. Log the typed fields instead of the whole error:
+
+```ts
+if (err instanceof TheorydbError) {
+  // Safe: reasons carry only index / code / message — never item images.
+  logger.warn(
+    { code: err.code, reasons: err.cancellationReasons },
+    'transaction canceled',
+  );
+}
+```
+
+Do not `JSON.stringify(err)` or log the whole error object when item images are sensitive.
 
 **Compatibility note:** TypeScript previously reported EVERY transaction cancellation as `ErrConditionFailed`.
 Throttling and conflict cancellations now report `ErrThrottled` / `ErrTransactionConflict`, and a cancellation with no
