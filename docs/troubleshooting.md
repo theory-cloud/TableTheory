@@ -81,13 +81,38 @@ func (u User) TableName() string {
 
 ## Transaction Errors
 
-### "TransactionCanceledException: Transaction canceled, please refer cancellation reasons"
+### "TransactionCanceledException" and cancellation reasons
 
-**Cause:**
-A `ConditionCheck` within the transaction failed. This often happens when using `.IfNotExists()` and the item already exists, or when an optimistic lock version mismatch occurs.
+A DynamoDB transaction is atomic: when any operation's condition fails, nothing
+is committed and DynamoDB returns a `TransactionCanceledException` with one
+cancellation reason per operation, in order (`"None"` for the operations that
+did not fail). TableTheory classifies that exception for you instead of leaving
+you to parse message text.
 
-**Solution:**
-Use `errors.As` to inspect the `TransactionError`.
+**Classification (identical in Go, TypeScript and Python).** The FIRST genuine
+failure — the first reason whose code is neither missing nor `"None"` — decides
+the error:
+
+| DynamoDB reason code | Go sentinel |
+| --- | --- |
+| `ConditionalCheckFailed` | `errors.ErrConditionFailed` |
+| `TransactionConflict` | `errors.ErrTransactionConflict` |
+| `ThrottlingException`, `ThrottlingError`, `ProvisionedThroughputExceeded`, `RequestLimitExceeded`, `InternalServerError`, `ServiceUnavailable` | `errors.ErrThrottled` |
+| anything else, no genuine failure, or an empty reason list | `errors.ErrTransactionFailed` |
+
+An unknown or missing code is never reclassified as a condition failure, and an
+ambiguous transport error (a timeout, a `dial tcp` failure, a connection reset)
+is never turned into a transaction or condition error — it passes through
+unchanged.
+
+A cancellation with **no genuine per-operation failure** — an empty reason list,
+or every reason missing its code or carrying the `"None"` placeholder — reports
+`errors.ErrTransactionFailed` and carries `OperationIndex: -1`. That deliberate
+marker keeps it distinct from a real failure at operation 0 (where
+`OperationIndex` is `0`); `Operation` and `Reason` are empty on that path.
+
+**Inspect the cause and every reason.** Use `errors.Is` to match a sentinel and
+`errors.As` to recover structure and the original AWS exception.
 
 ```go
 err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
@@ -95,16 +120,52 @@ err := db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
     return nil
 })
 
-if err != nil {
-    var txErr *customerrors.TransactionError
-    if errors.As(err, &txErr) {
-        log.Printf("Operation at index %d failed: %s", txErr.OperationIndex, txErr.Reason)
-        if txErr.Reason == "ConditionalCheckFailed" {
-            // Handle duplicate item
-        }
+switch {
+case errors.Is(err, theorydbErrors.ErrConditionFailed):
+    // A conditional write lost; nothing was committed.
+case errors.Is(err, theorydbErrors.ErrTransactionConflict):
+    // A racing transaction conflict.
+case errors.Is(err, theorydbErrors.ErrThrottled):
+    // Throttled; back off.
+case errors.Is(err, theorydbErrors.ErrTransactionFailed):
+    // Canceled with no classifiable reason.
+}
+
+var txErr *theorydbErrors.TransactionError
+if errors.As(err, &txErr) {
+    // First genuine failure (unchanged meaning).
+    log.Printf("op %d (%s) failed: %s", txErr.OperationIndex, txErr.Operation, txErr.Reason)
+    // Every reason, in original order (positions match the operations).
+    for _, reason := range txErr.Reasons {
+        log.Printf("  [%d] %s: %s", reason.Index, reason.Code, reason.Message)
+    }
+    // Only the genuine failures, in order.
+    for _, failure := range txErr.RealFailures() {
+        log.Printf("  failure [%d] %s", failure.Index, failure.Code)
     }
 }
+
+// The original SDK exception (and its ordered CancellationReasons) stays
+// recoverable, even when the error is wrapped by an intermediate.
+var awsCanceled *types.TransactionCanceledException
+if errors.As(err, &awsCanceled) {
+    // awsCanceled.CancellationReasons is the raw AWS list.
+}
 ```
+
+`errors.Is` is the supported comparison — do not compare transaction sentinels
+with `==`: the transaction entry points return a structured error that unwraps
+to the sentinel.
+
+**Item images are never exposed on the typed surface.** A cancellation reason
+carries only its code and message. TableTheory never copies the DynamoDB `Item`
+attribute map into `TransactionError`, so `Error()`, `fmt` formatting and logs of
+the structured error never include item data or attribute values. The original
+exception is retained on the exported `Cause` field (and recoverable with
+`errors.As`); when the request returned item images (for example with
+`ReturnValuesOnConditionCheckFailure`) a reflective or serializing dump of that
+raw exception — `%#v`, a JSON/reflection dump of the SDK error — can include
+them. Log the typed fields as shown above.
 
 ---
 

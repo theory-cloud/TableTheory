@@ -864,7 +864,10 @@ import {
 {
   const mock = createMockDynamoDBClient();
   mock.when(UpdateItemCommand, async () => {
-    throw { name: 'TransactionCanceledException' };
+    throw {
+      name: 'TransactionCanceledException',
+      CancellationReasons: [{ Code: 'ConditionalCheckFailed' }],
+    };
   });
 
   const model = defineModel({

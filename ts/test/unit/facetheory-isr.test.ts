@@ -162,7 +162,11 @@ import { createMockDynamoDBClient } from '../../src/testkit/index.js';
 {
   const mock = createMockDynamoDBClient();
   mock.when(TransactWriteItemsCommand, async () => {
-    throw new TransactionCanceledException({ $metadata: {}, message: 'no' });
+    throw new TransactionCanceledException({
+      $metadata: {},
+      message: 'no',
+      CancellationReasons: [{ Code: 'ConditionalCheckFailed', Message: 'no' }],
+    });
   });
 
   const store = new FaceTheoryIsrMetaStore({

@@ -1,9 +1,15 @@
 package transaction
 
 import (
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-
 	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+)
+
+const (
+	// cancellationNoneCode is DynamoDB's placeholder for a cancellation reason
+	// whose operation did not fail.
+	cancellationNoneCode = "None"
+	// unknownOperationName labels a transaction operation TableTheory cannot name.
+	unknownOperationName = "unknown"
 )
 
 // classifyTransactionCancellationCode keeps the Transaction and Builder paths
@@ -21,19 +27,4 @@ func classifyTransactionCancellationCode(code string) error {
 	default:
 		return nil
 	}
-}
-
-func transactionCanceledHasClassification(exc *types.TransactionCanceledException, classification error) bool {
-	if exc == nil {
-		return false
-	}
-	for _, reason := range exc.CancellationReasons {
-		if reason.Code == nil {
-			continue
-		}
-		if classifyTransactionCancellationCode(*reason.Code) == classification {
-			return true
-		}
-	}
-	return false
 }

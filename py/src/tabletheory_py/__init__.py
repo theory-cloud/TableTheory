@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from .errors import (
     AwsError,
     BatchRetryExceededError,
+    CancellationReason,
     ConditionFailedError,
     EncryptionNotConfiguredError,
     ImmutableModelMutationError,
@@ -19,7 +20,9 @@ from .errors import (
     ProtectedFieldMutationError,
     RejectedDeployAuthorityEvidenceError,
     TheorydbPyError,
+    ThrottledError,
     TransactionCanceledError,
+    TransactionConflictError,
     ValidationError,
     VersionConflictError,
 )
@@ -411,6 +414,9 @@ __all__ = [
     "UpdateAdd",
     "UpdateSetIfNotExists",
     "TransactionCanceledError",
+    "TransactionConflictError",
+    "ThrottledError",
+    "CancellationReason",
     "Table",
     "ValidationError",
     "VersionConflictError",

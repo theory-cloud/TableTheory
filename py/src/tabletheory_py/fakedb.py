@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -30,10 +31,32 @@ class StatefulDynamoDBClient:
     def __init__(self) -> None:
         self._tables: dict[str, _TableState] = {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self._queued_cancellation: list[dict[str, Any]] | None = None
+        self._queued_error: Exception | None = None
 
     def reset(self) -> None:
         self._tables.clear()
         self.calls.clear()
+        self._queued_cancellation = None
+        self._queued_error = None
+
+    def queue_transaction_cancellation(self, reasons: Sequence[dict[str, Any]] | None = None) -> None:
+        """Make every transaction fail with the supplied cancellation reasons.
+
+        Reasons are emitted in position; only their Code and Message are used.
+        Passing ``None`` clears a queued cancellation. An empty sequence queues a
+        cancellation with no reasons. This is a test seam for exercising
+        cancellation classification without real DynamoDB.
+        """
+        self._queued_cancellation = [dict(reason) for reason in reasons] if reasons is not None else None
+
+    def queue_transaction_error(self, err: Exception | None = None) -> None:
+        """Make every transaction fail by raising err unchanged, until cleared.
+
+        Passing ``None`` clears a queued error. This is a test seam for exercising
+        non-cancellation (transport) failures.
+        """
+        self._queued_error = err
 
     def seed(self, table_name: str, *items: Item) -> None:
         table = self._table(table_name)
@@ -219,12 +242,17 @@ class StatefulDynamoDBClient:
 
     def transact_write_items(self, **kwargs: Any) -> dict[str, Any]:
         self._record("transact_write_items", kwargs)
+        if self._queued_error is not None:
+            raise self._queued_error
+        if self._queued_cancellation is not None:
+            raise _cancellation_error(self._queued_cancellation)
         snapshot = deepcopy(self._tables)
-        try:
-            for req in kwargs.get("TransactItems") or []:
+        items = kwargs.get("TransactItems") or []
+        for index, req in enumerate(items):
+            try:
                 _apply_transact(snapshot, req)
-        except ClientError as err:
-            raise _transaction_error(err) from err
+            except ClientError as err:
+                raise _transaction_error(len(items), index, err) from err
         self._tables = snapshot
         return {}
 
@@ -572,11 +600,30 @@ def _client_error(code: str, message: str) -> ClientError:
     return ClientError({"Error": {"Code": code, "Message": message}}, code)
 
 
-def _transaction_error(err: ClientError) -> ClientError:
+def _cancellation_error(reasons: Sequence[Mapping[str, Any]]) -> ClientError:
+    # Only the Code and Message of each reason survive: item images are dropped.
+    payload: list[Any] = [
+        {key: value for key, value in reason.items() if key in ("Code", "Message")} for reason in reasons
+    ]
     return ClientError(
         {
-            "Error": {"Code": "TransactionCanceledException", "Message": str(err)},
-            "CancellationReasons": [{"Code": "ConditionalCheckFailed", "Message": str(err)}],
+            "Error": {
+                "Code": "TransactionCanceledException",
+                "Message": "transaction canceled",
+            },
+            "CancellationReasons": payload,
         },
         "TransactWriteItems",
     )
+
+
+def _transaction_error(total: int, index: int, err: ClientError) -> ClientError:
+    # DynamoDB returns one cancellation reason per transaction item, in order,
+    # with "None" for the items that did not fail.
+    message = str(err)
+    size = max(total, index + 1)
+    reasons = [
+        {"Code": "ConditionalCheckFailed", "Message": message} if position == index else {"Code": "None"}
+        for position in range(size)
+    ]
+    return _cancellation_error(reasons)

@@ -523,7 +523,11 @@ class StubDdb {
 }
 
 {
-  const tce = new TransactionCanceledException({ $metadata: {}, message: 'x' });
+  const tce = new TransactionCanceledException({
+    $metadata: {},
+    message: 'x',
+    CancellationReasons: [{ Code: 'ConditionalCheckFailed', Message: 'x' }],
+  });
   const ddb = new StubDdb(() => {
     throw tce;
   });
@@ -861,7 +865,11 @@ void test('encrypted raw transaction error names both safe alternatives', async 
 }
 
 {
-  const tce = new TransactionCanceledException({ $metadata: {}, message: 'x' });
+  const tce = new TransactionCanceledException({
+    $metadata: {},
+    message: 'x',
+    CancellationReasons: [{ Code: 'ConditionalCheckFailed', Message: 'x' }],
+  });
   const ddb = new StubDdb(() => {
     throw tce;
   });

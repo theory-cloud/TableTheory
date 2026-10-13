@@ -31,6 +31,11 @@ export interface StatefulDynamoDBClient {
   readonly fake: StatefulDynamoDBFake;
 }
 
+export interface CancellationReasonInput {
+  readonly Code?: string;
+  readonly Message?: string;
+}
+
 type SupportedCommand =
   | PutItemCommand
   | GetItemCommand
@@ -55,6 +60,8 @@ export function createStatefulDynamoDBClient(): StatefulDynamoDBClient {
 
 export class StatefulDynamoDBFake {
   private readonly tables = new Map<string, Table>();
+  private nextCancellation: CancellationReasonInput[] | undefined;
+  private nextTransactionError: unknown = undefined;
 
   readonly client = {
     send: async (command: SupportedCommand): Promise<unknown> =>
@@ -63,6 +70,30 @@ export class StatefulDynamoDBFake {
 
   reset(): void {
     this.tables.clear();
+    this.nextCancellation = undefined;
+    this.nextTransactionError = undefined;
+  }
+
+  /**
+   * Makes every TransactWriteItems call fail by throwing err unchanged, until it
+   * is cleared. Call with no argument to clear.
+   */
+  queueTransactionError(err?: unknown): void {
+    this.nextTransactionError = err;
+  }
+
+  /**
+   * Makes every TransactWriteItems call fail with a synthesized
+   * TransactionCanceledException carrying the supplied reasons in position,
+   * until it is cleared. Call with no argument to clear. An empty array queues a
+   * cancellation with no reasons.
+   */
+  queueTransactionCancellation(
+    reasons?: readonly CancellationReasonInput[],
+  ): void {
+    this.nextCancellation = reasons
+      ? reasons.map((reason) => ({ ...reason }))
+      : undefined;
   }
 
   seed(tableName: string, ...items: Item[]): void {
@@ -320,12 +351,26 @@ export class StatefulDynamoDBFake {
   }
 
   private transactWrite(command: TransactWriteItemsCommand): object {
+    const items = command.input.TransactItems ?? [];
+    if (this.nextTransactionError !== undefined) {
+      throw this.nextTransactionError;
+    }
+    if (this.nextCancellation) {
+      throw transactionCanceled({ reasons: this.nextCancellation });
+    }
     const snapshot = cloneTables(this.tables);
+    let failedIndex = -1;
     try {
-      for (const op of command.input.TransactItems ?? [])
+      items.forEach((op, index) => {
+        failedIndex = index;
         applyTransact(snapshot, op);
+      });
     } catch (err) {
-      throw transactionCanceled(err);
+      throw transactionCanceled({
+        total: items.length,
+        failedIndex,
+        cause: err,
+      });
     }
     this.tables.clear();
     for (const [name, table] of snapshot) this.tables.set(name, table);
@@ -787,9 +832,43 @@ function resourceInUse(tableName: string): ResourceInUseException {
   });
 }
 
-function transactionCanceled(cause: unknown): TransactionCanceledException {
+function transactionCanceled(options: {
+  reasons?: readonly CancellationReasonInput[];
+  total?: number;
+  failedIndex?: number;
+  cause?: unknown;
+}): TransactionCanceledException {
+  let reasons: CancellationReasonInput[];
+  if (options.reasons) {
+    reasons = options.reasons.map((reason) => copyCancellationReason(reason));
+  } else {
+    const total = Math.max(options.total ?? 0, (options.failedIndex ?? 0) + 1);
+    reasons = Array.from({ length: total }, (_, index) =>
+      index === options.failedIndex
+        ? {
+            Code: 'ConditionalCheckFailed',
+            Message:
+              options.cause instanceof Error
+                ? options.cause.message
+                : 'conditional request failed',
+          }
+        : { Code: 'None' },
+    );
+  }
   return new TransactionCanceledException({
     $metadata: {},
-    message: cause instanceof Error ? cause.message : 'transaction canceled',
+    message: 'transaction canceled',
+    CancellationReasons: reasons,
   });
+}
+
+// Copy only the code and message: a cancellation reason's item image is never
+// propagated into the synthesized exception.
+function copyCancellationReason(
+  reason: CancellationReasonInput,
+): CancellationReasonInput {
+  return {
+    ...(reason.Code !== undefined ? { Code: reason.Code } : {}),
+    ...(reason.Message !== undefined ? { Message: reason.Message } : {}),
+  };
 }
