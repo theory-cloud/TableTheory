@@ -2,10 +2,15 @@ package marshal
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/theory-cloud/tabletheory/v5/internal/encryption"
+	"github.com/theory-cloud/tabletheory/v5/internal/reflectutil"
+	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
 )
 
 // ItemWriterPath names a TableTheory writer path whose stored DynamoDB
@@ -72,9 +77,91 @@ const (
 //   - Models that declare `encrypted` attributes are refused with an error. The
 //     stored bytes of an encrypted attribute depend on KMS key material and
 //     envelope randomness, so no static preflight can predict them.
+//   - A model that declares `createdAt` or `updatedAt` is serialized with the
+//     current time, exactly as the writers do; callers that need a fixed
+//     timestamp should pass a model whose lifecycle fields are unset.
 //
 // An unrecognized path is refused with an error. The preflight has no side
 // effects and never contacts DynamoDB.
 func MarshalItemForWriterPath(model any, metadata *model.Metadata, path ItemWriterPath) (map[string]types.AttributeValue, error) {
-	return nil, fmt.Errorf("marshal: MarshalItemForWriterPath: writer path %q is not implemented", path)
+	if metadata == nil {
+		return nil, fmt.Errorf("%w: metadata is required for an item preflight", customerrors.ErrInvalidModel)
+	}
+	if encryption.MetadataHasEncryptedFields(metadata) {
+		return nil, fmt.Errorf(
+			"%w: item preflight does not cover the encrypted attributes of %s",
+			customerrors.ErrUnsupportedType, metadata.TableName,
+		)
+	}
+
+	switch path {
+	case ItemWriterPathPut:
+		// The put family marshals through a SafeMarshaler built the same way
+		// internal/theorydb builds the default marshaler, so this branch is the
+		// writer's own serializer rather than a copy of its rule.
+		return NewSafeMarshalerWithConverter(pkgTypes.NewConverter()).MarshalItem(model, metadata)
+
+	case ItemWriterPathTransactWrite:
+		return marshalTransactWritePlainItem(model, metadata, pkgTypes.NewConverter())
+
+	default:
+		return nil, fmt.Errorf("%w: unknown item writer path %q", customerrors.ErrInvalidModel, path)
+	}
+}
+
+// marshalTransactWritePlainItem reproduces the item a transactional writer path
+// stores, before any encryption step.
+//
+// It mirrors the converter rule in pkg/transaction.(*Transaction).marshalPlainItem:
+// a field tagged omitempty is dropped when empty, and every remaining field is
+// converted with the transaction converter, which stores a nil slice as an empty
+// list and a nil map as an empty map. The rule is mirrored rather than shared so
+// that no writer path is edited by this change; the captured-payload test in
+// preflight_test.go fails if this mirror and the writer drift apart.
+func marshalTransactWritePlainItem(model any, metadata *model.Metadata, converter *pkgTypes.Converter) (map[string]types.AttributeValue, error) {
+	modelValue, err := derefStructValue(model)
+	if err != nil {
+		return nil, err
+	}
+
+	item := make(map[string]types.AttributeValue, len(metadata.Fields))
+	for fieldName, fieldMeta := range metadata.Fields {
+		fieldValue, err := preflightFieldByIndexPath(modelValue, fieldMeta.IndexPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read field %s: %w", fieldName, err)
+		}
+
+		if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
+			continue
+		}
+
+		av, err := converter.ToAttributeValue(fieldValue.Interface())
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert field %s: %w", fieldName, err)
+		}
+		if av == nil {
+			continue
+		}
+
+		item[fieldMeta.DBName] = av
+	}
+
+	return item, nil
+}
+
+// preflightFieldByIndexPath resolves a metadata field index path, reporting a
+// shape disagreement as an error instead of letting reflect panic.
+func preflightFieldByIndexPath(modelValue reflect.Value, indexPath []int) (field reflect.Value, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			field = reflect.Value{}
+			err = fmt.Errorf("model field path %v does not resolve on %s", indexPath, modelValue.Type())
+		}
+	}()
+
+	if len(indexPath) == 0 {
+		return reflect.Value{}, fmt.Errorf("model field path %v does not resolve on %s", indexPath, modelValue.Type())
+	}
+
+	return modelValue.FieldByIndex(indexPath), nil
 }
