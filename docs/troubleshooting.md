@@ -207,6 +207,14 @@ does not list `redact_item_images`; the
 [Python troubleshooting guide](runtimes/python/troubleshooting.md) documents the
 option and `redacting_client`.
 
+**TypeScript coverage boundary.** `redactItemImages` plumbs through
+`TheorydbClient`, so every error a client maps is redacted. `lease.ts`'s three
+`mapDynamoError` call sites and `update-builder`'s `execute()` map errors directly
+and cannot inherit it, and there is no standalone TypeScript wrapper. Neither
+runtime sets `ReturnValuesOnConditionCheckFailure`, so those paths cannot carry
+item images today; revisit if `ALL_OLD` support is ever added. See the
+[TypeScript troubleshooting guide](runtimes/typescript/troubleshooting.md).
+
 The redaction option is **off by default**, so default behavior is unchanged: the
 retained `cause`/`__cause__` is the same object it always was. When it is enabled,
 the cause becomes a copy whose `CancellationReasons[].Item` (and a condition
