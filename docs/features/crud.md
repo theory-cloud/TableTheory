@@ -151,9 +151,10 @@ per-attribute `converter` on the attribute definition.
 
 A read-only audit of the current consumer set (Autheory, theory-mcp-server, theorycloud-ai, FaceTheory and AppTheory at
 `origin/staging`) found **no consumer on TableTheory v5 that registers a converter for a slice, map or pointer**. The only
-registered converter in that set is Autheory's `map[string]interface{}` converter, and Autheory pins TableTheory v4. A
-converter is shared by every writer path rather than being per-writer, so it has no nil/empty writer split to pin. That is
-why the shared table above has no custom-converter rows.
+converters registered in that set are Autheory's two Go converters — for `map[string]interface{}` and for `interface{}`,
+both in `pkg/autheory/repository/dynamorm_converters.go` — and Autheory pins TableTheory v4. A converter is shared by
+every writer path rather than being per-writer, so it has no nil/empty writer split to pin. That is why the shared table
+above has no custom-converter rows.
 
 ### Explicit empty updates
 
