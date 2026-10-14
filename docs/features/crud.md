@@ -128,7 +128,7 @@ Three further differences belong to the same table:
 - **Python stores `None` as `NULL` on every writer path**, which matches Go's put family but not Go's `TransactWrite`.
 - **Go's `TransactWrite` ignores the `set` tag.** A set-tagged slice is stored as an empty `L` there, where the put family stores `NULL`.
 
-The single source of truth for these rows is [`contract-tests/serialization/nil-empty-collections.yml`](../../contract-tests/serialization/nil-empty-collections.yml). Each runtime's test suite loads that one file and asserts its own column against payloads captured from its real writers, and each asserts a derived row count, so a change to any writer for these classes — or a dropped row — fails the build.
+The single source of truth for these rows is [`contract-tests/serialization/nil-empty-collections.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/serialization/nil-empty-collections.yml). Each runtime's test suite loads that one file and asserts its own column against payloads captured from its real writers, and each asserts a derived row count, so a change to any writer for these classes — or a dropped row — fails the build.
 
 ### Measuring what a writer will store
 
