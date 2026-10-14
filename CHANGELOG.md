@@ -143,6 +143,36 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [5.1.0-rc](https://github.com/theory-cloud/TableTheory/compare/v5.0.0...v5.1.0-rc) (2026-10-14)
+
+
+### Features
+
+* **errors:** preserve transaction cancellation causes and reasons ([467a865](https://github.com/theory-cloud/TableTheory/commit/467a865a7472afd65adab2a4c34d2b47034c510c))
+* **errors:** preserve transaction cancellation causes and reasons across runtimes ([da2e0a1](https://github.com/theory-cloud/TableTheory/commit/da2e0a1815d0b62b3864f0d805ba6736b3435958))
+* **marshal:** add item writer-path preflight API surface ([afbd0eb](https://github.com/theory-cloud/TableTheory/commit/afbd0eb95e2160824c9e6be2b7198392dd392211))
+* **marshal:** add writer-path item preflight for nil-collection parity ([c4dbecb](https://github.com/theory-cloud/TableTheory/commit/c4dbecb21439d9362a77408e52c36d7acae6244c))
+* **marshal:** implement the Go writer-path item preflight ([1c3fa4d](https://github.com/theory-cloud/TableTheory/commit/1c3fa4ddd02aebdeb5d896fc75d8245a7da70399))
+* **py:** implement the writer-path item preflight ([aa7e8e5](https://github.com/theory-cloud/TableTheory/commit/aa7e8e58a16db681763feec7cff1ed5d4c6c7078))
+* **ts:** implement the writer-path item preflight ([ab43a5f](https://github.com/theory-cloud/TableTheory/commit/ab43a5f72be7f0d4c99eea9d2cd50b375f3db47a))
+
+
+### Bug Fixes
+
+* **ci:** publish docs from staging pushes again in pages.yml ([bce9495](https://github.com/theory-cloud/TableTheory/commit/bce9495a0f5c30ceb2d386da2d342b8a69417170))
+* **ci:** remove the redundant staging release-eligibility gate ([725ce4f](https://github.com/theory-cloud/TableTheory/commit/725ce4f448a38867959d6c13bfbaf02fccce3618))
+* **ci:** remove the redundant staging release-eligibility gate ([61dbd08](https://github.com/theory-cloud/TableTheory/commit/61dbd088a5c31f63b45491ef9deef6fba3c1d61d))
+* **ci:** revert the pages push trigger to staging ([9e87b72](https://github.com/theory-cloud/TableTheory/commit/9e87b7277acf89e437a6fa69554044d7289b98da))
+* **docs:** link the shared conformance table with an absolute URL ([94bffc1](https://github.com/theory-cloud/TableTheory/commit/94bffc1c1dd0b32f7528cc48a1d5236635a8343c))
+* **py:** move the item preflight off Table to a module function ([c3c92e2](https://github.com/theory-cloud/TableTheory/commit/c3c92e2ccc120e6ef59a1121bc5a952e15a57829))
+* **py:** preserve transaction cancellation reasons and cause ([66ea044](https://github.com/theory-cloud/TableTheory/commit/66ea0445987de9bc359febe22bc89d3a24af3668))
+* **ts:** classify transaction cancellations by reason code ([6a45543](https://github.com/theory-cloud/TableTheory/commit/6a45543fd5c1e017b48f625cdefacc8b5ab6049a))
+
+
+### Reverts
+
+* **changelog:** drop the release-generated changelog edit from this PR ([1dac474](https://github.com/theory-cloud/TableTheory/commit/1dac4749a8cf52653667e5b27b7b8b0909d44483))
+
 ## [5.0.0](https://github.com/theory-cloud/TableTheory/compare/v5.0.0-rc...v5.0.0) (2026-10-12)
 
 Stable promotion of `v5.0.0-rc`.
