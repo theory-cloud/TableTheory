@@ -142,6 +142,19 @@ Because the writer paths store different representations for some inputs, the sa
 
 Both paths return the same representation in TypeScript and Python, which funnel every whole item through one serializer. Go needs the parameter because its two writers really do differ. A preflight refuses a model that declares `encrypted` attributes, because the stored envelope depends on KMS material a static preflight cannot see. It has no side effects, contacts nothing, and changes nothing that is written.
 
+### Custom type converters
+
+A model that registers a **custom type converter** is not covered by the preflight above: the converter replaces
+TableTheory's own value handling, so the preflight cannot predict what it stores. In Go a converter is registered on the
+database (`RegisterTypeConverter`), for example for `map[string]interface{}`; in TypeScript and Python it is a
+per-attribute `converter` on the attribute definition.
+
+A read-only audit of the current consumer set (Autheory, theory-mcp-server, theorycloud-ai, FaceTheory and AppTheory at
+`origin/staging`) found **no consumer on TableTheory v5 that registers a converter for a slice, map or pointer**. The only
+registered converter in that set is Autheory's `map[string]interface{}` converter, and Autheory pins TableTheory v4. A
+converter is shared by every writer path rather than being per-writer, so it has no nil/empty writer split to pin. That is
+why the shared table above has no custom-converter rows.
+
 ### Explicit empty updates
 
 DMS v0.2 distinguishes an unselected field from a selected empty field:
