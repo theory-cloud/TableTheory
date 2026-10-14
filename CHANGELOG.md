@@ -143,6 +143,25 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [5.2.0](https://github.com/theory-cloud/TableTheory/compare/v5.2.0-rc...v5.2.0) (2026-10-14)
+
+Stable promotion of `v5.2.0-rc`.
+
+
+## [5.2.0-rc](https://github.com/theory-cloud/TableTheory/compare/v5.1.0...v5.2.0-rc) (2026-10-14)
+
+
+### Features
+
+* complete the v5.1.0 follow-ups, gate the cross-runtime fixtures, consolidate dependabot bumps ([f3ec04b](https://github.com/theory-cloud/TableTheory/commit/f3ec04b0cc2afc344b4318fa15b5b7decac9dd20))
+* **errors:** add a safe error surface and opt-in item-image redaction (py) ([fc3f824](https://github.com/theory-cloud/TableTheory/commit/fc3f824dc35ff209915fdb631a2b68135311b697))
+* **errors:** add a safe error surface and opt-in item-image redaction (ts) ([747f8df](https://github.com/theory-cloud/TableTheory/commit/747f8dfd7f522fd401fe8c81de0fee95049017d8))
+
+
+### Bug Fixes
+
+* **ts:** stamp transactWrite put lifecycle fields from the injected clock ([c6bc87c](https://github.com/theory-cloud/TableTheory/commit/c6bc87c42bfccb65a61996d40ed19e345740efca))
+
 ## [5.1.0](https://github.com/theory-cloud/TableTheory/compare/v5.1.0-rc...v5.1.0) (2026-10-14)
 
 Stable promotion of `v5.1.0-rc`.
