@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from botocore.exceptions import ClientError
 
@@ -48,6 +48,44 @@ def map_client_error(err: ClientError, *, version_conflict: bool = False) -> Exc
         return NotFoundError(message)
 
     return AwsError(code=code or "UnknownError", message=message or str(err))
+
+
+def strip_item_images(err: BaseException) -> BaseException:
+    """Return a copy of ``err`` with DynamoDB item images removed from its response.
+
+    Only a ``botocore.exceptions.ClientError`` whose ``response`` is a dict
+    carrying ``CancellationReasons`` and/or a top-level ``Item`` is copied. Each
+    dict entry of ``CancellationReasons`` has its ``Item`` key removed and the
+    top-level ``Item`` key is removed. The original error and its ``response``
+    are never mutated. Anything else, or a response with nothing to strip, is
+    returned unchanged.
+    """
+
+    if not isinstance(err, ClientError):
+        return err
+    response: Any = err.response
+    if not isinstance(response, dict):
+        return err
+
+    reasons = response.get("CancellationReasons")
+    has_reason_item = isinstance(reasons, list) and any(
+        isinstance(entry, dict) and "Item" in entry for entry in reasons
+    )
+    if not has_reason_item and "Item" not in response:
+        return err
+
+    redacted: dict[str, Any] = dict(response)
+    if isinstance(reasons, list):
+        redacted["CancellationReasons"] = [
+            {key: value for key, value in entry.items() if key != "Item"}
+            if isinstance(entry, dict)
+            else entry
+            for entry in reasons
+        ]
+    redacted.pop("Item", None)
+
+    operation_name = cast(str, getattr(err, "operation_name", None))
+    return ClientError(cast(Any, redacted), operation_name)
 
 
 def _cancellation_reasons(raw: Any) -> tuple[CancellationReason, ...]:

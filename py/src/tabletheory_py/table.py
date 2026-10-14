@@ -20,6 +20,7 @@ from .attr_types import (
 )
 from .aws_errors import map_client_error as _map_client_error
 from .aws_errors import map_transaction_error as _map_transaction_error
+from .aws_errors import strip_item_images as _strip_item_images
 from .errors import (
     BatchRetryExceededError,
     EncryptionNotConfiguredError,
@@ -124,7 +125,16 @@ class Table[T]:
         kms_client: Any | None = None,
         rand_bytes: Callable[[int], bytes] | None = None,
         now: Callable[[], str] | None = None,
+        redact_item_images: bool = False,
     ) -> None:
+        """Create a table handle.
+
+        When ``redact_item_images`` is True, DynamoDB item images are stripped
+        from the ``__cause__`` retained on mapped errors, so the chained cause is
+        safe to log. It defaults to False, which leaves the retained cause
+        exactly as before.
+        """
+
         if table_name is None:
             table_name = model.table_name
         if not table_name:
@@ -139,6 +149,7 @@ class Table[T]:
         self._kms_client: Any | None = kms_client
         self._rand_bytes = rand_bytes or os.urandom
         self._now = now or _now_rfc3339_nano
+        self._redact_item_images = redact_item_images
         self._serializer = TypeSerializer()
         self._deserializer = TypeDeserializer()
 
@@ -166,7 +177,11 @@ class Table[T]:
             kms_client=self._kms_client,
             rand_bytes=self._rand_bytes,
             now=self._now,
+            redact_item_images=self._redact_item_images,
         )
+
+    def _retained_cause(self, err: BaseException) -> BaseException:
+        return _strip_item_images(err) if self._redact_item_images else err
 
     def _attribute_storage_type(self, attr_def: AttributeDefinition) -> str:
         return resolve_attribute_storage_type(attr_def)
@@ -237,7 +252,7 @@ class Table[T]:
         try:
             resp = self._client.query(**req)
         except ClientError as err:  # pragma: no cover
-            raise _map_client_error(err) from err
+            raise _map_client_error(err) from self._retained_cause(err)
 
         items = [self._from_item(item) for item in resp.get("Items", [])]
         last = resp.get("LastEvaluatedKey")
@@ -474,7 +489,7 @@ class Table[T]:
         try:
             resp = self._client.scan(**req)
         except ClientError as err:  # pragma: no cover
-            raise _map_client_error(err) from err
+            raise _map_client_error(err) from self._retained_cause(err)
 
         items = [self._from_item(item) for item in resp.get("Items", [])]
         last = resp.get("LastEvaluatedKey")
@@ -745,7 +760,7 @@ class Table[T]:
                 try:
                     resp = self._client.batch_get_item(RequestItems=req)
                 except ClientError as err:  # pragma: no cover
-                    raise _map_client_error(err) from err
+                    raise _map_client_error(err) from self._retained_cause(err)
 
                 for item in resp.get("Responses", {}).get(self._table_name, []):
                     out.append(self._from_item(item))
@@ -809,7 +824,7 @@ class Table[T]:
                 try:
                     resp = self._client.batch_write_item(RequestItems={self._table_name: pending})
                 except ClientError as err:  # pragma: no cover
-                    raise _map_client_error(err) from err
+                    raise _map_client_error(err) from self._retained_cause(err)
 
                 pending = resp.get("UnprocessedItems", {}).get(self._table_name, []) or []
                 if pending:
@@ -895,7 +910,7 @@ class Table[T]:
         try:
             self._client.transact_write_items(TransactItems=transact_items)
         except ClientError as err:  # pragma: no cover
-            raise _map_transaction_error(err) from err
+            raise _map_transaction_error(err) from self._retained_cause(err)
 
     def put(
         self,
@@ -917,7 +932,7 @@ class Table[T]:
             apply_write_once_create_condition(self._model, req)
             self._client.put_item(**req)
         except ClientError as err:  # pragma: no cover (depends on AWS error shapes)
-            raise _map_client_error(err) from err
+            raise _map_client_error(err) from self._retained_cause(err)
 
     def save(
         self,
@@ -941,7 +956,7 @@ class Table[T]:
         try:
             resp = self._client.get_item(TableName=self._table_name, Key=key, ConsistentRead=consistent_read)
         except ClientError as err:  # pragma: no cover
-            raise _map_client_error(err) from err
+            raise _map_client_error(err) from self._retained_cause(err)
 
         item = resp.get("Item")
         if not item:
@@ -953,7 +968,7 @@ class Table[T]:
         try:
             resp = self._client.get_item(TableName=self._table_name, Key=key, ConsistentRead=consistent_read)
         except ClientError as err:  # pragma: no cover
-            raise _map_client_error(err) from err
+            raise _map_client_error(err) from self._retained_cause(err)
 
         item = resp.get("Item")
         if not item:
@@ -982,7 +997,7 @@ class Table[T]:
         try:
             self._client.delete_item(**req)
         except ClientError as err:  # pragma: no cover
-            raise _map_client_error(err) from err
+            raise _map_client_error(err) from self._retained_cause(err)
 
     def update(
         self,
@@ -1011,7 +1026,9 @@ class Table[T]:
         try:
             resp = self._client.update_item(**req)
         except ClientError as err:  # pragma: no cover
-            raise _map_client_error(err, version_conflict=expected_version is not None) from err
+            raise _map_client_error(
+                err, version_conflict=expected_version is not None
+            ) from self._retained_cause(err)
 
         attrs = resp.get("Attributes")
         if not attrs:
