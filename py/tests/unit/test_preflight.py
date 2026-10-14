@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -65,28 +64,6 @@ def _table(client: StatefulDynamoDBClient) -> Table[PreflightMatrix]:
     return Table(model, client=client)
 
 
-def _root(name: str) -> Callable[[dict[str, Any]], str]:
-    def read(item: dict[str, Any]) -> str:
-        if name not in item:
-            return "ABSENT"
-        return next(iter(item[name]))
-
-    return read
-
-
-def _nested(name: str) -> Callable[[dict[str, Any]], str]:
-    def read(item: dict[str, Any]) -> str:
-        container = item.get("nested")
-        if not isinstance(container, dict):
-            return "ABSENT"
-        values = container.get("M")
-        if not isinstance(values, dict) or name not in values:
-            return "ABSENT"
-        return next(iter(values[name]))
-
-    return read
-
-
 def test_preflight_byte_equals_captured_writer_payloads() -> None:
     item = _matrix_item()
 
@@ -110,38 +87,6 @@ def test_preflight_byte_equals_captured_writer_payloads() -> None:
     # Python has one item serializer for both writer paths, so unlike Go the two
     # captured payloads agree here: None is stored as DynamoDB NULL on both.
     assert captured_put == captured_transact
-
-
-# Python maps None to DynamoDB NULL on every writer path. That matches Go's put
-# family but not Go's TransactWrite, which stores an empty L/M instead; the
-# Python runtime has no such split.
-_MATRIX: list[tuple[str, Callable[[dict[str, Any]], str], str]] = [
-    ("root nil list without omitempty", _root("nilList"), "NULL"),
-    ("root empty list without omitempty", _root("emptyList"), "L"),
-    ("root nil map without omitempty", _root("nilMap"), "NULL"),
-    ("root empty map without omitempty", _root("emptyMap"), "M"),
-    ("root nil list with omitempty", _root("nilListOmit"), "ABSENT"),
-    ("root empty list with omitempty", _root("emptyListOmit"), "ABSENT"),
-    ("root nil map with omitempty", _root("nilMapOmit"), "ABSENT"),
-    ("root empty map with omitempty", _root("emptyMapOmit"), "ABSENT"),
-    ("root false bool without omitempty", _root("falseBool"), "BOOL"),
-    ("root zero int without omitempty", _root("zeroInt"), "N"),
-    ("root empty set on set-backed attribute", _root("emptySet"), "NULL"),
-    ("nested nil list", _nested("nestedNilList"), "NULL"),
-    ("nested empty list", _nested("nestedEmptyList"), "L"),
-    ("nested nil map", _nested("nestedNilMap"), "NULL"),
-    ("nested empty map", _nested("nestedEmptyMap"), "M"),
-]
-
-
-@pytest.mark.parametrize("path", list(ItemWriterPath))
-@pytest.mark.parametrize(("name", "read", "expected"), _MATRIX, ids=[case[0] for case in _MATRIX])
-def test_preflight_nil_empty_matrix(
-    path: ItemWriterPath, name: str, read: Callable[[dict[str, Any]], str], expected: str
-) -> None:
-    table = _table(StatefulDynamoDBClient())
-    item = table.marshal_item_for_writer_path(_matrix_item(), path)
-    assert read(item) == expected, name
 
 
 @pytest.mark.parametrize("path", list(ItemWriterPath))

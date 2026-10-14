@@ -39,6 +39,9 @@ type preflightMatrix struct {
 	EmptyMap      map[string]string `theorydb:"attr:emptyMap" json:"emptyMap"`
 	NilListOmit   []string          `theorydb:"attr:nilListOmit,omitempty" json:"nilListOmit,omitempty"`
 	EmptyListOmit []string          `theorydb:"attr:emptyListOmit,omitempty" json:"emptyListOmit,omitempty"`
+	NilMapOmit    map[string]string `theorydb:"attr:nilMapOmit,omitempty" json:"nilMapOmit,omitempty"`
+	EmptyMapOmit  map[string]string `theorydb:"attr:emptyMapOmit,omitempty" json:"emptyMapOmit,omitempty"`
+	EmptySet      []string          `theorydb:"attr:emptySet,set" json:"emptySet"`
 	NilPtr        *string           `theorydb:"attr:nilPtr" json:"nilPtr"`
 	NilAny        any               `theorydb:"attr:nilAny" json:"nilAny"`
 	Nested        preflightNested   `theorydb:"attr:nested" json:"nested"`
@@ -62,6 +65,8 @@ func newPreflightMatrix() *preflightMatrix {
 		EmptyList:     []string{},
 		EmptyMap:      map[string]string{},
 		EmptyListOmit: []string{},
+		EmptyMapOmit:  map[string]string{},
+		EmptySet:      []string{},
 		Nested: preflightNested{
 			NestedEmptyList: []string{},
 			NestedEmptyMap:  map[string]string{},
@@ -176,10 +181,11 @@ func TestMarshalItemForWriterPathByteEqualsCapturedWriterPayloads(t *testing.T) 
 	assert.Equal(t, "M", itemAttrType(capturedTransact, "nilMap"), "TransactWrite stores an empty M for a nil map")
 }
 
-// TestMarshalItemForWriterPathNilEmptyMatrix pins the full semantics per writer
-// path for root and nested collections, omitempty, and pointer/interface
-// wrappers.
-func TestMarshalItemForWriterPathNilEmptyMatrix(t *testing.T) {
+// TestMarshalItemForWriterPathPointerAndInterfaceWrappers covers the wrapper
+// classes that only Go can express: a nil pointer and a nil interface. The
+// collection semantics themselves are pinned once, for every runtime, in the
+// shared conformance table that preflight_conformance_test.go consumes.
+func TestMarshalItemForWriterPathPointerAndInterfaceWrappers(t *testing.T) {
 	metadata := preflightMetadata(t, newPreflightMatrix())
 
 	putItem, err := marshal.MarshalItemForWriterPath(newPreflightMatrix(), metadata, marshal.ItemWriterPathPut)
@@ -189,41 +195,10 @@ func TestMarshalItemForWriterPathNilEmptyMatrix(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	root := func(name string) func(map[string]types.AttributeValue) string {
-		return func(item map[string]types.AttributeValue) string { return itemAttrType(item, name) }
-	}
-	nested := func(name string) func(map[string]types.AttributeValue) string {
-		return func(item map[string]types.AttributeValue) string {
-			return nestedAttrType(item, "nested", name)
-		}
-	}
-
-	cases := []struct {
-		name          string
-		read          func(map[string]types.AttributeValue) string
-		put           string
-		transactWrite string
-	}{
-		{"root nil list without omitempty", root("nilList"), "NULL", "L"},
-		{"root empty list without omitempty", root("emptyList"), "L", "L"},
-		{"root nil map without omitempty", root("nilMap"), "NULL", "M"},
-		{"root empty map without omitempty", root("emptyMap"), "M", "M"},
-		{"root nil list with omitempty", root("nilListOmit"), "ABSENT", "ABSENT"},
-		{"root empty list with omitempty", root("emptyListOmit"), "ABSENT", "ABSENT"},
-		{"root nil pointer", root("nilPtr"), "NULL", "NULL"},
-		{"root nil interface", root("nilAny"), "NULL", "NULL"},
-		{"root false bool without omitempty", root("falseBool"), "BOOL", "BOOL"},
-		{"root zero int without omitempty", root("zeroInt"), "N", "N"},
-		{"nested nil list", nested("nestedNilList"), "NULL", "L"},
-		{"nested empty list", nested("nestedEmptyList"), "L", "L"},
-		{"nested nil map", nested("nestedNilMap"), "NULL", "M"},
-		{"nested empty map", nested("nestedEmptyMap"), "M", "M"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.put, tc.read(putItem), "put path")
-			assert.Equal(t, tc.transactWrite, tc.read(transactItem), "transact_write path")
+	for _, name := range []string{"nilPtr", "nilAny"} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, "NULL", itemAttrType(putItem, name), "put path")
+			assert.Equal(t, "NULL", itemAttrType(transactItem, name), "transact_write path")
 		})
 	}
 }
