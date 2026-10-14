@@ -61,7 +61,7 @@ Legend:
 | QUA-5 | `bash scripts/fuzz-smoke.sh` | Enforced | Planned | Planned | Current fuzz harness is Go-only |
 | CON-1 | `bash scripts/verify-formatting.sh` | Enforced | Enforced | Enforced | Go `gofmt`, TS `prettier`, Py `ruff format` |
 | CON-2 | `bash scripts/verify-lint.sh` | Enforced | Enforced | Enforced | Go `golangci-lint`, TS `eslint`, Py `ruff` |
-| CON-3 | `bash scripts/verify-public-api-contracts.sh` | Enforced | Planned | Planned | Contract runner exists; API contract verifier is Go-only today |
+| CON-3 | `bash scripts/verify-public-api-contracts.sh`, `bash scripts/verify-cross-runtime-contracts.sh` | Enforced | Enforced | Enforced | API contract verifier is Go-only; the shared nil/empty serialization table and the transaction-cancellation fixture are asserted in Go, TypeScript and Python |
 | COM-1 | `bash scripts/verify-builds.sh` | Enforced | Enforced | Enforced | Includes Go modules + TS build + Py mypy/build + version alignment |
 | COM-2 | `bash scripts/verify-ci-toolchain.sh` | Enforced | Enforced | Enforced | Enforces Go toolchain pin + Node 24 + Python 3.14 pins, SHA-pinned actions, `npm ci --ignore-scripts`, and R-F1 trigger parity in workflows |
 | COM-3 | `bash scripts/verify-planning-docs.sh` | Enforced | Enforced | Enforced | Repo-wide |

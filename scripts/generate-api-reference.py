@@ -63,6 +63,7 @@ TS_MODULES = (
     "release-state",
     "lease",
     "facetheory-isr",
+    "preflight",
     "key-contract",
 )
 

@@ -51,6 +51,26 @@ an empty `L`/`M` by Go's `TransactWrite`, as nothing at all by TypeScript, and a
 asserts every row and every writer-path cell, which fails the build if a writer's
 output changes or a row is dropped or renamed.
 
+## Dedicated cross-runtime contract gate
+
+Each runtime asserts the shared fixtures above inside its own suite, but those
+assertions were only reached through the per-runtime unit suites and the
+Docker-gated integration path, so the shared surface itself had no dedicated,
+always-on gate. `bash scripts/verify-cross-runtime-contracts.sh` is that gate: it
+runs as part of the rubric (CON-3) on every PR targeting `staging`, and it is
+deliberately independent of `SKIP_INTEGRATION` so it cannot be silently skipped.
+
+- Serialization table: Go (`pkg/marshal`), TypeScript
+  (`ts/test/unit/preflight-conformance.test.ts`), Python
+  (`py/tests/unit/test_preflight_conformance.py`).
+- Transaction-cancellation fixture: `runners/go`, `runners/ts`, `runners/py`.
+- Fixture integrity (`scripts/verify-cross-runtime-fixtures.py`): the declared
+  runtimes, writer paths and representation vocabulary, the exact row and case
+  sets, and that every runtime still references its fixture.
+
+It needs no Docker and no DynamoDB Local, so it is cheap enough to run on every
+PR, and a divergence in any one runtime fails it directly.
+
 ## Documented coverage exclusion: Go legacy implicit transaction update
 
 The `transactWrite` `kind: update` action asserts the **explicit field-selection** transaction update, which every

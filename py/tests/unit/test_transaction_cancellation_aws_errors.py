@@ -19,7 +19,7 @@ from tabletheory_py import (
     TransactPut,
     theorydb_field,
 )
-from tabletheory_py.table import _map_transaction_error
+from tabletheory_py.aws_errors import map_transaction_error as _map_transaction_error
 
 
 def _cancel(

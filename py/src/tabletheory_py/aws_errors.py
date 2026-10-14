@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from botocore.exceptions import ClientError
 
@@ -48,6 +48,86 @@ def map_client_error(err: ClientError, *, version_conflict: bool = False) -> Exc
         return NotFoundError(message)
 
     return AwsError(code=code or "UnknownError", message=message or str(err))
+
+
+def strip_item_images(err: BaseException) -> BaseException:
+    """Return a copy of ``err`` with DynamoDB item images removed from its response.
+
+    Only a ``botocore.exceptions.ClientError`` whose ``response`` is a dict
+    carrying ``CancellationReasons`` and/or a top-level ``Item`` is copied. Each
+    dict entry of ``CancellationReasons`` has its ``Item`` key removed and the
+    top-level ``Item`` key is removed. The original error and its ``response``
+    are never mutated. Anything else, or a response with nothing to strip, is
+    returned unchanged.
+    """
+
+    if not isinstance(err, ClientError):
+        return err
+    response: Any = err.response
+    if not isinstance(response, dict):
+        return err
+
+    reasons = response.get("CancellationReasons")
+    has_reason_item = isinstance(reasons, list) and any(
+        isinstance(entry, dict) and "Item" in entry for entry in reasons
+    )
+    if not has_reason_item and "Item" not in response:
+        return err
+
+    redacted: dict[str, Any] = dict(response)
+    if isinstance(reasons, list):
+        redacted["CancellationReasons"] = [
+            {key: value for key, value in entry.items() if key != "Item"}
+            if isinstance(entry, dict)
+            else entry
+            for entry in reasons
+        ]
+    redacted.pop("Item", None)
+
+    operation_name = cast(str, getattr(err, "operation_name", None))
+    return ClientError(cast(Any, redacted), operation_name)
+
+
+class _RedactingClient:
+    """A DynamoDB client proxy that strips item images from a raised ``ClientError``.
+
+    Every call is forwarded to the wrapped client. A ``ClientError`` leaves the
+    proxy as a copy with its item images removed, raised outside the ``except``
+    block so the original is reachable through neither ``__cause__`` nor
+    ``__context__``. Anything else propagates unchanged.
+    """
+
+    __slots__ = ("_client",)
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._client, name)
+        if not callable(attribute):
+            return attribute
+
+        def call(*args: Any, **kwargs: Any) -> Any:
+            redacted: Any = None
+            try:
+                return attribute(*args, **kwargs)
+            except ClientError as err:
+                redacted = strip_item_images(err)
+                if redacted is err:
+                    # Nothing to strip, so re-raise the original unchanged.
+                    raise
+            raise redacted
+
+        return call
+
+
+def redacting_client(client: Any, redact: bool = True) -> Any:
+    """Return ``client`` wrapped so a raised ``ClientError`` carries no item images.
+
+    Pass ``redact=False`` to get ``client`` back unchanged, which is the default
+    behavior everywhere the wrapper is not applied.
+    """
+    return _RedactingClient(client) if redact else client
 
 
 def _cancellation_reasons(raw: Any) -> tuple[CancellationReason, ...]:

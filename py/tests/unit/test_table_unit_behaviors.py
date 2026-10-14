@@ -18,8 +18,10 @@ from tabletheory_py import (
     VersionConflictError,
     theorydb_field,
 )
+from tabletheory_py.aws_errors import map_client_error as _map_client_error
+from tabletheory_py.aws_errors import map_transaction_error as _map_transaction_error
 from tabletheory_py.model import Projection, gsi
-from tabletheory_py.table import _backoff_seconds, _chunked, _map_client_error, _map_transaction_error
+from tabletheory_py.table import _backoff_seconds, _chunked
 
 
 @dataclass(frozen=True)
