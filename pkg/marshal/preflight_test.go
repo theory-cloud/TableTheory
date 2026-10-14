@@ -173,8 +173,8 @@ func TestMarshalItemForWriterPathByteEqualsCapturedWriterPayloads(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, capturedTransact, gotTransact, "transact_write preflight must byte-equal the captured TransactWrite payload")
 
-	// The disagreement itself is pinned, so neither writer drifting silently
-	// hides it and neither side of the fix can quietly swap the other.
+	// Each writer's stored representation is frozen by the compatibility
+	// policy, so neither writer can drift without this pin failing.
 	assert.Equal(t, "NULL", itemAttrType(capturedPut, "nilList"), "Put stores NULL for a nil list")
 	assert.Equal(t, "L", itemAttrType(capturedTransact, "nilList"), "TransactWrite stores an empty L for a nil list")
 	assert.Equal(t, "NULL", itemAttrType(capturedPut, "nilMap"), "Put stores NULL for a nil map")
@@ -245,17 +245,19 @@ func TestMarshalItemForWriterPathPutMatchesSafeMarshaler(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
-// TestOptimizedMarshalerCollectionSemanticsArePinnedNotAligned records the
-// second writer disagreement found while auditing the put family.
+// TestOptimizedMarshalerCollectionSemanticsAreFrozen records the second
+// put-family serializer, found while auditing the put family.
 //
 // The put family has two serializers: the default SafeMarshaler and the opt-in
 // optimized marshaler created by New, which a database uses only when
-// AllowUnsafeMarshaler is set with an explicit security acknowledgment. They do
-// not agree for a nil collection, and the optimized marshaler does not even
-// agree with itself between the root and a nested container. Its own rule is
-// therefore not compatible with the default put writer, and it is recorded here
-// rather than aligned, because aligning it would change what that writer stores.
-func TestOptimizedMarshalerCollectionSemanticsArePinnedNotAligned(t *testing.T) {
+// AllowUnsafeMarshaler is set with an explicit security acknowledgment. They
+// store different representations for a nil collection, and the optimized
+// marshaler does not even store one representation consistently between the root
+// and a nested container. Its rule is therefore not compatible with the default
+// put writer. The compatibility policy freezes every writer's stored
+// representation, so this second serializer's output is recorded here as
+// incompatible rather than changed.
+func TestOptimizedMarshalerCollectionSemanticsAreFrozen(t *testing.T) {
 	metadata := preflightMetadata(t, newPreflightMatrix())
 
 	optimized, err := marshal.New(pkgtypes.NewConverter()).MarshalItem(newPreflightMatrix(), metadata)
@@ -271,5 +273,5 @@ func TestOptimizedMarshalerCollectionSemanticsArePinnedNotAligned(t *testing.T) 
 
 	assert.Equal(t, "NULL", itemAttrType(safe, "nilList"), "SafeMarshaler stores NULL for a root nil list")
 	assert.NotEqual(t, itemAttrType(safe, "nilList"), itemAttrType(optimized, "nilList"),
-		"the default and opt-in put serializers are known to disagree; this pin fails if either is silently aligned")
+		"the default and opt-in put serializers store different representations; this pin fails if either writer's output changes")
 }
