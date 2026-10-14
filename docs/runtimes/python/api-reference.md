@@ -141,12 +141,14 @@ def parse_dms_document(raw: str) -> dict[str, Any]
 
 ```python
 class AwsError(TheorydbPyError)
+def safe_dict(self) -> dict[str, object]
 ```
 
 #### `BatchRetryExceededError`
 
 ```python
 class BatchRetryExceededError(TheorydbPyError)
+def safe_dict(self) -> dict[str, object]
 ```
 
 #### `CancellationReason`
@@ -162,6 +164,7 @@ message: str
 
 ```python
 class ConditionFailedError(TheorydbPyError)
+def safe_dict(self) -> dict[str, object]
 ```
 
 #### `EncryptionNotConfiguredError`
@@ -216,6 +219,7 @@ class RejectedDeployAuthorityEvidenceError(TheorydbPyError)
 
 ```python
 class TheorydbPyError(Exception)
+def safe_dict(self) -> dict[str, object]
 ```
 
 #### `ThrottledError`
@@ -228,6 +232,7 @@ class ThrottledError(TransactionCanceledError)
 
 ```python
 class TransactionCanceledError(TheorydbPyError)
+def safe_dict(self) -> dict[str, object]
 ```
 
 #### `TransactionConflictError`

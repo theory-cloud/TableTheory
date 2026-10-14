@@ -41,11 +41,11 @@ export type ItemWriterPath = 'put' | 'transact_write';
  *     attribute is stored as a KMS-wrapped envelope that only the asynchronous
  *     writer path can produce, so a synchronous preflight cannot predict its
  *     bytes.
- *   - For a model that declares `createdAt` or `updatedAt`, the two writer paths
- *     stamp it differently: `create`, `save` and `batchWrite` pass the client
- *     clock to `marshalPutItem`, while the `transactWrite` put branch does not
- *     and therefore stamps the wall clock. Pass `opts.now` only when
- *     reproducing the path that honours it.
+ *   - For a model that declares `createdAt` or `updatedAt`, both writer paths
+ *     stamp it from the client's clock: `create`, `save` and `batchWrite` pass
+ *     it to `marshalPutItem`, and `transactWrite` puts do the same. Pass
+ *     `opts.now` to reproduce a specific client clock; with no clock injected
+ *     both paths use `nowRfc3339Nano`, matching the writers.
  *
  * An unrecognized path is refused. The preflight has no side effects and never
  * contacts DynamoDB.

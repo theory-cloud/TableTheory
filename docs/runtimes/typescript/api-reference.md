@@ -56,6 +56,30 @@ export declare class TheorydbError extends Error {
 export declare function isTheorydbError(value: unknown): value is TheorydbError;
 export declare function theorydbErrorCodes(value: unknown): readonly ErrorCode[];
 export declare function hasTheorydbErrorCode(value: unknown, code: ErrorCode): boolean;
+/**
+ * The typed, item-free surface of a `TheorydbError`.
+ */
+export interface SafeErrorFields {
+    readonly code: ErrorCode;
+    readonly codes: readonly ErrorCode[];
+    readonly message: string;
+    readonly cancellationReasons: readonly CancellationReason[];
+}
+/**
+ * Projects a `TheorydbError` onto its typed surface only.
+ *
+ * The result never contains `cause`, so it cannot carry the underlying SDK
+ * exception — and therefore never carries `CancellationReasons[].Item`, an
+ * `Item` payload, a key, or a request/response body. Returns `undefined` for a
+ * value that is not a `TheorydbError`: there is no typed surface to project.
+ *
+ * A whole-error dump (`JSON.stringify(err)`, `console.log(err)`, `util.inspect`)
+ * is not safe: `TheorydbError.cause` is an own enumerable property, so it walks
+ * the raw SDK exception. Use this helper to log the typed surface, and the
+ * client's `redactItemImages` option to strip item images from the retained
+ * cause itself.
+ */
+export declare function safeErrorFields(err: unknown): SafeErrorFields | undefined;
 ```
 
 ### `client`
@@ -74,6 +98,15 @@ export interface TheorydbClientOptions {
     encryption?: EncryptionProvider;
     now?: () => string;
     sendOptions?: SendOptions;
+    /**
+     * When true, item images are stripped from the cause retained on a mapped
+     * error: `CancellationReasons[].Item` and the `Item` a
+     * `ConditionalCheckFailedException` carries. Off by default, so a client that
+     * does not set it retains exactly what it does today. The error's own typed
+     * surface (`code`, `codes`, `message`, `cancellationReasons`) never carries
+     * item data either way; see `safeErrorFields` for the safe logging surface.
+     */
+    redactItemImages?: boolean;
     /**
      * Controls how DynamoDB N/NS values are unmarshaled.
      *
@@ -116,7 +149,14 @@ export declare class TheorydbClient<TNumberMode extends NumberUnmarshalMode = 's
     private readonly now;
     private readonly sendOptions;
     private readonly unmarshalOptions;
+    private readonly redactItemImages;
     constructor(ddb: DynamoDBClient, opts?: TheorydbClientOptions);
+    /**
+     * Maps an SDK error to the typed TableTheory error, applying this client's
+     * configured cause redaction. Every client write/read path funnels through
+     * here so the option is honored uniformly.
+     */
+    private mapError;
     withEncryption(provider: EncryptionProvider): this;
     withSendOptions(sendOptions?: SendOptions): TheorydbClient<TNumberMode>;
     withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient<TNumberMode>;
@@ -1231,6 +1271,58 @@ export declare class FaceTheoryIsrMetaStore {
     releaseLease(args: FaceTheoryIsrMetaStoreReleaseLeaseArgs): Promise<void>;
 }
 export declare function createFaceTheoryIsrMetaStore(cfg: FaceTheoryIsrMetaStoreConfig): FaceTheoryIsrMetaStore;
+```
+
+### `preflight`
+
+```ts
+import type { AttributeValue } from '@aws-sdk/client-dynamodb';
+import type { Model } from './model.js';
+/**
+ * ItemWriterPath names a TableTheory writer path whose stored DynamoDB
+ * representation an item preflight must reproduce.
+ *
+ * Unlike Go, the TypeScript runtime serializes every whole item through one
+ * function (`marshalPutItem`): `create`, `save`, `batchWrite` puts and
+ * `transactWrite` puts all call it, so both paths return the same
+ * representation. That representation is a fixed compatibility contract, frozen
+ * by the operator's policy that TableTheory supports its consumers rather than
+ * changing stored data. The two members exist so cross-runtime preflight code and
+ * the shared nil/empty conformance table name writer paths identically on every
+ * runtime.
+ */
+export type ItemWriterPath = 'put' | 'transact_write';
+/**
+ * Returns the DynamoDB item that the named writer path stores for `item`.
+ *
+ * The returned item is byte-equal to the payload the real writer sends: for
+ * `create`, `save`, `batchWrite` and `transactWrite` puts that is
+ * `marshalPutItem`, which this function calls directly. Both writer paths are
+ * pinned by regression tests that capture live payloads through the stateful
+ * fake client, so neither answer can drift from its writer without failing the
+ * build.
+ *
+ * `item` is the same plain object `create`/`save` would receive, and `opts.now`
+ * overrides the lifecycle timestamp exactly as it does for the writers.
+ *
+ * Scope:
+ *
+ *   - Models that declare encrypted attributes are refused. An encrypted
+ *     attribute is stored as a KMS-wrapped envelope that only the asynchronous
+ *     writer path can produce, so a synchronous preflight cannot predict its
+ *     bytes.
+ *   - For a model that declares `createdAt` or `updatedAt`, both writer paths
+ *     stamp it from the client's clock: `create`, `save` and `batchWrite` pass
+ *     it to `marshalPutItem`, and `transactWrite` puts do the same. Pass
+ *     `opts.now` to reproduce a specific client clock; with no clock injected
+ *     both paths use `nowRfc3339Nano`, matching the writers.
+ *
+ * An unrecognized path is refused. The preflight has no side effects and never
+ * contacts DynamoDB.
+ */
+export declare function marshalItemForWriterPath(model: Model, item: Record<string, unknown>, path: ItemWriterPath, opts?: {
+    now?: string;
+}): Record<string, AttributeValue>;
 ```
 
 ### `key-contract`

@@ -162,6 +162,43 @@ if (err instanceof TheorydbError) {
 
 Do not `JSON.stringify(err)` or log the whole error object when item images are sensitive.
 
+`safeErrorFields(err)` returns the typed surface only, and is the projection to log
+or serialize:
+
+```ts
+import { safeErrorFields } from '@theory-cloud/tabletheory-ts';
+
+const fields = safeErrorFields(err);
+// { code, codes, message, cancellationReasons: [{ index, code, message }] }
+logger.warn({ error: fields }, 'transaction canceled');
+```
+
+It never includes `cause`, so it cannot reach an item image, and it returns
+`undefined` when the value is not a `TheorydbError`.
+
+To strip the item images from the retained cause itself, construct the client with
+`redactItemImages`:
+
+```ts
+const client = new TheorydbClient(ddb, { redactItemImages: true });
+```
+
+It is **off by default**, so `err.cause` is the same object it always was. With it
+enabled, `cause` becomes a copy whose `CancellationReasons[].Item` (and a
+condition failure's `Item`) are removed, and the original exception is never
+mutated. Until you enable it, dumping the whole error with the default settings can
+still reach the item images; changing that default would change `cause` for every
+consumer, so it belongs to a future major release rather than a change made here.
+
+**Coverage boundary.** The option plumbs through `TheorydbClient`: every error a
+client maps is redacted. Two paths map errors directly and cannot inherit it — the
+three `mapDynamoError` call sites in `lease.ts` and `update-builder`'s `execute()`
+— and there is no standalone TypeScript wrapper equivalent to Python's
+`redacting_client`. That is safe today because no TypeScript or Python code sets
+`ReturnValuesOnConditionCheckFailure`, so those paths cannot carry item images.
+Revisit this boundary if `ALL_OLD` (`ReturnValuesOnConditionCheckFailure`) support
+is ever added.
+
 **Compatibility note:** TypeScript previously reported EVERY transaction cancellation as `ErrConditionFailed`.
 Throttling and conflict cancellations now report `ErrThrottled` / `ErrTransactionConflict`, and a cancellation with no
 genuine failure reports `ErrTransactionFailed`. Code that switched on `ErrConditionFailed` should switch on the
