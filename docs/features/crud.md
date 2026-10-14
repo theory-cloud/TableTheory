@@ -108,6 +108,40 @@ use `omitempty`.
 
 The dedicated [omit-empty scenario](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/02-omitempty.yml) exercises every type variant in the matrix.
 
+### Nil and empty collections per writer path
+
+DynamoDB has no "nil" collection: an attribute holds an `L`/`M`, holds `NULL`, or is absent. TableTheory's runtimes, and Go's two writers, store **different** representations for a nil collection. That split is a **permanent compatibility contract**: each writer path's stored representation is frozen by the operator's policy that TableTheory supports its consumers rather than changing stored data, no writer's output may change, and the rows below are asserted by tests.
+
+For a collection written **without** `omit_empty`:
+
+| Input (logical class) | Go `Create` / `BatchCreate` / `BatchWrite` | Go `Transact().Put` / `Create` | TypeScript `create` / `save` / `batchWrite` / `transactWrite` | Python `put` / `save` / `batch_write` / `transact_write` |
+|---|---|---|---|---|
+| nil list or map | `NULL` | `L` or `M` | attribute absent | `NULL` |
+| non-nil empty list or map | `L` or `M` | `L` or `M` | `L` or `M` | `L` or `M` |
+| nil list or map, `omit_empty` | absent | absent | absent | absent |
+| empty list or map, `omit_empty` | absent | absent | absent | absent |
+| `false` or `0` | `BOOL` or `N` | `BOOL` or `N` | `BOOL` or `N` | `BOOL` or `N` |
+
+Three further differences belong to the same table:
+
+- **TypeScript never stores `NULL` for a missing collection.** It has no nil collection, so its nearest input is an absent property, which the marshaler drops. A collection nested inside an `M` value can instead be an explicit `null`, which TypeScript does store as `NULL`.
+- **Python stores `None` as `NULL` on every writer path**, which matches Go's put family but not Go's `TransactWrite`.
+- **Go's `TransactWrite` ignores the `set` tag.** A set-tagged slice is stored as an empty `L` there, where the put family stores `NULL`.
+
+The single source of truth for these rows is [`contract-tests/serialization/nil-empty-collections.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/serialization/nil-empty-collections.yml). Each runtime's test suite loads that one file and asserts its own column against payloads captured from its real writers, and each asserts a derived row count, so a change to any writer for these classes — or a dropped row — fails the build.
+
+### Measuring what a writer will store
+
+Because the writer paths store different representations for some inputs, the same model can be measured two ways. Each runtime exposes one item-serialization preflight that returns exactly the DynamoDB item a named writer path stores:
+
+| Runtime | Preflight | Writer paths |
+|---|---|---|
+| Go | `marshal.MarshalItemForWriterPath(model, metadata, path)` | `marshal.ItemWriterPathPut`, `marshal.ItemWriterPathTransactWrite` |
+| TypeScript | `marshalItemForWriterPath(model, item, path)` | `'put'`, `'transact_write'` |
+| Python | `marshal_item_for_writer_path(table, item, path)` | `ItemWriterPath.PUT`, `ItemWriterPath.TRANSACT_WRITE` |
+
+Both paths return the same representation in TypeScript and Python, which funnel every whole item through one serializer. Go needs the parameter because its two writers really do differ. A preflight refuses a model that declares `encrypted` attributes, because the stored envelope depends on KMS material a static preflight cannot see. It has no side effects, contacts nothing, and changes nothing that is written.
+
 ### Explicit empty updates
 
 DMS v0.2 distinguishes an unselected field from a selected empty field:

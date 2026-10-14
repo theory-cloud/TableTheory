@@ -23,6 +23,15 @@ import (
 
 // SafeMarshaler provides memory-safe marshaling implementation without unsafe operations
 // This is the default marshaler and should be used in production environments
+//
+// SafeMarshaler is a writer, not a neutral serialization helper: its MarshalItem
+// output is what the put family stores — Model().Create, Model().CreateOrUpdate,
+// BatchCreate, BatchCreateWithResult and the puts issued by BatchWrite. A
+// transactional writer path does not use it and stores a different
+// representation for a nil collection written without `omitempty`, so calling
+// this method to predict what Transact().Put or Transact().Create writes
+// measures the wrong bytes. Use MarshalItemForWriterPath to name the writer path
+// a preflight must reproduce.
 type SafeMarshaler struct {
 	converter *pkgTypes.Converter
 	now       func() time.Time

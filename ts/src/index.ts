@@ -21,3 +21,4 @@ export * from './validation.js';
 export * from './protection.js';
 export * from './write-policy.js';
 export * from './key-contract.js';
+export * from './preflight.js';

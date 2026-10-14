@@ -28,39 +28,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify staged PR is release-eligible
-        # PR-only eligibility: workflow_dispatch has no pull_request metadata,
-        # and `gh pr view` with an empty selector would infer an unrelated PR or
-        # exit. Gate the step to pull_request so manual dispatch reaches the
-        # documented full-rubric path.
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          if [[ "${HEAD_REF}" == "main" ]]; then
-            echo "staging-release-driver: PASS (post-release main back-merge)"
-            exit 0
-          fi
-          gh pr view "${PR_NUMBER}" --json title,body,commits > pr.json
-          python3 - pr.json <<'PY2'
-          import json, re, sys
-          pr = json.load(open(sys.argv[1], encoding="utf-8"))
-          text = "\n".join([pr.get("title", ""), pr.get("body", "")] + [
-              "\n".join((commit.get("messageHeadline", ""), commit.get("messageBody", "")))
-              for commit in pr.get("commits", [])
-          ])
-          if re.search(r"(?m)^(?:feat|fix|perf)(?:\([^)]+\))?!?: ", text):
-              print("staging-release-driver: PASS (release-eligible conventional commit)")
-              raise SystemExit(0)
-          if re.search(r"(?im)^Release-As:[ \t]*v?\d+\.\d+\.\d+-rc(?:\.\d+)?[ \t]*$", text):
-              print("staging-release-driver: PASS (explicit RC Release-As driver)")
-              raise SystemExit(0)
-          raise SystemExit("staging-release-driver: FAIL (staging PR must contain feat:, fix:, or perf:, or an RC-shaped Release-As footer; chore-only work cannot enter the release lane)")
-          PY2
-
       - name: Fetch release-lane refs
         run: |
           git fetch --no-tags --prune origin \

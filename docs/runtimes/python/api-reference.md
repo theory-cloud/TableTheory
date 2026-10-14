@@ -149,6 +149,15 @@ class AwsError(TheorydbPyError)
 class BatchRetryExceededError(TheorydbPyError)
 ```
 
+#### `CancellationReason`
+
+```python
+class CancellationReason
+index: int
+code: str
+message: str
+```
+
 #### `ConditionFailedError`
 
 ```python
@@ -209,10 +218,22 @@ class RejectedDeployAuthorityEvidenceError(TheorydbPyError)
 class TheorydbPyError(Exception)
 ```
 
+#### `ThrottledError`
+
+```python
+class ThrottledError(TransactionCanceledError)
+```
+
 #### `TransactionCanceledError`
 
 ```python
 class TransactionCanceledError(TheorydbPyError)
+```
+
+#### `TransactionConflictError`
+
+```python
+class TransactionConflictError(TransactionCanceledError)
 ```
 
 #### `ValidationError`
@@ -234,6 +255,8 @@ class VersionConflictError(ConditionFailedError)
 ```python
 class StatefulDynamoDBClient
 def reset(self) -> None
+def queue_transaction_cancellation(self, reasons: Sequence[dict[str, Any]] | None=None) -> None
+def queue_transaction_error(self, err: Exception | None=None) -> None
 def seed(self, table_name: str, *items: Item) -> None
 def items(self, table_name: str) -> list[Item]
 def create_table(self, **kwargs: Any) -> dict[str, Any]
@@ -451,6 +474,20 @@ projections: tuple[str, ...]
 consistent_read: bool
 parallel_scan_configured: bool
 total_segments: int | None
+```
+
+### `tabletheory_py.preflight`
+
+#### `ItemWriterPath`
+
+```python
+class ItemWriterPath(StrEnum)
+```
+
+#### `marshal_item_for_writer_path`
+
+```python
+def marshal_item_for_writer_path(table: Table[T], item: T, path: ItemWriterPath) -> dict[str, Any]
 ```
 
 ### `tabletheory_py.protection`

@@ -27,6 +27,7 @@ import type { EncryptedEnvelope, EncryptionProvider } from '../encryption.js';
 export {
   StatefulDynamoDBFake,
   createStatefulDynamoDBClient,
+  type CancellationReasonInput,
   type StatefulDynamoDBClient,
 } from './stateful-dynamodb.js';
 

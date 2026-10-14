@@ -1,0 +1,108 @@
+name: "cancellation.transaction.taxonomy"
+# Shared fixture for the transaction-cancellation contract.
+#
+# Every runtime (Go, TypeScript, Python) reads THIS file and drives each case
+# through its own stateful DynamoDB seam, so an outcome that differs in one
+# runtime is a parity defect. Item images are never part of the contract: a
+# cancellation reason carries only a Code and a Message.
+#
+# kind: cancellation -> synthesize an AWS TransactionCanceledException whose
+#   CancellationReasons are the listed entries, in order. An entry with no code
+#   keeps its position with an empty code; DynamoDB's "None" placeholder is
+#   written literally.
+# kind: transport -> drive a non-cancellation transport error; it must pass
+#   through unclassified and must never become a conditional conflict.
+#
+# expect.code is the runtime-agnostic error code ("": no TheoryDB code).
+# expect.reason_codes is the FULL ordered reason code list (order-sensitive).
+# expect.cause_recoverable is true when the original AWS exception remains
+#   recoverable from the surfaced error.
+cases:
+  - name: "none_then_conditional_check_failed"
+    kind: "cancellation"
+    reasons:
+      - code: "None"
+      - code: "ConditionalCheckFailed"
+        message: "survivor condition failed"
+    expect:
+      code: "ErrConditionFailed"
+      reason_codes: ["None", "ConditionalCheckFailed"]
+      cause_recoverable: true
+
+  - name: "none_then_conflict_then_conditional"
+    kind: "cancellation"
+    reasons:
+      - code: "None"
+      - code: "TransactionConflict"
+        message: "raced transaction"
+      - code: "ConditionalCheckFailed"
+        message: "loser"
+    expect:
+      code: "ErrTransactionConflict"
+      reason_codes: ["None", "TransactionConflict", "ConditionalCheckFailed"]
+      cause_recoverable: true
+
+  - name: "all_none"
+    kind: "cancellation"
+    reasons:
+      - code: "None"
+      - code: "None"
+    expect:
+      code: "ErrTransactionFailed"
+      reason_codes: ["None", "None"]
+      cause_recoverable: true
+
+  - name: "empty_reason_list"
+    kind: "cancellation"
+    reasons: []
+    expect:
+      code: "ErrTransactionFailed"
+      reason_codes: []
+      cause_recoverable: true
+
+  - name: "throttling_error"
+    kind: "cancellation"
+    reasons:
+      - code: "ThrottlingError"
+        message: "slow down"
+    expect:
+      code: "ErrThrottled"
+      reason_codes: ["ThrottlingError"]
+      cause_recoverable: true
+
+  - name: "provisioned_throughput_exceeded"
+    kind: "cancellation"
+    reasons:
+      - code: "ProvisionedThroughputExceededException"
+    expect:
+      code: "ErrThrottled"
+      reason_codes: ["ProvisionedThroughputExceededException"]
+      cause_recoverable: true
+
+  - name: "unknown_code_is_generic"
+    kind: "cancellation"
+    reasons:
+      - code: "SomeUnmappedReason"
+        message: "who knows"
+    expect:
+      code: "ErrTransactionFailed"
+      reason_codes: ["SomeUnmappedReason"]
+      cause_recoverable: true
+
+  - name: "missing_code_keeps_position"
+    kind: "cancellation"
+    reasons:
+      - message: "no code on this entry"
+      - code: "ConditionalCheckFailed"
+    expect:
+      code: "ErrConditionFailed"
+      reason_codes: ["", "ConditionalCheckFailed"]
+      cause_recoverable: true
+
+  - name: "transport_error_not_reclassified"
+    kind: "transport"
+    error_message: "dial tcp: connection refused (ConditionalCheckFailed in the text)"
+    expect:
+      code: ""
+      reason_codes: []
+      cause_recoverable: false

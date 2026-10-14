@@ -892,7 +892,7 @@ func (b *Builder) translateError(err error) (bool, error) {
 	if errors.As(err, &canceled) {
 		retryable := true
 		for _, reason := range canceled.CancellationReasons {
-			if reason.Code == nil || *reason.Code == "None" {
+			if reason.Code == nil || *reason.Code == cancellationNoneCode {
 				continue
 			}
 			if !isRetryableReason(*reason.Code) {
@@ -907,22 +907,34 @@ func (b *Builder) translateError(err error) (bool, error) {
 }
 
 func (b *Builder) buildTransactionError(exc *types.TransactionCanceledException, original error) error {
-	if len(exc.CancellationReasons) == 0 {
-		return fmt.Errorf("transaction canceled: %w", original)
+	// Preserve every reason in its original position (including nil / "None"
+	// codes) so callers can align reasons with the transaction operations. Item
+	// images are never copied into CancellationReason.
+	reasons := make([]customerrors.CancellationReason, 0, len(exc.CancellationReasons))
+	for idx, reason := range exc.CancellationReasons {
+		code := ""
+		if reason.Code != nil {
+			code = *reason.Code
+		}
+		reasons = append(reasons, customerrors.CancellationReason{
+			Index:   idx,
+			Code:    code,
+			Message: aws.ToString(reason.Message),
+		})
 	}
 
 	for idx, reason := range exc.CancellationReasons {
-		if reason.Code == nil || *reason.Code == "None" {
+		if reason.Code == nil || *reason.Code == cancellationNoneCode {
 			continue
 		}
 		// DynamoDB can report more than one genuine failure. Attribute the
 		// transaction to the first real failure in operation order.
 
-		opName := "unknown"
+		opName := unknownOperationName
 		if idx < len(b.operations) {
 			opName = b.operations[idx].typ.String()
 		}
-		modelName := "unknown"
+		modelName := unknownOperationName
 		if idx < len(b.operations) && b.operations[idx].model != nil {
 			modelName = reflect.TypeOf(b.operations[idx].model).String()
 		}
@@ -938,10 +950,21 @@ func (b *Builder) buildTransactionError(exc *types.TransactionCanceledException,
 			Model:          modelName,
 			Reason:         aws.ToString(reason.Message),
 			Err:            baseErr,
+			Cause:          original,
+			Reasons:        reasons,
 		}
 	}
 
-	return fmt.Errorf("transaction canceled: %w", original)
+	// No genuine failure (an empty reason list, or every entry is the "None"
+	// placeholder). This stays a generic transaction failure that carries the
+	// original cancellation and every reason, matching the TypeScript and Python
+	// runtimes and never masquerading as a conditional conflict.
+	return &customerrors.TransactionError{
+		OperationIndex: -1,
+		Err:            customerrors.ErrTransactionFailed,
+		Cause:          original,
+		Reasons:        reasons,
+	}
 }
 
 func isRetryableReason(code string) bool {

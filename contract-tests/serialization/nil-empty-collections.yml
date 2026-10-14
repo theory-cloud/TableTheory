@@ -1,0 +1,144 @@
+version: 1
+description: >
+  Shared, language-neutral conformance table for nil/empty/omitempty collection
+  serialization, per writer path. It is the single source of truth for these
+  semantics: the Go, TypeScript and Python test suites each load this file and
+  assert their own column against payloads captured from their real writers.
+
+  Each writer path's stored representation is a fixed compatibility contract: it
+  is frozen by the operator's policy that TableTheory supports its consumers
+  rather than changing stored data, so no writer's output may change. This table
+  records that frozen representation so a consumer can measure exactly what each
+  writer stores. A nil collection written without omitempty is stored as
+  DynamoDB NULL by Go's put family, as an empty L or M by Go's TransactWrite, as
+  nothing at all by TypeScript (which drops an absent property and has no NULL
+  for a missing collection), and as NULL by Python.
+
+  Each row names a logical input class. Runtimes map it to their nearest input:
+  an absent or undefined property in TypeScript, None in Python, a nil slice or
+  map in Go. Every row must be present, and each runtime asserts that the set of
+  rows it checked equals its own field count, so a dropped row fails the build.
+
+  The representations are DynamoDB attribute value types, plus ABSENT for an
+  attribute the writer does not store at all.
+
+# The writer paths every runtime is checked against.
+writer_paths: [put, transact_write]
+
+# The runtimes that consume this table, one expectation column each.
+runtimes: [go, ts, py]
+
+# The complete set of allowed representation values.
+representations: ["NULL", "L", "M", "BOOL", "N", "S", "ABSENT"]
+
+rows:
+  - field: nil_list
+    container: root
+    omitempty: false
+    expect:
+      put: {go: "NULL", ts: "ABSENT", py: "NULL"}
+      transact_write: {go: "L", ts: "ABSENT", py: "NULL"}
+
+  - field: empty_list
+    container: root
+    omitempty: false
+    expect:
+      put: {go: "L", ts: "L", py: "L"}
+      transact_write: {go: "L", ts: "L", py: "L"}
+
+  - field: nil_map
+    container: root
+    omitempty: false
+    expect:
+      put: {go: "NULL", ts: "ABSENT", py: "NULL"}
+      transact_write: {go: "M", ts: "ABSENT", py: "NULL"}
+
+  - field: empty_map
+    container: root
+    omitempty: false
+    expect:
+      put: {go: "M", ts: "M", py: "M"}
+      transact_write: {go: "M", ts: "M", py: "M"}
+
+  - field: nil_list_omit
+    container: root
+    omitempty: true
+    expect:
+      put: {go: "ABSENT", ts: "ABSENT", py: "ABSENT"}
+      transact_write: {go: "ABSENT", ts: "ABSENT", py: "ABSENT"}
+
+  - field: empty_list_omit
+    container: root
+    omitempty: true
+    expect:
+      put: {go: "ABSENT", ts: "ABSENT", py: "ABSENT"}
+      transact_write: {go: "ABSENT", ts: "ABSENT", py: "ABSENT"}
+
+  - field: nil_map_omit
+    container: root
+    omitempty: true
+    expect:
+      put: {go: "ABSENT", ts: "ABSENT", py: "ABSENT"}
+      transact_write: {go: "ABSENT", ts: "ABSENT", py: "ABSENT"}
+
+  - field: empty_map_omit
+    container: root
+    omitempty: true
+    expect:
+      put: {go: "ABSENT", ts: "ABSENT", py: "ABSENT"}
+      transact_write: {go: "ABSENT", ts: "ABSENT", py: "ABSENT"}
+
+  - field: false_bool
+    container: root
+    omitempty: false
+    expect:
+      put: {go: "BOOL", ts: "BOOL", py: "BOOL"}
+      transact_write: {go: "BOOL", ts: "BOOL", py: "BOOL"}
+
+  - field: zero_number
+    container: root
+    omitempty: false
+    expect:
+      put: {go: "N", ts: "N", py: "N"}
+      transact_write: {go: "N", ts: "N", py: "N"}
+
+  # A set-tagged AttributeValue is stored as NULL by Go's put family, but Go's
+  # TransactWrite ignores the set tag and stores an empty L. TypeScript stores
+  # NULL for an empty SS and Python stores NULL for an empty set.
+  - field: empty_set
+    container: root
+    omitempty: false
+    expect:
+      put: {go: "NULL", ts: "NULL", py: "NULL"}
+      transact_write: {go: "L", ts: "NULL", py: "NULL"}
+
+  # Nested values inside a map-shaped attribute. TypeScript has no nil nested
+  # collection either: its nearest input is an explicit null, which it stores as
+  # NULL, unlike an absent root property.
+  - field: nested_nil_list
+    container: nested
+    omitempty: false
+    expect:
+      put: {go: "NULL", ts: "NULL", py: "NULL"}
+      transact_write: {go: "L", ts: "NULL", py: "NULL"}
+
+  - field: nested_empty_list
+    container: nested
+    omitempty: false
+    expect:
+      put: {go: "L", ts: "L", py: "L"}
+      transact_write: {go: "L", ts: "L", py: "L"}
+
+  - field: nested_nil_map
+    container: nested
+    omitempty: false
+    expect:
+      put: {go: "NULL", ts: "NULL", py: "NULL"}
+      transact_write: {go: "M", ts: "NULL", py: "NULL"}
+
+  - field: nested_empty_map
+    container: nested
+    omitempty: false
+    expect:
+      put: {go: "M", ts: "M", py: "M"}
+      transact_write: {go: "M", ts: "M", py: "M"}
