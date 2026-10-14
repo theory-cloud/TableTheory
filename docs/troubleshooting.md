@@ -167,6 +167,35 @@ exception is retained on the exported `Cause` field (and recoverable with
 raw exception — `%#v`, a JSON/reflection dump of the SDK error — can include
 them. Log the typed fields as shown above.
 
+**Safe logging helpers and opt-in item-image redaction.** Go's `Error()`,
+`%v`/`%+v`/`%s`/`%q` and the typed fields above carry no item data; only a
+reflective dump of the raw `Cause` can. In TypeScript and Python the mapped error
+retains the raw SDK exception on `cause` / `__cause__`, and that object *is*
+walked by a whole-error serialization — `JSON.stringify(err)`, `console.log(err)`,
+`util.inspect`, or a structured logger or error tracker that dumps the cause — so
+it can include `CancellationReasons[].Item` or a condition failure's `Item`.
+
+Both runtimes expose a typed-only projection, and an opt-in option that strips
+item images from the retained cause:
+
+| Runtime | Safe projection | Opt-in redaction |
+| --- | --- | --- |
+| TypeScript | `safeErrorFields(err)` → `{ code, codes, message, cancellationReasons }`, or `undefined` when the value is not a `TheorydbError` | `new TheorydbClient(ddb, { redactItemImages: true })` |
+| Python | `err.safe_dict()` → `{ "type", "message", ...typed fields }` | `Table(model, client=..., redact_item_images=True)` |
+
+`safeErrorFields` never includes `cause`, so it cannot reach item images.
+`safe_dict()` returns only the typed surface and never `__cause__` or any
+request/response payload.
+
+The redaction option is **off by default**, so default behavior is unchanged: the
+retained `cause`/`__cause__` is the same object it always was. When it is enabled,
+the cause becomes a copy whose `CancellationReasons[].Item` (and a condition
+failure's top-level `Item`) are removed, and the original error object is never
+mutated. Until it is enabled, dumping a whole error with the default settings can
+still reach the item images. Closing that default gap would change the retained
+cause's identity for every consumer, so it belongs to a future major release — it
+is not done here.
+
 ---
 
 ## Capacity Errors
