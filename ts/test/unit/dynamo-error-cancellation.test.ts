@@ -134,3 +134,57 @@ void test('an ambiguous transport error is not reclassified', () => {
     true,
   );
 });
+
+void test('redaction is off by default: the retained cause is the original exception', () => {
+  const exception = canceled([
+    {
+      Code: 'ConditionalCheckFailed',
+      Message: 'loser',
+      Item: { secret: { S: 'top-secret-value' } },
+    },
+  ]);
+
+  const err = mapDynamoError(exception) as TheorydbError;
+  assert.equal((err as { cause?: unknown }).cause, exception);
+  assert.ok(JSON.stringify(exception).includes('top-secret-value'));
+});
+
+void test('redaction strips cancellation and condition item images without mutating the original', () => {
+  const exception = canceled([
+    {
+      Code: 'ConditionalCheckFailed',
+      Message: 'loser',
+      Item: { secret: { S: 'top-secret-value' } },
+    },
+  ]);
+
+  const err = mapDynamoError(exception, {
+    redactItemImages: true,
+  }) as TheorydbError;
+  const cause = (err as { cause?: unknown }).cause;
+
+  assert.ok(cause instanceof TransactionCanceledException);
+  assert.notEqual(cause, exception);
+  assert.ok(!JSON.stringify(cause).includes('top-secret-value'));
+
+  // The original error object is untouched, so a consumer holding it still sees
+  // the service payload it received.
+  assert.ok(JSON.stringify(exception).includes('top-secret-value'));
+});
+
+void test('redaction strips a condition failure top-level item', () => {
+  const exception = new ConditionalCheckFailedException({
+    $metadata: {},
+    message: 'condition failed',
+    Item: { secret: { S: 'top-secret-value' } },
+  });
+
+  const redacted = mapDynamoError(exception, {
+    redactItemImages: true,
+  }) as TheorydbError;
+  const cause = (redacted as { cause?: unknown }).cause;
+
+  assert.ok(cause instanceof ConditionalCheckFailedException);
+  assert.ok(!JSON.stringify(cause).includes('top-secret-value'));
+  assert.ok(JSON.stringify(exception).includes('top-secret-value'));
+});

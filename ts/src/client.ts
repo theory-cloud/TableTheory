@@ -25,7 +25,10 @@ import {
   type BatchWriteResult,
   type RetryOptions,
 } from './batch.js';
-import { mapDynamoError } from './dynamo-error.js';
+import {
+  mapDynamoError,
+  type DynamoErrorMappingOptions,
+} from './dynamo-error.js';
 import { hasTheorydbErrorCode, TheorydbError } from './errors.js';
 import type {
   InferModelItemForMode,
@@ -69,6 +72,15 @@ export interface TheorydbClientOptions {
   encryption?: EncryptionProvider;
   now?: () => string;
   sendOptions?: SendOptions;
+  /**
+   * When true, item images are stripped from the cause retained on a mapped
+   * error: `CancellationReasons[].Item` and the `Item` a
+   * `ConditionalCheckFailedException` carries. Off by default, so a client that
+   * does not set it retains exactly what it does today. The error's own typed
+   * surface (`code`, `codes`, `message`, `cancellationReasons`) never carries
+   * item data either way; see `safeErrorFields` for the safe logging surface.
+   */
+  redactItemImages?: boolean;
   /**
    * Controls how DynamoDB N/NS values are unmarshaled.
    *
@@ -164,6 +176,7 @@ export class TheorydbClient<
   private readonly now: () => string;
   private readonly sendOptions: SendOptions | undefined;
   private readonly unmarshalOptions: UnmarshalOptions;
+  private readonly redactItemImages: boolean;
 
   constructor(
     private readonly ddb: DynamoDBClient,
@@ -175,6 +188,22 @@ export class TheorydbClient<
     this.unmarshalOptions = {
       numberMode: opts.numberUnmarshalMode ?? 'string',
     };
+    this.redactItemImages = opts.redactItemImages ?? false;
+  }
+
+  /**
+   * Maps an SDK error to the typed TableTheory error, applying this client's
+   * configured cause redaction. Every client write/read path funnels through
+   * here so the option is honored uniformly.
+   */
+  private mapError(
+    err: unknown,
+    options: DynamoErrorMappingOptions = {},
+  ): unknown {
+    return mapDynamoError(err, {
+      ...options,
+      redactItemImages: this.redactItemImages,
+    });
   }
 
   withEncryption(provider: EncryptionProvider): this {
@@ -306,7 +335,7 @@ export class TheorydbClient<
     try {
       await this.ddb.send(cmd, this.sendOptions);
     } catch (err) {
-      throw mapDynamoError(err);
+      throw this.mapError(err);
     }
   }
 
@@ -335,7 +364,7 @@ export class TheorydbClient<
     try {
       await this.ddb.send(cmd, this.sendOptions);
     } catch (err) {
-      throw mapDynamoError(err);
+      throw this.mapError(err);
     }
   }
 
@@ -362,7 +391,7 @@ export class TheorydbClient<
         : resp.Item;
       return unmarshalItem(model, item, this.unmarshalOptions);
     } catch (err) {
-      throw mapDynamoError(err);
+      throw this.mapError(err);
     }
   }
 
@@ -506,7 +535,7 @@ export class TheorydbClient<
     try {
       await this.ddb.send(cmd, this.sendOptions);
     } catch (err) {
-      throw mapDynamoError(err, { versionConflict: true });
+      throw this.mapError(err, { versionConflict: true });
     }
   }
 
@@ -522,7 +551,7 @@ export class TheorydbClient<
     try {
       await this.ddb.send(cmd, this.sendOptions);
     } catch (err) {
-      throw mapDynamoError(err);
+      throw this.mapError(err);
     }
   }
 
@@ -709,7 +738,7 @@ export class TheorydbClient<
         this.sendOptions,
       );
     } catch (err) {
-      throw mapDynamoError(err);
+      throw this.mapError(err);
     }
 
     const responses = resp.Responses ?? [];
@@ -863,7 +892,7 @@ export class TheorydbClient<
         this.sendOptions,
       );
     } catch (err) {
-      throw mapDynamoError(err);
+      throw this.mapError(err);
     }
   }
 

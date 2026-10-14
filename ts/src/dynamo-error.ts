@@ -11,6 +11,14 @@ import {
 
 export interface DynamoErrorMappingOptions {
   readonly versionConflict?: boolean;
+  /**
+   * When true, item images are stripped from the cause retained on the mapped
+   * error: `CancellationReasons[].Item` and the `Item` a
+   * `ConditionalCheckFailedException` carries. Off by default, so the retained
+   * cause is exactly what it was before. The original SDK error object is never
+   * mutated — a clone keeps its prototype, so `instanceof` still holds.
+   */
+  readonly redactItemImages?: boolean;
 }
 
 // The cancellation taxonomy shared with the Go and Python runtimes. The FIRST
@@ -41,7 +49,7 @@ export function mapDynamoError(
   }
 
   if (err instanceof TransactionCanceledException) {
-    return transactionCanceledError(err);
+    return transactionCanceledError(err, options);
   }
 
   if (typeof err === 'object' && err !== null && 'name' in err) {
@@ -50,11 +58,18 @@ export function mapDynamoError(
       return conditionFailedError('Condition failed', err, options);
     }
     if (name === 'TransactionCanceledException') {
-      return transactionCanceledError(err);
+      return transactionCanceledError(err, options);
     }
   }
 
   return err;
+}
+
+function retainedCause(
+  cause: unknown,
+  options: DynamoErrorMappingOptions,
+): unknown {
+  return options.redactItemImages ? stripItemImages(cause) : cause;
 }
 
 function conditionFailedError(
@@ -63,12 +78,15 @@ function conditionFailedError(
   options: DynamoErrorMappingOptions,
 ): TheorydbError {
   return new TheorydbError('ErrConditionFailed', message, {
-    cause,
+    cause: retainedCause(cause, options),
     ...(options.versionConflict ? { codes: ['ErrVersionConflict'] } : {}),
   });
 }
 
-function transactionCanceledError(err: unknown): TheorydbError {
+function transactionCanceledError(
+  err: unknown,
+  options: DynamoErrorMappingOptions,
+): TheorydbError {
   const reasons = extractCancellationReasons(err);
   const firstReal = reasons.find(
     (reason) => reason.code !== '' && reason.code !== 'None',
@@ -78,9 +96,54 @@ function transactionCanceledError(err: unknown): TheorydbError {
     : 'ErrTransactionFailed';
 
   return new TheorydbError(code, 'Transaction canceled', {
-    cause: err,
+    cause: retainedCause(err, options),
     cancellationReasons: reasons,
   });
+}
+
+/**
+ * Returns a copy of an SDK exception with item images removed:
+ * `CancellationReasons[].Item` and a top-level `Item`. The prototype and every
+ * own property descriptor are preserved, so `instanceof` and `message`/`stack`
+ * still behave. The original error object is left untouched, and `err` itself
+ * is returned when there is nothing to strip.
+ */
+function stripItemImages(err: unknown): unknown {
+  if (typeof err !== 'object' || err === null) return err;
+
+  const source = err as Record<string, unknown>;
+  const reasons = source.CancellationReasons;
+  const hasReasons = Array.isArray(reasons);
+  const hasItem = Object.prototype.hasOwnProperty.call(source, 'Item');
+  if (!hasReasons && !hasItem) return err;
+
+  const clone = Object.create(
+    Object.getPrototypeOf(err) as object | null,
+  ) as Record<string, unknown>;
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(source));
+
+  if (hasReasons) {
+    const redacted = (reasons as unknown[]).map((entry) => {
+      if (typeof entry !== 'object' || entry === null) return entry;
+      const copy: Record<string, unknown> = {
+        ...(entry as Record<string, unknown>),
+      };
+      delete copy.Item;
+      return copy;
+    });
+    Object.defineProperty(clone, 'CancellationReasons', {
+      value: redacted,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+  }
+
+  if (hasItem) {
+    delete clone.Item;
+  }
+
+  return clone;
 }
 
 /**

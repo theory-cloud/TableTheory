@@ -72,6 +72,44 @@ export function hasTheorydbErrorCode(value: unknown, code: ErrorCode): boolean {
   return theorydbErrorCodes(value).includes(code);
 }
 
+/**
+ * The typed, item-free surface of a `TheorydbError`.
+ */
+export interface SafeErrorFields {
+  readonly code: ErrorCode;
+  readonly codes: readonly ErrorCode[];
+  readonly message: string;
+  readonly cancellationReasons: readonly CancellationReason[];
+}
+
+/**
+ * Projects a `TheorydbError` onto its typed surface only.
+ *
+ * The result never contains `cause`, so it cannot carry the underlying SDK
+ * exception — and therefore never carries `CancellationReasons[].Item`, an
+ * `Item` payload, a key, or a request/response body. Returns `undefined` for a
+ * value that is not a `TheorydbError`: there is no typed surface to project.
+ *
+ * A whole-error dump (`JSON.stringify(err)`, `console.log(err)`, `util.inspect`)
+ * is not safe: `TheorydbError.cause` is an own enumerable property, so it walks
+ * the raw SDK exception. Use this helper to log the typed surface, and the
+ * client's `redactItemImages` option to strip item images from the retained
+ * cause itself.
+ */
+export function safeErrorFields(err: unknown): SafeErrorFields | undefined {
+  if (!isTheorydbError(err)) return undefined;
+  return {
+    code: err.code,
+    codes: err.codes,
+    message: err.message,
+    cancellationReasons: err.cancellationReasons.map((reason) => ({
+      index: reason.index,
+      code: reason.code,
+      message: reason.message,
+    })),
+  };
+}
+
 function uniqueCodes(codes: readonly ErrorCode[]): readonly ErrorCode[] {
   const seen = new Set<ErrorCode>();
   const out: ErrorCode[] = [];

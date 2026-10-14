@@ -1165,3 +1165,49 @@ void test('encrypted transactWrite put takes the injected clock', async () => {
   assert.equal(item?.createdAt?.S, fixedClock);
   assert.equal(item?.updatedAt?.S, fixedClock);
 });
+
+// The client honors `redactItemImages` on its own error mapping. With the option
+// unset the retained cause is the original exception (unchanged behavior); with
+// it set the cause is a copy with the item image removed.
+void test('client redactItemImages strips item images from the retained cause', async () => {
+  const makeException = () =>
+    new TransactionCanceledException({
+      $metadata: {},
+      message: 'transaction canceled',
+      CancellationReasons: [
+        {
+          Code: 'ConditionalCheckFailed',
+          Message: 'loser',
+          Item: { secret: { S: 'top-secret-value' } },
+        },
+      ] as never,
+    });
+
+  const captureCause = async (opts: {
+    redactItemImages?: boolean;
+  }): Promise<unknown> => {
+    const ddb = new StubDdb(() => {
+      throw makeException();
+    });
+    const client = new TheorydbClient(
+      ddb as unknown as DynamoDBClient,
+      opts,
+    ).register(User);
+    try {
+      await client.transactWrite([
+        { kind: 'put', model: 'User', item: { PK: 'A', SK: '1' } },
+      ]);
+      assert.fail('the transactWrite must surface the cancellation');
+    } catch (err) {
+      assert.ok(err instanceof TheorydbError);
+      return (err as { cause?: unknown }).cause;
+    }
+  };
+
+  const defaultCause = await captureCause({});
+  assert.ok(JSON.stringify(defaultCause).includes('top-secret-value'));
+
+  const redactedCause = await captureCause({ redactItemImages: true });
+  assert.ok(!JSON.stringify(redactedCause).includes('top-secret-value'));
+  assert.ok(redactedCause instanceof TransactionCanceledException);
+});
