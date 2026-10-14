@@ -88,6 +88,48 @@ def strip_item_images(err: BaseException) -> BaseException:
     return ClientError(cast(Any, redacted), operation_name)
 
 
+class _RedactingClient:
+    """A DynamoDB client proxy that strips item images from a raised ``ClientError``.
+
+    Every call is forwarded to the wrapped client. A ``ClientError`` leaves the
+    proxy as a copy with its item images removed, raised outside the ``except``
+    block so the original is reachable through neither ``__cause__`` nor
+    ``__context__``. Anything else propagates unchanged.
+    """
+
+    __slots__ = ("_client",)
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._client, name)
+        if not callable(attribute):
+            return attribute
+
+        def call(*args: Any, **kwargs: Any) -> Any:
+            redacted: Any = None
+            try:
+                return attribute(*args, **kwargs)
+            except ClientError as err:
+                redacted = strip_item_images(err)
+                if redacted is err:
+                    # Nothing to strip, so re-raise the original unchanged.
+                    raise
+            raise redacted
+
+        return call
+
+
+def redacting_client(client: Any, redact: bool = True) -> Any:
+    """Return ``client`` wrapped so a raised ``ClientError`` carries no item images.
+
+    Pass ``redact=False`` to get ``client`` back unchanged, which is the default
+    behavior everywhere the wrapper is not applied.
+    """
+    return _RedactingClient(client) if redact else client
+
+
 def _cancellation_reasons(raw: Any) -> tuple[CancellationReason, ...]:
     """Read DynamoDB cancellation reasons, preserving position.
 

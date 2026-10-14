@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
 
 import pytest
 from botocore.exceptions import ClientError
@@ -19,8 +18,8 @@ from tabletheory_py import (
     TransactPut,
     theorydb_field,
 )
-from tabletheory_py.aws_errors import strip_item_images
-from tabletheory_py.table import _map_transaction_error
+from tabletheory_py.aws_errors import map_transaction_error as _map_transaction_error
+from tabletheory_py.aws_errors import redacting_client, strip_item_images
 
 _SECRET = "top-secret-item-image"
 
@@ -226,11 +225,37 @@ def test_strip_item_images_tolerates_missing_operation_name() -> None:
     assert "Item" not in stripped.response
 
 
-def test_retained_cause_helper_respects_the_option() -> None:
-    client = StatefulDynamoDBClient()
-    err: Any = _cancel_with_images()
+class _RaisingClient:
+    """A minimal client whose single call raises the supplied error."""
 
-    assert _table(client)._retained_cause(err) is err
-    redacted = _table(client, redact_item_images=True)._retained_cause(err)
-    assert redacted is not err
-    assert isinstance(redacted, ClientError)
+    calls = 0
+
+    def __init__(self, err: BaseException) -> None:
+        self._err = err
+
+    def put_item(self, **_: object) -> None:
+        _RaisingClient.calls += 1
+        raise self._err
+
+
+def test_redacting_client_strips_item_images_and_leaves_the_original_alone() -> None:
+    original = _cancel_with_images()
+    inner = _RaisingClient(original)
+
+    assert redacting_client(inner, False) is inner
+
+    wrapped = redacting_client(inner, True)
+    assert wrapped is not inner
+    with pytest.raises(ClientError) as info:
+        wrapped.put_item(TableName="safe_notes", Item={})
+
+    raised = info.value
+    assert raised is not original
+    assert "Item" not in raised.response
+    assert "Item" not in raised.response["CancellationReasons"][1]
+    assert _SECRET not in json.dumps(raised.response)
+    # Neither the cause nor the implicit context reaches the original error.
+    assert raised.__cause__ is None
+    assert raised.__context__ is None
+    # The original object is untouched.
+    assert original.response["Item"]["name"]["S"] == _SECRET
