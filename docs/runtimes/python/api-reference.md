@@ -476,6 +476,20 @@ parallel_scan_configured: bool
 total_segments: int | None
 ```
 
+### `tabletheory_py.preflight`
+
+#### `ItemWriterPath`
+
+```python
+class ItemWriterPath(StrEnum)
+```
+
+#### `marshal_item_for_writer_path`
+
+```python
+def marshal_item_for_writer_path(table: Table[T], item: T, path: ItemWriterPath) -> dict[str, Any]
+```
+
 ### `tabletheory_py.protection`
 
 #### `ConcurrencyLimiter`

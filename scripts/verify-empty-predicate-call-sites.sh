@@ -21,6 +21,7 @@ internal/expr/converter.go|IsEmpty|return reflectutil.IsEmpty(v)
 pkg/marshal/marshaler.go|IsEmpty|if fieldMeta.OmitEmpty && reflectutil.IsEmpty(v) {
 pkg/marshal/marshaler.go|IsEmpty|if fieldMeta.OmitEmpty && reflectutil.IsEmpty(v) {
 pkg/marshal/marshaler.go|IsEmpty|if hasOmitEmpty && reflectutil.IsEmpty(fieldValue) {
+pkg/marshal/preflight.go|IsEmpty|if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
 pkg/marshal/safe_marshaler.go|IsEmpty|if fieldMeta != nil && fieldMeta.omitEmpty && reflectutil.IsEmpty(v) {
 pkg/marshal/safe_marshaler.go|IsEmpty|if hasOmitEmpty && reflectutil.IsEmpty(fieldValue) {
 pkg/query/query_execution.go|IsEmpty|if fieldMeta.OmitEmpty && reflectutil.IsEmpty(fieldValue) {
