@@ -207,11 +207,14 @@ type CustomConverter interface{ ... }
 ### `github.com/theory-cloud/tabletheory/v5/pkg/marshal`
 
 ```go
+func MarshalItemForWriterPath(model any, metadata *model.Metadata, path ItemWriterPath) (map[string]types.AttributeValue, error)
 func SetGlobalConfig(config Config)
 func ValidateConfig(config Config) error
 type Config struct{ ... }
     func DefaultConfig() Config
     func GetGlobalConfig() Config
+type ItemWriterPath string
+    const ItemWriterPathPut ItemWriterPath = "put" ...
 type Marshaler struct{ ... }
     func New(converter *pkgTypes.Converter) *Marshaler
 type MarshalerFactory struct{ ... }
@@ -245,6 +248,7 @@ var ErrItemNotFound = errors.New("item not found") ...
 func IsConditionFailed(err error) bool
 func IsInvalidModel(err error) bool
 func IsNotFound(err error) bool
+type CancellationReason struct{ ... }
 type EncryptedFieldError struct{ ... }
 type TheorydbError struct{ ... }
     func NewError(op, model string, err error) *TheorydbError

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from .errors import (
     AwsError,
     BatchRetryExceededError,
+    CancellationReason,
     ConditionFailedError,
     EncryptionNotConfiguredError,
     ImmutableModelMutationError,
@@ -19,7 +20,9 @@ from .errors import (
     ProtectedFieldMutationError,
     RejectedDeployAuthorityEvidenceError,
     TheorydbPyError,
+    ThrottledError,
     TransactionCanceledError,
+    TransactionConflictError,
     ValidationError,
     VersionConflictError,
 )
@@ -36,6 +39,7 @@ from .model import (
     lsi,
     theorydb_field,
 )
+from .preflight import ItemWriterPath, marshal_item_for_writer_path
 from .query import FilterCondition, FilterGroup, Page, SortKeyCondition
 from .transaction import (
     TransactConditionCheck,
@@ -363,6 +367,8 @@ __all__ = [
     "get_lambda_kms_client",
     "IndexDefinition",
     "IndexSpec",
+    "ItemWriterPath",
+    "marshal_item_for_writer_path",
     "ModelDefinition",
     "ModelDefinitionError",
     "model_definition_to_dms_model",
@@ -411,6 +417,9 @@ __all__ = [
     "UpdateAdd",
     "UpdateSetIfNotExists",
     "TransactionCanceledError",
+    "TransactionConflictError",
+    "ThrottledError",
+    "CancellationReason",
     "Table",
     "ValidationError",
     "VersionConflictError",

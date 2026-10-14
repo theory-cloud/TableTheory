@@ -76,7 +76,14 @@ function commitArgs() {
 for (const [label, makeError] of [
   [
     'TransactionCanceledException',
-    () => new TransactionCanceledException({ $metadata: {}, message: 'no' }),
+    () =>
+      new TransactionCanceledException({
+        $metadata: {},
+        message: 'no',
+        CancellationReasons: [
+          { Code: 'ConditionalCheckFailed', Message: 'no' },
+        ],
+      }),
   ],
   [
     'ConditionalCheckFailedException',

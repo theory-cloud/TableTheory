@@ -477,7 +477,15 @@ func (tx *Transaction) Rollback() error {
 	return nil
 }
 
-// handleTransactionError converts DynamoDB transaction errors to domain errors
+// handleTransactionError converts DynamoDB transaction errors to domain errors.
+//
+// A cancellation surfaces as a *errors.TransactionError so the original DynamoDB
+// exception stays recoverable through Cause and every cancellation reason stays
+// available (in order) through Reasons. errors.Is still matches the same
+// sentinels this entry point returned before (ErrConditionFailed,
+// ErrTransactionConflict, ErrThrottled); errors.Is is the supported comparison,
+// and the classification now attributes the FIRST genuine failure in operation
+// order exactly like the Builder path.
 func (tx *Transaction) handleTransactionError(err error) error {
 	if err == nil {
 		return nil
@@ -485,31 +493,27 @@ func (tx *Transaction) handleTransactionError(err error) error {
 
 	var conditionalFailed *types.ConditionalCheckFailedException
 	if stderrs.As(err, &conditionalFailed) {
-		return errors.ErrConditionFailed
+		return &errors.TransactionError{
+			Err:            errors.ErrConditionFailed,
+			OperationIndex: -1,
+			Cause:          err,
+		}
 	}
 
 	var canceled *types.TransactionCanceledException
 	if stderrs.As(err, &canceled) {
-		if transactionCanceledHasClassification(canceled, errors.ErrConditionFailed) {
-			return errors.ErrConditionFailed
-		}
-		if transactionCanceledHasClassification(canceled, errors.ErrTransactionConflict) {
-			return errors.ErrTransactionConflict
-		}
-		if transactionCanceledHasClassification(canceled, errors.ErrThrottled) {
-			return fmt.Errorf("%w: transaction canceled: %v", errors.ErrThrottled, err)
-		}
-		return fmt.Errorf("transaction canceled: %w", err)
+		return tx.cancellationError(canceled, err)
 	}
 
 	var apiErr smithy.APIError
 	if stderrs.As(err, &apiErr) {
 		classification := classifyTransactionCancellationCode(apiErr.ErrorCode())
 		if classification != nil {
-			if classification == errors.ErrThrottled {
-				return fmt.Errorf("%w: %v", errors.ErrThrottled, err)
+			return &errors.TransactionError{
+				Err:            classification,
+				OperationIndex: -1,
+				Cause:          err,
 			}
-			return classification
 		}
 		switch apiErr.ErrorCode() {
 		case "TransactionCanceledException", "TransactionCanceled":
@@ -520,6 +524,81 @@ func (tx *Transaction) handleTransactionError(err error) error {
 	}
 
 	return err
+}
+
+// cancellationError builds the TransactionError for a DynamoDB transaction
+// cancellation. It preserves every reason in order and classifies from the
+// first genuine failure (a code that is neither missing nor "None"), matching
+// the Builder path.
+func (tx *Transaction) cancellationError(canceled *types.TransactionCanceledException, original error) error {
+	reasons := make([]errors.CancellationReason, 0, len(canceled.CancellationReasons))
+	firstRealIndex := -1
+	firstRealCode := ""
+	firstRealMessage := ""
+
+	for idx, reason := range canceled.CancellationReasons {
+		code := ""
+		if reason.Code != nil {
+			code = *reason.Code
+		}
+		message := aws.ToString(reason.Message)
+		reasons = append(reasons, errors.CancellationReason{Index: idx, Code: code, Message: message})
+
+		if (code == "" || code == cancellationNoneCode) || firstRealIndex != -1 {
+			continue
+		}
+		firstRealIndex = idx
+		firstRealCode = code
+		firstRealMessage = message
+	}
+
+	if firstRealIndex == -1 {
+		// No genuine failure (an empty list, or every entry is the "None"
+		// placeholder): a generic transaction failure that still preserves the
+		// original cancellation, matching the Builder path and the TypeScript
+		// and Python runtimes.
+		return &errors.TransactionError{
+			OperationIndex: -1,
+			Err:            errors.ErrTransactionFailed,
+			Cause:          original,
+			Reasons:        reasons,
+		}
+	}
+
+	classification := classifyTransactionCancellationCode(firstRealCode)
+	if classification == nil {
+		classification = errors.ErrTransactionFailed
+	}
+
+	return &errors.TransactionError{
+		OperationIndex: firstRealIndex,
+		Operation:      tx.operationNameAt(firstRealIndex),
+		Model:          unknownOperationName,
+		Reason:         firstRealMessage,
+		Err:            classification,
+		Cause:          original,
+		Reasons:        reasons,
+	}
+}
+
+// operationNameAt reports the transaction operation kind at a cancellation
+// reason index, mirroring the Builder's operation labels.
+func (tx *Transaction) operationNameAt(idx int) string {
+	if tx == nil || idx < 0 || idx >= len(tx.writes) {
+		return unknownOperationName
+	}
+	switch {
+	case tx.writes[idx].Put != nil:
+		return "Put"
+	case tx.writes[idx].Update != nil:
+		return "Update"
+	case tx.writes[idx].Delete != nil:
+		return "Delete"
+	case tx.writes[idx].ConditionCheck != nil:
+		return "ConditionCheck"
+	default:
+		return unknownOperationName
+	}
 }
 
 // marshalItem converts a model to DynamoDB attribute values
