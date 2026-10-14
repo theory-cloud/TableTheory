@@ -19,7 +19,15 @@ class CancellationReason:
 
 
 class TheorydbPyError(Exception):
-    pass
+    def safe_dict(self) -> dict[str, object]:
+        """Return only the typed, log-safe surface of this error.
+
+        The result never carries ``__cause__``, ``__context__``, or any
+        request/response payload (such as a DynamoDB ``Item``/``Key`` image),
+        so it is the safe thing to log or serialize.
+        """
+
+        return {"type": type(self).__name__, "message": str(self)}
 
 
 class ConditionFailedError(TheorydbPyError):
@@ -31,6 +39,13 @@ class ConditionFailedError(TheorydbPyError):
     ) -> None:
         super().__init__(message)
         self.reasons = reasons
+
+    def safe_dict(self) -> dict[str, object]:
+        result = super().safe_dict()
+        result["reasons"] = [
+            {"index": reason.index, "code": reason.code, "message": reason.message} for reason in self.reasons
+        ]
+        return result
 
 
 class VersionConflictError(ConditionFailedError):
@@ -71,6 +86,12 @@ class BatchRetryExceededError(TheorydbPyError):
         self.operation = operation
         self.unprocessed_count = unprocessed_count
 
+    def safe_dict(self) -> dict[str, object]:
+        result = super().safe_dict()
+        result["operation"] = self.operation
+        result["unprocessed_count"] = self.unprocessed_count
+        return result
+
 
 class TransactionCanceledError(TheorydbPyError):
     def __init__(
@@ -84,6 +105,14 @@ class TransactionCanceledError(TheorydbPyError):
         # reason_codes keeps every position (an entry with no code becomes "").
         self.reason_codes = reason_codes
         self.reasons = reasons
+
+    def safe_dict(self) -> dict[str, object]:
+        result = super().safe_dict()
+        result["reason_codes"] = list(self.reason_codes)
+        result["reasons"] = [
+            {"index": reason.index, "code": reason.code, "message": reason.message} for reason in self.reasons
+        ]
+        return result
 
 
 class TransactionConflictError(TransactionCanceledError):
@@ -113,3 +142,6 @@ class AwsError(TheorydbPyError):
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
+
+    def safe_dict(self) -> dict[str, object]:
+        return {"type": type(self).__name__, "code": self.code, "message": self.message}

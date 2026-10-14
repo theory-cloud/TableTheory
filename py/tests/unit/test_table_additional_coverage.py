@@ -20,8 +20,10 @@ from tabletheory_py import (
     ValidationError,
     theorydb_field,
 )
+from tabletheory_py.aws_errors import map_client_error as _map_client_error
+from tabletheory_py.aws_errors import map_transaction_error as _map_transaction_error
 from tabletheory_py.model import AttributeDefinition, Projection, gsi
-from tabletheory_py.table import _coerce_value, _is_empty, _map_client_error, _map_transaction_error
+from tabletheory_py.table import _coerce_value, _is_empty
 from tabletheory_py.transaction import (
     TransactConditionCheck,
     TransactDelete,
