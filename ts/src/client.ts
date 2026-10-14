@@ -748,8 +748,10 @@ export class TheorydbClient<
       switch (a.kind) {
         case 'put': {
           const item = provider
-            ? await marshalPutItemEncrypted(model, a.item, provider)
-            : marshalPutItem(model, a.item);
+            ? await marshalPutItemEncrypted(model, a.item, provider, {
+                now: this.now(),
+              })
+            : marshalPutItem(model, a.item, { now: this.now() });
           const put: Put = {
             TableName: model.tableName,
             Item: item,

@@ -1072,3 +1072,96 @@ void test('encrypted raw transaction error names both safe alternatives', async 
     (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
   );
 }
+
+// transactWrite put actions must stamp lifecycle fields from the client's
+// injected clock, the same clock every other write path already uses. Before
+// this was fixed they used a wall clock, so a client with an injected clock got
+// one timestamp from create/save/batchWrite and another from transactWrite.
+void test('transactWrite put stamps lifecycle fields from the injected clock', async () => {
+  const fixedClock = '2026-02-03T04:05:06.789000000Z';
+  const ddb = new StubDdb(() => ({}));
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient, {
+    now: () => fixedClock,
+  }).register(User);
+
+  await client.transactWrite([
+    { kind: 'put', model: 'User', item: { PK: 'A', SK: '1' } },
+  ]);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  const item = cmd.input.TransactItems?.[0]?.Put?.Item;
+  assert.equal(item?.createdAt?.S, fixedClock);
+  assert.equal(item?.updatedAt?.S, fixedClock);
+});
+
+// One shared clock source: create and transactWrite put stamp the same payload.
+void test('create and transactWrite put share one clock source', async () => {
+  const fixedClock = '2026-02-03T04:05:06.789000000Z';
+
+  const createDdb = new StubDdb(() => ({}));
+  const createClient = new TheorydbClient(
+    createDdb as unknown as DynamoDBClient,
+    { now: () => fixedClock },
+  ).register(User);
+  await createClient.create('User', { PK: 'A', SK: '1' });
+  const createCmd = createDdb.sent[0];
+  assert.ok(createCmd instanceof PutItemCommand);
+
+  const transactDdb = new StubDdb(() => ({}));
+  const transactClient = new TheorydbClient(
+    transactDdb as unknown as DynamoDBClient,
+    { now: () => fixedClock },
+  ).register(User);
+  await transactClient.transactWrite([
+    { kind: 'put', model: 'User', item: { PK: 'A', SK: '1' } },
+  ]);
+  const transactCmd = transactDdb.sent[0];
+  assert.ok(transactCmd instanceof TransactWriteItemsCommand);
+
+  assert.deepEqual(
+    transactCmd.input.TransactItems?.[0]?.Put?.Item,
+    createCmd.input.Item,
+  );
+});
+
+const EncryptedLifecycleUser = defineModel({
+  name: 'EncryptedLifecycleUser',
+  table: { name: 'users_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'createdAt', type: 'S', roles: ['created_at'] },
+    { attribute: 'updatedAt', type: 'S', roles: ['updated_at'] },
+    { attribute: 'secret', type: 'S', encryption: { v: 1 } },
+  ],
+});
+
+// The encrypted transactWrite put path takes the same injected clock.
+void test('encrypted transactWrite put takes the injected clock', async () => {
+  const fixedClock = '2026-02-03T04:05:06.789000000Z';
+  const ddb = new StubDdb(() => ({}));
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient, {
+    now: () => fixedClock,
+  })
+    .withEncryption(createDeterministicEncryptionProvider('clock-seed'))
+    .register(EncryptedLifecycleUser);
+
+  await client.transactWrite([
+    {
+      kind: 'put',
+      model: 'EncryptedLifecycleUser',
+      item: { PK: 'A', SK: '1', secret: 'classified' },
+    },
+  ]);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  const item = cmd.input.TransactItems?.[0]?.Put?.Item;
+  assert.equal(item?.createdAt?.S, fixedClock);
+  assert.equal(item?.updatedAt?.S, fixedClock);
+});
