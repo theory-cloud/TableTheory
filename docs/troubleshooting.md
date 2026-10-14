@@ -187,6 +187,26 @@ item images from the retained cause:
 `safe_dict()` returns only the typed surface and never `__cause__` or any
 request/response payload.
 
+**Python coverage boundary.** `redact_item_images` covers the client a `Table`
+uses. A component you hand a raw client to does not inherit the option — a
+`LeaseManager` keeps the client you pass it — so wrap that client with
+`redacting_client` from `tabletheory_py.aws_errors` (it is not a root export):
+
+```python
+from tabletheory_py import LeaseManager
+from tabletheory_py.aws_errors import redacting_client
+
+leases = LeaseManager(
+    client=redacting_client(boto3.client("dynamodb")),
+    table_name="Leases",
+)
+```
+
+The generated Python API reference does not render the `Table` constructor, so it
+does not list `redact_item_images`; the
+[Python troubleshooting guide](runtimes/python/troubleshooting.md) documents the
+option and `redacting_client`.
+
 The redaction option is **off by default**, so default behavior is unchanged: the
 retained `cause`/`__cause__` is the same object it always was. When it is enabled,
 the cause becomes a copy whose `CancellationReasons[].Item` (and a condition

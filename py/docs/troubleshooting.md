@@ -170,6 +170,30 @@ the default settings can still reach the item images; changing that default woul
 change `__cause__` for every consumer, so it belongs to a future major release
 rather than a change made here.
 
+**Caller-built clients.** `redact_item_images` covers the client a `Table` uses. A
+component you hand a raw client to does not inherit the option: a `LeaseManager`
+keeps the client you pass it, so the errors it maps stay unredacted. Wrap that
+client with `redacting_client`, which is exported from `tabletheory_py.aws_errors`
+(not from the package root):
+
+```python
+import boto3
+
+from tabletheory_py import LeaseManager
+from tabletheory_py.aws_errors import redacting_client
+
+client = redacting_client(boto3.client("dynamodb"))  # redact=True by default
+leases = LeaseManager(client=client, table_name="Leases")
+```
+
+`redacting_client(client)` returns a wrapper whose mapped `ClientError` carries no
+item images; `redacting_client(client, redact=False)` returns the client unchanged.
+
+**API reference note.** The generated Python API reference lists each public class
+and its public methods from the package `__all__`. It does not render the `Table`
+constructor, so the `redact_item_images` option is not listed there — this page
+documents it. `redacting_client` is not a root export, so it is not listed either.
+
 **Compatibility note:** Python previously raised `ConditionFailedError` whenever ANY reason was
 `ConditionalCheckFailed`, or when the message merely mentioned it. Classification now follows the FIRST genuine
 failure and never reads the message text, so a message-only mention no longer turns an unknown failure into a
