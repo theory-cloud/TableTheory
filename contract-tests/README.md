@@ -42,15 +42,16 @@ for those semantics: the Go, TypeScript and Python unit suites each load this
 one file and assert their own column against payloads captured from their real
 writers.
 
-The table records a known disagreement rather than resolving it. A nil
-collection written without `omitempty` is stored as DynamoDB `NULL` by Go's put
-family, as an empty `L`/`M` by Go's `TransactWrite`, as nothing at all by
-TypeScript, and as `NULL` by Python. Changing any of those would change what a
-writer stores, so the rows are pinned as they are and each runtime asserts every
-row and every writer-path cell, which fails the build if a row is dropped or
-renamed.
+Each writer path's stored representation is a fixed compatibility contract,
+frozen by the operator's policy that TableTheory supports its consumers rather
+than changing stored data; no writer's output may change. A nil collection
+written without `omitempty` is stored as DynamoDB `NULL` by Go's put family, as
+an empty `L`/`M` by Go's `TransactWrite`, as nothing at all by TypeScript, and as
+`NULL` by Python. The rows record that frozen representation, and each runtime
+asserts every row and every writer-path cell, which fails the build if a writer's
+output changes or a row is dropped or renamed.
 
-Documented coverage exclusion: Go legacy implicit transaction update
+## Documented coverage exclusion: Go legacy implicit transaction update
 
 The `transactWrite` `kind: update` action asserts the **explicit field-selection** transaction update, which every
 runtime ships:

@@ -23,8 +23,10 @@ class ItemWriterPath(StrEnum):
     """A TableTheory writer path whose stored representation a preflight reproduces.
 
     The two members exist so cross-runtime preflight code and the shared
-    nil/empty conformance table name writer paths identically on every runtime,
-    and so a future divergence stays expressible without an API change.
+    nil/empty conformance table name writer paths identically on every runtime.
+    Each writer path's stored representation is a fixed compatibility contract,
+    frozen by the operator's policy that TableTheory supports its consumers
+    rather than changing stored data.
     """
 
     PUT = "put"
@@ -39,7 +41,7 @@ class ItemWriterPath(StrEnum):
     """The transactional family: ``transact_write`` puts.
 
     These call the same item serializer as :attr:`PUT`, so they store the same
-    representation today.
+    representation.
     """
 
 

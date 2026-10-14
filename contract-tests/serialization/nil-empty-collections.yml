@@ -5,13 +5,14 @@ description: >
   semantics: the Go, TypeScript and Python test suites each load this file and
   assert their own column against payloads captured from their real writers.
 
-  The three runtimes and Go's two writers do not agree, and this table records
-  that disagreement rather than resolving it. A nil collection written without
-  omitempty is stored as DynamoDB NULL by Go's put family, as an empty L or M by
-  Go's TransactWrite, as nothing at all by TypeScript (which drops an absent
-  property and has no NULL for a missing collection), and as NULL by Python.
-  Aligning them would change what a writer stores, so the disagreement is
-  pinned here and the convergence decision is deferred.
+  Each writer path's stored representation is a fixed compatibility contract: it
+  is frozen by the operator's policy that TableTheory supports its consumers
+  rather than changing stored data, so no writer's output may change. This table
+  records that frozen representation so a consumer can measure exactly what each
+  writer stores. A nil collection written without omitempty is stored as
+  DynamoDB NULL by Go's put family, as an empty L or M by Go's TransactWrite, as
+  nothing at all by TypeScript (which drops an absent property and has no NULL
+  for a missing collection), and as NULL by Python.
 
   Each row names a logical input class. Runtimes map it to their nearest input:
   an absent or undefined property in TypeScript, None in Python, a nil slice or

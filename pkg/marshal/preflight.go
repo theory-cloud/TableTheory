@@ -17,19 +17,20 @@ import (
 // representation an item preflight must reproduce.
 //
 // TableTheory serializes a model through two different writers, and for a nil
-// collection written without `omitempty` those writers do not agree. The put
-// family (Model().Create, Model().CreateOrUpdate, BatchCreate,
-// BatchCreateWithResult and the puts issued by BatchWrite) serializes through
-// SafeMarshaler, which stores DynamoDB NULL for a nil slice or a nil map. The
-// transactional family (Transact().Put, Transact().Create) serializes through
-// the transaction converter, which stores an empty list (L) or an empty map (M)
-// instead.
+// collection written without `omitempty` those writers store different
+// representations. The put family (Model().Create, Model().CreateOrUpdate,
+// BatchCreate, BatchCreateWithResult and the puts issued by BatchWrite)
+// serializes through SafeMarshaler, which stores DynamoDB NULL for a nil slice or
+// a nil map. The transactional family (Transact().Put, Transact().Create)
+// serializes through the transaction converter, which stores an empty list (L)
+// or an empty map (M) instead.
 //
-// ItemWriterPath selects which of those answers MarshalItemForWriterPath
-// returns. It changes nothing that is stored: neither writer's output is
-// affected, and the disagreement is pinned by tests against captured writer
-// payloads rather than resolved. Choosing a writer path therefore also selects
-// which stored representation a caller is measuring.
+// Each writer path's stored representation is a permanent compatibility
+// contract: it is frozen by the operator's policy that TableTheory supports its
+// consumers rather than changing stored data, so no writer's output may change.
+// ItemWriterPath selects which frozen representation MarshalItemForWriterPath
+// returns, so a caller measures exactly what the named writer stores. Neither
+// writer is edited by this preflight.
 type ItemWriterPath string
 
 const (

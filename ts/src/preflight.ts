@@ -13,10 +13,12 @@ const WRITER_PATHS: readonly ItemWriterPath[] = ['put', 'transact_write'];
  *
  * Unlike Go, the TypeScript runtime serializes every whole item through one
  * function (`marshalPutItem`): `create`, `save`, `batchWrite` puts and
- * `transactWrite` puts all call it, so both paths currently return the same
- * representation. The two members exist so cross-runtime preflight code and the
- * shared nil/empty conformance table name writer paths identically on every
- * runtime, and so a future divergence stays expressible without an API change.
+ * `transactWrite` puts all call it, so both paths return the same
+ * representation. That representation is a fixed compatibility contract, frozen
+ * by the operator's policy that TableTheory supports its consumers rather than
+ * changing stored data. The two members exist so cross-runtime preflight code and
+ * the shared nil/empty conformance table name writer paths identically on every
+ * runtime.
  */
 export type ItemWriterPath = 'put' | 'transact_write';
 

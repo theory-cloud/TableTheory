@@ -110,7 +110,7 @@ The dedicated [omit-empty scenario](https://github.com/theory-cloud/tabletheory/
 
 ### Nil and empty collections per writer path
 
-DynamoDB has no "nil" collection: an attribute holds an `L`/`M`, holds `NULL`, or is absent. TableTheory's runtimes, and Go's two writers, do **not** agree on which of those a nil collection becomes. That difference is **known and pinned, not endorsed**: no runtime's stored bytes change for it, the convergence decision is deferred, and the rows below are asserted by tests rather than resolved.
+DynamoDB has no "nil" collection: an attribute holds an `L`/`M`, holds `NULL`, or is absent. TableTheory's runtimes, and Go's two writers, store **different** representations for a nil collection. That split is a **permanent compatibility contract**: each writer path's stored representation is frozen by the operator's policy that TableTheory supports its consumers rather than changing stored data, no writer's output may change, and the rows below are asserted by tests.
 
 For a collection written **without** `omit_empty`:
 
@@ -132,7 +132,7 @@ The single source of truth for these rows is [`contract-tests/serialization/nil-
 
 ### Measuring what a writer will store
 
-Because the writers disagree, the same model can be measured two ways. Each runtime exposes one item-serialization preflight that returns exactly the DynamoDB item a named writer path stores:
+Because the writer paths store different representations for some inputs, the same model can be measured two ways. Each runtime exposes one item-serialization preflight that returns exactly the DynamoDB item a named writer path stores:
 
 | Runtime | Preflight | Writer paths |
 |---|---|---|
