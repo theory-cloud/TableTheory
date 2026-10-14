@@ -66,16 +66,6 @@
 * **ts:** add `AutoMigrateOptions.encryption` so `autoMigrate` can encrypt attributes a target model declares
   encrypted, and add the `ErrMigrationEncryptionRequired` and `ErrNumberPrecisionLoss` error codes
 * **py:** add `kms_key_arn`, `kms_client`, and `rand_bytes` to `auto_migrate` and export `MigrationEncryptionError`
-* **go:** add `marshal.MarshalItemForWriterPath`, an item-serialization preflight that returns exactly the DynamoDB
-  representation a named writer path stores, with the closed `marshal.ItemWriterPath` enum covering the put family
-  (`SafeMarshaler`) and `Transact().Put`/`Create` (the transaction converter)
-* **ts:** add `marshalItemForWriterPath`, the TypeScript item preflight over the same closed writer path set
-* **py:** add `marshal_item_for_writer_path` and the `ItemWriterPath` enum, the Python item preflight
-* **contract:** add `contract-tests/serialization/nil-empty-collections.yml`, one language-neutral
-  (input class -> DynamoDB representation) table per writer path that the Go, TypeScript and Python suites all consume
-* **compat:** no stored representation changes. A nil collection written without `omit_empty` is stored as `NULL` by Go's
-  put family, as an empty `L`/`M` by Go's `TransactWrite`, as nothing at all by TypeScript, and as `NULL` by Python. That
-  disagreement is now pinned by tests and documented rather than resolved, and the convergence decision is deferred.
 
 ### Bug Fixes
 
