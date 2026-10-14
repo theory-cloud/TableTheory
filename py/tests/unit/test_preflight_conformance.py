@@ -13,6 +13,7 @@ from tabletheory_py import (
     StatefulDynamoDBClient,
     Table,
     TransactPut,
+    marshal_item_for_writer_path,
     theorydb_field,
 )
 
@@ -198,8 +199,8 @@ def test_shared_conformance_table_python_column() -> None:
 
     captured = {path: _capture(path) for path in table.writer_paths}
     preflight = {
-        path: _table(StatefulDynamoDBClient()).marshal_item_for_writer_path(
-            _conformance_item(), ItemWriterPath(path)
+        path: marshal_item_for_writer_path(
+            _table(StatefulDynamoDBClient()), _conformance_item(), ItemWriterPath(path)
         )
         for path in table.writer_paths
     }

@@ -39,7 +39,7 @@ from .model import (
     lsi,
     theorydb_field,
 )
-from .preflight import ItemWriterPath
+from .preflight import ItemWriterPath, marshal_item_for_writer_path
 from .query import FilterCondition, FilterGroup, Page, SortKeyCondition
 from .transaction import (
     TransactConditionCheck,
@@ -368,6 +368,7 @@ __all__ = [
     "IndexDefinition",
     "IndexSpec",
     "ItemWriterPath",
+    "marshal_item_for_writer_path",
     "ModelDefinition",
     "ModelDefinitionError",
     "model_definition_to_dms_model",

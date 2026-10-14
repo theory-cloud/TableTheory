@@ -70,7 +70,7 @@
   representation a named writer path stores, with the closed `marshal.ItemWriterPath` enum covering the put family
   (`SafeMarshaler`) and `Transact().Put`/`Create` (the transaction converter)
 * **ts:** add `marshalItemForWriterPath`, the TypeScript item preflight over the same closed writer path set
-* **py:** add `Table.marshal_item_for_writer_path` and the `ItemWriterPath` enum, the Python item preflight
+* **py:** add `marshal_item_for_writer_path` and the `ItemWriterPath` enum, the Python item preflight
 * **contract:** add `contract-tests/serialization/nil-empty-collections.yml`, one language-neutral
   (input class -> DynamoDB representation) table per writer path that the Go, TypeScript and Python suites all consume
 * **compat:** no stored representation changes. A nil collection written without `omit_empty` is stored as `NULL` by Go's

@@ -484,6 +484,12 @@ total_segments: int | None
 class ItemWriterPath(StrEnum)
 ```
 
+#### `marshal_item_for_writer_path`
+
+```python
+def marshal_item_for_writer_path(table: Table[T], item: T, path: ItemWriterPath) -> dict[str, Any]
+```
+
 ### `tabletheory_py.protection`
 
 #### `ConcurrencyLimiter`
@@ -777,7 +783,6 @@ def batch_get(self, keys: Sequence[Any], *, consistent_read: bool=False, project
 def batch_write(self, *, puts: Sequence[T]=(), deletes: Sequence[Any]=(), max_retries: int=5, sleep: Callable[[float], None] | None=time.sleep) -> None
 def transact_get(self, keys: Sequence[Any], *, projection: list[str] | None=None) -> list[T | None]
 def transact_write(self, actions: Sequence[TransactWriteAction[T]]) -> None
-def marshal_item_for_writer_path(self, item: T, path: ItemWriterPath) -> dict[str, Any]
 def put(self, item: T, *, condition_expression: str | None=None, expression_attribute_names: Mapping[str, str] | None=None, expression_attribute_values: Mapping[str, Any] | None=None) -> None
 def save(self, item: T, *, condition_expression: str | None=None, expression_attribute_names: Mapping[str, str] | None=None, expression_attribute_values: Mapping[str, Any] | None=None) -> None
 def get(self, pk: Any, sk: Any | None=None, *, consistent_read: bool=False) -> T

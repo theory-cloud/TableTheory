@@ -138,7 +138,7 @@ Because the writers disagree, the same model can be measured two ways. Each runt
 |---|---|---|
 | Go | `marshal.MarshalItemForWriterPath(model, metadata, path)` | `marshal.ItemWriterPathPut`, `marshal.ItemWriterPathTransactWrite` |
 | TypeScript | `marshalItemForWriterPath(model, item, path)` | `'put'`, `'transact_write'` |
-| Python | `Table.marshal_item_for_writer_path(item, path)` | `ItemWriterPath.PUT`, `ItemWriterPath.TRANSACT_WRITE` |
+| Python | `marshal_item_for_writer_path(table, item, path)` | `ItemWriterPath.PUT`, `ItemWriterPath.TRANSACT_WRITE` |
 
 Both paths return the same representation in TypeScript and Python, which funnel every whole item through one serializer. Go needs the parameter because its two writers really do differ. A preflight refuses a model that declares `encrypted` attributes, because the stored envelope depends on KMS material a static preflight cannot see. It has no side effects, contacts nothing, and changes nothing that is written.
 

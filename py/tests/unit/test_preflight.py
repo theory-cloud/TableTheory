@@ -12,6 +12,7 @@ from tabletheory_py import (
     Table,
     TransactPut,
     ValidationError,
+    marshal_item_for_writer_path,
     theorydb_field,
 )
 
@@ -76,11 +77,11 @@ def test_preflight_byte_equals_captured_writer_payloads() -> None:
     captured_transact = transact_client.items(_TABLE_NAME)[0]
 
     assert (
-        _table(StatefulDynamoDBClient()).marshal_item_for_writer_path(item, ItemWriterPath.PUT)
+        marshal_item_for_writer_path(_table(StatefulDynamoDBClient()), item, ItemWriterPath.PUT)
         == captured_put
     )
     assert (
-        _table(StatefulDynamoDBClient()).marshal_item_for_writer_path(item, ItemWriterPath.TRANSACT_WRITE)
+        marshal_item_for_writer_path(_table(StatefulDynamoDBClient()), item, ItemWriterPath.TRANSACT_WRITE)
         == captured_transact
     )
 
@@ -100,13 +101,13 @@ def test_preflight_equals_writer_output_for_both_paths(path: ItemWriterPath) -> 
     else:
         table.transact_write([TransactPut(item)])
 
-    assert table.marshal_item_for_writer_path(item, path) == client.items(_TABLE_NAME)[0]
+    assert marshal_item_for_writer_path(table, item, path) == client.items(_TABLE_NAME)[0]
 
 
 def test_preflight_refuses_unknown_path() -> None:
     table = _table(StatefulDynamoDBClient())
     with pytest.raises(ValidationError):
-        table.marshal_item_for_writer_path(_matrix_item(), cast(ItemWriterPath, "nope"))
+        marshal_item_for_writer_path(table, _matrix_item(), cast(ItemWriterPath, "nope"))
 
 
 def test_preflight_refuses_encrypted_model() -> None:
@@ -118,4 +119,4 @@ def test_preflight_refuses_encrypted_model() -> None:
         kms_client=object(),
     )
     with pytest.raises(ValidationError, match="encrypted"):
-        table.marshal_item_for_writer_path(PreflightEncrypted(pk="p1"), ItemWriterPath.PUT)
+        marshal_item_for_writer_path(table, PreflightEncrypted(pk="p1"), ItemWriterPath.PUT)
