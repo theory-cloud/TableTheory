@@ -9,8 +9,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/encryption"
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v6/internal/encryption"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
 // ErrMigrationEncryptionRequired reports that a data-copying schema migration

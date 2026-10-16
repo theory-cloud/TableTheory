@@ -6,11 +6,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/encryption"
-	"github.com/theory-cloud/tabletheory/v5/internal/reflectutil"
-	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
-	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	"github.com/theory-cloud/tabletheory/v6/internal/encryption"
+	"github.com/theory-cloud/tabletheory/v6/internal/reflectutil"
+	customerrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
 // ItemWriterPath names a TableTheory writer path whose stored DynamoDB

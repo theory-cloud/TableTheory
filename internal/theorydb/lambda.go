@@ -18,9 +18,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
 var (

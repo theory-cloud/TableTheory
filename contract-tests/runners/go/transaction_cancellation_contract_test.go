@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/driver"
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/runner"

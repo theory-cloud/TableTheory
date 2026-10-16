@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/safeoutput"
-	"github.com/theory-cloud/tabletheory/v5/pkg/dms"
-	"github.com/theory-cloud/tabletheory/v5/pkg/keycontract"
+	"github.com/theory-cloud/tabletheory/v6/internal/safeoutput"
+	"github.com/theory-cloud/tabletheory/v6/pkg/dms"
+	"github.com/theory-cloud/tabletheory/v6/pkg/keycontract"
 )
 
 func main() {

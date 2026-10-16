@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/theory-cloud/tabletheory/v5/examples/blog/models"
+	"github.com/theory-cloud/tabletheory/v6/examples/blog/models"
 )
 
 // TestPostModel tests post model functionality

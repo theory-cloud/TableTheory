@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 )
 
 func TestUpdateBuilder_JSONNormalizationErrors_COV7(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/dynamodbprobe"
+	"github.com/theory-cloud/tabletheory/v6/internal/dynamodbprobe"
 )
 
 func TestCheckEndpointRejectsNonDynamoDBService(t *testing.T) {

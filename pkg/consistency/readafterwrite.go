@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 )
 
 // ReadAfterWriteHelper provides patterns for handling read-after-write consistency

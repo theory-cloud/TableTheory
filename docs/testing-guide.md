@@ -21,7 +21,7 @@ To write unit tests without connecting to DynamoDB, use the `core.DB` interface 
 Don't depend on the concrete `*tabletheory.DB` struct. Use `core.DB`.
 
 ```go
-import "github.com/theory-cloud/tabletheory/v5/pkg/core"
+import "github.com/theory-cloud/tabletheory/v6/pkg/core"
 
 type UserService struct {
     db core.DB
@@ -40,7 +40,7 @@ TableTheory provides mocks in the `mocks` package (or generate your own with moc
 import (
     "testing"
     "github.com/stretchr/testify/mock"
-    "github.com/theory-cloud/tabletheory/v5/pkg/mocks"
+    "github.com/theory-cloud/tabletheory/v6/pkg/mocks"
 )
 
 func TestCreateUser(t *testing.T) {
@@ -93,9 +93,9 @@ import (
     "time"
 
     "github.com/aws/aws-sdk-go-v2/service/kms"
-    "github.com/theory-cloud/tabletheory/v5"
-    "github.com/theory-cloud/tabletheory/v5/pkg/mocks"
-    "github.com/theory-cloud/tabletheory/v5/pkg/session"
+    "github.com/theory-cloud/tabletheory/v6"
+    "github.com/theory-cloud/tabletheory/v6/pkg/mocks"
+    "github.com/theory-cloud/tabletheory/v6/pkg/session"
     "github.com/stretchr/testify/mock"
 )
 
@@ -128,9 +128,9 @@ deterministic in-memory fake:
 import (
     "testing"
 
-    "github.com/theory-cloud/tabletheory/v5"
-    "github.com/theory-cloud/tabletheory/v5/pkg/session"
-    "github.com/theory-cloud/tabletheory/v5/pkg/testing/fakedb"
+    "github.com/theory-cloud/tabletheory/v6"
+    "github.com/theory-cloud/tabletheory/v6/pkg/session"
+    "github.com/theory-cloud/tabletheory/v6/pkg/testing/fakedb"
 )
 
 func TestServiceWritesAndQueries(t *testing.T) {

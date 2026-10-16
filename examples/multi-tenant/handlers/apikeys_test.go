@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/models"
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
-	derrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/examples/multi-tenant/models"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	derrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 )
 
 // fakeAPIKeyStore is the DynamoDB boundary for these tests: it returns the

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 )
 
 // AuditLog represents an audit log entry

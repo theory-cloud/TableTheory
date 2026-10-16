@@ -11,8 +11,8 @@ import (
 
 	"github.com/aws/aws-lambda-go/lambda"
 
-	"github.com/theory-cloud/tabletheory/v5"
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 )
 
 // Payment model

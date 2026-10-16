@@ -11,11 +11,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/expr"
-	"github.com/theory-cloud/tabletheory/v5/internal/numutil"
-	"github.com/theory-cloud/tabletheory/v5/internal/reflectutil"
-	"github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v6/internal/expr"
+	"github.com/theory-cloud/tabletheory/v6/internal/numutil"
+	"github.com/theory-cloud/tabletheory/v6/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/naming"
 )
 
 // Converter handles conversion between Go types and DynamoDB AttributeValues

@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
-	"github.com/theory-cloud/tabletheory/v5/pkg/naming"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
+	"github.com/theory-cloud/tabletheory/v6/pkg/naming"
 )
 
 // Test models with various struct tag configurations

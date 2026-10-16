@@ -119,7 +119,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/keycontract"
+	"github.com/theory-cloud/tabletheory/v6/pkg/keycontract"
 )
 
 type fixtureRow struct {

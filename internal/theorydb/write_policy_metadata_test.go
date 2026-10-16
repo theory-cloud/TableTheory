@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
 type writePolicyAdapterModel struct {

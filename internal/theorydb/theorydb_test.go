@@ -21,16 +21,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
-	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/marshal"
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
-	queryPkg "github.com/theory-cloud/tabletheory/v5/pkg/query"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	customerrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/marshal"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
+	queryPkg "github.com/theory-cloud/tabletheory/v6/pkg/query"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
-//go:linkname sessionConfigLoadFunc github.com/theory-cloud/tabletheory/v5/pkg/session.configLoadFunc
+//go:linkname sessionConfigLoadFunc github.com/theory-cloud/tabletheory/v6/pkg/session.configLoadFunc
 var sessionConfigLoadFunc func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error)
 
 func stubSessionConfigLoad(t *testing.T, fn func(context.Context, ...func(*config.LoadOptions) error) (aws.Config, error)) {

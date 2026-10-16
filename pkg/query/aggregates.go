@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 )
 
 const aggregateFunctionCount = "COUNT"

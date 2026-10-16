@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/naming"
 )
 
 const (

@@ -11,6 +11,8 @@ TheoryCloud TableTheory subtree. This page is the Go migration guide.
 
 ## Version-specific notices
 
+- [v6 migration](./migration/v6.md) — the Go module path move to
+  `github.com/theory-cloud/tabletheory/v6` and the `LambdaDB.WithLambdaTimeout` return-type break.
 - [v5 migration](./migration/v5.md) — the Go module path move to
   `github.com/theory-cloud/tabletheory/v5` and the v5 breaking changes.
 - [v4 migration](./migration/v4.md) — the Go module path move to
@@ -85,8 +87,8 @@ import (
     "context"
     "log"
 
-    "github.com/theory-cloud/tabletheory/v5"
-    "github.com/theory-cloud/tabletheory/v5/pkg/session"
+    "github.com/theory-cloud/tabletheory/v6"
+    "github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
 
 type User struct {

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 )
 
 func TestMapError_EncryptionCodes(t *testing.T) {

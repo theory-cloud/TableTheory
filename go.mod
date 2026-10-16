@@ -1,4 +1,4 @@
-module github.com/theory-cloud/tabletheory/v5
+module github.com/theory-cloud/tabletheory/v6
 
 go 1.27
 

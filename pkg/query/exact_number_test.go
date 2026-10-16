@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	pkgtypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	pkgtypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
 //nolint:govet // Field order mirrors the production fixture under test.

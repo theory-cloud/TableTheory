@@ -6,7 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	pkgTypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
 type typedFacadeRecord struct {

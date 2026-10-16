@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 )
 
 // v6LambdaRecord is a minimal model for the core-interface tests below.

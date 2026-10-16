@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/auth"
+	"github.com/theory-cloud/tabletheory/v6/examples/multi-tenant/auth"
 )
 
 func main() {
