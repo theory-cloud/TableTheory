@@ -143,6 +143,24 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.0.0](https://github.com/theory-cloud/TableTheory/compare/v6.0.0-rc...v6.0.0) (2026-10-16)
+
+Stable promotion of `v6.0.0-rc`.
+
+
+## [6.0.0-rc](https://github.com/theory-cloud/TableTheory/compare/v5.2.0...v6.0.0-rc) (2026-10-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **module:** Go consumers must update their module requirement and every TableTheory import from github.com/theory-cloud/tabletheory/v5 to github.com/theory-cloud/tabletheory/v6; see docs/migration/v6.md.
+* **lambda:** LambdaDB.WithLambdaTimeout now returns core.DB instead of *LambdaDB. A call that assigned the result back to a *tabletheory.LambdaDB variable, or passed it to a function taking *LambdaDB, no longer compiles. Hold the derived handle as core.DB/core.ExtendedDB, apply the timeout after the LambdaDB-specific calls (PreRegisterModels, WithLambdaTimeoutConfig), or assert the result back with `.(*tabletheory.LambdaDB)`. Stored representation, key encoding, marshalling, and timeout behavior are unchanged.
+
+### Bug Fixes
+
+* **lambda:** return core.DB from LambdaDB.WithLambdaTimeout ([a1e2980](https://github.com/theory-cloud/TableTheory/commit/a1e29809fd8589baaa26749d1c4dffc25850179f))
+* **module:** adopt the /v6 Go module path ([a8afe19](https://github.com/theory-cloud/TableTheory/commit/a8afe19440e14a0d78bd241b4c7bbfed98dbd327))
+
 ## [5.2.0](https://github.com/theory-cloud/TableTheory/compare/v5.2.0-rc...v5.2.0) (2026-10-14)
 
 Stable promotion of `v5.2.0-rc`.
