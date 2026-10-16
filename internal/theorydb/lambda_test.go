@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
 )
 
 func TestLambdaEnvironmentDetection(t *testing.T) {
@@ -44,6 +46,18 @@ func TestLambdaDBCreation(t *testing.T) {
 	assert.Equal(t, db, db2, "Should return cached instance")
 }
 
+// mustLambdaDB asserts that an interface-typed WithLambdaTimeout result is still
+// the configured *LambdaDB instance, and returns it for white-box assertions.
+// WithLambdaTimeout returns core.DB so that *LambdaDB satisfies core.ExtendedDB;
+// these tests still need the concrete handle to inspect LambdaDB-specific state.
+func mustLambdaDB(t *testing.T, db core.DB) *LambdaDB {
+	t.Helper()
+
+	ldb, ok := db.(*LambdaDB)
+	require.True(t, ok, "WithLambdaTimeout returned %T, want *LambdaDB", db)
+	return ldb
+}
+
 func TestLambdaTimeout(t *testing.T) {
 	// Skip if no AWS credentials available
 	if os.Getenv("AWS_ACCESS_KEY_ID") == "" && os.Getenv("AWS_PROFILE") == "" {
@@ -54,26 +68,26 @@ func TestLambdaTimeout(t *testing.T) {
 	db, err := NewLambdaOptimized()
 	require.NoError(t, err)
 
+	// Register the model before deriving the deadline-scoped handle:
+	// PreRegisterModels is LambdaDB-specific, while WithLambdaTimeout returns
+	// the interface-typed core.DB.
+	type TestModel struct {
+		ID   string `theorydb:"pk"`
+		Data string
+	}
+	err = db.PreRegisterModels(&TestModel{})
+	require.NoError(t, err)
+
 	// Create context with short deadline
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
 	// Apply Lambda timeout
-	lambdaDB := db.WithLambdaTimeout(ctx)
+	lambdaDB := mustLambdaDB(t, db.WithLambdaTimeout(ctx))
 	assert.NotNil(t, lambdaDB)
 
 	// Wait for timeout
 	time.Sleep(150 * time.Millisecond)
-
-	// Operations should fail with timeout
-	type TestModel struct {
-		ID   string `theorydb:"pk"`
-		Data string
-	}
-
-	// First register the model
-	err = lambdaDB.PreRegisterModels(&TestModel{})
-	assert.NoError(t, err)
 
 	// Since we've waited past the deadline, this should fail
 	var result TestModel

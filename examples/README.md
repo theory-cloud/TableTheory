@@ -247,10 +247,11 @@ func init() {
     }
 }
 
-func handler(ctx context.Context, event events.APIGatewayProxyRequest) {
-    // Derive an invocation-scoped DB that respects the Lambda deadline.
-    lambdaDB := db.WithLambdaTimeout(ctx)
-    return handleRequest(lambdaDB, event)
+func handler(ctx context.Context, event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+    // Derive an invocation-scoped handle that respects the Lambda deadline.
+    // WithLambdaTimeout returns core.DB so *LambdaDB satisfies core.ExtendedDB.
+    invocationDB := db.WithLambdaTimeout(ctx)
+    return handleRequest(invocationDB, event)
 }
 ```
 
@@ -275,7 +276,8 @@ func init() {
 }
 
 func handler(ctx context.Context, event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-    // Use Lambda timeout-aware context
+    // Derive a Lambda timeout-aware handle. WithLambdaTimeout returns core.DB;
+    // type it as core.ExtendedDB when you need schema or transaction methods.
     lambdaDB := db.WithLambdaTimeout(ctx)
     
     // Your handler logic here

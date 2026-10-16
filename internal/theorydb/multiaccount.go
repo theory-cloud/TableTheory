@@ -314,7 +314,10 @@ func (mdb *MultiAccountDB) Close() error {
 func (mdb *MultiAccountDB) WithContext(ctx context.Context) *MultiAccountDB {
 	// Create new MultiAccountDB without copying sync.Map
 	newMDB := &MultiAccountDB{
-		baseDB:     mdb.baseDB.WithLambdaTimeout(ctx),
+		// baseDB stays a concrete *LambdaDB because Partner() returns it and
+		// Close() uses it, so chain the concrete-returning helper instead of
+		// the interface-typed WithLambdaTimeout.
+		baseDB:     mdb.baseDB.withLambdaTimeout(ctx),
 		accounts:   mdb.accounts,
 		now:        mdb.now,
 		baseConfig: mdb.baseConfig,

@@ -114,6 +114,12 @@ func ConditionVersion(version int64) core.TransactCondition {
 	return internaltheorydb.ConditionVersion(version)
 }
 
+// Compile-time assertion: the public LambdaDB handle satisfies core.ExtendedDB.
+// LambdaInit and NewLambdaOptimized return *LambdaDB, and consumers may hold
+// that handle as core.DB or core.ExtendedDB, including a
+// `handle.(core.ExtendedDB)` assertion at Lambda cold start.
+var _ core.ExtendedDB = (*LambdaDB)(nil)
+
 func NewLambdaOptimized() (*LambdaDB, error) {
 	return internaltheorydb.NewLambdaOptimized()
 }

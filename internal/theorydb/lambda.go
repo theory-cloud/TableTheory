@@ -45,8 +45,11 @@ var (
 //
 // 2. Use context with Lambda timeout:
 //    func handler(ctx context.Context, event Event) error {
-//        lambdaDB := db.WithLambdaTimeout(ctx)
-//        // Use lambdaDB for all operations
+//        // WithLambdaTimeout returns core.DB so *LambdaDB satisfies
+//        // core.ExtendedDB. Type the derived handle as core.DB, or as
+//        // core.ExtendedDB when schema or transaction methods are needed.
+//        invocationDB := lambdaDB.WithLambdaTimeout(ctx)
+//        // Use invocationDB for all operations
 //    }
 //
 // 3. Connection Pool Sizing:
@@ -77,6 +80,17 @@ type LambdaDB struct {
 	isLambda       bool
 	xrayEnabled    bool
 }
+
+// Compile-time assertions: the *LambdaDB handle must satisfy the public core
+// interfaces. LambdaDB embeds core.ExtendedDB, so the only thing keeping it in
+// core.ExtendedDB is that the method it declares below (WithLambdaTimeout)
+// keeps the interface signature `WithLambdaTimeout(ctx) DB`. A concrete
+// *LambdaDB result shadows the promoted interface method and silently drops
+// *LambdaDB out of core.ExtendedDB.
+var (
+	_ core.DB         = (*LambdaDB)(nil)
+	_ core.ExtendedDB = (*LambdaDB)(nil)
+)
 
 const defaultLambdaDBTimeoutBuffer = time.Second
 
@@ -212,8 +226,25 @@ func (ldb *LambdaDB) IsModelRegistered(model any) bool {
 	return ok
 }
 
-// WithLambdaTimeout creates a new DB instance with Lambda timeout handling
-func (ldb *LambdaDB) WithLambdaTimeout(ctx context.Context) *LambdaDB {
+// WithLambdaTimeout creates a DB instance with Lambda timeout handling.
+//
+// It returns core.DB — not *LambdaDB — because core.ExtendedDB declares
+// `WithLambdaTimeout(ctx context.Context) DB`, and a declared method with any
+// other result type shadows the promoted interface method and drops *LambdaDB
+// out of core.ExtendedDB. The returned value is the configured *LambdaDB, so a
+// caller that needs the concrete handle can either assert it back or apply the
+// timeout last; LambdaDB-specific methods (PreRegisterModels,
+// WithLambdaTimeoutConfig, IsModelRegistered, GetMemoryStats) stay on the
+// concrete type.
+func (ldb *LambdaDB) WithLambdaTimeout(ctx context.Context) core.DB {
+	return ldb.withLambdaTimeout(ctx)
+}
+
+// withLambdaTimeout is the concrete implementation behind WithLambdaTimeout. It
+// exists so internal callers that chain LambdaDB-specific methods keep the
+// concrete handle while the exported method keeps the interface-mandated
+// core.DB result.
+func (ldb *LambdaDB) withLambdaTimeout(ctx context.Context) *LambdaDB {
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		return ldb

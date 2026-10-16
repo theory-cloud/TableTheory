@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 
 	"github.com/theory-cloud/tabletheory/v5"
+	"github.com/theory-cloud/tabletheory/v5/pkg/core"
 )
 
 // Payment model
@@ -97,22 +98,25 @@ func handler(ctx context.Context, event Event) (Response, error) {
 		return Response{Success: false, Error: fmt.Sprintf("invalid partner: %v", err)}, nil
 	}
 
-	// Apply Lambda timeout handling
-	partnerDB = partnerDB.WithLambdaTimeout(ctx)
+	// Apply Lambda timeout handling. WithLambdaTimeout returns core.DB so that
+	// *LambdaDB satisfies core.ExtendedDB; the derived handle is typed as
+	// core.DB. Use core.ExtendedDB when schema or transaction methods are
+	// needed.
+	var invocationDB core.DB = partnerDB.WithLambdaTimeout(ctx)
 
 	// Route based on action
 	switch event.Action {
 	case "getPayment":
-		return handleGetPayment(partnerDB, event.Data)
+		return handleGetPayment(invocationDB, event.Data)
 	case "createPayment":
-		return handleCreatePayment(partnerDB, event.Data)
+		return handleCreatePayment(invocationDB, event.Data)
 	default:
 		return Response{Success: false, Error: "unknown action"}, nil
 	}
 }
 
 // Get payment by ID
-func handleGetPayment(db *tabletheory.LambdaDB, data map[string]any) (Response, error) {
+func handleGetPayment(db core.DB, data map[string]any) (Response, error) {
 	paymentID, ok := data["paymentId"].(string)
 	if !ok {
 		return Response{Success: false, Error: "paymentId required"}, nil
@@ -128,7 +132,7 @@ func handleGetPayment(db *tabletheory.LambdaDB, data map[string]any) (Response, 
 }
 
 // Create new payment
-func handleCreatePayment(db *tabletheory.LambdaDB, data map[string]any) (Response, error) {
+func handleCreatePayment(db core.DB, data map[string]any) (Response, error) {
 	amount, _ := data["amount"].(float64)
 	currency, _ := data["currency"].(string)
 
