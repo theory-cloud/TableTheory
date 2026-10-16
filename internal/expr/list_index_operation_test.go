@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/validation"
+	"github.com/theory-cloud/tabletheory/v6/pkg/validation"
 )
 
 func TestParseListIndexOperation(t *testing.T) {

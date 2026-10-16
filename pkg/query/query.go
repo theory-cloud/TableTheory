@@ -9,12 +9,12 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/expr"
-	"github.com/theory-cloud/tabletheory/v5/internal/fieldcodec"
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/marshal"
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	"github.com/theory-cloud/tabletheory/v6/internal/expr"
+	"github.com/theory-cloud/tabletheory/v6/internal/fieldcodec"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/marshal"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
 // Query represents a DynamoDB query builder

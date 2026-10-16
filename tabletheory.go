@@ -2,7 +2,7 @@
 //
 // Import path:
 //
-//	import "github.com/theory-cloud/tabletheory/v5"
+//	import "github.com/theory-cloud/tabletheory/v6"
 //
 // Implementation lives in `internal/theorydb` so the repo root stays minimal.
 package tabletheory
@@ -13,11 +13,11 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	internaltheorydb "github.com/theory-cloud/tabletheory/v5/internal/theorydb"
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
-	"github.com/theory-cloud/tabletheory/v5/pkg/schema"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
-	"github.com/theory-cloud/tabletheory/v5/pkg/typed"
+	internaltheorydb "github.com/theory-cloud/tabletheory/v6/internal/theorydb"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/schema"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6/pkg/typed"
 )
 
 type (
@@ -113,6 +113,12 @@ func AtVersion(version int64) core.TransactCondition {
 func ConditionVersion(version int64) core.TransactCondition {
 	return internaltheorydb.ConditionVersion(version)
 }
+
+// Compile-time assertion: the public LambdaDB handle satisfies core.ExtendedDB.
+// LambdaInit and NewLambdaOptimized return *LambdaDB, and consumers may hold
+// that handle as core.DB or core.ExtendedDB, including a
+// `handle.(core.ExtendedDB)` assertion at Lambda cold start.
+var _ core.ExtendedDB = (*LambdaDB)(nil)
 
 func NewLambdaOptimized() (*LambdaDB, error) {
 	return internaltheorydb.NewLambdaOptimized()

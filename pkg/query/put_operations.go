@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 )
 
 // Create creates a new item and fails if its partition key already exists.

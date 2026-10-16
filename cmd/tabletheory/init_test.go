@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/dms"
+	"github.com/theory-cloud/tabletheory/v6/pkg/dms"
 )
 
 func TestInitScaffoldGo(t *testing.T) {

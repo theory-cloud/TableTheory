@@ -6,8 +6,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
-	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
+	pkgTypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
 func TestQueryExecutor_WriteItemsToDest_COV7(t *testing.T) {

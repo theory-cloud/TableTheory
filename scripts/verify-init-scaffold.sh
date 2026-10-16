@@ -66,12 +66,12 @@ echo "==> scaffolding Go quickstart"
   --lang go \
   --dir "$CURRENT_SCAFFOLD" \
   --module example.com/tabletheory-init-smoke \
-  --runtime-version 4.0.0
+  --runtime-version 6.0.0
 
 echo "==> resolving against the working tree"
 (
   cd "$CURRENT_SCAFFOLD"
-  go mod edit -replace "github.com/theory-cloud/tabletheory/v5=${REPO_ROOT}"
+  go mod edit -replace "github.com/theory-cloud/tabletheory/v6=${REPO_ROOT}"
   go mod tidy
 )
 

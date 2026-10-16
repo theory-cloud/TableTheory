@@ -13,7 +13,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/safeoutput"
+	"github.com/theory-cloud/tabletheory/v6/internal/safeoutput"
 )
 
 //go:embed templates

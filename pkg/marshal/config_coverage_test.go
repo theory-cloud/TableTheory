@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	pkgTypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
 func TestConfig_SetGlobalConfig_RoundTrip(t *testing.T) {

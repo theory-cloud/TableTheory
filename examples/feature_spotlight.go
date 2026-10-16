@@ -8,9 +8,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v5"
-	core "github.com/theory-cloud/tabletheory/v5/pkg/core"
-	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6"
+	core "github.com/theory-cloud/tabletheory/v6/pkg/core"
+	customerrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 )
 
 // Bookmark models a bookmark stored in a single-table design.

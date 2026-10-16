@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 )
 
 func TestBuilderTransactionErrorExposesCauseAndOrderedReasons(t *testing.T) {
