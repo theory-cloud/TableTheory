@@ -13,12 +13,12 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 
-	"github.com/theory-cloud/tabletheory/v5"
-	demomodel "github.com/theory-cloud/tabletheory/v5/examples/cdk-multilang/lambdas/go/demo"
-	"github.com/theory-cloud/tabletheory/v5/pkg/dms"
-	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6"
+	demomodel "github.com/theory-cloud/tabletheory/v6/examples/cdk-multilang/lambdas/go/demo"
+	"github.com/theory-cloud/tabletheory/v6/pkg/dms"
+	customerrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
 
 type request struct {

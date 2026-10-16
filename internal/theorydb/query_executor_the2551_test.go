@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 )
 
 func TestCompiledConditionReferencesVersion_TokenBoundaries_THE2551(t *testing.T) {

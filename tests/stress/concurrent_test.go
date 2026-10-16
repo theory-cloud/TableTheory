@@ -16,11 +16,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5"
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
-	"github.com/theory-cloud/tabletheory/v5/tests"
-	"github.com/theory-cloud/tabletheory/v5/tests/models"
+	"github.com/theory-cloud/tabletheory/v6"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6/tests"
+	"github.com/theory-cloud/tabletheory/v6/tests/models"
 )
 
 // TestConcurrentQueries tests system behavior under heavy concurrent load

@@ -5,10 +5,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	theorydberrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	theorydberrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
 // The empty legacy update must be matchable with errors.Is while its message

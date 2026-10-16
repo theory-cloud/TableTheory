@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/examples/multi-tenant/auth"
+	"github.com/theory-cloud/tabletheory/v6/examples/multi-tenant/auth"
 )
 
 // These tests exercise the entrypoint's own adapter and authorizer code — the

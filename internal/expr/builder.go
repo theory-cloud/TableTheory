@@ -10,9 +10,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/anonymous"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/validation"
+	"github.com/theory-cloud/tabletheory/v6/internal/anonymous"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/validation"
 )
 
 // Reserved words in DynamoDB that need to be escaped

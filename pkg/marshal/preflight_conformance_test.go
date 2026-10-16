@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/marshal"
+	"github.com/theory-cloud/tabletheory/v6/pkg/marshal"
 )
 
 // conformanceTablePath is the one language-neutral table the Go, TypeScript and

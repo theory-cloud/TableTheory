@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/reflectutil"
+	"github.com/theory-cloud/tabletheory/v6/internal/reflectutil"
 )
 
 func TestBuildVisibleFieldPlanRejectsInvalidTypes(t *testing.T) {

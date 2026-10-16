@@ -10,8 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
 var vocabularyGoTagPattern = regexp.MustCompile(`theorydb:"([^"]*)"`)

@@ -11,6 +11,8 @@ TheoryCloud TableTheory subtree. This page is the Go migration guide.
 
 ## Version-specific notices
 
+- [v6 migration](./migration/v6.md) — the Go module path move to
+  `github.com/theory-cloud/tabletheory/v6` and the `LambdaDB.WithLambdaTimeout` return-type break.
 - [v5 migration](./migration/v5.md) — the Go module path move to
   `github.com/theory-cloud/tabletheory/v5` and the v5 breaking changes.
 - [v4 migration](./migration/v4.md) — the Go module path move to
@@ -85,8 +87,8 @@ import (
     "context"
     "log"
 
-    "github.com/theory-cloud/tabletheory/v5"
-    "github.com/theory-cloud/tabletheory/v5/pkg/session"
+    "github.com/theory-cloud/tabletheory/v6"
+    "github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
 
 type User struct {
@@ -126,7 +128,8 @@ func main() {
 Some Lambda consumers previously needed to keep both a raw `*tabletheory.LambdaDB` and a lower-level
 `core.DB`/`ExtendedDB` reference so they could combine Lambda model-cache behavior with a custom timeout buffer.
 
-After upgrading to a TableTheory release that includes `LambdaTimeoutConfig`, keep a single `*tabletheory.LambdaDB`:
+After upgrading to a TableTheory release that includes `LambdaTimeoutConfig`, keep one `*tabletheory.LambdaDB` for the
+cold-start Lambda helpers and derive an invocation-scoped handle per request:
 
 ```go
 var db *tabletheory.LambdaDB
@@ -143,6 +146,9 @@ func init() {
 }
 
 func handler(ctx context.Context) error {
+    // WithLambdaTimeout returns core.DB, so the derived handle cannot be
+    // assigned back to the *tabletheory.LambdaDB variable; hold it as core.DB
+    // (or core.ExtendedDB) instead.
     invocationDB := db.WithLambdaTimeout(ctx)
     var user User
     return invocationDB.Model(&User{}).Where("PK", "=", "USER#1").First(&user)
@@ -151,10 +157,12 @@ func handler(ctx context.Context) error {
 
 Migration checklist:
 
-1. Replace the split raw-`LambdaDB`/`core.DB` holder with one `*tabletheory.LambdaDB`.
+1. Replace the split raw-`LambdaDB`/`core.DB` holder with one `*tabletheory.LambdaDB`, or type the holder as
+   `core.ExtendedDB` and keep a `*tabletheory.LambdaDB` next to it for the cold-start helpers.
 2. Move the custom buffer into cold-start initialization with `WithLambdaTimeoutConfig`.
-3. Keep `WithLambdaTimeout(ctx)` in the handler so every invocation gets its own deadline-derived DB.
-4. Validate against the release candidate before stable promotion; this is an additive migration and should not require a
+3. Keep `WithLambdaTimeout(ctx)` in the handler so every invocation gets its own deadline-derived DB. It returns
+   `core.DB`; `WithLambdaTimeoutConfig` stays a `*LambdaDB` method, so apply the custom buffer before the timeout.
+4. Validate against the release candidate before stable promotion; this migration changes no stored data and needs no
    data migration.
 
 ## Go `MainExecutor` removal

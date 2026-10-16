@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 )
 
 func (q *Query) OrFilter(field string, op string, value any) core.Query {

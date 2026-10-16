@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 
-	"github.com/theory-cloud/tabletheory/v5"
-	payment "github.com/theory-cloud/tabletheory/v5/examples/payment"
-	"github.com/theory-cloud/tabletheory/v5/examples/payment/utils"
-	customerrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6"
+	payment "github.com/theory-cloud/tabletheory/v6/examples/payment"
+	"github.com/theory-cloud/tabletheory/v6/examples/payment/utils"
+	customerrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 )
 
 // QueryRequest represents the query parameters

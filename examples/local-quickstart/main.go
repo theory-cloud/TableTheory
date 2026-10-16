@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v5"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
 
 // Note is the local quickstart model. The theorydb tags are TableTheory's

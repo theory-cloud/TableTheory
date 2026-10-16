@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
 
 // MultiAccountDB manages DynamoDB connections across multiple AWS accounts
@@ -314,7 +314,10 @@ func (mdb *MultiAccountDB) Close() error {
 func (mdb *MultiAccountDB) WithContext(ctx context.Context) *MultiAccountDB {
 	// Create new MultiAccountDB without copying sync.Map
 	newMDB := &MultiAccountDB{
-		baseDB:     mdb.baseDB.WithLambdaTimeout(ctx),
+		// baseDB stays a concrete *LambdaDB because Partner() returns it and
+		// Close() uses it, so chain the concrete-returning helper instead of
+		// the interface-typed WithLambdaTimeout.
+		baseDB:     mdb.baseDB.withLambdaTimeout(ctx),
 		accounts:   mdb.accounts,
 		now:        mdb.now,
 		baseConfig: mdb.baseConfig,

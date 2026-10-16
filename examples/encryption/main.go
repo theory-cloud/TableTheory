@@ -5,8 +5,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/theory-cloud/tabletheory/v5"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
 
 type EncryptedRecord struct {

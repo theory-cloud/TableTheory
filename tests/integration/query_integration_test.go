@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/tests/models"
+	"github.com/theory-cloud/tabletheory/v6/tests/models"
 )
 
 // seedQueryTestData seeds test data for query tests
