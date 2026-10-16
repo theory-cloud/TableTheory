@@ -6,8 +6,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/expr"
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/internal/expr"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 )
 
 type cov6QueryOnlyExecutor struct{}

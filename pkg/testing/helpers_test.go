@@ -7,10 +7,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	theorydberrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v5/pkg/mocks"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
-	theorydbtesting "github.com/theory-cloud/tabletheory/v5/pkg/testing"
+	theorydberrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/mocks"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
+	theorydbtesting "github.com/theory-cloud/tabletheory/v6/pkg/testing"
 )
 
 func TestNewTestDB_CommonSetup(t *testing.T) {

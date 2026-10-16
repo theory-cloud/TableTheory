@@ -6,9 +6,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/model"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
-	pkgTypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
+	pkgTypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
 func TestTransaction_Create_ReturnsMetadataError_COV6(t *testing.T) {

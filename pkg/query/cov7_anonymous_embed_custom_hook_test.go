@@ -7,9 +7,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/internal/expr"
-	"github.com/theory-cloud/tabletheory/v5/pkg/core"
-	pkgtypes "github.com/theory-cloud/tabletheory/v5/pkg/types"
+	"github.com/theory-cloud/tabletheory/v6/internal/expr"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	pkgtypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
 )
 
 type Cov7TaggedSecret struct {

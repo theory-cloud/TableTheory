@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/consistency"
-	theorydbErrors "github.com/theory-cloud/tabletheory/v5/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/consistency"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 )
 
 // TestModel for consistency tests

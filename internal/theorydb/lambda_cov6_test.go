@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
 
 func TestBenchmarkColdStart_CoversSuccessAndErrorPaths_COV6(t *testing.T) {
@@ -202,7 +202,7 @@ func TestLambdaDB_WithLambdaTimeout_SetsHardDeadlineAndEffectiveBuffer_COV6(t *t
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	t.Cleanup(cancel)
 
-	newDB := ldb.WithLambdaTimeout(ctx)
+	newDB := mustLambdaDB(t, ldb.WithLambdaTimeout(ctx))
 	require.NotNil(t, newDB)
 	require.Same(t, ldb.modelCache, newDB.modelCache)
 	require.NotNil(t, newDB.db)
@@ -255,7 +255,7 @@ func TestLambdaDB_WithLambdaTimeoutConfig_PreservesConfiguredBuffer_COV6(t *test
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	t.Cleanup(cancel)
 
-	timed := configured.WithLambdaTimeout(ctx)
+	timed := mustLambdaDB(t, configured.WithLambdaTimeout(ctx))
 	require.NotNil(t, timed)
 	require.Equal(t, ctx, timed.db.ctx)
 	require.Equal(t, 500*time.Millisecond, timed.db.lambdaTimeoutBuffer)
@@ -276,7 +276,7 @@ func TestLambdaDB_WithLambdaTimeoutConfig_AppliesConfiguredBufferOnce_COV6(t *te
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	t.Cleanup(cancel)
 
-	timed := configured.WithLambdaTimeout(ctx)
+	timed := mustLambdaDB(t, configured.WithLambdaTimeout(ctx))
 	require.NotNil(t, timed)
 	require.Equal(t, 500*time.Millisecond, timed.db.lambdaTimeoutBuffer)
 	require.NoError(t, (&queryExecutor{db: timed.db}).checkLambdaTimeout())
@@ -285,7 +285,7 @@ func TestLambdaDB_WithLambdaTimeoutConfig_AppliesConfiguredBufferOnce_COV6(t *te
 	soonCtx, soonCancel := context.WithDeadline(context.Background(), soonDeadline)
 	t.Cleanup(soonCancel)
 
-	soonTimed := configured.WithLambdaTimeout(soonCtx)
+	soonTimed := mustLambdaDB(t, configured.WithLambdaTimeout(soonCtx))
 	require.NotNil(t, soonTimed)
 	require.Error(t, (&queryExecutor{db: soonTimed.db}).checkLambdaTimeout())
 }
@@ -427,7 +427,7 @@ func TestLambdaDB_WithLambdaTimeoutConfig_NonPositiveBufferUsesDefault_COV6(t *t
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	t.Cleanup(cancel)
 
-	timed := configured.WithLambdaTimeout(ctx)
+	timed := mustLambdaDB(t, configured.WithLambdaTimeout(ctx))
 	require.NotNil(t, timed)
 	require.Equal(t, defaultLambdaDBTimeoutBuffer, timed.db.lambdaTimeoutBuffer)
 	require.WithinDuration(t, deadline, timed.db.lambdaDeadline, 25*time.Millisecond)

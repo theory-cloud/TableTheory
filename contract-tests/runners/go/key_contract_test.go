@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory-contract-tests/runners/go/internal/runner"
-	"github.com/theory-cloud/tabletheory/v5/pkg/keycontract"
+	"github.com/theory-cloud/tabletheory/v6/pkg/keycontract"
 )
 
 func TestKeyContract_TheoryMCPFixtures(t *testing.T) {

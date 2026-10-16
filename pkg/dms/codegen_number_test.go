@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5"
-	"github.com/theory-cloud/tabletheory/v5/pkg/dms"
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
-	"github.com/theory-cloud/tabletheory/v5/pkg/testing/fakedb"
+	"github.com/theory-cloud/tabletheory/v6"
+	"github.com/theory-cloud/tabletheory/v6/pkg/dms"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6/pkg/testing/fakedb"
 )
 
 const exactNumberDMSDocument = `

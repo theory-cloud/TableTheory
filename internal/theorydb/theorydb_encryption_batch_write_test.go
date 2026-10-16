@@ -20,7 +20,7 @@ import (
 	kmsTypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
 
 type encryptedBatchRetryModel struct {

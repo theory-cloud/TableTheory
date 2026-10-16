@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/theory-cloud/tabletheory/v5/pkg/lease"
+	"github.com/theory-cloud/tabletheory/v6/pkg/lease"
 )
 
 var leaseContractTableName string
