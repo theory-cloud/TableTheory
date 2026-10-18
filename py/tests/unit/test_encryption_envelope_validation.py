@@ -178,26 +178,39 @@ def test_v2_aad_omits_sort_key_when_absent() -> None:
 
 
 def test_v2_aad_length_prefixes_prevent_delimiter_collisions() -> None:
-    first = build_aad(
-        "secret",
-        RecordBinding(
-            table="T",
-            partition_key={"S": "x|sk=S:y"},
-            sort_key={"S": "z"},
-        ),
+    first_binding = RecordBinding(
+        table="T",
+        partition_key={"S": "x|sk=S:y"},
+        sort_key={"S": "z"},
     )
-    second = build_aad(
-        "secret",
-        RecordBinding(
-            table="T",
-            partition_key={"S": "x"},
-            sort_key={"S": "y|sk=S:z"},
-        ),
+    second_binding = RecordBinding(
+        table="T",
+        partition_key={"S": "x"},
+        sort_key={"S": "y|sk=S:z"},
     )
+    first = build_aad("secret", first_binding)
+    second = build_aad("secret", second_binding)
 
     assert first != second
     assert first == b"theorydb:encrypted:v2|attr=6:secret|table=1:T|pk=10:S:x|sk=S:y|sk=3:S:z"
     assert second == b"theorydb:encrypted:v2|attr=6:secret|table=1:T|pk=3:S:x|sk=10:S:y|sk=S:z"
+
+    kms = _GoodKms()
+    envelope = encrypt_attribute_value(
+        {"S": "payload"},
+        attr_name="secret",
+        kms_key_arn=_KEY_ARN,
+        kms_client=kms,
+        binding=first_binding,
+    )
+    with pytest.raises(InvalidEncryptedEnvelopeError, match="failed to decrypt"):
+        decrypt_attribute_value(
+            envelope,
+            attr_name="secret",
+            kms_key_arn=_KEY_ARN,
+            kms_client=kms,
+            binding=second_binding,
+        )
 
 
 def test_unsupported_key_types_fail_closed() -> None:

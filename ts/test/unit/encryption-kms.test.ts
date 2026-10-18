@@ -66,7 +66,11 @@ class StubKms {
   assert.deepEqual(env.edk, edk);
   assert.deepEqual(env.nonce, nonce);
   assert.ok(env.ct.length > 16);
-  assert.equal(kms.generateContexts.at(-1), undefined, 'v1 unwraps legacy data keys without context');
+  assert.equal(
+    kms.generateContexts.at(-1),
+    undefined,
+    'v1 unwraps legacy data keys without context',
+  );
 
   const roundTrip = await provider.decrypt(env, {
     model: 'T',
@@ -150,6 +154,34 @@ void test('KMS writes v2 envelopes bound to the record identity', async () => {
       provider.decrypt(env, {
         model: 'T',
         attribute: 'secret',
+      }),
+    isInvalidEnvelope,
+  );
+
+  // These two identities produced byte-identical AAD under raw delimiter
+  // concatenation; the length-prefixed v2 format must keep the envelope bound
+  // to the first identity only.
+  const collidingFirst = {
+    table: 'T',
+    partitionKey: { S: 'x|sk=S:y' },
+    sortKey: { S: 'z' },
+  };
+  const collidingSecond = {
+    table: 'T',
+    partitionKey: { S: 'x' },
+    sortKey: { S: 'y|sk=S:z' },
+  };
+  const collidingEnvelope = await provider.encrypt(plaintext, {
+    model: 'T',
+    attribute: 'secret',
+    binding: collidingFirst,
+  });
+  await assert.rejects(
+    () =>
+      provider.decrypt(collidingEnvelope, {
+        model: 'T',
+        attribute: 'secret',
+        binding: collidingSecond,
       }),
     isInvalidEnvelope,
   );
