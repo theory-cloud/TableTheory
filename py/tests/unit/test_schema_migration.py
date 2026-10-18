@@ -227,12 +227,24 @@ class _FakeKms:
         self._dek = b"\x02" * 32
         self._edk = b"deterministic-edk"
 
-    def generate_data_key(self, *, KeyId: str, KeySpec: str) -> dict[str, bytes]:  # noqa: N803
+    def generate_data_key(
+        self,
+        *,
+        KeyId: str,  # noqa: N803
+        KeySpec: str,  # noqa: N803
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ) -> dict[str, bytes]:
         assert KeyId
         assert KeySpec == "AES_256"
         return {"Plaintext": self._dek, "CiphertextBlob": self._edk}
 
-    def decrypt(self, *, CiphertextBlob: bytes, KeyId: str) -> dict[str, bytes]:  # noqa: N803
+    def decrypt(
+        self,
+        *,
+        CiphertextBlob: bytes,  # noqa: N803
+        KeyId: str,  # noqa: N803
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ) -> dict[str, bytes]:
         assert KeyId
         assert CiphertextBlob == self._edk
         return {"Plaintext": self._dek}
@@ -388,6 +400,28 @@ def test_auto_migrate_encrypts_new_target_attribute_with_configured_kms(
                 sort_key={"S": "v1"},
             ),
         )
+
+
+def test_auto_migrate_fails_closed_when_target_item_lacks_key_attributes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sm, "ensure_table", lambda model, *, client: None)
+    item = {"data": {"S": "123-45-6789"}}
+    client = _RecordingClient([{"Items": [item]}])
+
+    with pytest.raises(MigrationEncryptionError, match="missing partition key"):
+        sm.auto_migrate(
+            _real_model(_PlainSource, "plain_src"),
+            target_model=_real_model(_EncryptedTarget, "enc_dst"),
+            client=client,
+            data_copy=True,
+            kms_key_arn="arn:aws:kms:us-east-1:000000000000:key/test",
+            kms_client=_FakeKms(),
+            rand_bytes=lambda size: b"\x07" * size,
+        )
+
+    assert client.batch_write_calls == []
+    assert client.put_items == []
 
 
 def test_auto_migrate_rejects_encrypted_rename_without_reencryption(

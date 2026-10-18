@@ -168,26 +168,47 @@ def _binding_from_item(
     item: Mapping[str, Any],
     target_model: ModelDefinition[Any],
     target_table: str,
-) -> RecordBinding | None:
-    """Build the v2 envelope binding from the target record's key attributes."""
+) -> RecordBinding:
+    """Build the v2 envelope binding from the target record's key attributes.
+
+    A target item that lacks its key attributes cannot be bound to a record.
+    Fail closed with the same error class as Go/TS instead of silently writing
+    an unbound v1 envelope.
+    """
 
     pk = getattr(target_model, "pk", None)
     pk_name = getattr(pk, "attribute_name", None)
     if not isinstance(pk_name, str):
-        return None
+        raise MigrationEncryptionError(
+            'migration cannot bind encrypted attributes: target model "'
+            + getattr(getattr(target_model, "model_type", None), "__name__", target_table)
+            + '" has no partition key attribute'
+        )
     partition_key = item.get(pk_name)
     if not isinstance(partition_key, dict):
-        return None
+        raise MigrationEncryptionError(
+            'migration cannot bind encrypted attributes: item is missing partition key "'
+            + pk_name
+            + '"'
+        )
 
     sort_key = None
     sk = getattr(target_model, "sk", None)
     if sk is not None:
         sk_name = getattr(sk, "attribute_name", None)
         if not isinstance(sk_name, str):
-            return None
+            raise MigrationEncryptionError(
+                'migration cannot bind encrypted attributes: target model "'
+                + getattr(getattr(target_model, "model_type", None), "__name__", target_table)
+                + '" has no sort key attribute'
+            )
         sort_key = item.get(sk_name)
         if not isinstance(sort_key, dict):
-            return None
+            raise MigrationEncryptionError(
+                'migration cannot bind encrypted attributes: item is missing sort key "'
+                + sk_name
+                + '"'
+            )
 
     from .encryption import RecordBinding
 
