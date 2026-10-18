@@ -276,7 +276,7 @@ func TestBindingValuesEqualFloats(t *testing.T) {
 type bindingEmbeddedActual struct {
 	PK string `theorydb:"pk,attr:PK"`
 	SK string `theorydb:"sk,attr:SK"`
-	*BindingEmbeddedFields
+	BindingEmbeddedFields
 }
 
 type BindingEmbeddedFields struct {
@@ -288,7 +288,7 @@ func TestTransitionBindingReadsPromotedEmbeddedFields(t *testing.T) {
 		Actual: &bindingEmbeddedActual{
 			PK:                    "RELEASE#service-a",
 			SK:                    "ACTUAL",
-			BindingEmbeddedFields: &BindingEmbeddedFields{PinnedReleaseID: "rel_002"},
+			BindingEmbeddedFields: BindingEmbeddedFields{PinnedReleaseID: "rel_002"},
 		},
 		Event: &bindingEvent{
 			PK:        "RELEASE#service-a",
