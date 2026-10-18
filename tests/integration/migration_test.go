@@ -341,6 +341,9 @@ func TestMigrationWithBackup(t *testing.T) {
 		// Create tables
 		testCtx.CreateTableIfNotExists(t, &UserV1{})
 		testCtx.CreateTableIfNotExists(t, &UserV2{})
+		// Backup creation refuses to replace a pre-existing table, so make the
+		// test repeatable by removing the previous run's backup first.
+		testCtx.DeleteTable(t, "users_v1_backup")
 
 		// Add test data
 		user := &UserV1{
