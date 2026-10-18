@@ -53,7 +53,7 @@ def test_table_encryption_can_be_deterministic_with_fake_clients() -> None:
         item = req["Item"]
         env = item["secret"]["M"]
 
-        assert env["v"]["N"] == "1"
+        assert env["v"]["N"] == "2"
         assert _as_bytes(env["edk"]["B"]) == edk
         assert _as_bytes(env["nonce"]["B"]) == fixed_nonce
         assert _as_bytes(env["ct"]["B"])

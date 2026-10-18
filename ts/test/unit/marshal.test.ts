@@ -404,3 +404,56 @@ assert.throws(
   const item = unmarshalItem(User, raw);
   assert.equal(item.version, '9007199254740993');
 }
+
+{
+  const legacy = {
+    attribute: 'roles',
+    type: 'S' as const,
+    json: true,
+    jsonStringMode: 'parse' as const,
+  };
+
+  assert.deepEqual(
+    unmarshalScalar(legacy, { S: '["not-admin"]' }),
+    ['not-admin'],
+    'jsonStringMode parse restores the structured runtime type',
+  );
+  const roles = unmarshalScalar(legacy, { S: '["not-admin"]' }) as string[];
+  assert.equal(
+    roles.includes('admin'),
+    false,
+    'exact membership still rejects a lookalike role',
+  );
+  assert.deepEqual(unmarshalScalar(legacy, { S: '{"a":1,"b":2}' }), {
+    a: 1,
+    b: 2,
+  });
+  assert.deepEqual(marshalScalar(legacy, { b: 2, a: 1 }), {
+    S: '{"a":1,"b":2}',
+  });
+  assert.deepEqual(marshalScalar(legacy, 'plain'), { S: '"plain"' });
+  assert.throws(() => unmarshalScalar(legacy, { S: '{' }));
+
+  // The DMS read-both rule: parse mode accepts native document values rather
+  // than rejecting them against the declared S storage type.
+  assert.deepEqual(unmarshalScalar(legacy, { M: { a: { N: '1' } } }), {
+    a: '1',
+  });
+  assert.deepEqual(unmarshalScalar(legacy, { L: [{ S: 'x' }] }), ['x']);
+  assert.equal(
+    unmarshalScalar(legacy, { S: '"not-admin"' }),
+    'not-admin',
+    'a scalar is valid JSON; callers validate the shape they need',
+  );
+}
+
+{
+  assert.equal(
+    unmarshalScalar(
+      { attribute: 'payload', type: 'S', json: true },
+      { S: '{"a":1}' },
+    ),
+    '{"a":1}',
+    'the carrier default is unchanged',
+  );
+}

@@ -45,7 +45,7 @@ function isEnvelope(av: AttributeValue | undefined): boolean {
     av !== undefined &&
     'M' in av &&
     av.M !== undefined &&
-    av.M.v?.N === '1' &&
+    (av.M.v?.N === '1' || av.M.v?.N === '2') &&
     av.M.edk?.B !== undefined &&
     av.M.edk.B.length > 0 &&
     av.M.nonce?.B !== undefined &&
@@ -233,9 +233,13 @@ void test('S2: migration encrypts plaintext into a target encrypted attribute', 
     async encrypt(plaintext, ctx) {
       assert.equal(ctx.model, 'EncryptedTarget');
       assert.equal(ctx.attribute, 'secret');
+      assert.deepEqual(ctx.binding, {
+        table: 'migration_target',
+        partitionKey: { S: 'USER#1' },
+      });
       assert.deepEqual(decodeEncryptedPayload(plaintext), { S: 'top-secret' });
       return {
-        v: 1,
+        v: 2,
         edk: new Uint8Array([1, 2, 3]),
         nonce: new Uint8Array([4, 5, 6]),
         ct: new Uint8Array([9, 9, 9]),
@@ -265,6 +269,9 @@ void test('S2: migration encrypts plaintext into a target encrypted attribute', 
   const written = writeItemFor(ddb, 'migration_target');
   assert.ok(written);
   assert.ok(isEnvelope(written.secret));
+  const writtenSecret = written.secret;
+  assert.ok(writtenSecret && 'M' in writtenSecret);
+  assert.equal(writtenSecret.M?.v?.N, '2');
   assert.equal(JSON.stringify(written).includes('top-secret'), false);
 });
 

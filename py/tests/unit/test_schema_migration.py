@@ -6,8 +6,13 @@ from typing import Any, cast
 import pytest
 
 import tabletheory_py.schema_migration as sm
-from tabletheory_py import MigrationEncryptionError, ModelDefinition, theorydb_field
-from tabletheory_py.encryption import decrypt_attribute_value
+from tabletheory_py import (
+    MigrationEncryptionError,
+    ModelDefinition,
+    ValidationError,
+    theorydb_field,
+)
+from tabletheory_py.encryption import RecordBinding, decrypt_attribute_value
 
 
 def _item() -> dict[str, object]:
@@ -222,12 +227,24 @@ class _FakeKms:
         self._dek = b"\x02" * 32
         self._edk = b"deterministic-edk"
 
-    def generate_data_key(self, *, KeyId: str, KeySpec: str) -> dict[str, bytes]:  # noqa: N803
+    def generate_data_key(
+        self,
+        *,
+        KeyId: str,  # noqa: N803
+        KeySpec: str,  # noqa: N803
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ) -> dict[str, bytes]:
         assert KeyId
         assert KeySpec == "AES_256"
         return {"Plaintext": self._dek, "CiphertextBlob": self._edk}
 
-    def decrypt(self, *, CiphertextBlob: bytes, KeyId: str) -> dict[str, bytes]:  # noqa: N803
+    def decrypt(
+        self,
+        *,
+        CiphertextBlob: bytes,  # noqa: N803
+        KeyId: str,  # noqa: N803
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ) -> dict[str, bytes]:
         assert KeyId
         assert CiphertextBlob == self._edk
         return {"Plaintext": self._dek}
@@ -323,7 +340,7 @@ def test_auto_migrate_encrypts_new_target_attribute_with_configured_kms(
     monkeypatch.setattr(sm, "ensure_table", lambda model, *, client: None)
     kms = _FakeKms()
     key_arn = "arn:aws:kms:us-east-1:000000000000:key/test"
-    item = {"PK": {"S": "USER#1"}, "SK": {"S": "v1"}, "data": {"S": "123-45-6789"}}
+    item = {"pk": {"S": "USER#1"}, "sk": {"S": "v1"}, "data": {"S": "123-45-6789"}}
     client = _RecordingClient([{"Items": [item]}])
 
     sm.auto_migrate(
@@ -339,14 +356,19 @@ def test_auto_migrate_encrypts_new_target_attribute_with_configured_kms(
     written = _batched_items(client)
     assert len(written) == 1
     stored = written[0]
-    assert stored["PK"] == {"S": "USER#1"}
-    assert stored["SK"] == {"S": "v1"}
+    assert stored["pk"] == {"S": "USER#1"}
+    assert stored["sk"] == {"S": "v1"}
     assert "S" not in stored["data"]
     envelope = stored["data"]["M"]
     assert set(envelope.keys()) == {"v", "edk", "nonce", "ct"}
-    assert envelope["v"] == {"N": "1"}
+    assert envelope["v"] == {"N": "2"}
     assert client.put_items == []
 
+    binding = RecordBinding(
+        table="enc_dst",
+        partition_key={"S": "USER#1"},
+        sort_key={"S": "v1"},
+    )
     decrypted = decrypt_attribute_value(
         {
             "v": int(envelope["v"]["N"]),
@@ -357,8 +379,49 @@ def test_auto_migrate_encrypts_new_target_attribute_with_configured_kms(
         attr_name="data",
         kms_key_arn=key_arn,
         kms_client=kms,
+        binding=binding,
     )
     assert decrypted == {"S": "123-45-6789"}
+
+    with pytest.raises(ValidationError, match="failed to decrypt"):
+        decrypt_attribute_value(
+            {
+                "v": int(envelope["v"]["N"]),
+                "edk": envelope["edk"]["B"],
+                "nonce": envelope["nonce"]["B"],
+                "ct": envelope["ct"]["B"],
+            },
+            attr_name="data",
+            kms_key_arn=key_arn,
+            kms_client=kms,
+            binding=RecordBinding(
+                table="enc_dst",
+                partition_key={"S": "USER#2"},
+                sort_key={"S": "v1"},
+            ),
+        )
+
+
+def test_auto_migrate_fails_closed_when_target_item_lacks_key_attributes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sm, "ensure_table", lambda model, *, client: None)
+    item = {"data": {"S": "123-45-6789"}}
+    client = _RecordingClient([{"Items": [item]}])
+
+    with pytest.raises(MigrationEncryptionError, match="missing partition key"):
+        sm.auto_migrate(
+            _real_model(_PlainSource, "plain_src"),
+            target_model=_real_model(_EncryptedTarget, "enc_dst"),
+            client=client,
+            data_copy=True,
+            kms_key_arn="arn:aws:kms:us-east-1:000000000000:key/test",
+            kms_client=_FakeKms(),
+            rand_bytes=lambda size: b"\x07" * size,
+        )
+
+    assert client.batch_write_calls == []
+    assert client.put_items == []
 
 
 def test_auto_migrate_rejects_encrypted_rename_without_reencryption(

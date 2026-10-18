@@ -50,6 +50,13 @@ export type TransactModelUpdate = {
   conditionExpression?: string;
   expressionAttributeNames?: Record<string, string>;
   expressionAttributeValues?: Record<string, AttributeValue>;
+  /**
+   * When set, the update atomically increments the model's version attribute
+   * and conditions the write on this expected version, composed with any
+   * caller-supplied condition. Omit to keep the historical model-shaped
+   * behavior, which does not advance the version.
+   */
+  expectedVersion?: number;
   key?: never;
   updateExpression?: never;
   updateFn?: never;

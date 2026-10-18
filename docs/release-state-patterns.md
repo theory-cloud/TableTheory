@@ -126,6 +126,48 @@ Put OUTBOX (separate call, or constructed but never submitted)
 Two separate calls can leave current state without its audit/event record or without the outbox intent that authorizes
 the external side effect.
 
+## Binding event and outbox rows to the transition
+
+Partition identity is checked automatically: an event row whose partition does
+not match the actual row is rejected, and an outbox row is held to the same rule
+when both models name their partition attribute the same way.
+
+A release-state consumer should make the remaining binding explicit. The
+transition helper accepts an optional map from row attribute to a transition
+source:
+
+| Source | Value |
+| --- | --- |
+| `set:<field>` | The value the transition sets on the actual row |
+| `actual:<field>` | The current value from the actual row (key fields on the TS/Python APIs) |
+| `nextVersion` | `expectedVersion + 1`; requires an expected version |
+
+Go:
+
+```go
+TransitionAppendEventInput{
+    Actual:          actual,
+    Event:           event,
+    Outbox:          outbox,
+    Set:             map[string]any{"pinnedReleaseId": "rel_002"},
+    ExpectedVersion: &expected,
+    EventBinding:    map[string]string{"releaseId": "set:pinnedReleaseId", "version": "nextVersion"},
+    OutboxBinding:   map[string]string{"releaseId": "set:pinnedReleaseId"},
+}
+```
+
+TypeScript uses `eventBinding` / `outboxBinding`; Python uses `event_binding` /
+`outbox_binding`. A bound attribute that is missing from the row, or that
+disagrees with the transition, is rejected before anything is submitted. Each
+entry is enforced exactly when it is named: a partial map checks only the
+attributes it declares, and an empty map declares nothing. The always-on
+partition check still runs regardless of the map. Numeric identity comparisons
+do not coerce strings, so a stored `"007"` cannot satisfy `nextVersion=7`.
+
+Omitting the maps preserves the previous behavior, so existing callers keep
+working; consumers that need a release-identity or version guarantee should
+declare the binding.
+
 ## External side effects are not DynamoDB-atomic
 
 External systems such as Lambda aliases, CodePipeline executions, container image promotions, or DNS updates cannot be

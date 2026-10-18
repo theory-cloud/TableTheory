@@ -35,6 +35,7 @@ func encryptedAttributeNameSet(metadata *model.Metadata) map[string]struct{} {
 func EncryptUpdateExpressionValues(
 	ctx context.Context,
 	svc *Service,
+	binding RecordBinding,
 	metadata *model.Metadata,
 	updateExpression string,
 	exprAttrNames map[string]string,
@@ -51,7 +52,7 @@ func EncryptUpdateExpressionValues(
 
 	sections := splitUpdateExpressionSections(updateExpression)
 
-	if err := encryptSetUpdateExpressionSection(ctx, svc, encrypted, sections["SET"], exprAttrNames, exprAttrValues); err != nil {
+	if err := encryptSetUpdateExpressionSection(ctx, svc, binding, encrypted, sections["SET"], exprAttrNames, exprAttrValues); err != nil {
 		return err
 	}
 
@@ -61,6 +62,7 @@ func EncryptUpdateExpressionValues(
 func encryptSetUpdateExpressionSection(
 	ctx context.Context,
 	svc *Service,
+	binding RecordBinding,
 	encrypted map[string]struct{},
 	setExpr string,
 	exprAttrNames map[string]string,
@@ -73,7 +75,7 @@ func encryptSetUpdateExpressionSection(
 
 	assignments := splitTopLevelCommaSeparated(setExpr)
 	for _, assignment := range assignments {
-		if err := encryptSetAssignment(ctx, svc, encrypted, assignment, exprAttrNames, exprAttrValues); err != nil {
+		if err := encryptSetAssignment(ctx, svc, binding, encrypted, assignment, exprAttrNames, exprAttrValues); err != nil {
 			return err
 		}
 	}
@@ -84,6 +86,7 @@ func encryptSetUpdateExpressionSection(
 func encryptSetAssignment(
 	ctx context.Context,
 	svc *Service,
+	binding RecordBinding,
 	encrypted map[string]struct{},
 	assignment string,
 	exprAttrNames map[string]string,
@@ -114,11 +117,11 @@ func encryptSetAssignment(
 		if !ok {
 			return fmt.Errorf("unsupported if_not_exists expression for encrypted field %s", attrName)
 		}
-		return encryptValueRef(ctx, svc, attrName, valueRef, exprAttrValues)
+		return encryptValueRef(ctx, svc, binding, attrName, valueRef, exprAttrValues)
 	}
 
 	if isValuePlaceholder(rhs) {
-		return encryptValueRef(ctx, svc, attrName, rhs, exprAttrValues)
+		return encryptValueRef(ctx, svc, binding, attrName, rhs, exprAttrValues)
 	}
 
 	return fmt.Errorf("unsupported update expression for encrypted field %s", attrName)
@@ -155,12 +158,12 @@ func rejectEncryptedAddDeleteUpdateExpressionSections(
 	return nil
 }
 
-func encryptValueRef(ctx context.Context, svc *Service, attrName, valueRef string, values map[string]types.AttributeValue) error {
+func encryptValueRef(ctx context.Context, svc *Service, binding RecordBinding, attrName, valueRef string, values map[string]types.AttributeValue) error {
 	plaintext, ok := values[valueRef]
 	if !ok {
 		return fmt.Errorf("missing expression attribute value %s for encrypted field %s", valueRef, attrName)
 	}
-	encrypted, err := svc.EncryptAttributeValue(ctx, attrName, plaintext)
+	encrypted, err := svc.EncryptAttributeValueWithBinding(ctx, binding, attrName, plaintext)
 	if err != nil {
 		return err
 	}

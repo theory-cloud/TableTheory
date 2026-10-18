@@ -37,11 +37,15 @@ bench:
 # Build Lambda functions
 build:
 	@echo "Building Lambda functions..."
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap handlers/posts.go
+	rm -f posts.zip comments.zip authorizer.zip bootstrap
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap ./cmd/posts
 	zip posts.zip bootstrap
 	rm bootstrap
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap handlers/comments.go
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap ./cmd/comments
 	zip comments.zip bootstrap
+	rm bootstrap
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap ./authorizer
+	zip authorizer.zip bootstrap
 	rm bootstrap
 
 # Deploy to AWS using SAM

@@ -103,7 +103,7 @@ func TestAutoMigrateWithOptionsEncryptsIntoEncryptedTarget(t *testing.T) {
 	require.True(t, ok, "migrated encrypted attribute must be an envelope map, got %T", items[0]["secret"])
 	version, ok := envelope.Value["v"].(*types.AttributeValueMemberN)
 	require.True(t, ok, "envelope version must be N, got %T", envelope.Value["v"])
-	assert.Equal(t, "1", version.Value)
+	assert.Equal(t, "2", version.Value, "migration writes record-bound envelopes")
 	for _, field := range []string{"edk", "nonce", "ct"} {
 		payload, ok := envelope.Value[field].(*types.AttributeValueMemberB)
 		require.True(t, ok, "envelope field %s must be B, got %T", field, envelope.Value[field])

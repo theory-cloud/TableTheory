@@ -47,6 +47,15 @@ type TransitionAppendEventInput struct {
 	// may be Go field names or DynamoDB attribute names accepted by
 	// core.UpdateBuilder.
 	Set map[string]any
+	// EventBinding declares which event-history fields must equal a value from
+	// the authorizing transition. Keys are event attribute names; values are one
+	// of "set:<field>", "actual:<field>", or "nextVersion". A bound field that is
+	// missing from the event row, or that disagrees with the transition, is
+	// rejected before anything is submitted.
+	EventBinding map[string]string
+	// OutboxBinding is the same contract for the outbox row. Outbox rows also
+	// inherit the generic same-name partition-key binding.
+	OutboxBinding map[string]string
 	// ExpectedVersion, when non-nil, adds an optimistic-lock condition against
 	// the model's theorydb:"version" field before incrementing it.
 	ExpectedVersion *int64
@@ -91,7 +100,11 @@ func validateTransitionInput(input TransitionAppendEventInput) error {
 		return err
 	}
 
-	return validateEventBindsToActual(input.Actual, input.Event)
+	if err := validateEventBindsToActual(input.Actual, input.Event); err != nil {
+		return err
+	}
+
+	return validateEventAndOutboxBindings(input)
 }
 
 // validateTransitionVersionField rejects a version field that would condition

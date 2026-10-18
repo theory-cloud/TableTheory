@@ -74,6 +74,7 @@ from tabletheory_py import (
     validate_deploy_authority_metadata,
 )
 
+
 @dataclass(frozen=True)
 class _StructuredProfile:
     source: str = ""
@@ -281,13 +282,25 @@ class _DeterministicEncryptionMaterial:
     def data_key(self, edk: bytes) -> bytes:
         return hmac.new(self._master, edk, hashlib.sha256).digest()
 
-    def generate_data_key(self, *, KeyId: str, KeySpec: str) -> dict[str, bytes | str]:
-        del KeyId, KeySpec
+    def generate_data_key(
+        self,
+        *,
+        KeyId: str,
+        KeySpec: str,
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ) -> dict[str, bytes | str]:
+        del KeyId, KeySpec, EncryptionContext
         edk = self.next_bytes(f"edk|{self._model}|{self._attribute}", 32)
         return {"Plaintext": self.data_key(edk), "CiphertextBlob": edk}
 
-    def decrypt(self, *, CiphertextBlob: bytes, KeyId: str | None = None) -> dict[str, bytes]:
-        del KeyId
+    def decrypt(
+        self,
+        *,
+        CiphertextBlob: bytes,
+        KeyId: str | None = None,
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ) -> dict[str, bytes]:
+        del KeyId, EncryptionContext
         return {"Plaintext": self.data_key(bytes(CiphertextBlob))}
 
     def rand_bytes(self, n: int) -> bytes:

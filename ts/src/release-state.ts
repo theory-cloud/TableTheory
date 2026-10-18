@@ -50,6 +50,19 @@ export interface ReleaseStateTransitionInput {
   outboxItem?: Record<string, unknown>;
   expectedVersion?: number;
   versionAttribute?: string;
+  /**
+   * Declares which event-history attributes must equal a value from the
+   * authorizing transition. Keys are event attribute names; values are one of
+   * `set:<field>`, `actual:<field>`, or `nextVersion`. A bound attribute that is
+   * missing from the event row, or that disagrees with the transition, is
+   * rejected before anything is submitted.
+   */
+  eventBinding?: Record<string, string>;
+  /**
+   * The same contract for the outbox row. Outbox rows also inherit the generic
+   * same-name partition-key binding.
+   */
+  outboxBinding?: Record<string, string>;
 }
 
 /**
@@ -169,6 +182,7 @@ function validateTransitionInput(
   }
 
   validateEventBindsToActual(client, input);
+  validateEventAndOutboxBindings(client, input);
 }
 
 /**
@@ -213,6 +227,171 @@ function sameKeyValue(left: unknown, right: unknown): boolean {
     return left.every((byte, index) => byte === right[index]);
   }
   return false;
+}
+
+const BINDING_SET_PREFIX = 'set:';
+const BINDING_ACTUAL_PREFIX = 'actual:';
+const BINDING_NEXT_VERSION = 'nextVersion';
+
+type BindingKind = 'event' | 'outbox';
+
+/**
+ * Enforces the generically knowable identity checks plus any caller-declared
+ * field bindings, so an event or outbox row can only describe the transition
+ * that authorized it.
+ */
+function validateEventAndOutboxBindings(
+  client: TheorydbClient,
+  input: ReleaseStateTransitionInput,
+): void {
+  validateDeclaredBindings('event', input.eventItem, input.eventBinding, input);
+
+  const hasOutboxBindings =
+    input.outboxBinding !== undefined &&
+    Object.keys(input.outboxBinding).length > 0;
+  if (input.outboxModel === undefined || input.outboxItem === undefined) {
+    if (hasOutboxBindings) {
+      invalidModel('release-state outbox binding requires an outbox row');
+    }
+    return;
+  }
+
+  validateSharedPartition(client, input, input.outboxModel, input.outboxItem);
+  validateDeclaredBindings(
+    'outbox',
+    input.outboxItem,
+    input.outboxBinding,
+    input,
+  );
+}
+
+/**
+ * A shared single-table shape puts the outbox row in the same release
+ * partition as the actual row. When both models name the partition key the
+ * same way, a mismatch cannot describe the same release.
+ */
+function validateSharedPartition(
+  client: TheorydbClient,
+  input: ReleaseStateTransitionInput,
+  outboxModel: string,
+  outboxItem: Record<string, unknown>,
+): void {
+  const actualPartition = client.modelSchema(input.actualModel).keys.partition
+    .attribute;
+  const outboxPartition =
+    client.modelSchema(outboxModel).keys.partition.attribute;
+  if (actualPartition !== outboxPartition) return;
+
+  const actualValue = input.actualKey[actualPartition];
+  const outboxValue = outboxItem[outboxPartition];
+  if (outboxValue === undefined || !sameKeyValue(actualValue, outboxValue)) {
+    invalidModel(
+      `release-state outbox release partition ${outboxPartition} does not match actual row partition ${actualPartition}`,
+    );
+  }
+}
+
+function validateDeclaredBindings(
+  kind: BindingKind,
+  item: Record<string, unknown>,
+  bindings: Record<string, string> | undefined,
+  input: ReleaseStateTransitionInput,
+): void {
+  if (bindings === undefined) return;
+
+  for (const [attribute, source] of Object.entries(bindings)) {
+    const resolved = resolveBindingSource(source, input);
+    if (!resolved.ok) {
+      invalidModel(
+        `release-state ${kind} binding for "${attribute}": ${resolved.reason}`,
+      );
+    }
+    if (!Object.hasOwn(item, attribute)) {
+      invalidModel(
+        `release-state ${kind} row is missing bound attribute "${attribute}"`,
+      );
+    }
+    if (!bindingValuesEqual(resolved.value, item[attribute])) {
+      invalidModel(
+        `release-state ${kind} attribute "${attribute}" does not match its authorizing transition value`,
+      );
+    }
+  }
+}
+
+type ResolvedBinding =
+  { ok: true; value: unknown } | { ok: false; reason: string };
+
+function resolveBindingSource(
+  source: string,
+  input: ReleaseStateTransitionInput,
+): ResolvedBinding {
+  const trimmed = source.trim();
+  if (trimmed === BINDING_NEXT_VERSION) {
+    if (input.expectedVersion === undefined) {
+      return { ok: false, reason: 'nextVersion requires expectedVersion' };
+    }
+    return { ok: true, value: input.expectedVersion + 1 };
+  }
+  if (trimmed.startsWith(BINDING_SET_PREFIX)) {
+    const name = trimmed.slice(BINDING_SET_PREFIX.length).trim();
+    if (!Object.hasOwn(input.set, name)) {
+      return {
+        ok: false,
+        reason: `set field "${name}" is not part of the transition`,
+      };
+    }
+    return { ok: true, value: input.set[name] };
+  }
+  if (trimmed.startsWith(BINDING_ACTUAL_PREFIX)) {
+    const name = trimmed.slice(BINDING_ACTUAL_PREFIX.length).trim();
+    if (!Object.hasOwn(input.actualKey, name)) {
+      return {
+        ok: false,
+        reason: `actual field "${name}" does not exist`,
+      };
+    }
+    return { ok: true, value: input.actualKey[name] };
+  }
+  return { ok: false, reason: `unsupported binding source "${source}"` };
+}
+
+function bindingValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+
+  const leftNumber = numericBindingValue(left);
+  const rightNumber = numericBindingValue(right);
+  if (leftNumber !== undefined && rightNumber !== undefined) {
+    return leftNumber === rightNumber;
+  }
+
+  if (Array.isArray(left) && Array.isArray(right)) {
+    if (left.length !== right.length) return false;
+    return left.every((value, index) =>
+      bindingValuesEqual(value, right[index]),
+    );
+  }
+
+  if (isRecord(left) && isRecord(right)) {
+    const leftKeys = Object.keys(left);
+    if (leftKeys.length !== Object.keys(right).length) return false;
+    return leftKeys.every(
+      (key) =>
+        Object.hasOwn(right, key) && bindingValuesEqual(left[key], right[key]),
+    );
+  }
+
+  return false;
+}
+
+function numericBindingValue(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'bigint') return Number(value);
+  // Numeric string coercion is deliberately not applied: "007" must not
+  // satisfy nextVersion=7, or a string-typed version could erode the binding.
+  return undefined;
 }
 
 /**

@@ -150,6 +150,10 @@ function normalizeAttribute(attr: AttributeSchema): AttributeSchema {
   if (attr.encryption !== undefined && attr.encryption !== null) {
     normalized.encryption = { v: 1 };
   }
+  const jsonStringMode = attr.jsonStringMode ?? attr.json_string_mode;
+  if (jsonStringMode !== undefined) {
+    normalized.jsonStringMode = jsonStringMode;
+  }
   if (attr.format !== undefined && attr.format !== null) {
     normalized.format = attr.format;
   }

@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,23 @@ import (
 
 // ErrDuplicateRequest indicates a duplicate request was detected
 var ErrDuplicateRequest = errors.New("duplicate request")
+
+const (
+	// idempotencyKeyVersionPrefix marks a merchant-scoped stored key so it can
+	// never be mistaken for a legacy raw key.
+	idempotencyKeyVersionPrefix = "v2#"
+	// maxIdempotencyCreateAttempts bounds same-merchant reservation contention.
+	maxIdempotencyCreateAttempts = 3
+)
+
+// scopedIdempotencyKey derives the stored partition key for a merchant. The
+// merchant ID is base64url-encoded without padding so the "#" separators are
+// unambiguous and two merchants can never produce the same stored key, even
+// when one supplies a key crafted to look like another merchant's prefix.
+func scopedIdempotencyKey(merchantID, key string) string {
+	encodedMerchant := base64.RawURLEncoding.EncodeToString([]byte(merchantID))
+	return idempotencyKeyVersionPrefix + encodedMerchant + "#" + key
+}
 
 // IdempotencyMiddleware handles idempotent request processing
 type IdempotencyMiddleware struct {
@@ -53,23 +71,49 @@ func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key str
 		return nil, fmt.Errorf("failed to check idempotency: %w", err)
 	}
 
-	// Create new idempotency record with pending status
+	// Reserve a merchant-scoped key. A key another merchant already reserved is
+	// a different partition and can no longer deny this merchant.
 	record := &payment.IdempotencyRecord{
-		Key:        key,
+		Key:        scopedIdempotencyKey(merchantID, key),
 		MerchantID: merchantID,
 		CreatedAt:  time.Now(),
 		ExpiresAt:  time.Now().Add(m.ttl).Unix(), // Unix timestamp for TTL
 	}
 
-	// Try to create the record (will fail if duplicate)
-	if err := m.db.Model(record).Create(); err != nil {
-		// Check if it's a duplicate key error
-		if isDuplicateError(err) {
-			// Another request is processing, wait and retry
-			time.Sleep(100 * time.Millisecond)
-			return m.Process(ctx, merchantID, key, fn)
+	created := false
+	backoff := 100 * time.Millisecond
+	for attempt := 1; attempt <= maxIdempotencyCreateAttempts; attempt++ {
+		err := m.db.Model(record).Create()
+		if err == nil {
+			created = true
+			break
 		}
-		return nil, fmt.Errorf("failed to create idempotency record: %w", err)
+		if !isDuplicateError(err) {
+			return nil, fmt.Errorf("failed to create idempotency record: %w", err)
+		}
+		if attempt == maxIdempotencyCreateAttempts {
+			break
+		}
+		time.Sleep(backoff)
+		backoff *= 2
+	}
+
+	if !created {
+		// The reservation belongs to a concurrent same-merchant request. Re-read
+		// once: report its response when it has completed, otherwise surface
+		// contention. Never execute the handler twice.
+		existing, err := m.getRecord(ctx, merchantID, key)
+		if err == nil {
+			if existing.Response != "" {
+				var response any
+				if err := json.Unmarshal([]byte(existing.Response), &response); err != nil {
+					return nil, fmt.Errorf("failed to unmarshal cached response: %w", err)
+				}
+				return response, ErrDuplicateRequest
+			}
+			return nil, fmt.Errorf("request is still being processed")
+		}
+		return nil, fmt.Errorf("%w: idempotency reservation contention", ErrDuplicateRequest)
 	}
 
 	// Execute the function
@@ -117,25 +161,32 @@ func (m *IdempotencyMiddleware) getRecord(ctx context.Context, merchantID, key s
 	// Context could be used here for request cancellation in the future
 	_ = ctx
 
-	var record payment.IdempotencyRecord
-	err := m.db.Model(&payment.IdempotencyRecord{}).
-		Where("Key", "=", key).
-		Where("MerchantID", "=", merchantID).
-		First(&record)
+	// Read the merchant-scoped key first, then the legacy raw key so records
+	// written before scoping remain readable. Both reads are filtered by
+	// MerchantID, so one merchant can never read another merchant's row.
+	for _, candidate := range []string{scopedIdempotencyKey(merchantID, key), key} {
+		var record payment.IdempotencyRecord
+		err := m.db.Model(&payment.IdempotencyRecord{}).
+			Where("Key", "=", candidate).
+			Where("MerchantID", "=", merchantID).
+			First(&record)
 
-	if err != nil {
-		if err == customerrors.ErrItemNotFound {
-			return nil, fmt.Errorf("idempotency record not found")
+		if err != nil {
+			if errors.Is(err, customerrors.ErrItemNotFound) || err.Error() == "idempotency record not found" {
+				continue
+			}
+			return nil, fmt.Errorf("failed to get idempotency record: %w", err)
 		}
-		return nil, fmt.Errorf("failed to get idempotency record: %w", err)
+
+		// Check if expired (ExpiresAt is Unix timestamp)
+		if time.Now().Unix() > record.ExpiresAt {
+			return nil, fmt.Errorf("%w: idempotency record expired", customerrors.ErrItemNotFound)
+		}
+
+		return &record, nil
 	}
 
-	// Check if expired (ExpiresAt is Unix timestamp)
-	if time.Now().Unix() > record.ExpiresAt {
-		return nil, customerrors.ErrItemNotFound
-	}
-
-	return &record, nil
+	return nil, fmt.Errorf("%w: idempotency record not found", customerrors.ErrItemNotFound)
 }
 
 // CleanupExpired removes expired idempotency records
