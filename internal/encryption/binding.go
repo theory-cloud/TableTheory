@@ -14,9 +14,9 @@ import (
 // Envelope v2 authenticates this binding in the AES-GCM additional data, so a
 // valid envelope copied onto another record or another table fails to decrypt.
 type RecordBinding struct {
-	Table        string
 	PartitionKey types.AttributeValue
 	SortKey      types.AttributeValue
+	Table        string
 }
 
 // Valid reports whether the binding carries the minimum identity needed to
