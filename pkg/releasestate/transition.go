@@ -138,8 +138,9 @@ func versionFieldName(modelInstance any) (name string, dbName string, found bool
 
 	modelType := value.Type()
 	if cached, ok := versionFields.Load(modelType); ok {
-		resolved := cached.(transitionVersionField)
-		return resolved.name, resolved.dbName, resolved.found
+		if resolved, isField := cached.(transitionVersionField); isField {
+			return resolved.name, resolved.dbName, resolved.found
+		}
 	}
 
 	resolved := resolveVersionField(modelType)

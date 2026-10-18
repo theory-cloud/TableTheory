@@ -344,9 +344,9 @@ type TransitionEmbeddedVersionBlock struct {
 }
 
 type transitionEmbeddedVersionActual struct {
+	PK string `theorydb:"pk"`
+	SK string `theorydb:"sk"`
 	TransitionEmbeddedVersionBlock
-	PK       string `theorydb:"pk"`
-	SK       string `theorydb:"sk"`
 	Revision int64
 }
 
