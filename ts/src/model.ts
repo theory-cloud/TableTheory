@@ -29,6 +29,24 @@ export interface AttributeSchema {
   optional?: boolean;
   omit_empty?: boolean;
   json?: boolean;
+  /**
+   * How a `type: 'S'` JSON attribute is read and written.
+   *
+   * 'carrier' (default) stores and returns raw JSON text, matching DMS v0.2.
+   * 'parse' restores the pre-v3 behavior: writes JSON-encode the value and
+   * reads parse the stored text back into an object, array, or scalar. It also
+   * accepts native DynamoDB values on reads, per the DMS read-both rule. The
+   * parsed value may be any JSON type, so callers that need a particular shape
+   * must validate it: a scalar string is valid JSON and is returned as-is.
+   * Use 'parse' for schemas authored before DMS v0.2 introduced structured
+   * M/L carriers, when authorization code expects the previous runtime type.
+   */
+  jsonStringMode?: 'carrier' | 'parse';
+  /**
+   * DMS spelling of `jsonStringMode`. The DMS loader accepts either key and
+   * normalizes it to `jsonStringMode`.
+   */
+  json_string_mode?: 'carrier' | 'parse';
   binary?: boolean;
   format?: string;
   roles?: readonly string[];
@@ -221,7 +239,11 @@ export function defineModel<const S extends ModelSchema>(
 
   const attributes = new Map<string, AttributeSchema>();
   for (const attr of schema.attributes) {
-    attributes.set(attr.attribute, attr);
+    const jsonStringMode = attr.jsonStringMode ?? attr.json_string_mode;
+    attributes.set(
+      attr.attribute,
+      jsonStringMode === undefined ? attr : { ...attr, jsonStringMode },
+    );
   }
 
   const indexes = new Map<string, IndexSchema>();
@@ -288,6 +310,21 @@ function validateModelSchema(schema: ModelSchema): void {
         'ErrInvalidModel',
         `json attributes must use type S, N, BOOL, NULL, L, or M: ${attr.attribute}`,
       );
+    }
+    const jsonStringMode = attr.jsonStringMode ?? attr.json_string_mode;
+    if (jsonStringMode !== undefined) {
+      if (!attr.json || attr.type !== 'S') {
+        throw new TheorydbError(
+          'ErrInvalidModel',
+          `jsonStringMode requires a json attribute with type S: ${attr.attribute}`,
+        );
+      }
+      if (jsonStringMode !== 'carrier' && jsonStringMode !== 'parse') {
+        throw new TheorydbError(
+          'ErrInvalidModel',
+          `jsonStringMode must be 'carrier' or 'parse': ${attr.attribute}`,
+        );
+      }
     }
     if (attributeNames.has(attr.attribute)) {
       throw new TheorydbError(

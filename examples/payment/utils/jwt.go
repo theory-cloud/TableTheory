@@ -103,8 +103,12 @@ func (v *SimpleJWTValidator) computeSignature(message string) string {
 func (v *SimpleJWTValidator) validateClaims(claims *JWTClaims) error {
 	now := time.Now().Unix()
 
-	// Check expiration
-	if claims.ExpiresAt > 0 && now > claims.ExpiresAt {
+	// Check expiration. A token without an expiration is rejected rather than
+	// treated as non-expiring.
+	if claims.ExpiresAt <= 0 {
+		return errors.New("token missing expiration")
+	}
+	if now > claims.ExpiresAt {
 		return errors.New("token expired")
 	}
 
@@ -118,8 +122,12 @@ func (v *SimpleJWTValidator) validateClaims(claims *JWTClaims) error {
 		return fmt.Errorf("invalid issuer: expected %s, got %s", v.issuer, claims.Issuer)
 	}
 
-	// Check audience
-	if v.audience != "" && len(claims.Audience) > 0 {
+	// Check audience. When the validator is configured with an audience, the
+	// token must carry it; an audience-less token is rejected.
+	if v.audience != "" {
+		if len(claims.Audience) == 0 {
+			return fmt.Errorf("token missing audience: %s required", v.audience)
+		}
 		found := false
 		for _, aud := range claims.Audience {
 			if aud == v.audience {

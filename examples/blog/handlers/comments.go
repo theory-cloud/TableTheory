@@ -26,9 +26,33 @@ type CommentHandler struct {
 	notificationService *services.NotificationService
 }
 
+// publicComment is the comment projection returned by the public list endpoint.
+// It omits commenter email, IP address, and user agent.
+type publicComment struct {
+	CreatedAt  time.Time `json:"created_at"`
+	ID         string    `json:"id"`
+	PostID     string    `json:"post_id"`
+	ParentID   string    `json:"parent_id,omitempty"`
+	AuthorID   string    `json:"author_id,omitempty"`
+	AuthorName string    `json:"author_name"`
+	Content    string    `json:"content"`
+}
+
+func publicCommentOf(comment *models.Comment) *publicComment {
+	return &publicComment{
+		CreatedAt:  comment.CreatedAt,
+		ID:         comment.ID,
+		PostID:     comment.PostID,
+		ParentID:   comment.ParentID,
+		AuthorID:   comment.AuthorID,
+		AuthorName: comment.AuthorName,
+		Content:    comment.Content,
+	}
+}
+
 // commentNode represents a comment with its children
 type commentNode struct {
-	*models.Comment
+	*publicComment
 	Children []*commentNode `json:"children,omitempty"`
 }
 
@@ -117,24 +141,15 @@ func (h *CommentHandler) listComments(ctx context.Context, postID string, reques
 		limit = 50
 	}
 
-	status := request.QueryStringParameters["status"]
-	if status == "" {
-		status = models.CommentStatusApproved // Only show approved by default
-	}
-
-	// Build query
+	// The public list only ever reports approved comments. Moderation views use
+	// the protected routes, so a caller cannot select pending or spam comments
+	// here.
 	query := h.db.Model(&models.Comment{}).
 		Index("gsi-post").
 		Where("PostID", "=", postID).
+		Filter("Status", "=", models.CommentStatusApproved).
 		OrderBy("CreatedAt", "ASC").
 		Limit(limit)
-
-	// Apply status filter for non-admins
-	if !isAdmin(request) {
-		query = query.Filter("Status", "=", models.CommentStatusApproved)
-	} else if status != "all" {
-		query = query.Filter("Status", "=", status)
-	}
 
 	// Execute query
 	var comments []*models.Comment
@@ -143,11 +158,16 @@ func (h *CommentHandler) listComments(ctx context.Context, postID string, reques
 		return errorResponse(http.StatusInternalServerError, "Failed to fetch comments"), nil
 	}
 
-	// Build nested comment structure
-	commentMap := make(map[string]*models.Comment)
-	rootComments := make([]*models.Comment, 0)
-
+	publicComments := make([]*publicComment, 0, len(comments))
 	for _, comment := range comments {
+		publicComments = append(publicComments, publicCommentOf(comment))
+	}
+
+	// Build nested comment structure
+	commentMap := make(map[string]*publicComment)
+	rootComments := make([]*publicComment, 0)
+
+	for _, comment := range publicComments {
 		commentMap[comment.ID] = comment
 		if comment.ParentID == "" {
 			rootComments = append(rootComments, comment)
@@ -156,15 +176,15 @@ func (h *CommentHandler) listComments(ctx context.Context, postID string, reques
 
 	// Build tree structure
 
-	var buildTree func(parent *models.Comment) *commentNode
-	buildTree = func(parent *models.Comment) *commentNode {
+	var buildTree func(parent *publicComment) *commentNode
+	buildTree = func(parent *publicComment) *commentNode {
 		node := &commentNode{
-			Comment:  parent,
-			Children: make([]*commentNode, 0),
+			publicComment: parent,
+			Children:      make([]*commentNode, 0),
 		}
 
 		// Find children
-		for _, comment := range comments {
+		for _, comment := range publicComments {
 			if comment.ParentID == parent.ID {
 				child := buildTree(comment)
 				node.Children = append(node.Children, child)

@@ -27,7 +27,7 @@ steps:
         secret: "swordfish"
       raw_item_contains:
         secret:
-          v: "1"
+          v: "2"
           edk: "XONOrWSZhjrF/MJWtfYCHo3ZYuo06RpuWg58Zzp/0fA="
           nonce: "9XnmH4+kMtNp9ww0"
-          ct: "87D9/CLvoSycrYqbnc14gtwxznqdQGswoY3be4pyvHAOA2H0wiyK6vQ="
+          ct: "87D9/CLvoSycrYqbnc14gtwxznqdQGswoSlClnGvwqYGO2e/U2e/wQk="

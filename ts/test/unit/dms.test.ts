@@ -55,6 +55,39 @@ models:
 
 {
   const raw = `
+dms_version: "0.2"
+namespace: "theorydb.test"
+models:
+  - name: "JsonModeDemo"
+    table: { name: "tbl" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        required: true
+        roles: ["pk"]
+      - attribute: "roles"
+        type: "S"
+        optional: true
+        json: true
+        json_string_mode: "parse"
+`;
+
+  const doc = parseDmsDocument(raw);
+  const schema = getDmsModel(doc, 'JsonModeDemo');
+  const model = defineModel(schema);
+  assert.equal(model.attributes.get('roles')?.jsonStringMode, 'parse');
+  assert.equal(
+    modelToDmsModel(model).attributes.find((attr) => attr.attribute === 'roles')
+      ?.jsonStringMode,
+    'parse',
+  );
+  assert.doesNotThrow(() => assertModelsEquivalent(model, schema));
+}
+
+{
+  const raw = `
 dms_version: "0.1"
 models: []
 `;

@@ -27,7 +27,15 @@ From the repo root:
 - Test: `npm --prefix examples/cdk-multilang run test`
 - Deploy (writes `cdk.outputs.json`): `AWS_PROFILE=... npm --prefix examples/cdk-multilang run deploy -- --profile $AWS_PROFILE --outputs-file cdk.outputs.json`
 
-After deploy, the stack outputs three Function URLs. Use them to `GET`/`PUT` items:
+After deploy, the stack outputs three Function URLs. The URLs require IAM authentication (`AWS_IAM`), so every request must be SigV4-signed with credentials allowed to invoke the function URL:
+
+```bash
+curl --aws-sigv4 "aws:amz:us-east-1:lambda" \
+  --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \
+  "https://<url-id>.lambda-url.us-east-1.on.aws/?pk=...&sk=..."
+```
+
+`scripts/smoke.sh` signs its requests with the exported `AWS_PROFILE` credentials. Endpoints:
 
 - `GET ?pk=...&sk=...`
 - `PUT` with JSON body: `{"pk":"...","sk":"...","value":"...","secret":"..."}`

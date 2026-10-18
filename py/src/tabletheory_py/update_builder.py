@@ -109,6 +109,7 @@ class UpdateBuilder[T]:
             raise ValidationError("no updates provided")
 
         req = self._build_request()
+        binding = self._table._record_binding_from_key(req["Key"])
 
         try:
             resp = self._table._client.update_item(**req)
@@ -118,10 +119,11 @@ class UpdateBuilder[T]:
         attrs = resp.get("Attributes")
         if not attrs:
             return None
-        return self._table._from_item(attrs)
+        return self._table._from_item(attrs, binding=binding)
 
     def _build_request(self) -> dict[str, Any]:
         key = self._table._to_key(self._pk, self._sk)
+        binding = self._table._record_binding_from_key(key)
         assert_mutable_write_policy(self._table._model, "update builder")
 
         names: dict[str, str] = {}
@@ -170,7 +172,11 @@ class UpdateBuilder[T]:
             nonlocal update_counter
             update_counter += 1
             ref = f":u{update_counter}"
-            update_values[ref] = self._table._serialize_attr_value(attr_def, value)
+            update_values[ref] = self._table._serialize_attr_value(
+                attr_def,
+                value,
+                binding=binding,
+            )
             return ref
 
         def raw_value_ref(value: Any) -> str:
@@ -184,7 +190,11 @@ class UpdateBuilder[T]:
             nonlocal condition_counter
             condition_counter += 1
             ref = f":c{condition_counter}"
-            condition_values[ref] = self._table._serialize_attr_value(attr_def, value)
+            condition_values[ref] = self._table._serialize_attr_value(
+                attr_def,
+                value,
+                binding=binding,
+            )
             return ref
 
         def normalize_set(value: Any) -> set[Any]:
@@ -289,6 +299,7 @@ class UpdateBuilder[T]:
             update_values[updated_at_value_ref] = self._table._serialize_attr_value(
                 updated_at_attr,
                 self._table._now(),
+                binding=binding,
             )
             set_parts.insert(0, f"{updated_at_name_ref} = {updated_at_value_ref}")
 

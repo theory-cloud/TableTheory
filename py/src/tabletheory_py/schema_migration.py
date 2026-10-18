@@ -11,13 +11,16 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import boto3
 
 from .errors import MigrationEncryptionError
 from .model import ModelDefinition
 from .schema import create_table, describe_table, ensure_table
+
+if TYPE_CHECKING:
+    from .encryption import RecordBinding
 
 # A raw DynamoDB item (attribute name -> AttributeValue).
 type MigrationItem = dict[str, Any]
@@ -85,11 +88,17 @@ def auto_migrate(
             + "; supply kms_key_arn"
         )
 
-    encrypt: Callable[[Any, str], Any] | None = None
+    encrypt: Callable[[Any, str, Mapping[str, Any]], MigrationItem] | None = None
     if will_copy_data and encryption_configured and needs:
         assert isinstance(kms_key_arn, str) and kms_key_arn != ""
         resolved_kms_client = kms_client if kms_client is not None else boto3.client("kms")
-        encrypt = _make_encrypt(kms_key_arn, resolved_kms_client, rand_bytes)
+        encrypt = _make_encrypt(
+            kms_key_arn,
+            resolved_kms_client,
+            rand_bytes,
+            target_table,
+            target,
+        )
 
     if backup_table:
         _backup_source_table(resolved_client, source_model, backup_table, size, sleep)
@@ -143,7 +152,7 @@ def _is_encrypted_envelope(av: Any) -> bool:
     if not isinstance(inner, dict):
         return False
     version = inner.get("v")
-    if not isinstance(version, dict) or version.get("N") != "1":
+    if not isinstance(version, dict) or version.get("N") not in {"1", "2"}:
         return False
     for field in ("edk", "nonce", "ct"):
         wrapper = inner.get(field)
@@ -155,12 +164,61 @@ def _is_encrypted_envelope(av: Any) -> bool:
     return True
 
 
+def _binding_from_item(
+    item: Mapping[str, Any],
+    target_model: ModelDefinition[Any],
+    target_table: str,
+) -> RecordBinding:
+    """Build the v2 envelope binding from the target record's key attributes.
+
+    A target item that lacks its key attributes cannot be bound to a record.
+    Fail closed with the same error class as Go/TS instead of silently writing
+    an unbound v1 envelope.
+    """
+
+    pk = getattr(target_model, "pk", None)
+    pk_name = getattr(pk, "attribute_name", None)
+    if not isinstance(pk_name, str):
+        raise MigrationEncryptionError(
+            'migration cannot bind encrypted attributes: target model "'
+            + getattr(getattr(target_model, "model_type", None), "__name__", target_table)
+            + '" has no partition key attribute'
+        )
+    partition_key = item.get(pk_name)
+    if not isinstance(partition_key, dict):
+        raise MigrationEncryptionError(
+            'migration cannot bind encrypted attributes: item is missing partition key "' + pk_name + '"'
+        )
+
+    sort_key = None
+    sk = getattr(target_model, "sk", None)
+    if sk is not None:
+        sk_name = getattr(sk, "attribute_name", None)
+        if not isinstance(sk_name, str):
+            raise MigrationEncryptionError(
+                'migration cannot bind encrypted attributes: target model "'
+                + getattr(getattr(target_model, "model_type", None), "__name__", target_table)
+                + '" has no sort key attribute'
+            )
+        sort_key = item.get(sk_name)
+        if not isinstance(sort_key, dict):
+            raise MigrationEncryptionError(
+                'migration cannot bind encrypted attributes: item is missing sort key "' + sk_name + '"'
+            )
+
+    from .encryption import RecordBinding
+
+    return RecordBinding(table=target_table, partition_key=partition_key, sort_key=sort_key)
+
+
 def _make_encrypt(
     kms_key_arn: str,
     kms_client: Any,
     rand_bytes: Callable[[int], bytes] | None,
-) -> Callable[[Any, str], MigrationItem]:
-    def encrypt(av: Any, name: str) -> MigrationItem:
+    target_table: str,
+    target_model: ModelDefinition[Any],
+) -> Callable[[Any, str, Mapping[str, Any]], MigrationItem]:
+    def encrypt(av: Any, name: str, item: Mapping[str, Any]) -> MigrationItem:
         from .encryption import encrypt_attribute_value
 
         envelope = encrypt_attribute_value(
@@ -169,10 +227,11 @@ def _make_encrypt(
             kms_key_arn=kms_key_arn,
             kms_client=kms_client,
             rand_bytes=rand_bytes if rand_bytes is not None else os.urandom,
+            binding=_binding_from_item(item, target_model, target_table),
         )
         return {
             "M": {
-                "v": {"N": "1"},
+                "v": {"N": str(envelope["v"])},
                 "edk": {"B": envelope["edk"]},
                 "nonce": {"B": envelope["nonce"]},
                 "ct": {"B": envelope["ct"]},
@@ -187,7 +246,7 @@ def _guard_migration_item(
     src_enc: frozenset[str],
     target_enc: frozenset[str],
     target_model_name: str,
-    encrypt: Callable[[Any, str], Any] | None,
+    encrypt: Callable[[Any, str, Mapping[str, Any]], MigrationItem] | None,
 ) -> MigrationItem:
     for name in sorted(src_enc):
         if name in item and not _is_encrypted_envelope(item[name]):
@@ -220,7 +279,7 @@ def _guard_migration_item(
                 + name
                 + "; supply kms_key_arn"
             )
-        item[name] = encrypt(item[name], name)
+        item[name] = encrypt(item[name], name, item)
     return item
 
 
@@ -248,7 +307,7 @@ def _copy_data(
     src_enc: frozenset[str] = frozenset(),
     target_enc: frozenset[str] = frozenset(),
     target_model_name: str = "",
-    encrypt: Callable[[Any, str], Any] | None = None,
+    encrypt: Callable[[Any, str, Mapping[str, Any]], MigrationItem] | None = None,
 ) -> None:
     start_key: MigrationItem | None = None
     while True:

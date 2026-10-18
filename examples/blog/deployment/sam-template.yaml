@@ -24,6 +24,24 @@ Globals:
         ENABLE_ANALYTICS: "true"
 
 Resources:
+  # REST API. The logical id must not be ServerlessRestApi: SAM's implicit-API
+  # plugin replaces a resource with that exact id by a generated API whenever
+  # function events attach, discarding Auth. Declaring BlogApi explicitly keeps
+  # the authorizer in Auth.Authorizers, where an event's Auth.Authorizer resolves.
+  BlogApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          BlogAuthorizer:
+            FunctionArn: !GetAtt AuthorizerFunction.Arn
+            FunctionPayloadType: REQUEST
+            Identity:
+              Headers:
+                - Authorization
+              ReauthorizeEvery: 300
+
   # DynamoDB Tables
   PostsTable:
     Type: AWS::DynamoDB::Table
@@ -173,16 +191,19 @@ Resources:
         ListPosts:
           Type: Api
           Properties:
+            RestApiId: !Ref BlogApi
             Path: /posts
             Method: GET
         GetPost:
           Type: Api
           Properties:
+            RestApiId: !Ref BlogApi
             Path: /posts/{slug}
             Method: GET
         CreatePost:
           Type: Api
           Properties:
+            RestApiId: !Ref BlogApi
             Path: /posts
             Method: POST
             Auth:
@@ -190,6 +211,7 @@ Resources:
         UpdatePost:
           Type: Api
           Properties:
+            RestApiId: !Ref BlogApi
             Path: /posts/{id}
             Method: PUT
             Auth:
@@ -197,6 +219,7 @@ Resources:
         DeletePost:
           Type: Api
           Properties:
+            RestApiId: !Ref BlogApi
             Path: /posts/{id}
             Method: DELETE
             Auth:
@@ -217,16 +240,19 @@ Resources:
         ListComments:
           Type: Api
           Properties:
+            RestApiId: !Ref BlogApi
             Path: /posts/{postId}/comments
             Method: GET
         CreateComment:
           Type: Api
           Properties:
+            RestApiId: !Ref BlogApi
             Path: /posts/{postId}/comments
             Method: POST
         ModerateComment:
           Type: Api
           Properties:
+            RestApiId: !Ref BlogApi
             Path: /comments/{commentId}/moderate
             Method: PUT
             Auth:
@@ -234,20 +260,15 @@ Resources:
         DeleteComment:
           Type: Api
           Properties:
+            RestApiId: !Ref BlogApi
             Path: /comments/{commentId}
             Method: DELETE
             Auth:
               Authorizer: BlogAuthorizer
 
-  # API Gateway Authorizer
-  BlogAuthorizer:
-    Type: AWS::ApiGateway::Authorizer
-    Properties:
-      Name: !Sub "${Environment}-blog-authorizer"
-      Type: TOKEN
-      AuthorizerUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunction.Arn}/invocations"
-      AuthorizerResultTtlInSeconds: 300
-
+  # REQUEST authorizers receive the caller's headers, so the handler reads the
+  # Authorization bearer token from event.headers. SAM generates the invoke
+  # permission from the API's Auth.Authorizers entry.
   AuthorizerFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -264,7 +285,7 @@ Resources:
         HttpVersion: http2
         Origins:
           - Id: BlogAPI
-            DomainName: !Sub "${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com"
+            DomainName: !Sub "${BlogApi}.execute-api.${AWS::Region}.amazonaws.com"
             OriginPath: !Sub "/${Environment}"
             CustomOriginConfig:
               HTTPPort: 443
@@ -329,7 +350,7 @@ Resources:
 Outputs:
   ApiEndpoint:
     Description: API Gateway endpoint URL
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Value: !Sub "https://${BlogApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
   
   CDNDomain:
     Description: CloudFront distribution domain

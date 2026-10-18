@@ -42,6 +42,8 @@ def transition_release_state(
     outbox_table: Table[Any] | None = None,
     expected_version: int | None = None,
     version_field: str = "version",
+    event_binding: Mapping[str, str] | None = None,
+    outbox_binding: Mapping[str, str] | None = None,
 ) -> None:
     """Transactionally update a release-state actual row and append an event.
 
@@ -49,6 +51,11 @@ def transition_release_state(
     when both Table instances share the same local client/table context. When an
     ``outbox_item`` is supplied, its immutable write-once create joins the same
     transaction.
+
+    ``event_binding`` and ``outbox_binding`` map a stored attribute name on the
+    event/outbox row to the part of this transition that authorizes it:
+    ``set:<field>``, ``actual:<key field>``, or ``nextVersion``. Any bound row
+    that disagrees is rejected before the transaction is submitted.
 
     External side effects such as Lambda alias flips or CodePipeline executions
     are intentionally outside this helper's atomicity boundary. Callers should
@@ -67,9 +74,24 @@ def transition_release_state(
     _assert_event_binds_to_actual(actual_table, actual_key, event_table, event_item_map)
 
     outbox_target: Table[Any] | None = None
+    outbox_item_map: dict[str, Any] | None = None
     if outbox_item is not None:
         outbox_target = outbox_table if outbox_table is not None else event_table
         _assert_same_transaction_context(actual_table, outbox_target)
+        outbox_item_map = outbox_target._to_item(outbox_item)
+
+    _assert_event_and_outbox_bindings(
+        actual_table,
+        actual_key,
+        set_values=set_values,
+        expected_version=expected_version,
+        event_model=event_table._model,
+        event_item=event_item_map,
+        event_binding=event_binding,
+        outbox_model=outbox_target._model if outbox_target is not None else None,
+        outbox_item=outbox_item_map,
+        outbox_binding=outbox_binding,
+    )
 
     version_attr = _resolve_attribute(actual_table._model, version_field, role="version")
     updates = _canonical_updates(actual_table._model, set_values)
@@ -108,9 +130,10 @@ def transition_release_state(
         {"Put": put_req},
     ]
     if outbox_target is not None:
+        assert outbox_item_map is not None
         outbox_req: dict[str, Any] = {
             "TableName": outbox_target._table_name,
-            "Item": outbox_target._to_item(outbox_item),
+            "Item": outbox_item_map,
         }
         _apply_create_condition(outbox_target._model, outbox_req)
         transact_items.append({"Put": outbox_req})
@@ -143,6 +166,195 @@ def _assert_event_binds_to_actual(
         raise ValidationError(f"event item is missing partition key: {event_pk.attribute_name}")
     if expected != actual:
         raise ValidationError("release-state event partition does not match the actual row partition")
+
+
+def _assert_event_and_outbox_bindings(
+    actual_table: Table[Any],
+    actual_key: Mapping[str, Any],
+    *,
+    set_values: Mapping[str, Any],
+    expected_version: int | None,
+    event_model: ModelDefinition[Any],
+    event_item: Mapping[str, Any],
+    event_binding: Mapping[str, str] | None,
+    outbox_model: ModelDefinition[Any] | None,
+    outbox_item: Mapping[str, Any] | None,
+    outbox_binding: Mapping[str, str] | None,
+) -> None:
+    """Reject audit rows that disagree with the transition authorizing them."""
+
+    _validate_declared_bindings(
+        "event",
+        event_model,
+        event_item,
+        event_binding,
+        actual_table,
+        actual_key,
+        set_values=set_values,
+        expected_version=expected_version,
+    )
+
+    if outbox_model is None:
+        if outbox_binding:
+            raise ValidationError("outbox binding requires an outbox row")
+        return
+
+    assert outbox_item is not None
+    _assert_outbox_binds_to_actual_partition(actual_table, actual_key, outbox_model, outbox_item)
+    _validate_declared_bindings(
+        "outbox",
+        outbox_model,
+        outbox_item,
+        outbox_binding,
+        actual_table,
+        actual_key,
+        set_values=set_values,
+        expected_version=expected_version,
+    )
+
+
+def _assert_outbox_binds_to_actual_partition(
+    actual_table: Table[Any],
+    actual_key: Mapping[str, Any],
+    outbox_model: ModelDefinition[Any],
+    outbox_item: Mapping[str, Any],
+) -> None:
+    """Reject an outbox row that shares the actual model's partition attribute
+    but names a different partition. Differently-keyed outbox models are a
+    legitimate shape and are left alone."""
+
+    actual_pk = actual_table._model.pk
+    outbox_pk = outbox_model.pk
+    if actual_pk.attribute_name != outbox_pk.attribute_name:
+        return
+
+    expected = actual_table._serialize_attr_value(actual_pk, _key_value(actual_pk, actual_key))
+    actual = outbox_item.get(outbox_pk.attribute_name)
+    if actual is None:
+        raise ValidationError(f"outbox item is missing partition key: {outbox_pk.attribute_name}")
+    if expected != actual:
+        raise ValidationError("release-state outbox partition does not match the actual row partition")
+
+
+def _validate_declared_bindings(
+    label: str,
+    model: ModelDefinition[Any],
+    item: Mapping[str, Any],
+    bindings: Mapping[str, str] | None,
+    actual_table: Table[Any],
+    actual_key: Mapping[str, Any],
+    *,
+    set_values: Mapping[str, Any],
+    expected_version: int | None,
+) -> None:
+    if not bindings:
+        return
+
+    for attribute, source in bindings.items():
+        attribute_name = str(attribute)
+        expected = _resolve_binding_source(
+            str(source),
+            label=label,
+            attribute=attribute_name,
+            actual_table=actual_table,
+            actual_key=actual_key,
+            set_values=set_values,
+            expected_version=expected_version,
+        )
+        if attribute_name not in item:
+            raise ValidationError(f"{label} row is missing bound attribute: {attribute_name}")
+        if not _binding_values_equal(expected, item[attribute_name]):
+            raise ValidationError(
+                f'{label} attribute "{attribute_name}" does not match its authorizing transition value'
+            )
+
+
+def _resolve_binding_source(
+    source: str,
+    *,
+    label: str,
+    attribute: str,
+    actual_table: Table[Any],
+    actual_key: Mapping[str, Any],
+    set_values: Mapping[str, Any],
+    expected_version: int | None,
+) -> Any:
+    text = source.strip()
+    if text == "nextVersion":
+        if expected_version is None:
+            raise ValidationError(f'{label} binding for "{attribute}": nextVersion requires expected_version')
+        return expected_version + 1
+
+    prefix, separator, name = text.partition(":")
+    name = name.strip()
+    if separator and prefix == "set":
+        attr, value = _set_binding_value(actual_table._model, set_values, name)
+        if attr is None:
+            raise ValidationError(
+                f'{label} binding for "{attribute}": set field "{name}" is not part of the transition'
+            )
+        return actual_table._serialize_attr_value(attr, value)
+    if separator and prefix == "actual":
+        attr = _actual_binding_attribute(actual_table._model, name)
+        if attr is None:
+            raise ValidationError(f'{label} binding for "{attribute}": actual field "{name}" does not exist')
+        return actual_table._serialize_attr_value(attr, _key_value(attr, actual_key))
+    raise ValidationError(f'{label} binding for "{attribute}": unsupported binding source "{source}"')
+
+
+def _set_binding_value(
+    model: ModelDefinition[Any],
+    set_values: Mapping[str, Any],
+    wanted: str,
+) -> tuple[AttributeDefinition | None, Any]:
+    by_attribute_name = {attr.attribute_name: attr for attr in model.attributes.values()}
+    for field, value in set_values.items():
+        name = str(field)
+        attr = model.attributes.get(name) or by_attribute_name.get(name)
+        if attr is None:
+            continue
+        if wanted in {attr.python_name, attr.attribute_name}:
+            return attr, value
+    return None, None
+
+
+def _actual_binding_attribute(model: ModelDefinition[Any], wanted: str) -> AttributeDefinition | None:
+    candidates = [model.pk]
+    if model.sk is not None:
+        candidates.append(model.sk)
+    for attr in candidates:
+        if wanted in {attr.python_name, attr.attribute_name}:
+            return attr
+    return None
+
+
+def _binding_values_equal(left: Any, right: Any) -> bool:
+    # Python equates bools with 0/1; Go and TypeScript do not, so a boolean
+    # attribute must never satisfy a numeric binding.
+    if isinstance(left, bool) != isinstance(right, bool):
+        return False
+    if left == right:
+        return True
+    left_number = _numeric_value(left)
+    right_number = _numeric_value(right)
+    return left_number is not None and right_number is not None and left_number == right_number
+
+
+def _numeric_value(value: Any) -> float | None:
+    if isinstance(value, Mapping) and len(value) == 1:
+        kind, inner = next(iter(value.items()))
+        if kind != "N" or isinstance(inner, bool):
+            return None
+        try:
+            return float(inner)
+        except (TypeError, ValueError):
+            return None
+    scalar = value
+    if scalar is None or isinstance(scalar, bool):
+        return None
+    if isinstance(scalar, (int, float)):
+        return float(scalar)
+    return None
 
 
 def validate_deploy_authority_metadata(item: Mapping[str, Any]) -> None:

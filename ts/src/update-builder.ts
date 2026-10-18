@@ -11,6 +11,7 @@ import {
   decryptItemAttributes,
   encryptAttributeValue,
   modelHasEncryptedAttributes,
+  recordBindingFromKey,
   type EncryptionProvider,
 } from './encryption.js';
 import {
@@ -344,10 +345,11 @@ export class UpdateBuilder {
 
   async execute(): Promise<Record<string, unknown> | undefined> {
     const built = await this.build();
+    const key = marshalKey(this.model, this.key);
 
     const cmd = new UpdateItemCommand({
       TableName: this.model.tableName,
-      Key: marshalKey(this.model, this.key),
+      Key: key,
       UpdateExpression: built.updateExpression,
       ...(built.conditionExpression
         ? { ConditionExpression: built.conditionExpression }
@@ -364,7 +366,12 @@ export class UpdateBuilder {
         ? this.encryption!
         : undefined;
       const attrs = provider
-        ? await decryptItemAttributes(this.model, resp.Attributes, provider)
+        ? await decryptItemAttributes(
+            this.model,
+            resp.Attributes,
+            provider,
+            recordBindingFromKey(this.model, key),
+          )
         : resp.Attributes;
       return unmarshalItem(this.model, attrs, this.unmarshalOptions);
     } catch (err) {
@@ -402,6 +409,10 @@ export class UpdateBuilder {
     const removeParts: string[] = [];
     const addParts: string[] = [];
     const deleteParts: string[] = [];
+    const binding = recordBindingFromKey(
+      this.model,
+      marshalKey(this.model, this.key),
+    );
 
     const nameRef = (
       field: string,
@@ -437,6 +448,7 @@ export class UpdateBuilder {
           ? await encryptAttributeValue(schema, value, this.encryption!, {
               model: this.model.name,
               attribute: field,
+              binding,
             })
           : marshalScalar(schema, value);
       return placeholder;

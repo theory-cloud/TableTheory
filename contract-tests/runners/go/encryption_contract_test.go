@@ -209,7 +209,7 @@ func requireEncryptedEnvelope(t *testing.T, av types.AttributeValue, wantEDK []b
 
 	version, ok := m.Value["v"].(*types.AttributeValueMemberN)
 	require.True(t, ok, "missing v")
-	require.Equal(t, "1", version.Value)
+	require.Equal(t, "2", version.Value, "writes are bound to the record identity")
 
 	edk, ok := m.Value["edk"].(*types.AttributeValueMemberB)
 	require.True(t, ok, "missing edk")

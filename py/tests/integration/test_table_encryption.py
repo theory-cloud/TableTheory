@@ -28,12 +28,24 @@ class _FakeKms:
         self._dek = b"\x02" * 32
         self._edk = b"edk"
 
-    def generate_data_key(self, *, KeyId: str, KeySpec: str):  # noqa: N803
+    def generate_data_key(
+        self,
+        *,
+        KeyId: str,  # noqa: N803
+        KeySpec: str,  # noqa: N803
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ):
         assert KeyId
         assert KeySpec == "AES_256"
         return {"Plaintext": self._dek, "CiphertextBlob": self._edk}
 
-    def decrypt(self, *, CiphertextBlob: bytes, KeyId: str):  # noqa: N803
+    def decrypt(
+        self,
+        *,
+        CiphertextBlob: bytes,  # noqa: N803
+        KeyId: str,  # noqa: N803
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ):
         assert KeyId
         assert CiphertextBlob == self._edk
         return {"Plaintext": self._dek}

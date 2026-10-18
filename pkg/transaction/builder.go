@@ -441,7 +441,11 @@ func (b *Builder) buildFieldUpdate(op transactOperation) (*types.Update, error) 
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		if err := encryption.EncryptUpdateExpressionValues(ctx, svc, op.metadata, components.UpdateExpression, names, values); err != nil {
+		binding, err := encryption.NewRecordBindingFromKey(op.metadata.TableName, op.metadata, key)
+		if err != nil {
+			return nil, fmt.Errorf("cannot bind encrypted update values to the record key: %w", err)
+		}
+		if err := encryption.EncryptUpdateExpressionValues(ctx, svc, binding, op.metadata, components.UpdateExpression, names, values); err != nil {
 			return nil, err
 		}
 	}
@@ -570,7 +574,11 @@ func (b *Builder) buildBuilderUpdate(op transactOperation, index int) (*types.Up
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		if err := encryption.EncryptUpdateExpressionValues(ctx, svc, op.metadata, aws.ToString(update.UpdateExpression), update.ExpressionAttributeNames, update.ExpressionAttributeValues); err != nil {
+		binding, err := encryption.NewRecordBindingFromKey(op.metadata.TableName, op.metadata, capture.key)
+		if err != nil {
+			return nil, fmt.Errorf("cannot bind encrypted update values to the record key: %w", err)
+		}
+		if err := encryption.EncryptUpdateExpressionValues(ctx, svc, binding, op.metadata, aws.ToString(update.UpdateExpression), update.ExpressionAttributeNames, update.ExpressionAttributeValues); err != nil {
 			return nil, err
 		}
 	}

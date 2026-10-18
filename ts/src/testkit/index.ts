@@ -22,7 +22,13 @@ import {
   type UpdateItemCommandOutput,
 } from '@aws-sdk/client-dynamodb';
 
-import type { EncryptedEnvelope, EncryptionProvider } from '../encryption.js';
+import {
+  aadForContext,
+  envelopeVersionForContext,
+  type EncryptedEnvelope,
+  type EncryptionProvider,
+} from '../encryption.js';
+import { TheorydbError } from '../errors.js';
 
 export {
   StatefulDynamoDBFake,
@@ -178,9 +184,6 @@ export function createDeterministicEncryptionProvider(
     return digest.subarray(0, length);
   };
 
-  const aad = (attr: string): Buffer =>
-    Buffer.from(`theorydb:encrypted:v1|attr=${attr}`, 'utf8');
-
   const keyFromEDK = (edk: Uint8Array): Buffer =>
     crypto.createHmac('sha256', master).update(edk).digest();
 
@@ -196,22 +199,29 @@ export function createDeterministicEncryptionProvider(
 
   return {
     async encrypt(plaintext, ctx): Promise<EncryptedEnvelope> {
+      const version = envelopeVersionForContext(ctx);
       const edk = nextBytes(`edk|${ctx.model}|${ctx.attribute}`, 32);
       const key = keyFromEDK(edk);
       const nonce = nextBytes(`nonce|${ctx.model}|${ctx.attribute}`, 12);
 
       const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
-      cipher.setAAD(aad(ctx.attribute));
+      cipher.setAAD(aadForContext(ctx, version));
       const ciphertext = Buffer.concat([
         cipher.update(plaintext),
         cipher.final(),
       ]);
       const tag = cipher.getAuthTag();
 
-      return { v: 1, edk, nonce, ct: Buffer.concat([ciphertext, tag]) };
+      return {
+        v: version,
+        edk,
+        nonce,
+        ct: Buffer.concat([ciphertext, tag]),
+      };
     },
 
     async decrypt(envelope, ctx): Promise<Uint8Array> {
+      const aad = aadForContext(ctx, envelope.v);
       const key = keyFromEDK(envelope.edk);
       const { ciphertext, tag } = parseCiphertext(envelope.ct);
 
@@ -220,9 +230,16 @@ export function createDeterministicEncryptionProvider(
         key,
         envelope.nonce,
       );
-      decipher.setAAD(aad(ctx.attribute));
+      decipher.setAAD(aad);
       decipher.setAuthTag(tag);
-      return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      try {
+        return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      } catch {
+        throw new TheorydbError(
+          'ErrInvalidEncryptedEnvelope',
+          'aes-gcm decrypt failed',
+        );
+      }
     },
   };
 }

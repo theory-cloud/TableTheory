@@ -70,6 +70,61 @@ const ReleaseStateOutbox = defineModel({
   ],
 });
 
+const ReleaseStateBindingActual = defineModel({
+  name: 'ReleaseStateBindingActual',
+  table: { name: 'release_state_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  write_policy: {
+    mode: 'mutable',
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'pinnedReleaseId', type: 'S', optional: true },
+    { attribute: 'status', type: 'S', optional: true },
+    { attribute: 'version', type: 'N', roles: ['version'] },
+  ],
+});
+
+const ReleaseStateBindingEvent = defineModel({
+  name: 'ReleaseStateBindingEvent',
+  table: { name: 'release_state_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  write_policy: {
+    mode: 'write_once',
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'releaseId', type: 'S', optional: true },
+    { attribute: 'eventType', type: 'S', optional: true },
+    { attribute: 'version', type: 'N', optional: true },
+  ],
+});
+
+const ReleaseStateOutboxByRelease = defineModel({
+  name: 'ReleaseStateOutboxByRelease',
+  table: { name: 'release_state_outbox_by_release' },
+  keys: {
+    partition: { attribute: 'ReleasePK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  write_policy: {
+    mode: 'write_once',
+  },
+  attributes: [
+    { attribute: 'ReleasePK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'operation', type: 'S', optional: true },
+  ],
+});
+
 class StubDdb {
   sent: unknown[] = [];
 
@@ -359,4 +414,307 @@ function evidenceOf(
       e instanceof TheorydbError &&
       e.code === 'ErrRejectedDeployAuthorityEvidence',
   );
+}
+
+{
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+    ReleaseStateEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        expectedVersion: 1,
+        set: { status: 'active' },
+        eventModel: 'ReleaseStateEvent',
+        eventItem: {
+          PK: 'RELEASE#service-a',
+          SK: 'EVENT#2',
+          eventType: 'promoted',
+        },
+        versionAttribute: 'otherCounter',
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  // A declared event binding ties the event row to the authorizing transition.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+
+  await transitionReleaseState(client, {
+    actualModel: 'ReleaseStateBindingActual',
+    actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+    set: { pinnedReleaseId: 'rel_002' },
+    eventModel: 'ReleaseStateBindingEvent',
+    eventItem: {
+      PK: 'RELEASE#service-a',
+      SK: 'EVENT#1',
+      releaseId: 'rel_002',
+    },
+    eventBinding: {
+      releaseId: 'set:pinnedReleaseId',
+      PK: 'actual:PK',
+    },
+  });
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  assert.equal(cmd.input.TransactItems?.length, 2);
+}
+
+{
+  // An event that disagrees with the transition value is rejected.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        set: { pinnedReleaseId: 'rel_002' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: {
+          PK: 'RELEASE#service-a',
+          SK: 'EVENT#1',
+          releaseId: 'rel_001',
+        },
+        eventBinding: { releaseId: 'set:pinnedReleaseId' },
+      }),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrInvalidModel' &&
+      e.message.includes('releaseId') &&
+      e.message.includes('event'),
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  // A bound attribute missing from the event row is rejected.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        set: { pinnedReleaseId: 'rel_002' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+        eventBinding: { releaseId: 'set:pinnedReleaseId' },
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  // A declared outbox binding must agree with the transition.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+    ReleaseStateOutbox,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        set: { pinnedReleaseId: 'rel_002' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+        outboxModel: 'ReleaseStateOutbox',
+        outboxItem: {
+          PK: 'RELEASE#service-a',
+          SK: 'OUTBOX#1',
+          operation: 'rel_001',
+        },
+        outboxBinding: { operation: 'set:pinnedReleaseId' },
+      }),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrInvalidModel' &&
+      e.message.includes('operation') &&
+      e.message.includes('outbox'),
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  // Outbox binding without an outbox row is rejected.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        set: { pinnedReleaseId: 'rel_002' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+        outboxBinding: { operation: 'set:pinnedReleaseId' },
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  // Same-name outbox partition keys must identify the same release.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+    ReleaseStateOutbox,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        set: { pinnedReleaseId: 'rel_002' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+        outboxModel: 'ReleaseStateOutbox',
+        outboxItem: { PK: 'RELEASE#service-b', SK: 'OUTBOX#1' },
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  // A differently-keyed outbox model is legitimate and needs no shared PK.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+    ReleaseStateOutboxByRelease,
+  );
+
+  await transitionReleaseState(client, {
+    actualModel: 'ReleaseStateBindingActual',
+    actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+    set: { pinnedReleaseId: 'rel_002' },
+    eventModel: 'ReleaseStateBindingEvent',
+    eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1' },
+    outboxModel: 'ReleaseStateOutboxByRelease',
+    outboxItem: { ReleasePK: 'RELEASE#service-b', SK: 'OUTBOX#1' },
+  });
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  assert.equal(cmd.input.TransactItems?.length, 3);
+}
+
+{
+  // nextVersion binds the event to expectedVersion + 1. Numeric strings are
+  // not coerced: "007" must not satisfy nextVersion=7.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+
+  await transitionReleaseState(client, {
+    actualModel: 'ReleaseStateBindingActual',
+    actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+    expectedVersion: 3,
+    set: { pinnedReleaseId: 'rel_002' },
+    eventModel: 'ReleaseStateBindingEvent',
+    eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1', version: 4 },
+    eventBinding: { version: 'nextVersion' },
+  });
+
+  assert.equal(ddb.sent.length, 1);
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        expectedVersion: 3,
+        set: { pinnedReleaseId: 'rel_002' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1', version: '4' },
+        eventBinding: { version: 'nextVersion' },
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 1);
+}
+
+{
+  // An event version other than expectedVersion + 1 is rejected.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        expectedVersion: 3,
+        set: { pinnedReleaseId: 'rel_002' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1', version: 9 },
+        eventBinding: { version: 'nextVersion' },
+      }),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrInvalidModel' &&
+      e.message.includes('version'),
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  // nextVersion requires an expectedVersion.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        set: { pinnedReleaseId: 'rel_002' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1', version: 1 },
+        eventBinding: { version: 'nextVersion' },
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 0);
 }

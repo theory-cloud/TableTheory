@@ -68,6 +68,14 @@ class ValidationError(TheorydbPyError):
     pass
 
 
+class InvalidEncryptedEnvelopeError(ValidationError):
+    """An encrypted envelope or its record binding is invalid.
+
+    It remains a ValidationError so existing handlers keep matching, mirroring
+    the Go ErrInvalidEncryptedEnvelope class and the TypeScript error code.
+    """
+
+
 class ImmutableModelMutationError(TheorydbPyError):
     pass
 
