@@ -2,11 +2,13 @@ package releasestate
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/naming"
 )
 
 type bindingActual struct {
@@ -427,4 +429,92 @@ type bindingDuplicateAttribute struct {
 func TestDescribeBindingRowRejectsDuplicateAttributeNames(t *testing.T) {
 	_, err := describeBindingRow(&bindingDuplicateAttribute{})
 	require.ErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
+}
+
+type bindingStructuralExcluded struct {
+	PinnedReleaseID string `theorydb:"attr:pinnedReleaseId"`
+}
+
+type bindingStructuralRow struct {
+	_               struct{} `theorydb:"naming:snake_case"`
+	GsiPK           string   `theorydb:"index:gsi1,pk,attr:gsi1pk"`
+	PK              string   `theorydb:"pk,attr:release_id"`
+	SK              string   `theorydb:"sk,attr:sort_id"`
+	PinnedReleaseID string
+	IndexOnly       string                    `theorydb:"index:gsi1,sk"`
+	Excluded        bindingStructuralExcluded `theorydb:"-"`
+}
+
+func TestDescribeBindingRowStructurallyMirrorsRegistryRules(t *testing.T) {
+	metadata, err := describeBindingRowStructurally(reflect.TypeOf(bindingStructuralRow{}))
+	require.NoError(t, err)
+
+	require.Equal(t, "release_id", metadata.partitionAttribute,
+		"a pk token inside an index clause is not the table partition")
+	require.Equal(t, "sort_id", metadata.sortAttribute,
+		"a sk token inside an index clause is not the table sort key")
+
+	pinned, ok := metadata.fieldsByDBName["pinned_release_id"]
+	require.True(t, ok, "attribute names follow the model naming convention, not json tags")
+	require.Equal(t, "PinnedReleaseID", pinned.name)
+
+	_, ok = metadata.fieldsByDBName["pinnedReleaseId"]
+	require.False(t, ok)
+
+	_, ok = metadata.fieldsByDBName["PinnedReleaseID"]
+	require.False(t, ok, "an excluded embedded subtree is not part of the row")
+}
+
+type bindingJSONExcluded struct {
+	Other string
+}
+
+type bindingStructuralJSONRow struct {
+	bindingJSONExcluded `json:"-"`
+	PK                  string `theorydb:"pk,attr:PK"`
+}
+
+func TestDescribeBindingRowStructurallyHonorsJSONExclusion(t *testing.T) {
+	metadata, err := describeBindingRowStructurally(reflect.TypeOf(bindingStructuralJSONRow{}))
+	require.NoError(t, err)
+
+	_, ok := metadata.fieldsByDBName["Other"]
+	require.False(t, ok, "a json \"-\" tagged anonymous embed is not part of the row")
+}
+
+func TestDescribeBindingRowStructurallyRejectsDuplicateNames(t *testing.T) {
+	type duplicate struct {
+		PK   string `theorydb:"pk,attr:PK"`
+		Also string `theorydb:"attr:PK"`
+	}
+
+	_, err := describeBindingRowStructurally(reflect.TypeOf(duplicate{}))
+	require.ErrorIs(t, err, theorydbErrors.ErrDuplicatePrimaryKey)
+}
+
+func TestDetectBindingNamingConvention(t *testing.T) {
+	cases := map[string]struct {
+		model      reflect.Type
+		convention naming.Convention
+	}{
+		"snake": {reflect.TypeOf(struct {
+			_ struct{} `theorydb:"naming:snake_case"`
+		}{}), naming.SnakeCase},
+		"camel": {reflect.TypeOf(struct {
+			_ struct{} `theorydb:"naming:camelCase"`
+		}{}), naming.CamelCase},
+		"pascal": {reflect.TypeOf(struct {
+			_ struct{} `theorydb:"naming:pascal_case"`
+		}{}), naming.PascalCase},
+		"dynamorm": {reflect.TypeOf(struct {
+			_ struct{} `theorydb:"naming:dynamorm"`
+		}{}), naming.DynamORM},
+		"default": {reflect.TypeOf(struct{}{}), naming.CamelCase},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.convention, detectBindingNamingConvention(tc.model))
+		})
+	}
 }
