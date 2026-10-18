@@ -89,7 +89,7 @@ Protected routes (`POST /posts`, `PUT /posts/{id}`, `DELETE /posts/{id}`,
 `PUT /comments/{commentId}/moderate`, `DELETE /comments/{commentId}`) use the
 `BlogAuthorizer` **REQUEST** authorizer. The SAM template declares it in the
 API's `Auth.Authorizers` block with `FunctionPayloadType: REQUEST` and
-`Identity.Header: Authorization` (SAM emits the API Gateway authorizer with
+`Identity.Headers: [Authorization]` (SAM emits the API Gateway authorizer with
 `IdentitySource: method.request.header.Authorization`), so API Gateway passes
 the caller's `Authorization` header to the authorizer function. The authorizer verifies an HS256 bearer token signed with `JWT_SECRET`
 and returns this context:

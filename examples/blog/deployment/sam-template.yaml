@@ -24,10 +24,11 @@ Globals:
         ENABLE_ANALYTICS: "true"
 
 Resources:
-  # REST API. Declaring ServerlessRestApi explicitly lets the template own the
-  # stage and declare the authorizer in the API's Auth.Authorizers block, which
-  # is where a function event's Auth.Authorizer reference must resolve.
-  ServerlessRestApi:
+  # REST API. The logical id must not be ServerlessRestApi: SAM's implicit-API
+  # plugin replaces a resource with that exact id by a generated API whenever
+  # function events attach, discarding Auth. Declaring BlogApi explicitly keeps
+  # the authorizer in Auth.Authorizers, where an event's Auth.Authorizer resolves.
+  BlogApi:
     Type: AWS::Serverless::Api
     Properties:
       StageName: !Ref Environment
@@ -37,7 +38,8 @@ Resources:
             FunctionArn: !GetAtt AuthorizerFunction.Arn
             FunctionPayloadType: REQUEST
             Identity:
-              Header: Authorization
+              Headers:
+                - Authorization
               ReauthorizeEvery: 300
 
   # DynamoDB Tables
@@ -189,19 +191,19 @@ Resources:
         ListPosts:
           Type: Api
           Properties:
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref BlogApi
             Path: /posts
             Method: GET
         GetPost:
           Type: Api
           Properties:
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref BlogApi
             Path: /posts/{slug}
             Method: GET
         CreatePost:
           Type: Api
           Properties:
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref BlogApi
             Path: /posts
             Method: POST
             Auth:
@@ -209,7 +211,7 @@ Resources:
         UpdatePost:
           Type: Api
           Properties:
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref BlogApi
             Path: /posts/{id}
             Method: PUT
             Auth:
@@ -217,7 +219,7 @@ Resources:
         DeletePost:
           Type: Api
           Properties:
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref BlogApi
             Path: /posts/{id}
             Method: DELETE
             Auth:
@@ -238,19 +240,19 @@ Resources:
         ListComments:
           Type: Api
           Properties:
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref BlogApi
             Path: /posts/{postId}/comments
             Method: GET
         CreateComment:
           Type: Api
           Properties:
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref BlogApi
             Path: /posts/{postId}/comments
             Method: POST
         ModerateComment:
           Type: Api
           Properties:
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref BlogApi
             Path: /comments/{commentId}/moderate
             Method: PUT
             Auth:
@@ -258,7 +260,7 @@ Resources:
         DeleteComment:
           Type: Api
           Properties:
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref BlogApi
             Path: /comments/{commentId}
             Method: DELETE
             Auth:
@@ -283,7 +285,7 @@ Resources:
         HttpVersion: http2
         Origins:
           - Id: BlogAPI
-            DomainName: !Sub "${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com"
+            DomainName: !Sub "${BlogApi}.execute-api.${AWS::Region}.amazonaws.com"
             OriginPath: !Sub "/${Environment}"
             CustomOriginConfig:
               HTTPPort: 443
@@ -348,7 +350,7 @@ Resources:
 Outputs:
   ApiEndpoint:
     Description: API Gateway endpoint URL
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Value: !Sub "https://${BlogApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
   
   CDNDomain:
     Description: CloudFront distribution domain

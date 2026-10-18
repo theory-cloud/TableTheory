@@ -79,7 +79,10 @@ func TestDeclaredAuthorizerDeniesTamperedDeliveredREQUESTEvent(t *testing.T) {
 // deployment contract: the handler above decodes a REQUEST event, so the SAM
 // template must declare a REQUEST authorizer with the required wiring. If the
 // template regresses to TOKEN, this test fails before a deploy can hard-deny
-// every protected route.
+// every protected route. It also pins the two keys aws-sam-translator requires:
+// Identity.Headers (a singular Header declares no identity source) and an API
+// logical id other than ServerlessRestApi (the implicit-API plugin would
+// replace it and drop Auth).
 func TestTemplateDeclaresMatchingREQUESTAuthorizer(t *testing.T) {
 	body, err := os.ReadFile("../deployment/sam-template.yaml")
 	require.NoError(t, err)
@@ -88,14 +91,29 @@ func TestTemplateDeclaresMatchingREQUESTAuthorizer(t *testing.T) {
 	root := document.Content[0]
 
 	resources := templateMapping(t, root, "Resources")
-	api := templateMapping(t, resources, "ServerlessRestApi")
+	_, implicitID := templateOptionalMapping(t, resources, "ServerlessRestApi")
+	require.False(t, implicitID, "SAM's implicit-API plugin replaces a ServerlessRestApi resource and drops its Auth block; use an explicit id such as BlogApi")
+
+	api := templateMapping(t, resources, "BlogApi")
 	require.Equal(t, "AWS::Serverless::Api", templateScalar(t, api, "Type"))
 
 	apiProperties := templateMapping(t, api, "Properties")
+	stageName := templateMapping(t, apiProperties, "StageName")
+	require.Equal(t, "!Ref", stageName.Tag)
+	require.Equal(t, "Environment", stageName.Value)
+
 	authorizers := templateMapping(t, templateMapping(t, apiProperties, "Auth"), "Authorizers")
 	authorizer := templateMapping(t, authorizers, "BlogAuthorizer")
 	require.Equal(t, "REQUEST", templateScalar(t, authorizer, "FunctionPayloadType"))
-	require.Equal(t, "Authorization", templateScalar(t, templateMapping(t, authorizer, "Identity"), "Header"))
+
+	identity := templateMapping(t, authorizer, "Identity")
+	require.Equal(t, "300", templateScalar(t, identity, "ReauthorizeEvery"))
+	_, singularHeader := templateOptionalMapping(t, identity, "Header")
+	require.False(t, singularHeader, "SAM only reads Identity.Headers; a singular Header declares no identity source")
+	headers := templateMapping(t, identity, "Headers")
+	require.Equal(t, yaml.SequenceNode, headers.Kind)
+	require.Len(t, headers.Content, 1)
+	require.Equal(t, "Authorization", headers.Content[0].Value)
 
 	functionArn := templateMapping(t, authorizer, "FunctionArn")
 	require.Equal(t, "!GetAtt", functionArn.Tag)
@@ -106,7 +124,8 @@ func TestTemplateDeclaresMatchingREQUESTAuthorizer(t *testing.T) {
 		templateScalar(t, templateMapping(t, authorizerFunction, "Properties"), "CodeUri"),
 	)
 
-	protectedRoutes := 0
+	apiEvents := 0
+	protectedRoutes := map[string]bool{}
 	for i := 0; i+1 < len(resources.Content); i += 2 {
 		resource := resources.Content[i+1]
 		require.NotEqual(t, "AWS::ApiGateway::Authorizer", templateScalar(t, resource, "Type"),
@@ -124,19 +143,27 @@ func TestTemplateDeclaresMatchingREQUESTAuthorizer(t *testing.T) {
 			if templateScalar(t, event, "Type") != "Api" {
 				continue
 			}
+			apiEvents++
 			eventProperties := templateMapping(t, event, "Properties")
 			apiRef := templateMapping(t, eventProperties, "RestApiId")
 			require.Equal(t, "!Ref", apiRef.Tag)
-			require.Equal(t, "ServerlessRestApi", apiRef.Value)
+			require.Equal(t, "BlogApi", apiRef.Value)
 			auth, protected := templateOptionalMapping(t, eventProperties, "Auth")
 			if !protected {
 				continue
 			}
 			require.Equal(t, "BlogAuthorizer", templateScalar(t, auth, "Authorizer"))
-			protectedRoutes++
+			protectedRoutes[templateScalar(t, eventProperties, "Method")+" "+templateScalar(t, eventProperties, "Path")] = true
 		}
 	}
-	require.Equal(t, 5, protectedRoutes, "every protected route must name the declared REQUEST authorizer")
+	require.Equal(t, 9, apiEvents, "every Api event must attach to the explicit API")
+	require.Equal(t, map[string]bool{
+		"POST /posts":                        true,
+		"PUT /posts/{id}":                    true,
+		"DELETE /posts/{id}":                 true,
+		"PUT /comments/{commentId}/moderate": true,
+		"DELETE /comments/{commentId}":       true,
+	}, protectedRoutes, "every protected route must name the declared REQUEST authorizer")
 }
 
 func templateMapping(t *testing.T, node *yaml.Node, key string) *yaml.Node {
