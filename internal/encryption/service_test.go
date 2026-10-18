@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
 type fakeKMS struct {
@@ -332,14 +333,16 @@ func TestEncryptAttributeValueWithBindingRejectsReplay(t *testing.T) {
 		"another table":  bindingOtherTable,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := svc.DecryptAttributeValueWithBinding(context.Background(), binding, "secret", envelope)
-			require.Error(t, err)
+			_, decryptErr := svc.DecryptAttributeValueWithBinding(context.Background(), binding, "secret", envelope)
+			require.Error(t, decryptErr)
 		})
 	}
 
 	plaintext, err := svc.DecryptAttributeValueWithBinding(context.Background(), bindingA, "secret", envelope)
 	require.NoError(t, err)
-	require.Equal(t, "top-secret", plaintext.(*types.AttributeValueMemberS).Value)
+	decrypted, ok := plaintext.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "top-secret", decrypted.Value)
 
 	_, err = svc.DecryptAttributeValue(context.Background(), "secret", envelope)
 	require.Error(t, err, "a v2 envelope must not decrypt without its binding")
@@ -376,9 +379,120 @@ func TestDecryptAttributeValueWithBindingAcceptsLegacyV1Envelopes(t *testing.T) 
 
 	plaintext, err := svc.DecryptAttributeValueWithBinding(context.Background(), binding, "secret", envelope)
 	require.NoError(t, err)
-	require.Equal(t, "legacy", plaintext.(*types.AttributeValueMemberS).Value)
+	decrypted, ok := plaintext.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "legacy", decrypted.Value)
 
 	plaintext, err = svc.DecryptAttributeValue(context.Background(), "secret", envelope)
 	require.NoError(t, err)
-	require.Equal(t, "legacy", plaintext.(*types.AttributeValueMemberS).Value)
+	decrypted, ok = plaintext.(*types.AttributeValueMemberS)
+	require.True(t, ok)
+	require.Equal(t, "legacy", decrypted.Value)
+}
+
+func TestEncryptAttributeValueWithBindingRejectsInvalidBinding(t *testing.T) {
+	svc := newTestService(t)
+	_, err := svc.EncryptAttributeValueWithBinding(context.Background(), RecordBinding{}, "secret", &types.AttributeValueMemberS{Value: "x"})
+	require.Error(t, err)
+}
+
+func TestDecryptAttributeValueRejectsUnsupportedEnvelopeVersion(t *testing.T) {
+	svc := newTestService(t)
+	envelope := &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+		"v":     &types.AttributeValueMemberN{Value: "3"},
+		"edk":   &types.AttributeValueMemberB{Value: []byte("edk")},
+		"nonce": &types.AttributeValueMemberB{Value: []byte("nonce")},
+		"ct":    &types.AttributeValueMemberB{Value: []byte("ct")},
+	}}
+
+	_, err := svc.DecryptAttributeValue(context.Background(), "secret", envelope)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidEncryptedEnvelope)
+}
+
+func TestNewRecordBindingValidation(t *testing.T) {
+	_, err := NewRecordBinding("  ", &types.AttributeValueMemberS{Value: "x"}, nil)
+	require.Error(t, err)
+
+	_, err = NewRecordBinding("table", nil, nil)
+	require.Error(t, err)
+
+	binding, err := NewRecordBinding(" table ", &types.AttributeValueMemberS{Value: "x"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "table", binding.Table)
+}
+
+func TestNewRecordBindingFromKeyErrors(t *testing.T) {
+	_, err := NewRecordBindingFromKey("table", nil, map[string]types.AttributeValue{})
+	require.Error(t, err)
+
+	metadata := &model.Metadata{PrimaryKey: &model.KeySchema{
+		PartitionKey: &model.FieldMetadata{DBName: "PK"},
+		SortKey:      &model.FieldMetadata{DBName: "SK"},
+	}}
+
+	_, err = NewRecordBindingFromKey("table", metadata, nil)
+	require.Error(t, err)
+
+	_, err = NewRecordBindingFromKey("table", metadata, map[string]types.AttributeValue{})
+	require.Error(t, err)
+
+	_, err = NewRecordBindingFromKey("table", metadata, map[string]types.AttributeValue{
+		"PK": &types.AttributeValueMemberS{Value: "pk"},
+	})
+	require.Error(t, err)
+
+	binding, err := NewRecordBindingFromKey("table", metadata, map[string]types.AttributeValue{
+		"PK": &types.AttributeValueMemberS{Value: "pk"},
+		"SK": &types.AttributeValueMemberS{Value: "sk"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, binding.SortKey)
+}
+
+func TestBindingFromItemMissingKeyParts(t *testing.T) {
+	metadata := &model.Metadata{PrimaryKey: &model.KeySchema{
+		PartitionKey: &model.FieldMetadata{DBName: "PK"},
+		SortKey:      &model.FieldMetadata{DBName: "SK"},
+	}}
+
+	_, ok := BindingFromItem("table", metadata, map[string]types.AttributeValue{
+		"SK": &types.AttributeValueMemberS{Value: "sk"},
+	})
+	require.False(t, ok)
+
+	_, ok = BindingFromItem("table", metadata, map[string]types.AttributeValue{
+		"PK": &types.AttributeValueMemberS{Value: "pk"},
+	})
+	require.False(t, ok)
+
+	_, ok = BindingFromItem("table", nil, map[string]types.AttributeValue{
+		"PK": &types.AttributeValueMemberS{Value: "pk"},
+	})
+	require.False(t, ok)
+}
+
+func TestCanonicalKeyValueEncodesEveryKeyType(t *testing.T) {
+	require.Equal(t, "S:value", canonicalKeyValue(&types.AttributeValueMemberS{Value: "value"}))
+	require.Equal(t, "N:42", canonicalKeyValue(&types.AttributeValueMemberN{Value: "42"}))
+	require.Equal(t, "B:AQID", canonicalKeyValue(&types.AttributeValueMemberB{Value: []byte{1, 2, 3}}))
+	require.Equal(t, "", canonicalKeyValue(&types.AttributeValueMemberNULL{Value: true}), "unsupported key types cannot bind")
+}
+
+func TestBindingMethodsFailClosedOnNilService(t *testing.T) {
+	var svc *Service
+	binding := RecordBinding{Table: "t", PartitionKey: &types.AttributeValueMemberS{Value: "pk"}}
+
+	_, err := svc.EncryptAttributeValueWithBinding(context.Background(), binding, "secret", &types.AttributeValueMemberS{Value: "x"})
+	require.Error(t, err)
+
+	_, err = svc.DecryptAttributeValueWithBinding(context.Background(), binding, "secret", &types.AttributeValueMemberM{})
+	require.Error(t, err)
+}
+
+func TestEncryptAttributeValueRejectsShortRandomSource(t *testing.T) {
+	svc := newTestService(t)
+	svc.rand = bytes.NewReader([]byte{1})
+
+	_, err := svc.EncryptAttributeValue(context.Background(), "secret", &types.AttributeValueMemberS{Value: "x"})
+	require.Error(t, err)
 }
