@@ -17,14 +17,14 @@ import (
 )
 
 type fakeKMS struct {
+	lastGenerateContext map[string]string
+	lastDecryptContext  map[string]string
+
 	generateErr error
 	decryptErr  error
 	keyARN      string
 	plaintext   []byte
 	edk         []byte
-
-	lastGenerateContext map[string]string
-	lastDecryptContext  map[string]string
 }
 
 func (f *fakeKMS) GenerateDataKey(ctx context.Context, params *kms.GenerateDataKeyInput, optFns ...func(*kms.Options)) (*kms.GenerateDataKeyOutput, error) {
@@ -570,7 +570,8 @@ func TestEncryptionContextBindsTheAAD(t *testing.T) {
 	envelope, err := svc.EncryptAttributeValueWithBinding(context.Background(), binding, "secret", &types.AttributeValueMemberS{Value: "x"})
 	require.NoError(t, err)
 
-	fake := svc.kms.(*fakeKMS)
+	fake, ok := svc.kms.(*fakeKMS)
+	require.True(t, ok)
 	require.NotNil(t, fake.lastGenerateContext)
 	require.Contains(t, fake.lastGenerateContext, encryptionContextAADKey)
 
