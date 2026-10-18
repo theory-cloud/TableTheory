@@ -3,10 +3,11 @@ package releasestate
 import (
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 
 	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
+	"github.com/theory-cloud/tabletheory/v6/pkg/naming"
 )
 
 // Binding sources accepted in TransitionAppendEventInput.EventBinding and
@@ -170,12 +171,54 @@ func describeBindingRow(instance any) (*bindingRow, error) {
 		return nil, fmt.Errorf("%w: release-state row must be a struct", theorydbErrors.ErrInvalidModel)
 	}
 
-	metadata := &bindingRow{
+	// Prefer the model registry: it is the same metadata the write path uses
+	// to choose key roles and attribute names, including index-clause scoping
+	// (`index:gsiN,pk`), embedded exclusion tags, and the model's naming
+	// convention.
+	if metadata, ok := describeBindingRowFromRegistry(instance); ok {
+		return metadata, nil
+	}
+	return describeBindingRowStructurally(value.Type())
+}
+
+// describeBindingRowFromRegistry builds the binding view from registry
+// metadata. Validation-triggering registrations (for example, an invalid
+// write-policy tag) fall back to the structural parser below so a binding
+// check never fails merely because it cannot interpret an unrelated policy.
+func describeBindingRowFromRegistry(instance any) (*bindingRow, bool) {
+	registry := model.NewRegistry()
+	if err := registry.Register(instance); err != nil {
+		return nil, false
+	}
+	modelMetadata, err := registry.GetMetadata(instance)
+	if err != nil || modelMetadata.PrimaryKey == nil || modelMetadata.PrimaryKey.PartitionKey == nil {
+		return nil, false
+	}
+
+	metadata := newBindingRow()
+	for _, field := range modelMetadata.FieldsByDBName {
+		entry := bindingField{
+			name:      field.Name,
+			dbName:    field.DBName,
+			indexPath: field.IndexPath,
+		}
+		metadata.fieldsByDBName[entry.dbName] = entry
+		if _, exists := metadata.fieldsByName[entry.name]; !exists {
+			metadata.fieldsByName[entry.name] = entry
+		}
+	}
+	metadata.partitionAttribute = modelMetadata.PrimaryKey.PartitionKey.DBName
+	if modelMetadata.PrimaryKey.SortKey != nil {
+		metadata.sortAttribute = modelMetadata.PrimaryKey.SortKey.DBName
+	}
+	return metadata, true
+}
+
+func newBindingRow() *bindingRow {
+	return &bindingRow{
 		fieldsByDBName: make(map[string]bindingField),
 		fieldsByName:   make(map[string]bindingField),
 	}
-	collectBindingFields(value.Type(), nil, metadata)
-	return metadata, nil
 }
 
 type bindingRoles struct {
@@ -183,79 +226,144 @@ type bindingRoles struct {
 	sort      bool
 }
 
-func collectBindingFields(modelType reflect.Type, prefix []int, metadata *bindingRow) {
+// describeBindingRowStructurally mirrors the registry's field rules for rows
+// that cannot register. It resolves attribute names through the naming
+// convention (never json tags), scopes index-clause key modifiers, honors
+// embedded exclusion tags, and rejects duplicate database names.
+func describeBindingRowStructurally(modelType reflect.Type) (*bindingRow, error) {
+	metadata := newBindingRow()
+	convention := detectBindingNamingConvention(modelType)
+	if err := collectBindingFields(modelType, nil, metadata, convention); err != nil {
+		return nil, err
+	}
+	return metadata, nil
+}
+
+func collectBindingFields(modelType reflect.Type, prefix []int, metadata *bindingRow, convention naming.Convention) error {
 	for i := 0; i < modelType.NumField(); i++ {
 		field := modelType.Field(i)
 		path := make([]int, 0, len(prefix)+1)
 		path = append(path, prefix...)
 		path = append(path, i)
 
-		if collectEmbeddedBindingFields(field, path, metadata) {
+		if isEmbeddedBindingStruct(field) {
+			if hasAnonymousEmbedExclusionTag(field) {
+				continue
+			}
+			if err := collectBindingFields(field.Type, path, metadata, convention); err != nil {
+				return err
+			}
 			continue
 		}
 		if !field.IsExported() || field.Tag.Get("theorydb") == "-" {
 			continue
 		}
 
-		entry, roles := bindingFieldFor(field, path)
-		metadata.add(entry, roles)
+		dbName, skip := naming.ResolveAttrNameWithConvention(field, convention)
+		if skip || dbName == "" {
+			continue
+		}
+		entry := bindingField{name: field.Name, dbName: dbName, indexPath: path}
+		if err := metadata.add(entry, bindingRolesFor(field.Tag.Get("theorydb"))); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func collectEmbeddedBindingFields(field reflect.StructField, path []int, metadata *bindingRow) bool {
-	if !field.Anonymous {
-		return false
-	}
-	embedded := field.Type
-	for embedded.Kind() == reflect.Pointer {
-		embedded = embedded.Elem()
-	}
-	if embedded.Kind() != reflect.Struct {
-		return false
-	}
-	collectBindingFields(embedded, path, metadata)
-	return true
+func isEmbeddedBindingStruct(field reflect.StructField) bool {
+	return field.Anonymous && field.Type.Kind() == reflect.Struct
 }
 
-func bindingFieldFor(field reflect.StructField, path []int) (bindingField, bindingRoles) {
-	dbName := ""
+func hasAnonymousEmbedExclusionTag(field reflect.StructField) bool {
+	return field.Tag.Get("theorydb") == "-" || field.Tag.Get("json") == "-"
+}
+
+// bindingRolesFor extracts key roles from theorydb tag tokens. Key modifiers
+// inside an index/lsi clause describe the index, not the table partition, so
+// they are skipped — matching the registry's splitTags behavior.
+func bindingRolesFor(tag string) bindingRoles {
 	var roles bindingRoles
-	for _, raw := range strings.Split(field.Tag.Get("theorydb"), ",") {
+	inIndexClause := false
+	for _, raw := range strings.Split(tag, ",") {
 		part := strings.TrimSpace(raw)
+		if part == "" {
+			continue
+		}
+		if inIndexClause {
+			switch part {
+			case "pk", "sk", "sparse":
+				continue
+			}
+			inIndexClause = false
+		}
 		switch {
-		case strings.HasPrefix(part, "attr:"):
-			dbName = strings.TrimSpace(strings.TrimPrefix(part, "attr:"))
+		case strings.HasPrefix(part, "index:"), strings.HasPrefix(part, "lsi:"):
+			inIndexClause = true
 		case part == "pk":
 			roles.partition = true
 		case part == "sk":
 			roles.sort = true
 		}
 	}
-	if dbName == "" {
-		jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
-		if jsonName != "" && jsonName != "-" {
-			dbName = jsonName
-		}
-	}
-	if dbName == "" {
-		dbName = field.Name
-	}
-	return bindingField{name: field.Name, dbName: dbName, indexPath: path}, roles
+	return roles
 }
 
-func (r *bindingRow) add(entry bindingField, roles bindingRoles) {
-	if _, exists := r.fieldsByDBName[entry.dbName]; !exists {
-		r.fieldsByDBName[entry.dbName] = entry
+func detectBindingNamingConvention(modelType reflect.Type) naming.Convention {
+	for i := 0; i < modelType.NumField(); i++ {
+		tag := modelType.Field(i).Tag.Get("theorydb")
+		if tag == "" {
+			continue
+		}
+		for _, raw := range strings.Split(tag, ",") {
+			part := strings.TrimSpace(raw)
+			if !strings.HasPrefix(part, "naming:") {
+				continue
+			}
+			switch strings.TrimPrefix(part, "naming:") {
+			case "snake_case":
+				return naming.SnakeCase
+			case "camel_case", "camelCase":
+				return naming.CamelCase
+			case "pascal_case", "pascalCase":
+				return naming.PascalCase
+			case "dynamorm", "legacy_dynamorm", "legacyDynamORM":
+				return naming.DynamORM
+			}
+		}
 	}
+	return naming.CamelCase
+}
+
+func (r *bindingRow) add(entry bindingField, roles bindingRoles) error {
+	if existing, exists := r.fieldsByDBName[entry.dbName]; exists {
+		cause := theorydbErrors.ErrInvalidModel
+		if roles.partition || roles.sort ||
+			entry.dbName == r.partitionAttribute || entry.dbName == r.sortAttribute {
+			cause = theorydbErrors.ErrDuplicatePrimaryKey
+		}
+		return fmt.Errorf(
+			"%w: duplicate database attribute name %q for fields %s and %s",
+			cause, entry.dbName, existing.name, entry.name,
+		)
+	}
+	r.fieldsByDBName[entry.dbName] = entry
 	if _, exists := r.fieldsByName[entry.name]; !exists {
 		r.fieldsByName[entry.name] = entry
 	}
-	if roles.partition && r.partitionAttribute == "" {
+	if roles.partition {
+		if r.partitionAttribute != "" {
+			return fmt.Errorf("%w: duplicate primary key definition", theorydbErrors.ErrDuplicatePrimaryKey)
+		}
 		r.partitionAttribute = entry.dbName
 	}
-	if roles.sort && r.sortAttribute == "" {
+	if roles.sort {
+		if r.sortAttribute != "" {
+			return fmt.Errorf("%w: duplicate sort key definition", theorydbErrors.ErrDuplicatePrimaryKey)
+		}
 		r.sortAttribute = entry.dbName
 	}
+	return nil
 }
 
 func (r *bindingRow) field(name string) (bindingField, bool) {
@@ -350,9 +458,6 @@ func numericValue(value any) (float64, bool) {
 		return float64(reflected.Uint()), true
 	case reflect.Float32, reflect.Float64:
 		return reflected.Float(), true
-	case reflect.String:
-		parsed, err := strconv.ParseFloat(strings.TrimSpace(reflected.String()), 64)
-		return parsed, err == nil
 	default:
 		return 0, false
 	}
