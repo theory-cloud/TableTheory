@@ -148,7 +148,10 @@ Every `attributes[]` entry supports:
   - `json_string_mode` (optional; `S` + `json: true` only): `"carrier"` (default) keeps the raw-text
     string-carrier behavior. `"parse"` is the explicit compatibility discriminator for schemas authored
     before structured `M`/`L` carriers existed: writers JSON-encode the value and readers parse the stored
-    text back into the structured value. Runtimes that discriminate by declared language type (Go string
+    text back into the structured value. Parse-mode readers MUST also accept native DynamoDB values
+    (the general read-both rule above) and return them as the equivalent JSON value. The parsed result may
+    be any JSON type, including a scalar string; schemas that need a particular shape must validate it at
+    the application boundary. Runtimes that discriminate by declared language type (Go string
     fields, Python `str` fields) already provide the equivalent behavior and MAY ignore this hint.
   - `null` values MUST be stored as DynamoDB `NULL` (not as the string `"null"`).
 - `binary` (bool, default false): indicates the attribute is treated as a binary blob.

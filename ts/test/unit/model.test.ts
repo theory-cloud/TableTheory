@@ -216,6 +216,29 @@ const userSchema: ModelSchema = {
       ...userSchema.attributes,
       { attribute: 'emailHash', type: 'S', optional: true },
       {
+        attribute: 'rolesSnake',
+        type: 'S',
+        json: true,
+        json_string_mode: 'parse',
+        optional: true,
+      },
+    ],
+  };
+  const model = defineModel(schema);
+  assert.equal(
+    model.attributes.get('rolesSnake')?.jsonStringMode,
+    'parse',
+    'the DMS json_string_mode spelling is normalized',
+  );
+}
+
+{
+  const schema: ModelSchema = {
+    ...userSchema,
+    attributes: [
+      ...userSchema.attributes,
+      { attribute: 'emailHash', type: 'S', optional: true },
+      {
         attribute: 'badMode',
         type: 'M',
         json: true,

@@ -432,10 +432,11 @@ function unmarshalJsonScalar(
     if ('S' in av && av.S !== undefined) {
       return parseJsonText(av.S, schema.attribute);
     }
-    return assertJsonValueMatchesSchema(
-      schema,
-      unmarshalNativeJsonValue(schema, av, opts),
-    );
+    // Parse mode restores a structured runtime type. The DMS read-both rule
+    // requires accepting native DynamoDB values for a JSON attribute, so a
+    // native M/L/N/BOOL/NULL value is returned rather than rejected against
+    // the S schema type.
+    return unmarshalNativeJsonValue(schema, av, opts);
   }
 
   if ('S' in av && av.S !== undefined) {

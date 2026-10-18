@@ -433,6 +433,18 @@ assert.throws(
   });
   assert.deepEqual(marshalScalar(legacy, 'plain'), { S: '"plain"' });
   assert.throws(() => unmarshalScalar(legacy, { S: '{' }));
+
+  // The DMS read-both rule: parse mode accepts native document values rather
+  // than rejecting them against the declared S storage type.
+  assert.deepEqual(unmarshalScalar(legacy, { M: { a: { N: '1' } } }), {
+    a: '1',
+  });
+  assert.deepEqual(unmarshalScalar(legacy, { L: [{ S: 'x' }] }), ['x']);
+  assert.equal(
+    unmarshalScalar(legacy, { S: '"not-admin"' }),
+    'not-admin',
+    'a scalar is valid JSON; callers validate the shape they need',
+  );
 }
 
 {
