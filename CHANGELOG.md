@@ -143,6 +143,52 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.1.0](https://github.com/theory-cloud/TableTheory/compare/v6.1.0-rc...v6.1.0) (2026-10-18)
+
+Stable promotion of `v6.1.0-rc`.
+
+
+## [6.1.0-rc](https://github.com/theory-cloud/TableTheory/compare/v6.0.0...v6.1.0-rc) (2026-10-18)
+
+
+### Features
+
+* **ts:** add an explicit discriminator for S-typed JSON fields ([e6b2e05](https://github.com/theory-cloud/TableTheory/commit/e6b2e05d32fc43db758ffc672a6ae73520bff1a1))
+* **ts:** let model-shaped transaction updates advance versions ([61a9b0a](https://github.com/theory-cloud/TableTheory/commit/61a9b0a0908dcc682158b29ba91e8af59f4402e0))
+
+
+### Bug Fixes
+
+* **blog:** build the Lambda bootstrap artifacts ([2a05d2d](https://github.com/theory-cloud/TableTheory/commit/2a05d2d92fc69c14a8b944b6cb87f38c7f003f4d))
+* **blog:** declare and handle the REQUEST authorizer contract ([5ddd16d](https://github.com/theory-cloud/TableTheory/commit/5ddd16da44e521266e64e3ced055f753b359dbab))
+* **blog:** declare the REQUEST authorizer in the API auth block ([1552641](https://github.com/theory-cloud/TableTheory/commit/1552641c6a809854dbaef0edd0e0905169158dbc))
+* **blog:** synthesize the SAM API with a valid authorizer identity ([cffd30d](https://github.com/theory-cloud/TableTheory/commit/cffd30dd6eecc8f91a1582193376b4ccbd68f3db))
+* **ci:** gate release workflows to their release branches ([cc2a65c](https://github.com/theory-cloud/TableTheory/commit/cc2a65c8cb6624f023b4437390ea5c5ff464c107))
+* **ci:** reject Pages dispatch from non-publication refs ([0bcedb0](https://github.com/theory-cloud/TableTheory/commit/0bcedb045fedf3d157d981a10d352e448cd04a47))
+* **contract:** accept the encryption context in the Py runner ([c2b38f9](https://github.com/theory-cloud/TableTheory/commit/c2b38f9e7d1e5be644b1dd15d9d1fa1d001bbe66))
+* **encryption:** bind new envelopes to the record identity ([68d2c45](https://github.com/theory-cloud/TableTheory/commit/68d2c45b7f2f63029487c0ed5951425fb0cbb2a7))
+* **encryption:** bind v2 envelopes unambiguously in AAD and KMS ([81138de](https://github.com/theory-cloud/TableTheory/commit/81138de9b32c0e8ec259592a08d9d7de158d7438))
+* **examples/blog:** authorize from authorizer context, not caller headers ([07834cd](https://github.com/theory-cloud/TableTheory/commit/07834cdb471993040301578db0e84a33e34a7e96))
+* **examples/blog:** keep drafts and commenter PII off public routes ([9918e00](https://github.com/theory-cloud/TableTheory/commit/9918e00b9749fecddb96f47789a95232895669bd))
+* **examples/cdk-multilang:** require IAM on demo function URLs ([7ac30d0](https://github.com/theory-cloud/TableTheory/commit/7ac30d049f04c56430ffee87f3c7bced4c3b7f99))
+* **examples/multi-tenant:** enforce organization roles and project access ([6de4f65](https://github.com/theory-cloud/TableTheory/commit/6de4f6549490e8b5a271a2dfad9a597b3b87628e))
+* **examples/payment:** require JWT secret, expiry, and audience ([5c0d790](https://github.com/theory-cloud/TableTheory/commit/5c0d7907ead5710272c56c023e268e0d098d595e))
+* **examples/payment:** scope idempotency keys per merchant ([020febf](https://github.com/theory-cloud/TableTheory/commit/020febfeffdb16afcf80ecc22d16aaf77f191125))
+* **py:** fail closed on bool/number binding comparisons ([bef6444](https://github.com/theory-cloud/TableTheory/commit/bef6444f696b858b16d81d47a94797997c55cdb1))
+* **py:** fail closed when a migration cannot bind an envelope ([c8de2e0](https://github.com/theory-cloud/TableTheory/commit/c8de2e087cdc04537aa14205db2758d8603fc61c))
+* **query:** keep case-colliding reserved placeholders distinct ([01bf4a9](https://github.com/theory-cloud/TableTheory/commit/01bf4a9bd4703235b8f5c3e1a8a2527fc0f181de))
+* **releasestate:** bind event and outbox rows to the transition ([86a22b5](https://github.com/theory-cloud/TableTheory/commit/86a22b5e069c7a0ecb7ea80ba3dabfba7d3f35db))
+* **releasestate:** bind the transition version field to the model role ([2c708f0](https://github.com/theory-cloud/TableTheory/commit/2c708f01afafe794372fbd83848f58fcc92a1ffe))
+* **releasestate:** describe binding rows without model registration ([155fbdd](https://github.com/theory-cloud/TableTheory/commit/155fbdd0101705090139092eda9ecc839c56fbf2))
+* **releasestate:** reject numeric string identity coercion ([c8f918b](https://github.com/theory-cloud/TableTheory/commit/c8f918b60e91b5102f47f8602f405870e2e5bcd3))
+* **releasestate:** resolve binding roles through registry metadata ([eaa6206](https://github.com/theory-cloud/TableTheory/commit/eaa6206e10b575de0515f6241871cb735ce698b9))
+* **releasestate:** resolve the version role through registry metadata ([7f6ef1e](https://github.com/theory-cloud/TableTheory/commit/7f6ef1ee5925a8bef4bde5b85f79979c1e063093))
+* **schema:** refuse backup names that would delete tables ([6a25556](https://github.com/theory-cloud/TableTheory/commit/6a2555678db7e860f811bb752237c5d6b31054ca))
+* **security:** remediate the 2026-10-18 Codex Security packet ([7bf2628](https://github.com/theory-cloud/TableTheory/commit/7bf262819aa1b4dd72ae8ae2414c5fdfe5b1dd5c))
+* **security:** wave 2 remediation for the 2026-10-18 Codex Security packet ([5ecdc68](https://github.com/theory-cloud/TableTheory/commit/5ecdc686ff65028faed6673100f9b9035a72ec05))
+* **ts:** honor json_string_mode and native parse-mode reads ([1b58e60](https://github.com/theory-cloud/TableTheory/commit/1b58e60c9289422c958f21ec0a183a4ebbaf748d))
+* **ts:** keep keyword-shaped placeholders inside their expression clause ([f0cd2d0](https://github.com/theory-cloud/TableTheory/commit/f0cd2d08c5efc95ff5cae43f6b98b4ed995f7130))
+
 ## [6.0.0](https://github.com/theory-cloud/TableTheory/compare/v6.0.0-rc...v6.0.0) (2026-10-16)
 
 Stable promotion of `v6.0.0-rc`.
