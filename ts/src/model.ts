@@ -242,9 +242,7 @@ export function defineModel<const S extends ModelSchema>(
     const jsonStringMode = attr.jsonStringMode ?? attr.json_string_mode;
     attributes.set(
       attr.attribute,
-      jsonStringMode === undefined
-        ? attr
-        : { ...attr, jsonStringMode },
+      jsonStringMode === undefined ? attr : { ...attr, jsonStringMode },
     );
   }
 
