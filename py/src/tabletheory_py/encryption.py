@@ -253,7 +253,9 @@ def encrypt_attribute_value(
     binding: RecordBinding | None = None,
 ) -> dict[str, Any]:
     if binding is not None and not binding.valid():
-        raise InvalidEncryptedEnvelopeError("encrypted envelope record binding requires a table name and partition key")
+        raise InvalidEncryptedEnvelopeError(
+            "encrypted envelope record binding requires a table name and partition key"
+        )
 
     version = 2 if binding is not None else 1
     aad = build_aad(attr_name, binding)

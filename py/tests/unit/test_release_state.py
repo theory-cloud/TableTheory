@@ -504,9 +504,7 @@ def test_transition_release_state_rejects_numeric_string_next_version_binding() 
             actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
             expected_version=2,
             set_values={"status": "active"},
-            event_item=ReleaseStateEvent(
-                pk="RELEASE#service-a", sk="EVENT#1", version_text="3"
-            ),
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1", version_text="3"),
             event_binding={"versionText": "nextVersion"},
         )
 

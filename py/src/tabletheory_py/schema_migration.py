@@ -187,9 +187,7 @@ def _binding_from_item(
     partition_key = item.get(pk_name)
     if not isinstance(partition_key, dict):
         raise MigrationEncryptionError(
-            'migration cannot bind encrypted attributes: item is missing partition key "'
-            + pk_name
-            + '"'
+            'migration cannot bind encrypted attributes: item is missing partition key "' + pk_name + '"'
         )
 
     sort_key = None
@@ -205,9 +203,7 @@ def _binding_from_item(
         sort_key = item.get(sk_name)
         if not isinstance(sort_key, dict):
             raise MigrationEncryptionError(
-                'migration cannot bind encrypted attributes: item is missing sort key "'
-                + sk_name
-                + '"'
+                'migration cannot bind encrypted attributes: item is missing sort key "' + sk_name + '"'
             )
 
     from .encryption import RecordBinding
