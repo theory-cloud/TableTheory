@@ -47,12 +47,6 @@ type TransitionAppendEventInput struct {
 	// may be Go field names or DynamoDB attribute names accepted by
 	// core.UpdateBuilder.
 	Set map[string]any
-	// ExpectedVersion, when non-nil, adds an optimistic-lock condition against
-	// the model's theorydb:"version" field before incrementing it.
-	ExpectedVersion *int64
-	// VersionField names the version attribute to increment. Empty defaults to
-	// "version", matching the release-state contract fixture.
-	VersionField string
 	// EventBinding declares which event-history fields must equal a value from
 	// the authorizing transition. Keys are event attribute names; values are one
 	// of "set:<field>", "actual:<field>", or "nextVersion". A bound field that is
@@ -62,6 +56,12 @@ type TransitionAppendEventInput struct {
 	// OutboxBinding is the same contract for the outbox row. Outbox rows also
 	// inherit the generic same-name partition-key binding.
 	OutboxBinding map[string]string
+	// ExpectedVersion, when non-nil, adds an optimistic-lock condition against
+	// the model's theorydb:"version" field before incrementing it.
+	ExpectedVersion *int64
+	// VersionField names the version attribute to increment. Empty defaults to
+	// "version", matching the release-state contract fixture.
+	VersionField string
 }
 
 // TransitionAppendEvent executes a release-state transition with the supplied
