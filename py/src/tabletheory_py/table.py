@@ -16,8 +16,13 @@ from . import aws_errors as _aws_errors
 from .attr_types import (
     _coerce_value,
     decode_json_field_from_storage,
-    normalize_json_field_for_storage,
     resolve_attribute_storage_type,
+)
+from .encryption_support import (
+    decrypt_attr_value,
+    record_binding_from_item,
+    record_binding_from_key,
+    serialize_attr_value,
 )
 from .errors import (
     BatchRetryExceededError,
@@ -1202,59 +1207,13 @@ class Table[T]:
         *,
         binding: RecordBinding | None = None,
     ) -> Any:
-        if attr_def.converter is not None and value is not None:
-            value = attr_def.converter.to_dynamodb(value)
-
-        if attr_def.set and isinstance(value, set) and len(value) == 0:
-            return self._serializer.serialize(None)
-
-        if attr_def.json and value is not None:
-            value = normalize_json_field_for_storage(
-                value,
-                storage_type=self._attribute_storage_type(attr_def),
-                field_name=attr_def.attribute_name,
-            )
-
-        av = self._serializer.serialize(value)
-
-        if attr_def.encrypted:
-            if not self._kms_key_arn or self._kms_client is None:
-                raise EncryptionNotConfiguredError(
-                    f"encrypted field requires kms_key_arn: {attr_def.python_name}"
-                )
-            from .encryption import encrypt_attribute_value
-
-            envelope = encrypt_attribute_value(
-                av,
-                attr_name=attr_def.attribute_name,
-                kms_key_arn=self._kms_key_arn,
-                kms_client=self._kms_client,
-                rand_bytes=self._rand_bytes,
-                binding=binding,
-            )
-            return self._serializer.serialize(envelope)
-
-        return av
+        return serialize_attr_value(self, attr_def, value, binding=binding)
 
     def _to_item(self, item: T) -> dict[str, Any]:
         if not is_dataclass(item):
             raise ValidationError("item must be a dataclass instance")
 
-        binding: RecordBinding | None = None
-        pk_value = getattr(item, self._model.pk.python_name)
-        pk_av = None if pk_value is None else self._serialize_attr_value(self._model.pk, pk_value)
-        sk_av = None
-        if self._model.sk is not None:
-            sk_value = getattr(item, self._model.sk.python_name)
-            sk_av = None if sk_value is None else self._serialize_attr_value(self._model.sk, sk_value)
-        if pk_av is not None and (self._model.sk is None or sk_av is not None):
-            from .encryption import RecordBinding
-
-            binding = RecordBinding(
-                table=self._table_name,
-                partition_key=pk_av,
-                sort_key=sk_av,
-            )
+        binding = record_binding_from_item(self, item)
 
         out: dict[str, Any] = {}
         now: str | None = None
@@ -1301,30 +1260,7 @@ class Table[T]:
         return key
 
     def _record_binding_from_key(self, key: Mapping[str, Any]) -> RecordBinding | None:
-        """Build the v2 envelope binding from a raw key map.
-
-        Returns ``None`` when the key is incomplete, which happens for
-        projections that omit key attributes. Callers pass that through so v1
-        envelopes still decrypt while v2 fails closed.
-        """
-
-        partition_key = key.get(self._model.pk.attribute_name)
-        if partition_key is None:
-            return None
-
-        sort_key = None
-        if self._model.sk is not None:
-            sort_key = key.get(self._model.sk.attribute_name)
-            if sort_key is None:
-                return None
-
-        from .encryption import RecordBinding
-
-        return RecordBinding(
-            table=self._table_name,
-            partition_key=partition_key,
-            sort_key=sort_key,
-        )
+        return record_binding_from_key(self, key)
 
     def _from_item(
         self,
@@ -1346,25 +1282,12 @@ class Table[T]:
                 continue
 
             if attr_def.encrypted:
-                if not self._kms_key_arn or self._kms_client is None:
-                    raise EncryptionNotConfiguredError(
-                        f"encrypted field requires kms_key_arn: {attr_def.python_name}"
-                    )
-
-                from .encryption import decrypt_attribute_value
-
-                envelope = self._deserializer.deserialize(item[attr_def.attribute_name])
-                if not isinstance(envelope, dict):
-                    raise ValidationError(f"encrypted envelope must be a map: {attr_def.python_name}")
-
-                decrypted_av = decrypt_attribute_value(
-                    envelope,
-                    attr_name=attr_def.attribute_name,
-                    kms_key_arn=self._kms_key_arn,
-                    kms_client=self._kms_client,
+                raw = decrypt_attr_value(
+                    self,
+                    attr_def,
+                    item[attr_def.attribute_name],
                     binding=record_binding,
                 )
-                raw = self._deserializer.deserialize(cast(Any, decrypted_av))
             else:
                 raw = self._deserializer.deserialize(item[attr_def.attribute_name])
             if attr_def.json:
