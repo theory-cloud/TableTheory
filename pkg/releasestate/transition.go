@@ -13,7 +13,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v6/pkg/naming"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
 const defaultVersionField = "version"
@@ -112,8 +112,18 @@ func validateTransitionVersionField(actual any, versionField string) error {
 	)
 }
 
-// versionFieldName reads the top-level field carrying the theorydb version
-// role, returning its Go name and DynamoDB attribute name.
+var versionFields sync.Map // reflect.Type -> transitionVersionField
+
+type transitionVersionField struct {
+	name   string
+	dbName string
+	found  bool
+}
+
+// versionFieldName resolves the field carrying the theorydb version role,
+// returning its Go name and DynamoDB attribute name. It reads registry
+// metadata so the validator sees the same attribute the optimistic-lock
+// condition binds, including version tags promoted from embedded structs.
 func versionFieldName(modelInstance any) (name string, dbName string, found bool) {
 	value := reflect.ValueOf(modelInstance)
 	for value.Kind() == reflect.Pointer {
@@ -127,41 +137,31 @@ func versionFieldName(modelInstance any) (name string, dbName string, found bool
 	}
 
 	modelType := value.Type()
-	for i := 0; i < modelType.NumField(); i++ {
-		field := modelType.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-		tag := field.Tag.Get("theorydb")
-		if !hasVersionTag(tag) {
-			continue
-		}
-		dbName = naming.ConvertAttrName(field.Name, naming.CamelCase)
-		for _, raw := range strings.Split(tag, ",") {
-			part := strings.TrimSpace(raw)
-			if strings.HasPrefix(part, "attr:") {
-				dbName = strings.TrimPrefix(part, "attr:")
-			}
-		}
-		return field.Name, dbName, true
+	if cached, ok := versionFields.Load(modelType); ok {
+		resolved := cached.(transitionVersionField)
+		return resolved.name, resolved.dbName, resolved.found
 	}
-	return "", "", false
+
+	resolved := resolveVersionField(modelType)
+	versionFields.Store(modelType, resolved)
+	return resolved.name, resolved.dbName, resolved.found
 }
 
-// hasVersionTag reports whether a theorydb tag marks the model version field.
-// Modifiers that belong to an index/lsi clause do not mark a version role.
-func hasVersionTag(tag string) bool {
-	inIndexClause := false
-	for _, raw := range strings.Split(tag, ",") {
-		part := strings.TrimSpace(raw)
-		switch {
-		case strings.HasPrefix(part, "index:"), strings.HasPrefix(part, "lsi:"):
-			inIndexClause = true
-		case part == "version" && !inIndexClause:
-			return true
-		}
+func resolveVersionField(modelType reflect.Type) transitionVersionField {
+	registry := model.NewRegistry()
+	instance := reflect.New(modelType).Interface()
+	if err := registry.Register(instance); err != nil {
+		return transitionVersionField{}
 	}
-	return false
+	metadata, err := registry.GetMetadata(instance)
+	if err != nil || metadata.VersionField == nil {
+		return transitionVersionField{}
+	}
+	return transitionVersionField{
+		name:   metadata.VersionField.Name,
+		dbName: metadata.VersionField.DBName,
+		found:  true,
+	}
 }
 
 // AddTransitionAppendEvent adds the release-state actual-row transition and
