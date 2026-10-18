@@ -179,6 +179,12 @@ class EncryptionNotConfiguredError(TheorydbPyError)
 class ImmutableModelMutationError(TheorydbPyError)
 ```
 
+#### `InvalidEncryptedEnvelopeError`
+
+```python
+class InvalidEncryptedEnvelopeError(ValidationError)
+```
+
 #### `LeaseHeldError`
 
 ```python

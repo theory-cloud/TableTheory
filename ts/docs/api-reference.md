@@ -259,11 +259,19 @@ export interface AttributeSchema {
      *
      * 'carrier' (default) stores and returns raw JSON text, matching DMS v0.2.
      * 'parse' restores the pre-v3 behavior: writes JSON-encode the value and
-     * reads parse the stored text back into an object, array, or scalar. Use
-     * 'parse' for schemas authored before DMS v0.2 introduced structured M/L
-     * carriers, when authorization code expects the previous runtime type.
+     * reads parse the stored text back into an object, array, or scalar. It also
+     * accepts native DynamoDB values on reads, per the DMS read-both rule. The
+     * parsed value may be any JSON type, so callers that need a particular shape
+     * must validate it: a scalar string is valid JSON and is returned as-is.
+     * Use 'parse' for schemas authored before DMS v0.2 introduced structured
+     * M/L carriers, when authorization code expects the previous runtime type.
      */
     jsonStringMode?: 'carrier' | 'parse';
+    /**
+     * DMS spelling of `jsonStringMode`. The DMS loader accepts either key and
+     * normalizes it to `jsonStringMode`.
+     */
+    json_string_mode?: 'carrier' | 'parse';
     binary?: boolean;
     format?: string;
     roles?: readonly string[];
@@ -806,13 +814,15 @@ export interface EncryptionProvider {
 }
 /**
  * Canonical key encoding shared by every runtime: `S:<value>` for strings,
- * `N:<value>` for numbers, and `B:<standard base64>` for binary.
+ * `N:<value>` for numbers, and `B:<standard base64>` for binary. Unsupported
+ * key types fail closed rather than canonicalizing to an empty value.
  */
 export declare function canonicalKeyValue(av: AttributeValue): string;
 /**
  * The AES-GCM additional authenticated data for an envelope version. v1 binds
  * only the attribute name (legacy); v2 binds the record identity as well and
- * therefore requires a binding.
+ * therefore requires a binding. Every variable-length v2 component is
+ * length-prefixed; the format is a cross-runtime contract.
  */
 export declare function aadForContext(ctx: EncryptionContext, version: 1 | 2): Uint8Array;
 /** Writes use v2 whenever the record identity is known. */
