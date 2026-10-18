@@ -269,18 +269,35 @@ func TestTransitionBindingMatchesFieldAliases(t *testing.T) {
 	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
 }
 
-type bindingInvalidOutbox struct {
-	PK string `theorydb:"pk,attr:bad-name"`
-}
-
-func TestTransitionBindingRejectsUnregisterableOutbox(t *testing.T) {
-	input := bindingInput()
-	input.Outbox = &bindingInvalidOutbox{PK: "RELEASE#service-a"}
-
-	err := TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input)
-	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
-}
-
 func TestBindingValuesEqualFloats(t *testing.T) {
 	require.True(t, bindingValuesEqual(float32(1.5), 1.5))
+}
+
+type bindingEmbeddedActual struct {
+	PK string `theorydb:"pk,attr:PK"`
+	SK string `theorydb:"sk,attr:SK"`
+	*BindingEmbeddedFields
+}
+
+type BindingEmbeddedFields struct {
+	PinnedReleaseID string `theorydb:"attr:pinnedReleaseId"`
+}
+
+func TestTransitionBindingReadsPromotedEmbeddedFields(t *testing.T) {
+	input := TransitionAppendEventInput{
+		Actual: &bindingEmbeddedActual{
+			PK:                    "RELEASE#service-a",
+			SK:                    "ACTUAL",
+			BindingEmbeddedFields: &BindingEmbeddedFields{PinnedReleaseID: "rel_002"},
+		},
+		Event: &bindingEvent{
+			PK:        "RELEASE#service-a",
+			SK:        "EVENT#1",
+			ReleaseID: "rel_002",
+		},
+		Set:          map[string]any{"status": "active"},
+		EventBinding: map[string]string{"releaseId": "actual:pinnedReleaseId"},
+	}
+
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
 }

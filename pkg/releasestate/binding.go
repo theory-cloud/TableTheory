@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
-	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
 // Binding sources accepted in TransitionAppendEventInput.EventBinding and
@@ -23,12 +22,12 @@ const (
 // validateEventAndOutboxBindings enforces the generically knowable identity
 // checks plus any caller-declared field bindings.
 func validateEventAndOutboxBindings(input TransitionAppendEventInput) error {
-	actualMetadata, err := registryMetadata(input.Actual)
+	actualRow, err := describeBindingRow(input.Actual)
 	if err != nil {
 		return err
 	}
 
-	if err := validateDeclaredBindings("event", input.Event, input.EventBinding, input, actualMetadata); err != nil {
+	if err := validateDeclaredBindings("event", input.Event, input.EventBinding, input, actualRow); err != nil {
 		return err
 	}
 
@@ -42,62 +41,60 @@ func validateEventAndOutboxBindings(input TransitionAppendEventInput) error {
 	// A shared single-table shape puts the outbox row in the same release
 	// partition as the actual row. When both models name the partition key the
 	// same way, a mismatch cannot describe the same release.
-	if err := validateSharedPartition("outbox", input.Actual, input.Outbox, actualMetadata); err != nil {
+	if err := validateSharedPartition(input.Actual, actualRow, input.Outbox); err != nil {
 		return err
 	}
 
-	return validateDeclaredBindings("outbox", input.Outbox, input.OutboxBinding, input, actualMetadata)
+	return validateDeclaredBindings("outbox", input.Outbox, input.OutboxBinding, input, actualRow)
 }
 
-func validateSharedPartition(label string, actual any, row any, actualMetadata *model.Metadata) error {
-	if actualMetadata == nil || actualMetadata.PrimaryKey == nil || actualMetadata.PrimaryKey.PartitionKey == nil {
-		return nil
-	}
-	rowMetadata, err := registryMetadata(row)
+func validateSharedPartition(actual any, actualRow *bindingRow, row any) error {
+	rowMetadata, err := describeBindingRow(row)
 	if err != nil {
 		return err
 	}
-	if rowMetadata == nil || rowMetadata.PrimaryKey == nil || rowMetadata.PrimaryKey.PartitionKey == nil {
-		return fmt.Errorf("%w: %s row partition key is required", theorydbErrors.ErrInvalidModel, label)
+	if rowMetadata.partitionAttribute == "" {
+		return fmt.Errorf("%w: outbox row partition key is required", theorydbErrors.ErrInvalidModel)
 	}
-	if rowMetadata.PrimaryKey.PartitionKey.DBName != actualMetadata.PrimaryKey.PartitionKey.DBName {
+	if actualRow.partitionAttribute == "" ||
+		rowMetadata.partitionAttribute != actualRow.partitionAttribute {
 		return nil
 	}
 
-	actualPartition, err := partitionKeyValue(actual)
-	if err != nil {
-		return err
+	actualPartition, ok := bindingRowValue(actual, actualRow, actualRow.partitionAttribute)
+	if !ok {
+		return fmt.Errorf("%w: actual row partition key is required", theorydbErrors.ErrInvalidModel)
 	}
-	rowPartition, err := partitionKeyValue(row)
-	if err != nil {
-		return err
+	rowPartition, ok := bindingRowValue(row, rowMetadata, rowMetadata.partitionAttribute)
+	if !ok {
+		return fmt.Errorf("%w: outbox row partition key is required", theorydbErrors.ErrInvalidModel)
 	}
-	if actualPartition != rowPartition {
+	if !bindingValuesEqual(actualPartition, rowPartition) {
 		return fmt.Errorf(
-			"%w: %s release partition %q does not match actual row partition %q",
-			theorydbErrors.ErrInvalidModel, label, rowPartition, actualPartition,
+			"%w: outbox release partition %v does not match actual row partition %v",
+			theorydbErrors.ErrInvalidModel, rowPartition, actualPartition,
 		)
 	}
 	return nil
 }
 
-func validateDeclaredBindings(label string, row any, bindings map[string]string, input TransitionAppendEventInput, actualMetadata *model.Metadata) error {
+func validateDeclaredBindings(label string, row any, bindings map[string]string, input TransitionAppendEventInput, actualRow *bindingRow) error {
 	if len(bindings) == 0 {
 		return nil
 	}
 
-	rowMetadata, err := registryMetadata(row)
+	rowMetadata, err := describeBindingRow(row)
 	if err != nil {
 		return err
 	}
 
 	for attribute, source := range bindings {
-		expected, err := resolveBindingSource(source, input, actualMetadata)
+		expected, err := resolveBindingSource(source, input, actualRow)
 		if err != nil {
 			return fmt.Errorf("%w: %s binding for %q: %v", theorydbErrors.ErrInvalidModel, label, attribute, err)
 		}
 
-		actual, found := fieldValueByDBName(row, rowMetadata, attribute)
+		actual, found := bindingRowValue(row, rowMetadata, attribute)
 		if !found {
 			return fmt.Errorf(
 				"%w: %s row %s is missing bound attribute %q",
@@ -115,7 +112,7 @@ func validateDeclaredBindings(label string, row any, bindings map[string]string,
 	return nil
 }
 
-func resolveBindingSource(source string, input TransitionAppendEventInput, actualMetadata *model.Metadata) (any, error) {
+func resolveBindingSource(source string, input TransitionAppendEventInput, actualRow *bindingRow) (any, error) {
 	source = strings.TrimSpace(source)
 	switch {
 	case source == bindingSourceNextVersion:
@@ -126,17 +123,14 @@ func resolveBindingSource(source string, input TransitionAppendEventInput, actua
 	case strings.HasPrefix(source, bindingSourceSetPrefix):
 		name := strings.TrimSpace(strings.TrimPrefix(source, bindingSourceSetPrefix))
 		for field, value := range input.Set {
-			if fieldBelongsToModel(field, name, actualMetadata) {
+			if actualRow.matchesFieldName(field, name) {
 				return value, nil
 			}
 		}
 		return nil, fmt.Errorf("set field %q is not part of the transition", name)
 	case strings.HasPrefix(source, bindingSourceActualPrefix):
 		name := strings.TrimSpace(strings.TrimPrefix(source, bindingSourceActualPrefix))
-		value, found := fieldValueByDBName(input.Actual, actualMetadata, name)
-		if !found {
-			value, found = fieldValueByName(input.Actual, actualMetadata, name)
-		}
+		value, found := bindingRowValue(input.Actual, actualRow, name)
 		if !found {
 			return nil, fmt.Errorf("actual field %q does not exist", name)
 		}
@@ -146,60 +140,155 @@ func resolveBindingSource(source string, input TransitionAppendEventInput, actua
 	}
 }
 
-func fieldBelongsToModel(setKey, wanted string, metadata *model.Metadata) bool {
-	if setKey == wanted {
-		return true
-	}
-	if metadata == nil {
-		return false
-	}
-	if field, ok := metadata.Fields[setKey]; ok && field != nil {
-		return field.DBName == wanted || field.Name == wanted
-	}
-	if field, ok := metadata.FieldsByDBName[setKey]; ok && field != nil {
-		return field.DBName == wanted || field.Name == wanted
-	}
-	return false
+// bindingField is one exported, nameable field on a release-state row.
+type bindingField struct {
+	name      string
+	dbName    string
+	indexPath []int
 }
 
-func registryMetadata(instance any) (*model.Metadata, error) {
-	if instance == nil {
-		return nil, fmt.Errorf("%w: release-state row is required", theorydbErrors.ErrInvalidModel)
+// bindingRow is a lightweight, policy-free view of a release-state row. It
+// deliberately avoids the model registry: the registry validates write-policy
+// metadata on registration, and a binding check must not fail merely because a
+// row carries a protected attribute this helper does not interpret.
+type bindingRow struct {
+	fieldsByDBName     map[string]bindingField
+	fieldsByName       map[string]bindingField
+	partitionAttribute string
+	sortAttribute      string
+}
+
+func describeBindingRow(instance any) (*bindingRow, error) {
+	value := reflect.ValueOf(instance)
+	for value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return nil, fmt.Errorf("%w: release-state row must not be a nil pointer", theorydbErrors.ErrInvalidModel)
+		}
+		value = value.Elem()
 	}
-	registry := model.NewRegistry()
-	if err := registry.Register(instance); err != nil {
-		return nil, fmt.Errorf("%w: register release-state row: %v", theorydbErrors.ErrInvalidModel, err)
+	if value.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("%w: release-state row must be a struct", theorydbErrors.ErrInvalidModel)
 	}
-	metadata, err := registry.GetMetadata(instance)
-	if err != nil {
-		return nil, fmt.Errorf("%w: read release-state row metadata: %v", theorydbErrors.ErrInvalidModel, err)
+
+	metadata := &bindingRow{
+		fieldsByDBName: make(map[string]bindingField),
+		fieldsByName:   make(map[string]bindingField),
 	}
+	collectBindingFields(value.Type(), nil, metadata)
 	return metadata, nil
 }
 
-func fieldValueByDBName(instance any, metadata *model.Metadata, dbName string) (any, bool) {
-	if metadata == nil || dbName == "" {
-		return nil, false
-	}
-	field, ok := metadata.FieldsByDBName[dbName]
-	if !ok || field == nil {
-		return nil, false
-	}
-	return fieldValueByIndexPath(instance, field.IndexPath)
+type bindingRoles struct {
+	partition bool
+	sort      bool
 }
 
-func fieldValueByName(instance any, metadata *model.Metadata, name string) (any, bool) {
-	if metadata == nil || name == "" {
-		return nil, false
+func collectBindingFields(modelType reflect.Type, prefix []int, metadata *bindingRow) {
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		path := make([]int, 0, len(prefix)+1)
+		path = append(path, prefix...)
+		path = append(path, i)
+
+		if collectEmbeddedBindingFields(field, path, metadata) {
+			continue
+		}
+		if !field.IsExported() || field.Tag.Get("theorydb") == "-" {
+			continue
+		}
+
+		entry, roles := bindingFieldFor(field, path)
+		metadata.add(entry, roles)
 	}
-	field, ok := metadata.Fields[name]
-	if !ok || field == nil {
-		return nil, false
-	}
-	return fieldValueByIndexPath(instance, field.IndexPath)
 }
 
-func fieldValueByIndexPath(instance any, indexPath []int) (any, bool) {
+func collectEmbeddedBindingFields(field reflect.StructField, path []int, metadata *bindingRow) bool {
+	if !field.Anonymous {
+		return false
+	}
+	embedded := field.Type
+	for embedded.Kind() == reflect.Pointer {
+		embedded = embedded.Elem()
+	}
+	if embedded.Kind() != reflect.Struct {
+		return false
+	}
+	collectBindingFields(embedded, path, metadata)
+	return true
+}
+
+func bindingFieldFor(field reflect.StructField, path []int) (bindingField, bindingRoles) {
+	dbName := ""
+	var roles bindingRoles
+	for _, raw := range strings.Split(field.Tag.Get("theorydb"), ",") {
+		part := strings.TrimSpace(raw)
+		switch {
+		case strings.HasPrefix(part, "attr:"):
+			dbName = strings.TrimSpace(strings.TrimPrefix(part, "attr:"))
+		case part == "pk":
+			roles.partition = true
+		case part == "sk":
+			roles.sort = true
+		}
+	}
+	if dbName == "" {
+		jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
+		if jsonName != "" && jsonName != "-" {
+			dbName = jsonName
+		}
+	}
+	if dbName == "" {
+		dbName = field.Name
+	}
+	return bindingField{name: field.Name, dbName: dbName, indexPath: path}, roles
+}
+
+func (r *bindingRow) add(entry bindingField, roles bindingRoles) {
+	if _, exists := r.fieldsByDBName[entry.dbName]; !exists {
+		r.fieldsByDBName[entry.dbName] = entry
+	}
+	if _, exists := r.fieldsByName[entry.name]; !exists {
+		r.fieldsByName[entry.name] = entry
+	}
+	if roles.partition && r.partitionAttribute == "" {
+		r.partitionAttribute = entry.dbName
+	}
+	if roles.sort && r.sortAttribute == "" {
+		r.sortAttribute = entry.dbName
+	}
+}
+
+func (r *bindingRow) field(name string) (bindingField, bool) {
+	if r == nil {
+		return bindingField{}, false
+	}
+	if field, ok := r.fieldsByDBName[name]; ok {
+		return field, true
+	}
+	field, ok := r.fieldsByName[name]
+	return field, ok
+}
+
+func (r *bindingRow) matchesFieldName(candidate, wanted string) bool {
+	if candidate == wanted {
+		return true
+	}
+	candidateField, ok := r.field(candidate)
+	if !ok {
+		return false
+	}
+	wantedField, ok := r.field(wanted)
+	if !ok {
+		return false
+	}
+	return candidateField.dbName == wantedField.dbName
+}
+
+func bindingRowValue(instance any, metadata *bindingRow, name string) (any, bool) {
+	field, ok := metadata.field(name)
+	if !ok {
+		return nil, false
+	}
 	value := reflect.ValueOf(instance)
 	for value.Kind() == reflect.Pointer {
 		if value.IsNil() {
@@ -210,11 +299,11 @@ func fieldValueByIndexPath(instance any, indexPath []int) (any, bool) {
 	if value.Kind() != reflect.Struct {
 		return nil, false
 	}
-	field, ok := fieldByIndexSafe(value, indexPath)
+	fieldValue, ok := fieldByIndexSafe(value, field.indexPath)
 	if !ok {
 		return nil, false
 	}
-	return field.Interface(), true
+	return fieldValue.Interface(), true
 }
 
 func fieldByIndexSafe(value reflect.Value, indexPath []int) (reflect.Value, bool) {
