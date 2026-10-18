@@ -7,8 +7,16 @@ from boto3.dynamodb.types import Binary
 from botocore.exceptions import ClientError
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from tabletheory_py.encryption import decrypt_attribute_value, encrypt_attribute_value
+from tabletheory_py.encryption import (
+    RecordBinding,
+    build_aad,
+    canonical_key_value,
+    decrypt_attribute_value,
+    encrypt_attribute_value,
+)
 from tabletheory_py.errors import AwsError, ValidationError
+
+_KEY_ARN = "arn:aws:kms:us-east-1:000000000000:key/test"
 
 
 class _GoodKms:
@@ -27,15 +35,16 @@ class _GoodKms:
         return {"Plaintext": self._dek}
 
 
-def test_encrypt_and_decrypt_round_trip_with_aad_binding() -> None:
+def test_encrypt_and_decrypt_round_trip_with_v1_aad_binding() -> None:
     kms = _GoodKms()
     envelope = encrypt_attribute_value(
         {"S": "top-secret"},
         attr_name="secret",
-        kms_key_arn="arn:aws:kms:us-east-1:000000000000:key/test",
+        kms_key_arn=_KEY_ARN,
         kms_client=kms,
     )
     assert set(envelope.keys()) == {"v", "edk", "nonce", "ct"}
+    assert envelope["v"] == 1
 
     plaintext = AESGCM(kms._dek).decrypt(
         envelope["nonce"],
@@ -49,17 +58,115 @@ def test_encrypt_and_decrypt_round_trip_with_aad_binding() -> None:
     decrypted = decrypt_attribute_value(
         envelope,
         attr_name="secret",
-        kms_key_arn="arn:aws:kms:us-east-1:000000000000:key/test",
+        kms_key_arn=_KEY_ARN,
         kms_client=kms,
     )
     assert decrypted == {"S": "top-secret"}
+
+    # A v1 envelope keeps decrypting even when a binding is supplied: dispatch
+    # is on the envelope version, not on the caller.
+    decrypted_with_binding = decrypt_attribute_value(
+        envelope,
+        attr_name="secret",
+        kms_key_arn=_KEY_ARN,
+        kms_client=kms,
+        binding=RecordBinding(table="notes", partition_key={"S": "USER#1"}),
+    )
+    assert decrypted_with_binding == {"S": "top-secret"}
 
     with pytest.raises(ValidationError, match="failed to decrypt"):
         decrypt_attribute_value(
             envelope,
             attr_name="other",
-            kms_key_arn="arn:aws:kms:us-east-1:000000000000:key/test",
+            kms_key_arn=_KEY_ARN,
             kms_client=kms,
+        )
+
+
+def test_canonical_key_value_encodes_type_and_base64() -> None:
+    assert canonical_key_value({"S": "USER#1"}) == "S:USER#1"
+    assert canonical_key_value({"N": "42"}) == "N:42"
+    assert canonical_key_value({"B": b"\x01\x02"}) == "B:AQI="
+
+
+def test_v2_envelope_binds_record_identity_and_rejects_replay() -> None:
+    kms = _GoodKms()
+    binding = RecordBinding(
+        table="notes",
+        partition_key={"S": "USER#1"},
+        sort_key={"S": "v1"},
+    )
+    expected_aad = b"theorydb:encrypted:v2|attr=secret|table=notes|pk=S:USER#1|sk=S:v1"
+
+    envelope = encrypt_attribute_value(
+        {"S": "top-secret"},
+        attr_name="secret",
+        kms_key_arn=_KEY_ARN,
+        kms_client=kms,
+        binding=binding,
+    )
+    assert envelope["v"] == 2
+    assert build_aad("secret", binding) == expected_aad
+
+    plaintext = AESGCM(kms._dek).decrypt(envelope["nonce"], envelope["ct"], expected_aad)
+    assert json.loads(plaintext.decode("utf-8")) == {"t": "S", "s": "top-secret"}
+
+    assert decrypt_attribute_value(
+        envelope,
+        attr_name="secret",
+        kms_key_arn=_KEY_ARN,
+        kms_client=kms,
+        binding=binding,
+    ) == {"S": "top-secret"}
+
+    with pytest.raises(ValidationError, match="failed to decrypt"):
+        decrypt_attribute_value(
+            envelope,
+            attr_name="secret",
+            kms_key_arn=_KEY_ARN,
+            kms_client=kms,
+            binding=RecordBinding(
+                table="notes",
+                partition_key={"S": "USER#2"},
+                sort_key={"S": "v1"},
+            ),
+        )
+
+    with pytest.raises(ValidationError, match="failed to decrypt"):
+        decrypt_attribute_value(
+            envelope,
+            attr_name="secret",
+            kms_key_arn=_KEY_ARN,
+            kms_client=kms,
+            binding=RecordBinding(
+                table="other_table",
+                partition_key={"S": "USER#1"},
+                sort_key={"S": "v1"},
+            ),
+        )
+
+    with pytest.raises(ValidationError, match="requires the record binding"):
+        decrypt_attribute_value(
+            envelope,
+            attr_name="secret",
+            kms_key_arn=_KEY_ARN,
+            kms_client=kms,
+        )
+
+
+def test_v2_aad_omits_sort_key_when_absent() -> None:
+    binding = RecordBinding(table="notes", partition_key={"N": "42"})
+    assert build_aad("secret", binding) == b"theorydb:encrypted:v2|attr=secret|table=notes|pk=N:42"
+
+
+def test_v2_encrypt_requires_a_valid_binding() -> None:
+    with pytest.raises(ValidationError, match="record binding"):
+        encrypt_attribute_value(
+            {"S": "x"},
+            attr_name="secret",
+            kms_key_arn=_KEY_ARN,
+            kms_client=_GoodKms(),
+            binding=RecordBinding(table="", partition_key={"S": "USER#1"}),
         )
 
 
@@ -84,7 +191,7 @@ def test_decrypt_validates_envelope_version_and_fields() -> None:
 
     with pytest.raises(ValidationError, match="unsupported"):
         decrypt_attribute_value(
-            {"v": 2, "edk": b"x", "nonce": b"y", "ct": b"z"},
+            {"v": 3, "edk": b"x", "nonce": b"y", "ct": b"z"},
             attr_name="secret",
             kms_key_arn="arn",
             kms_client=kms,

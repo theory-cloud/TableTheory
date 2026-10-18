@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/theory-cloud/tabletheory/v6/internal/encryption"
 	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
@@ -62,6 +63,11 @@ type recordingEncryptor struct {
 }
 
 func (r *recordingEncryptor) EncryptAttributeValue(_ context.Context, attributeName string, _ types.AttributeValue) (types.AttributeValue, error) {
+	r.names = append(r.names, attributeName)
+	return envelopeAttributeValue(), nil
+}
+
+func (r *recordingEncryptor) EncryptAttributeValueWithBinding(_ context.Context, _ encryption.RecordBinding, attributeName string, _ types.AttributeValue) (types.AttributeValue, error) {
 	r.names = append(r.names, attributeName)
 	return envelopeAttributeValue(), nil
 }

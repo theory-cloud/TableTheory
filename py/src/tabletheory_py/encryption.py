@@ -4,6 +4,7 @@ import base64
 import json
 import os
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, cast
 
 from boto3.dynamodb.types import Binary
@@ -13,8 +14,73 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from .errors import AwsError, ValidationError
 
 
-def _aad(attr_name: str) -> bytes:
-    return f"theorydb:encrypted:v1|attr={attr_name}".encode()
+@dataclass(frozen=True)
+class RecordBinding:
+    """Identity of the stored row an encrypted envelope belongs to.
+
+    ``partition_key`` and ``sort_key`` are boto3 AttributeValue maps such as
+    ``{"S": "..."}``. Envelope v2 authenticates this binding in the AES-GCM
+    additional data, so an envelope copied onto another record or table fails
+    to decrypt.
+    """
+
+    table: str
+    partition_key: Any
+    sort_key: Any | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.table, str):
+            object.__setattr__(self, "table", self.table.strip())
+
+    def valid(self) -> bool:
+        return bool(self.table) and self.partition_key is not None
+
+
+def canonical_key_value(av: Any) -> str:
+    """Encode a key attribute value unambiguously for the v2 AAD contract.
+
+    S and N keep their stored text; B is standard base64. The type prefix
+    keeps a string key from colliding with a numeric key of the same text.
+    """
+
+    kind, value = _ensure_single_key_map(av, context="record binding")
+    if kind == "S":
+        if not isinstance(value, str):
+            raise ValidationError("record binding: S must be a string")
+        return f"S:{value}"
+    if kind == "N":
+        if not isinstance(value, str):
+            raise ValidationError("record binding: N must be a string")
+        return f"N:{value}"
+    if kind == "B":
+        if isinstance(value, (bytes, bytearray)):
+            payload = bytes(value)
+        elif isinstance(value, Binary):
+            payload = bytes(cast(Any, value))
+        else:
+            raise ValidationError("record binding: B must be bytes")
+        return f"B:{base64.b64encode(payload).decode('ascii')}"
+    raise ValidationError(f"record binding: unsupported key attribute value type: {kind}")
+
+
+def build_aad(attr_name: str, binding: RecordBinding | None = None) -> bytes:
+    """Return the AES-GCM additional authenticated data for an envelope.
+
+    The v2 format is a cross-runtime contract: Go, TypeScript, and Python must
+    produce exactly this string so envelopes stay readable across runtimes.
+    """
+
+    if binding is None:
+        return f"theorydb:encrypted:v1|attr={attr_name}".encode()
+
+    aad = (
+        f"theorydb:encrypted:v2|attr={attr_name}"
+        f"|table={binding.table}"
+        f"|pk={canonical_key_value(binding.partition_key)}"
+    )
+    if binding.sort_key is not None:
+        aad += f"|sk={canonical_key_value(binding.sort_key)}"
+    return aad.encode()
 
 
 def _ensure_single_key_map(value: Any, *, context: str) -> tuple[str, Any]:
@@ -153,7 +219,11 @@ def encrypt_attribute_value(
     kms_key_arn: str,
     kms_client: Any,
     rand_bytes: Callable[[int], bytes] = os.urandom,
+    binding: RecordBinding | None = None,
 ) -> dict[str, Any]:
+    if binding is not None and not binding.valid():
+        raise ValidationError("encrypted envelope record binding requires a table name and partition key")
+
     try:
         data_key = kms_client.generate_data_key(KeyId=kms_key_arn, KeySpec="AES_256")
         dek = data_key["Plaintext"]
@@ -172,9 +242,10 @@ def encrypt_attribute_value(
         ensure_ascii=False,
     ).encode("utf-8")
     nonce = rand_bytes(12)
-    ct = AESGCM(bytes(dek)).encrypt(nonce, plaintext, _aad(attr_name))
+    version = 2 if binding is not None else 1
+    ct = AESGCM(bytes(dek)).encrypt(nonce, plaintext, build_aad(attr_name, binding))
 
-    return {"v": 1, "edk": bytes(edk), "nonce": nonce, "ct": ct}
+    return {"v": version, "edk": bytes(edk), "nonce": nonce, "ct": ct}
 
 
 def decrypt_attribute_value(
@@ -183,6 +254,7 @@ def decrypt_attribute_value(
     attr_name: str,
     kms_key_arn: str,
     kms_client: Any,
+    binding: RecordBinding | None = None,
 ) -> dict[str, Any]:
     version = envelope.get("v")
     if version is None:
@@ -191,8 +263,16 @@ def decrypt_attribute_value(
         version_int = int(version)
     except Exception as err:
         raise ValidationError("encrypted envelope is missing v") from err
-    if version_int != 1:
+    if version_int not in (1, 2):
         raise ValidationError(f"unsupported encrypted envelope version: {version_int}")
+
+    if version_int == 2:
+        if binding is None or not binding.valid():
+            raise ValidationError("encrypted envelope v2 requires the record binding")
+        aad = build_aad(attr_name, binding)
+    else:
+        # v1 authenticates only the attribute name; the binding is irrelevant.
+        aad = build_aad(attr_name)
 
     def _as_bytes(value: Any, *, field: str) -> bytes:
         if isinstance(value, (bytes, bytearray)):
@@ -217,7 +297,7 @@ def decrypt_attribute_value(
         raise ValidationError("kms Decrypt returned invalid key types")
 
     try:
-        plaintext = AESGCM(bytes(dek)).decrypt(nonce, ct, _aad(attr_name))
+        plaintext = AESGCM(bytes(dek)).decrypt(nonce, ct, aad)
     except Exception as err:
         raise ValidationError("failed to decrypt encrypted envelope") from err
 

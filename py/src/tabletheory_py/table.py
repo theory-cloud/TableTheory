@@ -62,6 +62,7 @@ from .write_policy import (
 )
 
 if TYPE_CHECKING:
+    from .encryption import RecordBinding
     from .optimizer import QueryShape, ScanShape
     from .update_builder import UpdateBuilder
 
@@ -1037,6 +1038,7 @@ class Table[T]:
         return_values: str | None = None,
     ) -> dict[str, Any]:
         key = self._to_key(pk, sk)
+        binding = self._record_binding_from_key(key)
         assert_mutable_write_policy(self._model, "update")
         assert_protected_fields_can_mutate(
             self._model,
@@ -1093,6 +1095,7 @@ class Table[T]:
                     update_values[value_ref] = self._serialize_attr_value(
                         attr_def,
                         normalize_set(value.value),
+                        binding=binding,
                     )
                 else:
                     if not isinstance(value.value, (int, float, Decimal)):
@@ -1104,7 +1107,11 @@ class Table[T]:
 
             if isinstance(value, UpdateSetIfNotExists):
                 value_ref = f":d_{field_name}"
-                update_values[value_ref] = self._serialize_attr_value(attr_def, value.default_value)
+                update_values[value_ref] = self._serialize_attr_value(
+                    attr_def,
+                    value.default_value,
+                    binding=binding,
+                )
                 set_parts.append(f"{name_ref} = if_not_exists({name_ref}, {value_ref})")
                 continue
 
@@ -1113,14 +1120,18 @@ class Table[T]:
                 continue
 
             value_ref = f":d_{field_name}"
-            update_values[value_ref] = self._serialize_attr_value(attr_def, value)
+            update_values[value_ref] = self._serialize_attr_value(attr_def, value, binding=binding)
             set_parts.append(f"{name_ref} = {value_ref}")
 
         if updated_at_attr is not None:
             updated_at_name_ref = f"#d_{updated_at_attr.python_name}"
             updated_at_value_ref = f":d_{updated_at_attr.python_name}"
             update_names[updated_at_name_ref] = updated_at_attr.attribute_name
-            update_values[updated_at_value_ref] = self._serialize_attr_value(updated_at_attr, self._now())
+            update_values[updated_at_value_ref] = self._serialize_attr_value(
+                updated_at_attr,
+                self._now(),
+                binding=binding,
+            )
             set_parts.insert(0, f"{updated_at_name_ref} = {updated_at_value_ref}")
 
         version_condition: str | None = None
@@ -1129,6 +1140,7 @@ class Table[T]:
             update_values[":d_expected_version"] = self._serialize_attr_value(
                 version_attr,
                 expected_version,
+                binding=binding,
             )
             update_values[":d_version_increment"] = self._serializer.serialize(1)
             add_parts.append("#d_version :d_version_increment")
@@ -1183,7 +1195,13 @@ class Table[T]:
             out[k] = self._serializer.serialize(v)
         return out
 
-    def _serialize_attr_value(self, attr_def: AttributeDefinition, value: Any) -> Any:
+    def _serialize_attr_value(
+        self,
+        attr_def: AttributeDefinition,
+        value: Any,
+        *,
+        binding: RecordBinding | None = None,
+    ) -> Any:
         if attr_def.converter is not None and value is not None:
             value = attr_def.converter.to_dynamodb(value)
 
@@ -1212,6 +1230,7 @@ class Table[T]:
                 kms_key_arn=self._kms_key_arn,
                 kms_client=self._kms_client,
                 rand_bytes=self._rand_bytes,
+                binding=binding,
             )
             return self._serializer.serialize(envelope)
 
@@ -1220,6 +1239,22 @@ class Table[T]:
     def _to_item(self, item: T) -> dict[str, Any]:
         if not is_dataclass(item):
             raise ValidationError("item must be a dataclass instance")
+
+        binding: RecordBinding | None = None
+        pk_value = getattr(item, self._model.pk.python_name)
+        pk_av = None if pk_value is None else self._serialize_attr_value(self._model.pk, pk_value)
+        sk_av = None
+        if self._model.sk is not None:
+            sk_value = getattr(item, self._model.sk.python_name)
+            sk_av = None if sk_value is None else self._serialize_attr_value(self._model.sk, sk_value)
+        if pk_av is not None and (self._model.sk is None or sk_av is not None):
+            from .encryption import RecordBinding
+
+            binding = RecordBinding(
+                table=self._table_name,
+                partition_key=pk_av,
+                sort_key=sk_av,
+            )
 
         out: dict[str, Any] = {}
         now: str | None = None
@@ -1233,7 +1268,11 @@ class Table[T]:
                 value = 0
             if attr_def.omitempty and _is_empty(value):
                 continue
-            out[attr_def.attribute_name] = self._serialize_attr_value(attr_def, value)
+            out[attr_def.attribute_name] = self._serialize_attr_value(
+                attr_def,
+                value,
+                binding=binding,
+            )
 
         if self._model.pk.attribute_name not in out:
             raise ValidationError("missing pk")
@@ -1261,7 +1300,39 @@ class Table[T]:
             key[self._model.sk.attribute_name] = self._serialize_attr_value(self._model.sk, sk)
         return key
 
-    def _from_item(self, item: Mapping[str, Any]) -> T:
+    def _record_binding_from_key(self, key: Mapping[str, Any]) -> RecordBinding | None:
+        """Build the v2 envelope binding from a raw key map.
+
+        Returns ``None`` when the key is incomplete, which happens for
+        projections that omit key attributes. Callers pass that through so v1
+        envelopes still decrypt while v2 fails closed.
+        """
+
+        partition_key = key.get(self._model.pk.attribute_name)
+        if partition_key is None:
+            return None
+
+        sort_key = None
+        if self._model.sk is not None:
+            sort_key = key.get(self._model.sk.attribute_name)
+            if sort_key is None:
+                return None
+
+        from .encryption import RecordBinding
+
+        return RecordBinding(
+            table=self._table_name,
+            partition_key=partition_key,
+            sort_key=sort_key,
+        )
+
+    def _from_item(
+        self,
+        item: Mapping[str, Any],
+        *,
+        binding: RecordBinding | None = None,
+    ) -> T:
+        record_binding = self._record_binding_from_key(item) or binding
         model_cls = self._model.model_type
         model_annotations = getattr(model_cls, "__annotations__", {})
 
@@ -1291,6 +1362,7 @@ class Table[T]:
                     attr_name=attr_def.attribute_name,
                     kms_key_arn=self._kms_key_arn,
                     kms_client=self._kms_client,
+                    binding=record_binding,
                 )
                 raw = self._deserializer.deserialize(cast(Any, decrypted_av))
             else:

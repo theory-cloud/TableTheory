@@ -4,7 +4,16 @@ from dataclasses import dataclass
 
 import pytest
 
-from tabletheory_py import EncryptionNotConfiguredError, ModelDefinition, Table, theorydb_field
+from tabletheory_py import (
+    EncryptionNotConfiguredError,
+    ModelDefinition,
+    Table,
+    ValidationError,
+    theorydb_field,
+)
+from tabletheory_py.encryption import encrypt_attribute_value
+
+_KEY_ARN = "arn:aws:kms:us-east-1:000000000000:key/test"
 
 
 class _FakeKms:
@@ -42,7 +51,7 @@ def test_encrypted_field_round_trip_encrypts_and_decrypts() -> None:
     table: Table[SecretThing] = Table(
         model,
         client=object(),
-        kms_key_arn="arn:aws:kms:us-east-1:000000000000:key/test",
+        kms_key_arn=_KEY_ARN,
         kms_client=_FakeKms(),
     )
 
@@ -50,6 +59,44 @@ def test_encrypted_field_round_trip_encrypts_and_decrypts() -> None:
     stored = table._to_item(item)
     assert "M" in stored["secret"]
     assert set(stored["secret"]["M"].keys()) == {"v", "edk", "nonce", "ct"}
+    assert stored["secret"]["M"]["v"] == {"N": "2"}
 
     got = table._from_item(stored)
     assert got == item
+
+    replayed = {"pk": {"S": "C"}, "sk": {"S": "D"}, "secret": stored["secret"]}
+    with pytest.raises(ValidationError, match="failed to decrypt"):
+        table._from_item(replayed)
+
+
+def test_legacy_v1_envelope_still_decrypts_through_table() -> None:
+    model = ModelDefinition.from_dataclass(SecretThing, table_name="tbl")
+    kms = _FakeKms()
+    table: Table[SecretThing] = Table(
+        model,
+        client=object(),
+        kms_key_arn=_KEY_ARN,
+        kms_client=kms,
+    )
+
+    legacy = encrypt_attribute_value(
+        {"S": "legacy"},
+        attr_name="secret",
+        kms_key_arn=_KEY_ARN,
+        kms_client=kms,
+    )
+    assert legacy["v"] == 1
+    raw = {
+        "pk": {"S": "A"},
+        "sk": {"S": "B"},
+        "secret": {
+            "M": {
+                "v": {"N": str(legacy["v"])},
+                "edk": {"B": legacy["edk"]},
+                "nonce": {"B": legacy["nonce"]},
+                "ct": {"B": legacy["ct"]},
+            }
+        },
+    }
+
+    assert table._from_item(raw) == SecretThing(pk="A", sk="B", secret="legacy")

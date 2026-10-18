@@ -60,7 +60,7 @@ func TestEncryptedTag_WriteTimeEncryption(t *testing.T) {
 		secretM := requireMap(t, secret["M"])
 
 		v := requireMap(t, secretM["v"])
-		require.Equal(t, "1", v["N"])
+		require.Equal(t, "2", v["N"], "model writes must be bound to the record")
 
 		edk := requireMap(t, secretM["edk"])
 		require.Equal(t, edkB64, edk["B"])

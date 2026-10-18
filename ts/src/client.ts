@@ -58,6 +58,7 @@ import {
   encryptAttributeValue,
   marshalPutItemEncrypted,
   modelHasEncryptedAttributes,
+  recordBindingFromKey,
   type EncryptionProvider,
 } from './encryption.js';
 import {
@@ -419,6 +420,7 @@ export class TheorydbClient<
       ? this.requireEncryption(model)
       : undefined;
     const key = marshalKey(model, item);
+    const binding = recordBindingFromKey(model, key);
 
     const versionAttr = model.roles.version;
     if (!versionAttr)
@@ -512,6 +514,7 @@ export class TheorydbClient<
           ? await encryptAttributeValue(schema, value, provider!, {
               model: model.name,
               attribute: field,
+              binding,
             })
           : marshalScalar(schema, value);
       setParts.push(`${placeholder} = ${valueKey}`);

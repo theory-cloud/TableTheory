@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
   UpdateItemCommand,
@@ -6,7 +7,10 @@ import {
 } from '@aws-sdk/client-dynamodb';
 
 import { TheorydbClient } from '../../src/client.js';
-import { encryptAttributeValue } from '../../src/encryption.js';
+import {
+  decryptItemAttributes,
+  encryptAttributeValue,
+} from '../../src/encryption.js';
 import { hasTheorydbErrorCode, TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
 import { unsafeOperator } from '../../src/query.js';
@@ -928,3 +932,52 @@ import {
     .execute();
   assert.deepEqual(out, { PK: 'A', secret: 'hello' });
 }
+
+void test('updateBuilder writes a v2 envelope bound to the builder key', async () => {
+  const mock = createMockDynamoDBClient();
+  const provider = createDeterministicEncryptionProvider('seed-builder');
+
+  const model = defineModel({
+    name: 'E',
+    table: { name: 't' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [
+      { attribute: 'PK', type: 'S', roles: ['pk'] },
+      { attribute: 'secret', type: 'S', encryption: { v: 1 } },
+    ],
+  });
+
+  let sent: UpdateItemCommand | undefined;
+  mock.when(UpdateItemCommand, async (cmd) => {
+    sent = cmd;
+    return { $metadata: {} };
+  });
+
+  const client = new TheorydbClient(mock.client, {
+    encryption: provider,
+  }).register(model);
+  await client.updateBuilder('E', { PK: 'A' }).set('secret', 'hello').execute();
+
+  assert.ok(sent);
+  const envelope = sent.input.ExpressionAttributeValues?.[':u1'];
+  assert.ok(envelope && 'M' in envelope);
+  assert.equal(envelope.M?.v?.N, '2');
+
+  const decrypted = await decryptItemAttributes(
+    model,
+    { PK: { S: 'A' }, secret: envelope },
+    provider,
+  );
+  assert.deepEqual(decrypted.secret, { S: 'hello' });
+
+  await assert.rejects(
+    () =>
+      decryptItemAttributes(
+        model,
+        { PK: { S: 'B' }, secret: envelope },
+        provider,
+      ),
+    (e) =>
+      e instanceof TheorydbError && e.code === 'ErrInvalidEncryptedEnvelope',
+  );
+});

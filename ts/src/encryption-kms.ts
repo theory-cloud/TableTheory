@@ -6,12 +6,14 @@ import {
   type KMSClient,
 } from '@aws-sdk/client-kms';
 
-import { TheorydbError } from './errors.js';
-import type {
-  EncryptedEnvelope,
-  EncryptionContext,
-  EncryptionProvider,
+import {
+  aadForContext,
+  envelopeVersionForContext,
+  type EncryptedEnvelope,
+  type EncryptionContext,
+  type EncryptionProvider,
 } from './encryption.js';
+import { TheorydbError } from './errors.js';
 
 export interface AwsKmsEncryptionProviderOptions {
   keyArn: string;
@@ -39,6 +41,9 @@ export class AwsKmsEncryptionProvider implements EncryptionProvider {
     plaintext: Uint8Array,
     ctx: EncryptionContext,
   ): Promise<EncryptedEnvelope> {
+    const version = envelopeVersionForContext(ctx);
+    const aad = aadForContext(ctx, version);
+
     const dataKeyResp = await this.kms.send(
       new GenerateDataKeyCommand({
         KeyId: this.keyArn,
@@ -71,7 +76,7 @@ export class AwsKmsEncryptionProvider implements EncryptionProvider {
     }
 
     const cipher = crypto.createCipheriv('aes-256-gcm', dek, nonce);
-    cipher.setAAD(aadForAttribute(ctx.attribute));
+    cipher.setAAD(aad);
     const ciphertext = Buffer.concat([
       cipher.update(plaintext),
       cipher.final(),
@@ -79,7 +84,7 @@ export class AwsKmsEncryptionProvider implements EncryptionProvider {
     const tag = cipher.getAuthTag();
 
     return {
-      v: 1,
+      v: version,
       edk: new Uint8Array(edk),
       nonce,
       ct: Buffer.concat([ciphertext, tag]),
@@ -90,6 +95,10 @@ export class AwsKmsEncryptionProvider implements EncryptionProvider {
     envelope: EncryptedEnvelope,
     ctx: EncryptionContext,
   ): Promise<Uint8Array> {
+    // A v2 envelope that lost its record binding must fail before any KMS or
+    // ciphertext work happens.
+    const aad = aadForContext(ctx, envelope.v);
+
     const decResp = await this.kms.send(
       new DecryptCommand({
         CiphertextBlob: envelope.edk,
@@ -120,15 +129,16 @@ export class AwsKmsEncryptionProvider implements EncryptionProvider {
       dek,
       envelope.nonce,
     );
-    decipher.setAAD(aadForAttribute(ctx.attribute));
+    decipher.setAAD(aad);
     decipher.setAuthTag(tag);
 
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    try {
+      return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    } catch {
+      throw new TheorydbError(
+        'ErrInvalidEncryptedEnvelope',
+        'aes-gcm decrypt failed',
+      );
+    }
   }
-}
-
-function aadForAttribute(attributeName: string): Uint8Array {
-  return new TextEncoder().encode(
-    `theorydb:encrypted:v1|attr=${attributeName}`,
-  );
 }

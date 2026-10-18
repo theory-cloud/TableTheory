@@ -48,6 +48,10 @@ empty value.
 - **Index**: a GSI or LSI definition.
 - **Cursor**: an opaque pagination token that encodes DynamoDB `LastEvaluatedKey` + query context.
 - **Encrypted envelope**: the stored representation of an encrypted attribute (map containing `v`, `edk`, `nonce`, `ct`).
+  Envelope `v: 1` binds only the attribute name. Envelope `v: 2` additional authenticated data is
+  `theorydb:encrypted:v2|attr=<attribute>|table=<table>|pk=<key>` plus `|sk=<key>` when the record has a sort key,
+  where each key is encoded as `S:<value>`, `N:<value>`, or `B:<base64>`. Readers MUST accept v1 and v2; v2
+  requires the record binding. Writers SHOULD emit v2 whenever the table and record key are known.
 
 ## DMS file format (proposed)
 

@@ -19,6 +19,9 @@ import (
 
 const (
 	envelopeVersionV1 = "1"
+	// envelopeVersionV2 authenticates the record binding in the AES-GCM
+	// additional data. v1 envelopes remain readable for existing data.
+	envelopeVersionV2 = "2"
 
 	envelopeKeyVersion    = "v"
 	envelopeKeyEDK        = "edk"
@@ -62,7 +65,24 @@ func NewServiceFromAWSConfigWithRand(keyARN string, cfg aws.Config, rng io.Reade
 	return NewServiceWithRand(keyARN, kms.NewFromConfig(cfg), rng)
 }
 
+// EncryptAttributeValue writes a legacy v1 envelope that authenticates only the
+// attribute name. New writes to stored records should use
+// EncryptAttributeValueWithBinding so an envelope cannot be replayed onto
+// another record or table.
 func (s *Service) EncryptAttributeValue(ctx context.Context, attributeName string, av types.AttributeValue) (types.AttributeValue, error) {
+	return s.encryptAttributeValue(ctx, attributeName, av, aadForAttribute(attributeName), envelopeVersionV1)
+}
+
+// EncryptAttributeValueWithBinding writes a v2 envelope bound to the record
+// identity (table, partition key, sort key) in addition to the attribute name.
+func (s *Service) EncryptAttributeValueWithBinding(ctx context.Context, binding RecordBinding, attributeName string, av types.AttributeValue) (types.AttributeValue, error) {
+	if !binding.Valid() {
+		return nil, fmt.Errorf("encrypted envelope record binding is required")
+	}
+	return s.encryptAttributeValue(ctx, attributeName, av, aadForBoundRecord(attributeName, binding), envelopeVersionV2)
+}
+
+func (s *Service) encryptAttributeValue(ctx context.Context, attributeName string, av types.AttributeValue, aad []byte, envelopeVersion string) (types.AttributeValue, error) {
 	if s == nil {
 		return nil, fmt.Errorf("encryption service is nil")
 	}
@@ -109,12 +129,11 @@ func (s *Service) EncryptAttributeValue(ctx context.Context, attributeName strin
 		return nil, fmt.Errorf("nonce generation failed: %w", err)
 	}
 
-	aad := aadForAttribute(attributeName)
 	ct := gcm.Seal(nil, nonce, plaintext, aad)
 
 	return &types.AttributeValueMemberM{
 		Value: map[string]types.AttributeValue{
-			envelopeKeyVersion:    &types.AttributeValueMemberN{Value: envelopeVersionV1},
+			envelopeKeyVersion:    &types.AttributeValueMemberN{Value: envelopeVersion},
 			envelopeKeyEDK:        &types.AttributeValueMemberB{Value: dataKey.CiphertextBlob},
 			envelopeKeyNonce:      &types.AttributeValueMemberB{Value: nonce},
 			envelopeKeyCiphertext: &types.AttributeValueMemberB{Value: ct},
@@ -122,7 +141,19 @@ func (s *Service) EncryptAttributeValue(ctx context.Context, attributeName strin
 	}, nil
 }
 
+// DecryptAttributeValue decrypts a legacy v1 envelope. A v2 envelope requires
+// the record binding and is rejected here rather than decrypted without it.
 func (s *Service) DecryptAttributeValue(ctx context.Context, attributeName string, envelope types.AttributeValue) (types.AttributeValue, error) {
+	return s.decryptAttributeValue(ctx, attributeName, envelope, RecordBinding{}, false)
+}
+
+// DecryptAttributeValueWithBinding decrypts v2 envelopes with their record
+// binding and still accepts legacy v1 envelopes for read compatibility.
+func (s *Service) DecryptAttributeValueWithBinding(ctx context.Context, binding RecordBinding, attributeName string, envelope types.AttributeValue) (types.AttributeValue, error) {
+	return s.decryptAttributeValue(ctx, attributeName, envelope, binding, true)
+}
+
+func (s *Service) decryptAttributeValue(ctx context.Context, attributeName string, envelope types.AttributeValue, binding RecordBinding, bindingSupplied bool) (types.AttributeValue, error) {
 	if err := s.validateDecryptInputs(attributeName); err != nil {
 		return nil, err
 	}
@@ -130,6 +161,14 @@ func (s *Service) DecryptAttributeValue(ctx context.Context, attributeName strin
 	parts, err := parseEncryptedEnvelope(envelope)
 	if err != nil {
 		return nil, err
+	}
+
+	aad := aadForAttribute(attributeName)
+	if parts.version == envelopeVersionV2 {
+		if !bindingSupplied || !binding.Valid() {
+			return nil, fmt.Errorf("%w: encrypted envelope v2 requires the record binding", customerrors.ErrInvalidEncryptedEnvelope)
+		}
+		aad = aadForBoundRecord(attributeName, binding)
 	}
 
 	dataKey, err := s.decryptDataKey(ctx, parts.edk)
@@ -142,10 +181,9 @@ func (s *Service) DecryptAttributeValue(ctx context.Context, attributeName strin
 		return nil, err
 	}
 
-	aad := aadForAttribute(attributeName)
 	plaintext, err := gcm.Open(nil, parts.nonce, parts.ciphertext, aad)
 	if err != nil {
-		return nil, fmt.Errorf("aes-gcm decrypt failed: %w", err)
+		return nil, fmt.Errorf("%w: aes-gcm decrypt failed: %w", customerrors.ErrInvalidEncryptedEnvelope, err)
 	}
 
 	return decodeAttributeValue(plaintext)
@@ -156,6 +194,7 @@ func aadForAttribute(attributeName string) []byte {
 }
 
 type encryptedEnvelopeParts struct {
+	version    string
 	edk        []byte
 	nonce      []byte
 	ciphertext []byte
@@ -183,7 +222,8 @@ func parseEncryptedEnvelope(envelope types.AttributeValue) (encryptedEnvelopePar
 		return encryptedEnvelopeParts{}, fmt.Errorf("%w: expected encrypted envelope map, got %T", customerrors.ErrInvalidEncryptedEnvelope, envelope)
 	}
 
-	if err := validateEncryptedEnvelopeVersion(env.Value); err != nil {
+	version, err := encryptedEnvelopeVersion(env.Value)
+	if err != nil {
 		return encryptedEnvelopeParts{}, err
 	}
 
@@ -203,18 +243,22 @@ func parseEncryptedEnvelope(envelope types.AttributeValue) (encryptedEnvelopePar
 	}
 
 	return encryptedEnvelopeParts{
+		version:    version,
 		edk:        edkAV.Value,
 		nonce:      nonceAV.Value,
 		ciphertext: ctAV.Value,
 	}, nil
 }
 
-func validateEncryptedEnvelopeVersion(values map[string]types.AttributeValue) error {
+func encryptedEnvelopeVersion(values map[string]types.AttributeValue) (string, error) {
 	versionAV, ok := values[envelopeKeyVersion].(*types.AttributeValueMemberN)
-	if !ok || versionAV == nil || versionAV.Value != envelopeVersionV1 {
-		return fmt.Errorf("%w: unsupported encrypted envelope version", customerrors.ErrInvalidEncryptedEnvelope)
+	if !ok || versionAV == nil {
+		return "", fmt.Errorf("%w: unsupported encrypted envelope version", customerrors.ErrInvalidEncryptedEnvelope)
 	}
-	return nil
+	if versionAV.Value != envelopeVersionV1 && versionAV.Value != envelopeVersionV2 {
+		return "", fmt.Errorf("%w: unsupported encrypted envelope version", customerrors.ErrInvalidEncryptedEnvelope)
+	}
+	return versionAV.Value, nil
 }
 
 func (s *Service) decryptDataKey(ctx context.Context, edk []byte) ([]byte, error) {

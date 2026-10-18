@@ -370,12 +370,19 @@ func decryptTransactGetItem(ctx context.Context, sess *session.Session, metadata
 	} else {
 		svc = encryption.NewServiceFromAWSConfigWithRand(keyARN, sess.AWSConfig(), rng)
 	}
+	binding, hasBinding := encryption.BindingFromItem(metadata.TableName, metadata, item)
 	for attrName, attrValue := range item {
 		fieldMeta, ok := metadata.FieldsByDBName[attrName]
 		if !ok || fieldMeta == nil || !fieldMeta.IsEncrypted {
 			continue
 		}
-		decrypted, err := svc.DecryptAttributeValue(ctx, fieldMeta.DBName, attrValue)
+		var decrypted types.AttributeValue
+		var err error
+		if hasBinding {
+			decrypted, err = svc.DecryptAttributeValueWithBinding(ctx, binding, fieldMeta.DBName, attrValue)
+		} else {
+			decrypted, err = svc.DecryptAttributeValue(ctx, fieldMeta.DBName, attrValue)
+		}
 		if err != nil {
 			return &customerrors.EncryptedFieldError{
 				Operation: "decrypt",

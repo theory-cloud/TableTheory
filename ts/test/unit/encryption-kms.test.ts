@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import { DecryptCommand, GenerateDataKeyCommand } from '@aws-sdk/client-kms';
 
@@ -78,3 +79,106 @@ class StubKms {
 
   assert.equal(kms.calls.length, 3);
 }
+
+const isInvalidEnvelope = (err: unknown): boolean =>
+  err instanceof TheorydbError && err.code === 'ErrInvalidEncryptedEnvelope';
+
+void test('KMS writes v2 envelopes bound to the record identity', async () => {
+  const kms = new StubKms();
+  const provider = new AwsKmsEncryptionProvider(kms as never, {
+    keyArn,
+    randomBytes: () => nonce,
+  });
+  const plaintext = new TextEncoder().encode('payload');
+  const binding = {
+    table: 'users_contract',
+    partitionKey: { S: 'USER#1' },
+    sortKey: { S: 'PROFILE' },
+  };
+
+  const env = await provider.encrypt(plaintext, {
+    model: 'T',
+    attribute: 'secret',
+    binding,
+  });
+  assert.equal(env.v, 2);
+
+  const roundTrip = await provider.decrypt(env, {
+    model: 'T',
+    attribute: 'secret',
+    binding,
+  });
+  assert.deepEqual(Buffer.from(roundTrip), Buffer.from(plaintext));
+
+  await assert.rejects(
+    () =>
+      provider.decrypt(env, {
+        model: 'T',
+        attribute: 'secret',
+        binding: { ...binding, partitionKey: { S: 'USER#2' } },
+      }),
+    isInvalidEnvelope,
+  );
+
+  await assert.rejects(
+    () =>
+      provider.decrypt(env, {
+        model: 'T',
+        attribute: 'secret',
+        binding: { ...binding, table: 'other_table' },
+      }),
+    isInvalidEnvelope,
+  );
+
+  await assert.rejects(
+    () =>
+      provider.decrypt(env, {
+        model: 'T',
+        attribute: 'secret',
+      }),
+    isInvalidEnvelope,
+  );
+});
+
+void test('KMS v2 without a binding fails before calling KMS', async () => {
+  const kms = new StubKms();
+  const provider = new AwsKmsEncryptionProvider(kms as never, {
+    keyArn,
+    randomBytes: () => nonce,
+  });
+  const binding = { table: 'users_contract', partitionKey: { S: 'USER#1' } };
+  const env = await provider.encrypt(new TextEncoder().encode('payload'), {
+    model: 'T',
+    attribute: 'secret',
+    binding,
+  });
+  const callsAfterEncrypt = kms.calls.length;
+
+  await assert.rejects(
+    () => provider.decrypt(env, { model: 'T', attribute: 'secret' }),
+    isInvalidEnvelope,
+  );
+  assert.equal(kms.calls.length, callsAfterEncrypt);
+});
+
+void test('KMS still decrypts a legacy v1 envelope when a binding is supplied', async () => {
+  const kms = new StubKms();
+  const provider = new AwsKmsEncryptionProvider(kms as never, {
+    keyArn,
+    randomBytes: () => nonce,
+  });
+  const plaintext = new TextEncoder().encode('payload');
+
+  const legacy = await provider.encrypt(plaintext, {
+    model: 'T',
+    attribute: 'secret',
+  });
+  assert.equal(legacy.v, 1);
+
+  const roundTrip = await provider.decrypt(legacy, {
+    model: 'T',
+    attribute: 'secret',
+    binding: { table: 'users_contract', partitionKey: { S: 'USER#1' } },
+  });
+  assert.deepEqual(Buffer.from(roundTrip), Buffer.from(plaintext));
+});

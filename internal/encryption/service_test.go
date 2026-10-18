@@ -313,3 +313,72 @@ func TestService_DecryptAttributeValue_Errors(t *testing.T) {
 		require.ErrorContains(t, err, "failed to decode attribute value")
 	})
 }
+
+func TestEncryptAttributeValueWithBindingRejectsReplay(t *testing.T) {
+	svc := newTestService(t)
+	bindingA := RecordBinding{Table: "blog", PartitionKey: &types.AttributeValueMemberS{Value: "post#1"}}
+	bindingB := RecordBinding{Table: "blog", PartitionKey: &types.AttributeValueMemberS{Value: "post#2"}}
+	bindingOtherTable := RecordBinding{Table: "other", PartitionKey: &types.AttributeValueMemberS{Value: "post#1"}}
+
+	envelope, err := svc.EncryptAttributeValueWithBinding(context.Background(), bindingA, "secret", &types.AttributeValueMemberS{Value: "top-secret"})
+	require.NoError(t, err)
+
+	parts, err := parseEncryptedEnvelope(envelope)
+	require.NoError(t, err)
+	require.Equal(t, envelopeVersionV2, parts.version)
+
+	for name, binding := range map[string]RecordBinding{
+		"another record": bindingB,
+		"another table":  bindingOtherTable,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := svc.DecryptAttributeValueWithBinding(context.Background(), binding, "secret", envelope)
+			require.Error(t, err)
+		})
+	}
+
+	plaintext, err := svc.DecryptAttributeValueWithBinding(context.Background(), bindingA, "secret", envelope)
+	require.NoError(t, err)
+	require.Equal(t, "top-secret", plaintext.(*types.AttributeValueMemberS).Value)
+
+	_, err = svc.DecryptAttributeValue(context.Background(), "secret", envelope)
+	require.Error(t, err, "a v2 envelope must not decrypt without its binding")
+}
+
+func TestEncryptAttributeValueWithBindingBindsTheSortKey(t *testing.T) {
+	svc := newTestService(t)
+	binding := RecordBinding{
+		Table:        "blog",
+		PartitionKey: &types.AttributeValueMemberS{Value: "release#a"},
+		SortKey:      &types.AttributeValueMemberS{Value: "ACTUAL"},
+	}
+	replayed := RecordBinding{
+		Table:        "blog",
+		PartitionKey: &types.AttributeValueMemberS{Value: "release#a"},
+		SortKey:      &types.AttributeValueMemberS{Value: "EVENT#1"},
+	}
+
+	envelope, err := svc.EncryptAttributeValueWithBinding(context.Background(), binding, "secret", &types.AttributeValueMemberS{Value: "top-secret"})
+	require.NoError(t, err)
+
+	_, err = svc.DecryptAttributeValueWithBinding(context.Background(), replayed, "secret", envelope)
+	require.Error(t, err)
+	_, err = svc.DecryptAttributeValueWithBinding(context.Background(), binding, "secret", envelope)
+	require.NoError(t, err)
+}
+
+func TestDecryptAttributeValueWithBindingAcceptsLegacyV1Envelopes(t *testing.T) {
+	svc := newTestService(t)
+	binding := RecordBinding{Table: "blog", PartitionKey: &types.AttributeValueMemberS{Value: "post#1"}}
+
+	envelope, err := svc.EncryptAttributeValue(context.Background(), "secret", &types.AttributeValueMemberS{Value: "legacy"})
+	require.NoError(t, err)
+
+	plaintext, err := svc.DecryptAttributeValueWithBinding(context.Background(), binding, "secret", envelope)
+	require.NoError(t, err)
+	require.Equal(t, "legacy", plaintext.(*types.AttributeValueMemberS).Value)
+
+	plaintext, err = svc.DecryptAttributeValue(context.Background(), "secret", envelope)
+	require.NoError(t, err)
+	require.Equal(t, "legacy", plaintext.(*types.AttributeValueMemberS).Value)
+}
