@@ -35,7 +35,10 @@ func NewAPIKeyHandler(db core.ExtendedDB) *APIKeyHandler {
 func (h *APIKeyHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
-	userID := r.Context().Value("user_id").(string)
+	_, userID, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin)
+	if !ok {
+		return
+	}
 
 	// Ensure proper org ID format
 	if !strings.HasPrefix(orgID, "org#") {
@@ -155,6 +158,9 @@ func (h *APIKeyHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 // ListAPIKeys lists all API keys for an organization
 func (h *APIKeyHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin); !ok {
+		return
+	}
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 
@@ -196,6 +202,9 @@ func (h *APIKeyHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 
 // GetAPIKey retrieves details about a specific API key
 func (h *APIKeyHandler) GetAPIKey(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin); !ok {
+		return
+	}
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 	keyID := vars["key_id"]
@@ -246,7 +255,10 @@ func (h *APIKeyHandler) UpdateAPIKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 	keyID := vars["key_id"]
-	userID := r.Context().Value("user_id").(string)
+	_, userID, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin)
+	if !ok {
+		return
+	}
 
 	// Ensure proper ID formats
 	if !strings.HasPrefix(orgID, "org#") {
@@ -328,7 +340,10 @@ func (h *APIKeyHandler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 	keyID := vars["key_id"]
-	userID := r.Context().Value("user_id").(string)
+	_, userID, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin)
+	if !ok {
+		return
+	}
 
 	// Ensure proper ID formats
 	if !strings.HasPrefix(orgID, "org#") {
