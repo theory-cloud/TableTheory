@@ -29,6 +29,16 @@ export interface AttributeSchema {
   optional?: boolean;
   omit_empty?: boolean;
   json?: boolean;
+  /**
+   * How a `type: 'S'` JSON attribute is read and written.
+   *
+   * 'carrier' (default) stores and returns raw JSON text, matching DMS v0.2.
+   * 'parse' restores the pre-v3 behavior: writes JSON-encode the value and
+   * reads parse the stored text back into an object, array, or scalar. Use
+   * 'parse' for schemas authored before DMS v0.2 introduced structured M/L
+   * carriers, when authorization code expects the previous runtime type.
+   */
+  jsonStringMode?: 'carrier' | 'parse';
   binary?: boolean;
   format?: string;
   roles?: readonly string[];
@@ -288,6 +298,23 @@ function validateModelSchema(schema: ModelSchema): void {
         'ErrInvalidModel',
         `json attributes must use type S, N, BOOL, NULL, L, or M: ${attr.attribute}`,
       );
+    }
+    if (attr.jsonStringMode !== undefined) {
+      if (!attr.json || attr.type !== 'S') {
+        throw new TheorydbError(
+          'ErrInvalidModel',
+          `jsonStringMode requires a json attribute with type S: ${attr.attribute}`,
+        );
+      }
+      if (
+        attr.jsonStringMode !== 'carrier' &&
+        attr.jsonStringMode !== 'parse'
+      ) {
+        throw new TheorydbError(
+          'ErrInvalidModel',
+          `jsonStringMode must be 'carrier' or 'parse': ${attr.attribute}`,
+        );
+      }
     }
     if (attributeNames.has(attr.attribute)) {
       throw new TheorydbError(

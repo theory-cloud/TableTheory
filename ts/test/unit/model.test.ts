@@ -190,3 +190,47 @@ const userSchema: ModelSchema = {
     },
   );
 }
+
+{
+  const schema: ModelSchema = {
+    ...userSchema,
+    attributes: [
+      ...userSchema.attributes,
+      { attribute: 'emailHash', type: 'S', optional: true },
+      {
+        attribute: 'rolesLegacy',
+        type: 'S',
+        json: true,
+        jsonStringMode: 'parse',
+        optional: true,
+      },
+    ],
+  };
+  assert.doesNotThrow(() => defineModel(schema));
+}
+
+{
+  const schema: ModelSchema = {
+    ...userSchema,
+    attributes: [
+      ...userSchema.attributes,
+      { attribute: 'emailHash', type: 'S', optional: true },
+      {
+        attribute: 'badMode',
+        type: 'M',
+        json: true,
+        jsonStringMode: 'parse',
+        optional: true,
+      } as never,
+    ],
+  };
+  assert.throws(
+    () => defineModel(schema),
+    (err) =>
+      err instanceof TheorydbError &&
+      err.code === 'ErrInvalidModel' &&
+      /jsonStringMode requires a json attribute with type S/.test(
+        String(err.message),
+      ),
+  );
+}

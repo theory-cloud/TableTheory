@@ -136,10 +136,16 @@ Every `attributes[]` entry supports:
   - `int` (version)
 - `json` (bool, default false): mark the attribute as carrying a JSON-compatible value.
   - Supported storage types are `S`, `N`, `BOOL`, `NULL`, `L`, and `M`.
-  - `type: "S"` is the string-carrier form: values are stored as raw JSON text.
+  - `type: "S"` is the string-carrier form: values are stored as raw JSON text unless
+    `json_string_mode: "parse"` is set (see below).
   - `type: "N"`, `BOOL`, `NULL`, `L`, and `M` use native DynamoDB scalar/document storage.
   - Readers MUST accept both native DynamoDB values and legacy `S` JSON strings for compatibility.
   - String-carrier serialization MUST be deterministic (no insignificant whitespace; object keys sorted recursively).
+  - `json_string_mode` (optional; `S` + `json: true` only): `"carrier"` (default) keeps the raw-text
+    string-carrier behavior. `"parse"` is the explicit compatibility discriminator for schemas authored
+    before structured `M`/`L` carriers existed: writers JSON-encode the value and readers parse the stored
+    text back into the structured value. Runtimes that discriminate by declared language type (Go string
+    fields, Python `str` fields) already provide the equivalent behavior and MAY ignore this hint.
   - `null` values MUST be stored as DynamoDB `NULL` (not as the string `"null"`).
 - `binary` (bool, default false): indicates the attribute is treated as a binary blob.
   - Requires `type: "B"`.
