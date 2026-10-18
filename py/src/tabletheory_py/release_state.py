@@ -329,6 +329,10 @@ def _actual_binding_attribute(model: ModelDefinition[Any], wanted: str) -> Attri
 
 
 def _binding_values_equal(left: Any, right: Any) -> bool:
+    # Python equates bools with 0/1; Go and TypeScript do not, so a boolean
+    # attribute must never satisfy a numeric binding.
+    if isinstance(left, bool) != isinstance(right, bool):
+        return False
     if left == right:
         return True
     left_number = _numeric_value(left)

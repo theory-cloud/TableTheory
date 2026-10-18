@@ -15,6 +15,7 @@ from tabletheory_py import (
 )
 from tabletheory_py.errors import RejectedDeployAuthorityEvidenceError, ValidationError
 from tabletheory_py.mocks import FakeDynamoDBClient
+from tabletheory_py.release_state import _binding_values_equal
 
 
 @dataclass(frozen=True)
@@ -509,6 +510,13 @@ def test_transition_release_state_rejects_numeric_string_next_version_binding() 
         )
 
     assert client.calls == []
+
+
+def test_binding_values_equal_rejects_bool_number_mix() -> None:
+    assert _binding_values_equal(7, 7.0)
+    assert _binding_values_equal(True, True)
+    assert not _binding_values_equal(True, 1)
+    assert not _binding_values_equal(False, 0)
 
 
 def test_transition_release_state_rejects_stale_next_version_binding() -> None:
