@@ -67,7 +67,10 @@ function fieldsMutatedByUpdateExpression(
 ): string[] {
   const fields: string[] = [];
   const sections = updateExpression.matchAll(
-    /\b(SET|REMOVE|ADD|DELETE)\b([\s\S]*?)(?=\b(?:SET|REMOVE|ADD|DELETE)\b|$)/gi,
+    // A section keyword is a standalone token: a keyword-shaped expression
+    // attribute name (#SET) or value name (:SET) is part of the clause body,
+    // not a new section.
+    /(?<![#:\w])(SET|REMOVE|ADD|DELETE)\b([\s\S]*?)(?=(?<![#:\w])(?:SET|REMOVE|ADD|DELETE)\b|$)/gi,
   );
 
   for (const section of sections) {

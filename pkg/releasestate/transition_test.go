@@ -289,3 +289,101 @@ func TestPartitionKeyValueFailsClosed(t *testing.T) {
 	_, err = partitionKeyValue(&transitionIndexOnly{GSI1: "gsi-value"})
 	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
 }
+
+type transitionVersionedActual struct {
+	PK      string `theorydb:"pk"`
+	SK      string `theorydb:"sk"`
+	Version int64  `theorydb:"version"`
+}
+
+type transitionAttredVersionActual struct {
+	PK       string `theorydb:"pk"`
+	SK       string `theorydb:"sk"`
+	Revision int64  `theorydb:"version,attr:revision"`
+}
+
+func TestTransitionAppendEventRejectsMismatchedVersionField(t *testing.T) {
+	expectedVersion := int64(3)
+	input := TransitionAppendEventInput{
+		Actual:          &transitionVersionedActual{PK: "RELEASE#svc", SK: "ACTUAL"},
+		Event:           &transitionEvent{PK: "RELEASE#svc", SK: "EVENT#1"},
+		Set:             map[string]any{"status": "active"},
+		ExpectedVersion: &expectedVersion,
+		VersionField:    "otherCounter",
+	}
+
+	writer := &fakeTransactionWriter{builder: &fakeTransactionBuilder{}}
+	err := TransitionAppendEvent(context.Background(), writer, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+	require.False(t, writer.called)
+	require.Empty(t, writer.builder.ops)
+
+	for _, field := range []string{"", "Version", "version"} {
+		input.VersionField = field
+		writer = &fakeTransactionWriter{builder: &fakeTransactionBuilder{}}
+		require.NoError(t, TransitionAppendEvent(context.Background(), writer, input), field)
+	}
+}
+
+func TestTransitionAppendEventAcceptsTheModelVersionAttribute(t *testing.T) {
+	input := TransitionAppendEventInput{
+		Actual:       &transitionAttredVersionActual{PK: "RELEASE#svc", SK: "ACTUAL"},
+		Event:        &transitionEvent{PK: "RELEASE#svc", SK: "EVENT#1"},
+		Set:          map[string]any{"status": "active"},
+		VersionField: "revision",
+	}
+	require.NoError(t, AddTransitionAppendEvent(&fakeTransactionBuilder{}, input))
+
+	input.VersionField = "version"
+	err := AddTransitionAppendEvent(&fakeTransactionBuilder{}, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+}
+
+type TransitionEmbeddedVersionBlock struct {
+	Version int64 `theorydb:"version"`
+}
+
+type transitionEmbeddedVersionActual struct {
+	PK string `theorydb:"pk"`
+	SK string `theorydb:"sk"`
+	TransitionEmbeddedVersionBlock
+	Revision int64
+}
+
+func TestTransitionAppendEventRejectsMismatchedEmbeddedVersionField(t *testing.T) {
+	name, dbName, found := versionFieldName(&transitionEmbeddedVersionActual{})
+	require.True(t, found, "the promoted version field must be resolved from registry metadata")
+	require.Equal(t, "Version", name)
+	require.Equal(t, "version", dbName)
+
+	expectedVersion := int64(5)
+	input := TransitionAppendEventInput{
+		Actual:          &transitionEmbeddedVersionActual{PK: "RELEASE#svc", SK: "ACTUAL"},
+		Event:           &transitionEvent{PK: "RELEASE#svc", SK: "EVENT#1"},
+		Set:             map[string]any{"status": "active"},
+		ExpectedVersion: &expectedVersion,
+		VersionField:    "Revision",
+	}
+
+	writer := &fakeTransactionWriter{builder: &fakeTransactionBuilder{}}
+	err := TransitionAppendEvent(context.Background(), writer, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+	require.Contains(t, err.Error(), "does not match model version field")
+	require.False(t, writer.called)
+	require.Empty(t, writer.builder.ops)
+
+	for _, field := range []string{"", "Version", "version"} {
+		input.VersionField = field
+		writer = &fakeTransactionWriter{builder: &fakeTransactionBuilder{}}
+		require.NoError(t, TransitionAppendEvent(context.Background(), writer, input), field)
+
+		incremented := field
+		if incremented == "" {
+			incremented = defaultVersionField
+		}
+		ub := newFakeUpdateBuilder()
+		require.NoError(t, writer.builder.updateFn(ub))
+		require.Equal(t, int64(1), ub.adds[incremented], field)
+		require.NotNil(t, ub.versionChecked, field)
+	}
+}

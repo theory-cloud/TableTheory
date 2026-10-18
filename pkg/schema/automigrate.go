@@ -193,6 +193,10 @@ func (m *Manager) copyDataIfRequested(opts *AutoMigrateOptions, sourceMetadata, 
 
 // createBackup creates a point-in-time backup of the table
 func (m *Manager) createBackup(ctx context.Context, sourceTable, backupName string) error {
+	if sourceTable == backupName {
+		return fmt.Errorf("backup table %s must differ from source table", backupName)
+	}
+
 	// Check if source table exists
 	exists, err := m.TableExists(sourceTable)
 	if err != nil {
@@ -224,33 +228,24 @@ func (m *Manager) createBackup(ctx context.Context, sourceTable, backupName stri
 
 // copyTable creates a copy of a table
 func (m *Manager) copyTable(ctx context.Context, sourceTable, targetTable string) error {
+	if sourceTable == targetTable {
+		return fmt.Errorf("copy target %s must differ from source table", targetTable)
+	}
+
 	// Get source table description
 	client, err := m.session.API()
 	if err != nil {
 		return fmt.Errorf("failed to get client for table description: %w", err)
 	}
 
-	// Check if target table already exists and delete it
+	// Never delete a pre-existing table: the fallback destination is a
+	// caller-supplied name and may collide with an unrelated table.
 	exists, err := m.TableExists(targetTable)
 	if err != nil {
 		return fmt.Errorf("failed to check if backup table exists: %w", err)
 	}
 	if exists {
-		// Delete existing backup table
-		_, err = client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
-			TableName: &targetTable,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to delete existing backup table: %w", err)
-		}
-
-		// Wait for table to be deleted
-		waiter := dynamodb.NewTableNotExistsWaiter(client)
-		if waitErr := waiter.Wait(ctx, &dynamodb.DescribeTableInput{
-			TableName: &targetTable,
-		}, 2*time.Minute); waitErr != nil {
-			return fmt.Errorf("timeout waiting for table deletion: %w", waitErr)
-		}
+		return fmt.Errorf("target table %s already exists; refusing to delete it", targetTable)
 	}
 
 	desc, err := client.DescribeTable(ctx, &dynamodb.DescribeTableInput{

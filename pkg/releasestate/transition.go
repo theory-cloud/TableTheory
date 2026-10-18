@@ -13,6 +13,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
 const defaultVersionField = "version"
@@ -86,8 +87,82 @@ func validateTransitionInput(input TransitionAppendEventInput) error {
 	if _, ok := input.Set[versionField]; ok {
 		return fmt.Errorf("%w: transition set must not mutate version directly", theorydbErrors.ErrInvalidModel)
 	}
+	if err := validateTransitionVersionField(input.Actual, versionField); err != nil {
+		return err
+	}
 
 	return validateEventBindsToActual(input.Actual, input.Event)
+}
+
+// validateTransitionVersionField rejects a version field that would condition
+// and increment different attributes. The optimistic-lock condition compares
+// the model's tagged version field, so incrementing a caller-named field would
+// leave the checked field unchanged and let stale transitions pass.
+func validateTransitionVersionField(actual any, versionField string) error {
+	name, dbName, found := versionFieldName(actual)
+	if !found {
+		return nil
+	}
+	if versionField == name || versionField == dbName {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: transition version field %q does not match model version field %q",
+		theorydbErrors.ErrInvalidModel, versionField, name,
+	)
+}
+
+var versionFields sync.Map // reflect.Type -> transitionVersionField
+
+type transitionVersionField struct {
+	name   string
+	dbName string
+	found  bool
+}
+
+// versionFieldName resolves the field carrying the theorydb version role,
+// returning its Go name and DynamoDB attribute name. It reads registry
+// metadata so the validator sees the same attribute the optimistic-lock
+// condition binds, including version tags promoted from embedded structs.
+func versionFieldName(modelInstance any) (name string, dbName string, found bool) {
+	value := reflect.ValueOf(modelInstance)
+	for value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return "", "", false
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return "", "", false
+	}
+
+	modelType := value.Type()
+	if cached, ok := versionFields.Load(modelType); ok {
+		if resolved, isField := cached.(transitionVersionField); isField {
+			return resolved.name, resolved.dbName, resolved.found
+		}
+	}
+
+	resolved := resolveVersionField(modelType)
+	versionFields.Store(modelType, resolved)
+	return resolved.name, resolved.dbName, resolved.found
+}
+
+func resolveVersionField(modelType reflect.Type) transitionVersionField {
+	registry := model.NewRegistry()
+	instance := reflect.New(modelType).Interface()
+	if err := registry.Register(instance); err != nil {
+		return transitionVersionField{}
+	}
+	metadata, err := registry.GetMetadata(instance)
+	if err != nil || metadata.VersionField == nil {
+		return transitionVersionField{}
+	}
+	return transitionVersionField{
+		name:   metadata.VersionField.Name,
+		dbName: metadata.VersionField.DBName,
+		found:  true,
+	}
 }
 
 // AddTransitionAppendEvent adds the release-state actual-row transition and

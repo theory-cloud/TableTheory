@@ -30,7 +30,10 @@ func NewUserHandler(db core.ExtendedDB) *UserHandler {
 func (h *UserHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
-	inviterID := r.Context().Value("user_id").(string)
+	caller, inviterID, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin)
+	if !ok {
+		return
+	}
 
 	// Ensure proper org ID format
 	if !strings.HasPrefix(orgID, "org#") {
@@ -55,6 +58,10 @@ func (h *UserHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Role == "" {
 		req.Role = models.RoleMember
+	}
+	if req.Role == models.RoleOwner && caller.Role != models.RoleOwner {
+		http.Error(w, "only the owner can grant the owner role", http.StatusForbidden)
+		return
 	}
 
 	// Check if user already exists in org
@@ -184,7 +191,10 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 	userID := vars["user_id"]
-	updaterID := r.Context().Value("user_id").(string)
+	caller, updaterID, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin)
+	if !ok {
+		return
+	}
 
 	// Ensure proper ID formats
 	if !strings.HasPrefix(orgID, "org#") {
@@ -230,6 +240,13 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot change owner role", http.StatusForbidden)
 			return
 		}
+		// Only the owner can manage administrator roles; an admin can still
+		// manage member and viewer roles.
+		if caller.Role != models.RoleOwner &&
+			(user.Role == models.RoleAdmin || req.Role == models.RoleAdmin || req.Role == models.RoleOwner) {
+			http.Error(w, "only the owner can manage administrator roles", http.StatusForbidden)
+			return
+		}
 		changes["role"] = models.Change{From: user.Role, To: req.Role}
 		user.Role = req.Role
 		user.Permissions = getRolePermissions(req.Role)
@@ -263,7 +280,10 @@ func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 	userID := vars["user_id"]
-	deleterID := r.Context().Value("user_id").(string)
+	caller, deleterID, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin)
+	if !ok {
+		return
+	}
 
 	// Ensure proper ID formats
 	if !strings.HasPrefix(orgID, "org#") {
@@ -291,6 +311,11 @@ func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	// Cannot delete organization owner
 	if user.Role == models.RoleOwner {
 		http.Error(w, "cannot delete organization owner", http.StatusForbidden)
+		return
+	}
+	// Only the owner can remove an administrator.
+	if user.Role == models.RoleAdmin && caller.Role != models.RoleOwner {
+		http.Error(w, "only the owner can remove an administrator", http.StatusForbidden)
 		return
 	}
 

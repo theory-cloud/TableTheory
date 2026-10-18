@@ -721,7 +721,7 @@ func (b *Builder) addNameSecure(name string) string {
 
 			if b.isReservedWord(part) {
 				b.nameCounter++
-				placeholder := fmt.Sprintf("#%s", strings.ToUpper(part))
+				placeholder := b.reservedNamePlaceholder(part)
 				b.names[placeholder] = part
 				processedParts[i] = placeholder
 			} else {
@@ -738,7 +738,7 @@ func (b *Builder) addNameSecure(name string) string {
 	// Check if it's a reserved word
 	if b.isReservedWord(name) {
 		b.nameCounter++
-		placeholder := fmt.Sprintf("#%s", strings.ToUpper(name))
+		placeholder := b.reservedNamePlaceholder(name)
 		b.names[placeholder] = name
 		return placeholder
 	}
@@ -746,6 +746,18 @@ func (b *Builder) addNameSecure(name string) string {
 	// Generate new placeholder for non-reserved words (for consistency)
 	placeholder := b.newNamePlaceholder()
 	b.names[placeholder] = name
+	return placeholder
+}
+
+// reservedNamePlaceholder returns the deterministic uppercase placeholder for a
+// reserved word. It never reuses a placeholder that already names a different
+// attribute with different casing, so case-colliding names such as STATUS and
+// status cannot redirect one expression at the other.
+func (b *Builder) reservedNamePlaceholder(name string) string {
+	placeholder := fmt.Sprintf("#%s", strings.ToUpper(name))
+	if existing, ok := b.names[placeholder]; ok && existing != name {
+		return b.newNamePlaceholder()
+	}
 	return placeholder
 }
 
