@@ -53,6 +53,15 @@ type TransitionAppendEventInput struct {
 	// VersionField names the version attribute to increment. Empty defaults to
 	// "version", matching the release-state contract fixture.
 	VersionField string
+	// EventBinding declares which event-history fields must equal a value from
+	// the authorizing transition. Keys are event attribute names; values are one
+	// of "set:<field>", "actual:<field>", or "nextVersion". A bound field that is
+	// missing from the event row, or that disagrees with the transition, is
+	// rejected before anything is submitted.
+	EventBinding map[string]string
+	// OutboxBinding is the same contract for the outbox row. Outbox rows also
+	// inherit the generic same-name partition-key binding.
+	OutboxBinding map[string]string
 }
 
 // TransitionAppendEvent executes a release-state transition with the supplied
@@ -91,7 +100,11 @@ func validateTransitionInput(input TransitionAppendEventInput) error {
 		return err
 	}
 
-	return validateEventBindsToActual(input.Actual, input.Event)
+	if err := validateEventBindsToActual(input.Actual, input.Event); err != nil {
+		return err
+	}
+
+	return validateEventAndOutboxBindings(input)
 }
 
 // validateTransitionVersionField rejects a version field that would condition

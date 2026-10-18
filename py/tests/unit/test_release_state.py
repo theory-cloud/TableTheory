@@ -33,6 +33,8 @@ class ReleaseStateEvent:
     sk: str = theorydb_field(name="SK", roles=["sk"])
     release_id: str = theorydb_field(name="releaseId", default="")
     event_type: str = theorydb_field(name="eventType", default="")
+    version: int = theorydb_field(default=0)
+    version_text: str = theorydb_field(name="versionText", default="")
 
 
 def _actual_table(client: FakeDynamoDBClient) -> Table[ReleaseStateActual]:
@@ -198,6 +200,14 @@ class ReleaseStateOutbox:
     pk: str = theorydb_field(name="PK", roles=["pk"])
     sk: str = theorydb_field(name="SK", roles=["sk"])
     operation: str = theorydb_field(default="")
+    status: str = theorydb_field(default="")
+
+
+@dataclass(frozen=True)
+class ReleaseStateScopedOutbox:
+    partition: str = theorydb_field(name="OUTBOX_PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    status: str = theorydb_field(default="")
 
 
 def _outbox_table(client: FakeDynamoDBClient) -> Table[ReleaseStateOutbox]:
@@ -209,6 +219,352 @@ def _outbox_table(client: FakeDynamoDBClient) -> Table[ReleaseStateOutbox]:
         ),
         client=client,
     )
+
+
+def _scoped_outbox_table(client: FakeDynamoDBClient) -> Table[ReleaseStateScopedOutbox]:
+    return Table(
+        ModelDefinition.from_dataclass(
+            ReleaseStateScopedOutbox,
+            table_name="release_state_contract",
+            write_policy=WritePolicy(mode="write_once"),
+        ),
+        client=client,
+    )
+
+
+def test_transition_release_state_accepts_matching_event_binding() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    client.expect("transact_write_items", None, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        expected_version=0,
+        set_values={"previous_release_id": "rel_001"},
+        event_item=ReleaseStateEvent(
+            pk="RELEASE#service-a",
+            sk="EVENT#1",
+            release_id="rel_001",
+        ),
+        event_binding={"releaseId": "set:previous_release_id"},
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_transition_release_state_accepts_set_binding_by_attribute_name() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    client.expect("transact_write_items", None, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        set_values={"previousReleaseId": "rel_001"},
+        event_item=ReleaseStateEvent(
+            pk="RELEASE#service-a",
+            sk="EVENT#1",
+            release_id="rel_001",
+        ),
+        event_binding={"releaseId": "set:previousReleaseId"},
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_transition_release_state_rejects_mismatched_event_binding() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+
+    with pytest.raises(ValidationError, match='event attribute "releaseId"'):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"pinned_release_id": "rel_002"},
+            event_item=ReleaseStateEvent(
+                pk="RELEASE#service-a",
+                sk="EVENT#1",
+                release_id="rel_001",
+            ),
+            event_binding={"releaseId": "set:pinned_release_id"},
+        )
+
+    assert client.calls == []
+
+
+def test_transition_release_state_rejects_missing_event_bound_attribute() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+
+    with pytest.raises(ValidationError, match="event row is missing bound attribute: missingAttr"):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"pinned_release_id": "rel_002"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+            event_binding={"missingAttr": "set:pinned_release_id"},
+        )
+
+    assert client.calls == []
+
+
+def test_transition_release_state_rejects_unknown_event_binding_source() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+
+    with pytest.raises(ValidationError, match='event binding for "releaseId".*unsupported binding source'):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"pinned_release_id": "rel_002"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+            event_binding={"releaseId": "guess:pinned_release_id"},
+        )
+
+    assert client.calls == []
+
+
+def test_transition_release_state_rejects_unknown_set_binding_field() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+
+    with pytest.raises(ValidationError, match='event binding for "releaseId".*set field "unknown"'):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"pinned_release_id": "rel_002"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+            event_binding={"releaseId": "set:unknown"},
+        )
+
+    assert client.calls == []
+
+
+def test_transition_release_state_accepts_actual_key_binding() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    client.expect("transact_write_items", None, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(
+            pk="RELEASE#service-a",
+            sk="EVENT#1",
+            release_id="ACTUAL",
+        ),
+        event_binding={"releaseId": "actual:sk"},
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_transition_release_state_accepts_matching_outbox_binding() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    outbox_table = _outbox_table(client)
+    client.expect("transact_write_items", None, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+        outbox_item=ReleaseStateOutbox(pk="RELEASE#service-a", sk="OUTBOX#1", status="active"),
+        outbox_table=outbox_table,
+        outbox_binding={"status": "set:status"},
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_transition_release_state_rejects_mismatched_outbox_binding() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    outbox_table = _outbox_table(client)
+
+    with pytest.raises(ValidationError, match='outbox attribute "status"'):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+            outbox_item=ReleaseStateOutbox(pk="RELEASE#service-a", sk="OUTBOX#1", status="inactive"),
+            outbox_table=outbox_table,
+            outbox_binding={"status": "set:status"},
+        )
+
+    assert client.calls == []
+
+
+def test_transition_release_state_rejects_mismatched_outbox_partition() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    outbox_table = _outbox_table(client)
+
+    with pytest.raises(ValidationError, match="outbox partition does not match"):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+            outbox_item=ReleaseStateOutbox(pk="RELEASE#service-b", sk="OUTBOX#1"),
+            outbox_table=outbox_table,
+        )
+
+    assert client.calls == []
+
+
+def test_transition_release_state_allows_differently_keyed_outbox_model() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    outbox_table = _scoped_outbox_table(client)
+
+    def validate(req: dict[str, Any]) -> None:
+        assert len(req["TransactItems"]) == 3
+        assert req["TransactItems"][2]["Put"]["Item"]["OUTBOX_PK"] == {"S": "OUTBOX#service-a"}
+
+    client.expect("transact_write_items", validate, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+        outbox_item=ReleaseStateScopedOutbox(
+            partition="OUTBOX#service-a",
+            sk="OUTBOX#1",
+            status="active",
+        ),
+        outbox_table=outbox_table,
+        outbox_binding={"status": "set:status"},
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_transition_release_state_accepts_next_version_binding() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    client.expect("transact_write_items", None, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        expected_version=2,
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1", version=3),
+        event_binding={"version": "nextVersion"},
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_transition_release_state_accepts_numeric_string_next_version_binding() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+    client.expect("transact_write_items", None, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        expected_version=2,
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1", version_text="3"),
+        event_binding={"versionText": "nextVersion"},
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_transition_release_state_rejects_stale_next_version_binding() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+
+    with pytest.raises(ValidationError, match='event attribute "version"'):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            expected_version=2,
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1", version=4),
+            event_binding={"version": "nextVersion"},
+        )
+
+    assert client.calls == []
+
+
+def test_transition_release_state_next_version_requires_expected_version() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+
+    with pytest.raises(ValidationError, match="nextVersion requires expected_version"):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+            event_binding={"version": "nextVersion"},
+        )
+
+    assert client.calls == []
+
+
+def test_transition_release_state_outbox_binding_requires_outbox_item() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+
+    with pytest.raises(ValidationError, match="outbox binding requires an outbox row"):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+            outbox_binding={"status": "set:status"},
+        )
+
+    assert client.calls == []
 
 
 def test_transition_release_state_rejects_mismatched_event_partition() -> None:
