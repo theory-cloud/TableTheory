@@ -1211,3 +1211,48 @@ void test('client redactItemImages strips item images from the retained cause', 
   assert.ok(!JSON.stringify(redactedCause).includes('top-secret-value'));
   assert.ok(redactedCause instanceof TransactionCanceledException);
 });
+
+void test('raw transaction update does not treat keyword-shaped placeholders as sections', async () => {
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof TransactWriteItemsCommand) return {};
+    throw new Error('unexpected command');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+  );
+
+  // `#SET` is a legal expression-attribute placeholder. It must stay inside
+  // the SET clause body so the protected `#p` mapping is still checked.
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'update',
+          model: 'ReleaseStateActual',
+          key: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+          updateExpression: 'SET #SET = :v, #p = :p',
+          expressionAttributeNames: {
+            '#SET': 'status',
+            '#p': 'pinnedReleaseId',
+          },
+          expressionAttributeValues: {
+            ':v': { S: 'active' },
+            ':p': { S: 'rel_002' },
+          },
+        },
+      ]),
+    (e) => e instanceof TheorydbError && e.code === 'ErrProtectedFieldMutation',
+  );
+
+  // A keyword-shaped name that does not map to a protected attribute passes.
+  await client.transactWrite([
+    {
+      kind: 'update',
+      model: 'ReleaseStateActual',
+      key: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+      updateExpression: 'SET #SET = :v',
+      expressionAttributeNames: { '#SET': 'status' },
+      expressionAttributeValues: { ':v': { S: 'active' } },
+    },
+  ]);
+});
