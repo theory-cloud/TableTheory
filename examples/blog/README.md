@@ -87,8 +87,11 @@ make test
 
 Protected routes (`POST /posts`, `PUT /posts/{id}`, `DELETE /posts/{id}`,
 `PUT /comments/{commentId}/moderate`, `DELETE /comments/{commentId}`) use the
-`BlogAuthorizer` TOKEN authorizer. The authorizer verifies an HS256 bearer token
-signed with `JWT_SECRET` and returns this context:
+`BlogAuthorizer` **REQUEST** authorizer. The SAM template declares it with
+`Type: REQUEST` and `IdentitySource: method.request.header.Authorization`, so
+API Gateway passes the caller's `Authorization` header to the authorizer
+function. The authorizer verifies an HS256 bearer token signed with `JWT_SECRET`
+and returns this context:
 
 | Context key | Meaning |
 | --- | --- |
@@ -100,13 +103,22 @@ Handlers read identity **only** from `requestContext.authorizer`. The
 on a deployed stage, so a request without a valid authorizer context is
 anonymous and protected routes return `401`/`403`.
 
-For local development without API Gateway, set `BLOG_ALLOW_HEADER_IDENTITY=true`
-to restore the legacy header identity fallback. Never set it on a deployed
-stage.
+The authorizer source is [`authorizer/main.go`](authorizer/main.go). `make build`
+compiles each Lambda bootstrap (`cmd/posts`, `cmd/comments`, `authorizer`) and
+produces `posts.zip`, `comments.zip`, and `authorizer.zip`, which are the
+`CodeUri` artifacts the SAM template deploys. Handler unit tests plus
+`authorizer/template_test.go` pin the REQUEST event shape and the template
+wiring, so building and deploying this example cannot silently fall back to a
+TOKEN-shaped contract.
 
-The authorizer source is [`authorizer/main.go`](authorizer/main.go) and the
-Makefile builds it into `authorizer.zip`; the SAM template attaches it to every
-protected route.
+### Local development only
+
+For local development without API Gateway, set `BLOG_ALLOW_HEADER_IDENTITY=true`
+to restore the legacy `X-Author-ID` / `X-Author-Role` header identity fallback.
+That flag is a **development-only** escape hatch: caller-controlled headers are
+not an authenticated identity, and enabling it on a deployed stage is a complete
+identity bypass. The SAM template deliberately does not declare the flag, so a
+template-conformant deployment cannot turn it on.
 
 ## API Reference
 

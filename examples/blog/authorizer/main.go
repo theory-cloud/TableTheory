@@ -1,5 +1,8 @@
-// Command authorizer is the API Gateway TOKEN authorizer used by the blog
-// example's protected routes.
+// Command authorizer is the API Gateway REQUEST authorizer used by the blog
+// example's protected routes. The SAM template declares it with
+// Type: REQUEST and IdentitySource: method.request.header.Authorization, so
+// the event Lambda delivers is events.APIGatewayCustomAuthorizerRequestTypeRequest
+// with the caller's headers populated.
 //
 // It verifies an HS256 bearer token signed with JWT_SECRET and returns the
 // caller's author ID and role in the authorizer context:

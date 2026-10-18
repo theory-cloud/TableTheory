@@ -239,12 +239,15 @@ Resources:
             Auth:
               Authorizer: BlogAuthorizer
 
-  # API Gateway Authorizer
+  # API Gateway Authorizer. REQUEST authorizers receive the caller's headers,
+  # so the handler reads the Authorization bearer token from event.headers.
   BlogAuthorizer:
     Type: AWS::ApiGateway::Authorizer
     Properties:
       Name: !Sub "${Environment}-blog-authorizer"
-      Type: TOKEN
+      RestApiId: !Ref ServerlessRestApi
+      Type: REQUEST
+      IdentitySource: method.request.header.Authorization
       AuthorizerUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunction.Arn}/invocations"
       AuthorizerResultTtlInSeconds: 300
 
