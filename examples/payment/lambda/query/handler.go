@@ -90,7 +90,7 @@ func NewHandler() (*QueryHandler, error) {
 	// Initialize JWT validator
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
-		jwtSecret = "your-secret-key" // Use environment variable in production
+		return nil, fmt.Errorf("JWT_SECRET environment variable is required")
 	}
 	jwtValidator := utils.NewSimpleJWTValidator(
 		jwtSecret,
