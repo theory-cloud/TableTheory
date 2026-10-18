@@ -83,6 +83,31 @@ make run-local
 make test
 ```
 
+## Authorization
+
+Protected routes (`POST /posts`, `PUT /posts/{id}`, `DELETE /posts/{id}`,
+`PUT /comments/{commentId}/moderate`, `DELETE /comments/{commentId}`) use the
+`BlogAuthorizer` TOKEN authorizer. The authorizer verifies an HS256 bearer token
+signed with `JWT_SECRET` and returns this context:
+
+| Context key | Meaning |
+| --- | --- |
+| `authorId` | The author ID from the token's `sub` claim |
+| `role` | The role from the token's `role` claim (defaults to `author`) |
+
+Handlers read identity **only** from `requestContext.authorizer`. The
+`X-Author-ID` and `X-Author-Role` headers are caller-controlled and are ignored
+on a deployed stage, so a request without a valid authorizer context is
+anonymous and protected routes return `401`/`403`.
+
+For local development without API Gateway, set `BLOG_ALLOW_HEADER_IDENTITY=true`
+to restore the legacy header identity fallback. Never set it on a deployed
+stage.
+
+The authorizer source is [`authorizer/main.go`](authorizer/main.go) and the
+Makefile builds it into `authorizer.zip`; the SAM template attaches it to every
+protected route.
+
 ## API Reference
 
 ### Posts API

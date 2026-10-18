@@ -43,6 +43,9 @@ build:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap handlers/comments.go
 	zip comments.zip bootstrap
 	rm bootstrap
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap ./authorizer
+	zip authorizer.zip bootstrap
+	rm bootstrap
 
 # Deploy to AWS using SAM
 deploy: build

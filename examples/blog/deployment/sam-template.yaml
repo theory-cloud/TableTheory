@@ -255,6 +255,14 @@ Resources:
       CodeUri: ../authorizer.zip
       Handler: bootstrap
 
+  BlogAuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AuthorizerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*"
+
   # CloudFront Distribution for caching
   BlogCDN:
     Type: AWS::CloudFront::Distribution

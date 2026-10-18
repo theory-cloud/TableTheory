@@ -6,6 +6,7 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -722,18 +723,83 @@ func publicAuthorOf(author *models.Author) *publicAuthor {
 	}
 }
 
+const (
+	// authorizerAuthorIDKey and authorizerRoleKey are the API Gateway
+	// authorizer context keys the BlogAuthorizer returns, matching the
+	// authorizer context contract documented in README.md.
+	authorizerAuthorIDKey = "authorId"
+	authorizerRoleKey     = "role"
+
+	// allowHeaderIdentityEnv is the explicit local-development escape hatch
+	// that re-enables the legacy X-Author-ID / X-Author-Role header trust.
+	// It must never be set on a deployed API Gateway stage: those headers are
+	// caller-controlled and are not an authenticated identity.
+	allowHeaderIdentityEnv = "BLOG_ALLOW_HEADER_IDENTITY"
+)
+
+// identityFromRequest resolves the caller identity. Authorizer context is the
+// only trusted source. When it is absent the request is anonymous, unless the
+// operator explicitly opted into header identity for local development.
+func identityFromRequest(request events.APIGatewayProxyRequest) (authorID string, role string) {
+	if len(request.RequestContext.Authorizer) > 0 {
+		authorID = authorizerContextValue(request.RequestContext.Authorizer, authorizerAuthorIDKey)
+		role = authorizerContextValue(request.RequestContext.Authorizer, authorizerRoleKey)
+		if authorID != "" {
+			return authorID, role
+		}
+	}
+
+	if headerIdentityAllowed() {
+		return headerValue(request.Headers, "X-Author-ID"), headerValue(request.Headers, "X-Author-Role")
+	}
+
+	return "", ""
+}
+
+// authorizerContextValue reads a string claim out of the API Gateway
+// authorizer context, which is decoded as map[string]any.
+func authorizerContextValue(context map[string]any, key string) string {
+	value, ok := context[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return text
+}
+
+// headerValue reads a header case-insensitively, because API Gateway preserves
+// the caller's header casing.
+func headerValue(headers map[string]string, name string) string {
+	if value := headers[name]; value != "" {
+		return value
+	}
+	for key, value := range headers {
+		if strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
+}
+
+func headerIdentityAllowed() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(allowHeaderIdentityEnv)), "true")
+}
+
 func getAuthorID(request events.APIGatewayProxyRequest) string {
-	// Extract from JWT claims or headers
-	// This is a simplified version
-	return request.Headers["X-Author-ID"]
+	authorID, _ := identityFromRequest(request)
+	return authorID
 }
 
 func getSessionID(request events.APIGatewayProxyRequest) string {
-	return request.Headers["X-Session-ID"]
+	return headerValue(request.Headers, "X-Session-ID")
 }
 
 func isAdmin(request events.APIGatewayProxyRequest) bool {
-	return request.Headers["X-Author-Role"] == models.RoleAdmin
+	_, role := identityFromRequest(request)
+	return role == models.RoleAdmin
 }
 
 func successResponse(statusCode int, data any) events.APIGatewayProxyResponse {
