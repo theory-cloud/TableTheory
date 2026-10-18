@@ -145,6 +145,16 @@ function validateTransitionInput(
       'release-state transition set must not mutate version directly',
     );
   }
+  const modelVersion = client
+    .modelSchema(input.actualModel)
+    .attributes.find((attribute) =>
+      attribute.roles?.includes('version'),
+    )?.attribute;
+  if (modelVersion && versionAttribute !== modelVersion) {
+    invalidModel(
+      `release-state versionAttribute ${versionAttribute} does not match model version role ${modelVersion}`,
+    );
+  }
 
   if ((input.outboxModel === undefined) !== (input.outboxItem === undefined)) {
     invalidModel(

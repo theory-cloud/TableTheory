@@ -13,6 +13,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+	"github.com/theory-cloud/tabletheory/v6/pkg/naming"
 )
 
 const defaultVersionField = "version"
@@ -86,8 +87,81 @@ func validateTransitionInput(input TransitionAppendEventInput) error {
 	if _, ok := input.Set[versionField]; ok {
 		return fmt.Errorf("%w: transition set must not mutate version directly", theorydbErrors.ErrInvalidModel)
 	}
+	if err := validateTransitionVersionField(input.Actual, versionField); err != nil {
+		return err
+	}
 
 	return validateEventBindsToActual(input.Actual, input.Event)
+}
+
+// validateTransitionVersionField rejects a version field that would condition
+// and increment different attributes. The optimistic-lock condition compares
+// the model's tagged version field, so incrementing a caller-named field would
+// leave the checked field unchanged and let stale transitions pass.
+func validateTransitionVersionField(actual any, versionField string) error {
+	name, dbName, found := versionFieldName(actual)
+	if !found {
+		return nil
+	}
+	if versionField == name || versionField == dbName {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: transition version field %q does not match model version field %q",
+		theorydbErrors.ErrInvalidModel, versionField, name,
+	)
+}
+
+// versionFieldName reads the top-level field carrying the theorydb version
+// role, returning its Go name and DynamoDB attribute name.
+func versionFieldName(modelInstance any) (name string, dbName string, found bool) {
+	value := reflect.ValueOf(modelInstance)
+	for value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return "", "", false
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return "", "", false
+	}
+
+	modelType := value.Type()
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		tag := field.Tag.Get("theorydb")
+		if !hasVersionTag(tag) {
+			continue
+		}
+		dbName = naming.ConvertAttrName(field.Name, naming.CamelCase)
+		for _, raw := range strings.Split(tag, ",") {
+			part := strings.TrimSpace(raw)
+			if strings.HasPrefix(part, "attr:") {
+				dbName = strings.TrimPrefix(part, "attr:")
+			}
+		}
+		return field.Name, dbName, true
+	}
+	return "", "", false
+}
+
+// hasVersionTag reports whether a theorydb tag marks the model version field.
+// Modifiers that belong to an index/lsi clause do not mark a version role.
+func hasVersionTag(tag string) bool {
+	inIndexClause := false
+	for _, raw := range strings.Split(tag, ",") {
+		part := strings.TrimSpace(raw)
+		switch {
+		case strings.HasPrefix(part, "index:"), strings.HasPrefix(part, "lsi:"):
+			inIndexClause = true
+		case part == "version" && !inIndexClause:
+			return true
+		}
+	}
+	return false
 }
 
 // AddTransitionAppendEvent adds the release-state actual-row transition and

@@ -360,3 +360,30 @@ function evidenceOf(
       e.code === 'ErrRejectedDeployAuthorityEvidence',
   );
 }
+
+{
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateActual,
+    ReleaseStateEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        expectedVersion: 1,
+        set: { status: 'active' },
+        eventModel: 'ReleaseStateEvent',
+        eventItem: {
+          PK: 'RELEASE#service-a',
+          SK: 'EVENT#2',
+          eventType: 'promoted',
+        },
+        versionAttribute: 'otherCounter',
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 0);
+}
