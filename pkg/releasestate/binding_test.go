@@ -354,6 +354,9 @@ func TestTransitionOutboxPartitionUsesTablePKNotIndexKey(t *testing.T) {
 		PK:    "RELEASE#service-b",
 		SK:    "ACTUAL",
 	}
+	// Keep the event row in the actual row's release partition so the
+	// always-on event check passes; only the outbox partition is under test.
+	bindingEventOf(t, input).PK = "RELEASE#service-b"
 	input.Outbox = &bindingGsiFirst{
 		GsiPK: "RELEASE#service-a",
 		PK:    "RELEASE#service-z",
@@ -364,6 +367,7 @@ func TestTransitionOutboxPartitionUsesTablePKNotIndexKey(t *testing.T) {
 	err := TransitionAppendEvent(context.Background(), writer, input)
 	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel,
 		"a matching index key must not stand in for the table partition")
+	require.ErrorContains(t, err, "outbox release partition")
 	require.False(t, writer.called)
 }
 
