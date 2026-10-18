@@ -652,3 +652,19 @@ func TestBuildCompleteExpression(t *testing.T) {
 	assert.Contains(t, components.UpdateExpression, "SET")
 	assert.Contains(t, components.UpdateExpression, "ADD")
 }
+
+func TestReservedPlaceholderCaseCollisionKeepsAttributesDistinct(t *testing.T) {
+	builder := expr.NewBuilder()
+
+	require.NoError(t, builder.AddUpdateSet("STATUS", "active"))
+	require.NoError(t, builder.AddConditionExpression("status", "=", "blocked"))
+
+	components := builder.Build()
+
+	updateField := strings.TrimPrefix(strings.Split(components.UpdateExpression, " = ")[0], "SET ")
+	conditionField := strings.Split(components.ConditionExpression, " ")[0]
+
+	require.NotEqual(t, updateField, conditionField)
+	assert.Equal(t, "STATUS", components.ExpressionAttributeNames[updateField])
+	assert.Equal(t, "status", components.ExpressionAttributeNames[conditionField])
+}
