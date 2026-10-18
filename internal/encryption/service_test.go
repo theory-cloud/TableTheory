@@ -519,6 +519,42 @@ func TestAADLengthPrefixesPreventDelimiterCollisions(t *testing.T) {
 	require.Equal(t, "theorydb:encrypted:v2|attr=6:secret|table=1:T|pk=3:S:x|sk=10:S:y|sk=S:z", string(second))
 }
 
+func TestEnvelopeReplayAcrossCollidingBindingsIsRejected(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	// These two identities collided under raw delimiter concatenation:
+	// both produced "...|pk=S:x|sk=S:y|sk=S:z".
+	first := RecordBinding{
+		Table:        "T",
+		PartitionKey: &types.AttributeValueMemberS{Value: "x|sk=S:y"},
+		SortKey:      &types.AttributeValueMemberS{Value: "z"},
+	}
+	second := RecordBinding{
+		Table:        "T",
+		PartitionKey: &types.AttributeValueMemberS{Value: "x"},
+		SortKey:      &types.AttributeValueMemberS{Value: "y|sk=S:z"},
+	}
+
+	envelope, err := svc.EncryptAttributeValueWithBinding(ctx, first, "secret", &types.AttributeValueMemberS{Value: "payload"})
+	require.NoError(t, err)
+
+	decrypted, err := svc.DecryptAttributeValueWithBinding(ctx, first, "secret", envelope)
+	require.NoError(t, err)
+	require.Equal(t, &types.AttributeValueMemberS{Value: "payload"}, decrypted)
+
+	_, err = svc.DecryptAttributeValueWithBinding(ctx, second, "secret", envelope)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidEncryptedEnvelope, "an envelope must not replay onto a colliding identity")
+}
+
+func TestNonScalarKeyBindingsFailClosed(t *testing.T) {
+	_, err := NewRecordBinding("T", &types.AttributeValueMemberNULL{Value: true}, nil)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidEncryptedEnvelope)
+
+	_, err = NewRecordBinding("T", &types.AttributeValueMemberBOOL{Value: true}, nil)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidEncryptedEnvelope)
+}
+
 func TestEncryptionContextBindsTheAAD(t *testing.T) {
 	require.Nil(t, encryptionContextForAAD([]byte("v1"), envelopeVersionV1))
 	require.Equal(t,
