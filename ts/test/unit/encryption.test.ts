@@ -158,7 +158,7 @@ void test('AAD strings match the cross-runtime contract', () => {
       },
       2,
     ),
-    'theorydb:encrypted:v2|attr=secret|table=enc_contract|pk=S:USER#1|sk=S:PROFILE',
+    'theorydb:encrypted:v2|attr=6:secret|table=12:enc_contract|pk=8:S:USER#1|sk=9:S:PROFILE',
   );
   assert.equal(
     decodesAad(
@@ -169,7 +169,7 @@ void test('AAD strings match the cross-runtime contract', () => {
       },
       2,
     ),
-    'theorydb:encrypted:v2|attr=secret|table=enc_contract|pk=N:42',
+    'theorydb:encrypted:v2|attr=6:secret|table=12:enc_contract|pk=4:N:42',
   );
   assert.equal(
     decodesAad(
@@ -184,7 +184,71 @@ void test('AAD strings match the cross-runtime contract', () => {
       },
       2,
     ),
-    'theorydb:encrypted:v2|attr=secret|table=enc_contract|pk=B:AQID|sk=B:BAUG',
+    'theorydb:encrypted:v2|attr=6:secret|table=12:enc_contract|pk=6:B:AQID|sk=6:B:BAUG',
+  );
+});
+
+void test('v2 AAD length prefixes prevent delimiter collisions', () => {
+  const first = decodesAad(
+    {
+      model: 'Enc',
+      attribute: 'secret',
+      binding: {
+        table: 'T',
+        partitionKey: { S: 'x|sk=S:y' },
+        sortKey: { S: 'z' },
+      },
+    },
+    2,
+  );
+  const second = decodesAad(
+    {
+      model: 'Enc',
+      attribute: 'secret',
+      binding: {
+        table: 'T',
+        partitionKey: { S: 'x' },
+        sortKey: { S: 'y|sk=S:z' },
+      },
+    },
+    2,
+  );
+
+  assert.notEqual(first, second);
+  assert.equal(
+    first,
+    'theorydb:encrypted:v2|attr=6:secret|table=1:T|pk=10:S:x|sk=S:y|sk=3:S:z',
+  );
+  assert.equal(
+    second,
+    'theorydb:encrypted:v2|attr=6:secret|table=1:T|pk=3:S:x|sk=10:S:y|sk=S:z',
+  );
+});
+
+void test('unsupported key types fail closed instead of canonicalizing to empty', () => {
+  assert.throws(
+    () =>
+      decodesAad(
+        {
+          model: 'Enc',
+          attribute: 'secret',
+          binding: { table: 'T', partitionKey: { NULL: true } },
+        },
+        2,
+      ),
+    isInvalidEnvelope,
+  );
+  assert.throws(
+    () =>
+      decodesAad(
+        {
+          model: 'Enc',
+          attribute: 'secret',
+          binding: { table: 'T', partitionKey: { BOOL: true } },
+        },
+        2,
+      ),
+    isInvalidEnvelope,
   );
 });
 

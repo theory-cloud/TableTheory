@@ -4,6 +4,7 @@ import test from 'node:test';
 import { DecryptCommand, GenerateDataKeyCommand } from '@aws-sdk/client-kms';
 
 import { AwsKmsEncryptionProvider } from '../../src/encryption-kms.js';
+import { aadForContext } from '../../src/encryption.js';
 import { TheorydbError } from '../../src/errors.js';
 
 const keyArn = 'arn:aws:kms:us-east-1:111111111111:key/test';
@@ -13,6 +14,8 @@ const nonce = new Uint8Array(12).fill(0x05);
 
 class StubKms {
   calls: unknown[] = [];
+  generateContexts: (Record<string, string> | undefined)[] = [];
+  decryptContexts: (Record<string, string> | undefined)[] = [];
 
   async send(cmd: unknown): Promise<unknown> {
     this.calls.push(cmd);
@@ -20,12 +23,14 @@ class StubKms {
     if (cmd instanceof GenerateDataKeyCommand) {
       assert.equal(cmd.input.KeyId, keyArn);
       assert.equal(cmd.input.KeySpec, 'AES_256');
+      this.generateContexts.push(cmd.input.EncryptionContext);
       return { Plaintext: dek, CiphertextBlob: edk };
     }
 
     if (cmd instanceof DecryptCommand) {
       assert.equal(cmd.input.KeyId, keyArn);
       assert.deepEqual(cmd.input.CiphertextBlob, edk);
+      this.decryptContexts.push(cmd.input.EncryptionContext);
       return { Plaintext: dek };
     }
 
@@ -61,6 +66,7 @@ class StubKms {
   assert.deepEqual(env.edk, edk);
   assert.deepEqual(env.nonce, nonce);
   assert.ok(env.ct.length > 16);
+  assert.equal(kms.generateContexts.at(-1), undefined, 'v1 unwraps legacy data keys without context');
 
   const roundTrip = await provider.decrypt(env, {
     model: 'T',
@@ -102,6 +108,14 @@ void test('KMS writes v2 envelopes bound to the record identity', async () => {
     binding,
   });
   assert.equal(env.v, 2);
+  const generateContext = kms.generateContexts.at(-1);
+  assert.ok(generateContext);
+  assert.equal(
+    generateContext['theorydb:encryption:aad'],
+    new TextDecoder().decode(
+      aadForContext({ model: 'T', attribute: 'secret', binding }, 2),
+    ),
+  );
 
   const roundTrip = await provider.decrypt(env, {
     model: 'T',
@@ -109,6 +123,7 @@ void test('KMS writes v2 envelopes bound to the record identity', async () => {
     binding,
   });
   assert.deepEqual(Buffer.from(roundTrip), Buffer.from(plaintext));
+  assert.deepEqual(kms.decryptContexts.at(-1), generateContext);
 
   await assert.rejects(
     () =>

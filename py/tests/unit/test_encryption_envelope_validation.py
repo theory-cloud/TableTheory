@@ -14,7 +14,7 @@ from tabletheory_py.encryption import (
     decrypt_attribute_value,
     encrypt_attribute_value,
 )
-from tabletheory_py.errors import AwsError, ValidationError
+from tabletheory_py.errors import AwsError, InvalidEncryptedEnvelopeError, ValidationError
 
 _KEY_ARN = "arn:aws:kms:us-east-1:000000000000:key/test"
 
@@ -23,15 +23,31 @@ class _GoodKms:
     def __init__(self) -> None:
         self._dek = b"\x02" * 32
         self._edk = b"edk"
+        self.generate_contexts: list[dict[str, str] | None] = []
+        self.decrypt_contexts: list[dict[str, str] | None] = []
 
-    def generate_data_key(self, *, KeyId: str, KeySpec: str):  # noqa: N803
+    def generate_data_key(
+        self,
+        *,
+        KeyId: str,  # noqa: N803
+        KeySpec: str,  # noqa: N803
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ):
         assert KeyId
         assert KeySpec == "AES_256"
+        self.generate_contexts.append(EncryptionContext)
         return {"Plaintext": self._dek, "CiphertextBlob": self._edk}
 
-    def decrypt(self, *, CiphertextBlob: bytes, KeyId: str):  # noqa: N803
+    def decrypt(
+        self,
+        *,
+        CiphertextBlob: bytes,  # noqa: N803
+        KeyId: str,  # noqa: N803
+        EncryptionContext: dict[str, str] | None = None,  # noqa: N803
+    ):
         assert KeyId
         assert CiphertextBlob == self._edk
+        self.decrypt_contexts.append(EncryptionContext)
         return {"Plaintext": self._dek}
 
 
@@ -96,7 +112,7 @@ def test_v2_envelope_binds_record_identity_and_rejects_replay() -> None:
         partition_key={"S": "USER#1"},
         sort_key={"S": "v1"},
     )
-    expected_aad = b"theorydb:encrypted:v2|attr=secret|table=notes|pk=S:USER#1|sk=S:v1"
+    expected_aad = b"theorydb:encrypted:v2|attr=6:secret|table=5:notes|pk=8:S:USER#1|sk=4:S:v1"
 
     envelope = encrypt_attribute_value(
         {"S": "top-secret"},
@@ -107,6 +123,7 @@ def test_v2_envelope_binds_record_identity_and_rejects_replay() -> None:
     )
     assert envelope["v"] == 2
     assert build_aad("secret", binding) == expected_aad
+    assert kms.generate_contexts[-1] == {"theorydb:encryption:aad": expected_aad.decode("utf-8")}
 
     plaintext = AESGCM(kms._dek).decrypt(envelope["nonce"], envelope["ct"], expected_aad)
     assert json.loads(plaintext.decode("utf-8")) == {"t": "S", "s": "top-secret"}
@@ -118,6 +135,7 @@ def test_v2_envelope_binds_record_identity_and_rejects_replay() -> None:
         kms_client=kms,
         binding=binding,
     ) == {"S": "top-secret"}
+    assert kms.decrypt_contexts[-1] == kms.generate_contexts[-1]
 
     with pytest.raises(ValidationError, match="failed to decrypt"):
         decrypt_attribute_value(
@@ -156,7 +174,37 @@ def test_v2_envelope_binds_record_identity_and_rejects_replay() -> None:
 
 def test_v2_aad_omits_sort_key_when_absent() -> None:
     binding = RecordBinding(table="notes", partition_key={"N": "42"})
-    assert build_aad("secret", binding) == b"theorydb:encrypted:v2|attr=secret|table=notes|pk=N:42"
+    assert build_aad("secret", binding) == b"theorydb:encrypted:v2|attr=6:secret|table=5:notes|pk=4:N:42"
+
+
+def test_v2_aad_length_prefixes_prevent_delimiter_collisions() -> None:
+    first = build_aad(
+        "secret",
+        RecordBinding(
+            table="T",
+            partition_key={"S": "x|sk=S:y"},
+            sort_key={"S": "z"},
+        ),
+    )
+    second = build_aad(
+        "secret",
+        RecordBinding(
+            table="T",
+            partition_key={"S": "x"},
+            sort_key={"S": "y|sk=S:z"},
+        ),
+    )
+
+    assert first != second
+    assert first == b"theorydb:encrypted:v2|attr=6:secret|table=1:T|pk=10:S:x|sk=S:y|sk=3:S:z"
+    assert second == b"theorydb:encrypted:v2|attr=6:secret|table=1:T|pk=3:S:x|sk=10:S:y|sk=S:z"
+
+
+def test_unsupported_key_types_fail_closed() -> None:
+    with pytest.raises(InvalidEncryptedEnvelopeError, match="unsupported key attribute value type"):
+        build_aad("secret", RecordBinding(table="T", partition_key={"NULL": True}))
+    with pytest.raises(InvalidEncryptedEnvelopeError, match="unsupported key attribute value type"):
+        build_aad("secret", RecordBinding(table="T", partition_key={"BOOL": True}))
 
 
 def test_v2_encrypt_requires_a_valid_binding() -> None:

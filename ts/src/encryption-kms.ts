@@ -15,6 +15,22 @@ import {
 } from './encryption.js';
 import { TheorydbError } from './errors.js';
 
+const kmsEncryptionContextAADKey = 'theorydb:encryption:aad';
+
+/**
+ * The KMS EncryptionContext for an envelope version. v2 envelopes bind the
+ * same AAD into the wrapped data key, so KMS itself refuses to unwrap a data
+ * key for a different record. v1 envelopes carry no context so existing data
+ * stays readable.
+ */
+function kmsEncryptionContext(
+  aad: Uint8Array,
+  version: 1 | 2,
+): Record<string, string> | undefined {
+  if (version !== 2) return undefined;
+  return { [kmsEncryptionContextAADKey]: new TextDecoder().decode(aad) };
+}
+
 export interface AwsKmsEncryptionProviderOptions {
   keyArn: string;
   randomBytes?: (size: number) => Uint8Array;
@@ -48,6 +64,7 @@ export class AwsKmsEncryptionProvider implements EncryptionProvider {
       new GenerateDataKeyCommand({
         KeyId: this.keyArn,
         KeySpec: 'AES_256',
+        EncryptionContext: kmsEncryptionContext(aad, version),
       }),
     );
 
@@ -103,6 +120,7 @@ export class AwsKmsEncryptionProvider implements EncryptionProvider {
       new DecryptCommand({
         CiphertextBlob: envelope.edk,
         KeyId: this.keyArn,
+        EncryptionContext: kmsEncryptionContext(aad, envelope.v),
       }),
     );
 

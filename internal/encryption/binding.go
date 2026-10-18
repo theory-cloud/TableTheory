@@ -3,10 +3,12 @@ package encryption
 import (
 	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	customerrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
@@ -34,6 +36,14 @@ func NewRecordBinding(table string, partitionKey, sortKey types.AttributeValue) 
 	}
 	if !binding.Valid() {
 		return RecordBinding{}, fmt.Errorf("encrypted envelope record binding requires a table name and partition key")
+	}
+	if _, err := canonicalKeyValue(partitionKey); err != nil {
+		return RecordBinding{}, err
+	}
+	if sortKey != nil {
+		if _, err := canonicalKeyValue(sortKey); err != nil {
+			return RecordBinding{}, err
+		}
 	}
 	return binding, nil
 }
@@ -96,33 +106,52 @@ func BindingFromItem(table string, metadata *model.Metadata, item map[string]typ
 // aadForBoundRecord is the v2 additional authenticated data. The format is a
 // cross-runtime contract: Go, TypeScript, and Python must produce exactly this
 // string so envelopes stay readable across runtimes.
-func aadForBoundRecord(attributeName string, binding RecordBinding) []byte {
-	var builder strings.Builder
-	builder.WriteString("theorydb:encrypted:v2|attr=")
-	builder.WriteString(attributeName)
-	builder.WriteString("|table=")
-	builder.WriteString(binding.Table)
-	builder.WriteString("|pk=")
-	builder.WriteString(canonicalKeyValue(binding.PartitionKey))
-	if binding.SortKey != nil {
-		builder.WriteString("|sk=")
-		builder.WriteString(canonicalKeyValue(binding.SortKey))
+//
+// Every variable-length component is length-prefixed with its UTF-8 byte
+// length (`name=<length>:<value>`). A delimiter inside a table, attribute, or
+// key value therefore cannot make two distinct record identities produce the
+// same AAD.
+func aadForBoundRecord(attributeName string, binding RecordBinding) ([]byte, error) {
+	partitionKey, err := canonicalKeyValue(binding.PartitionKey)
+	if err != nil {
+		return nil, err
 	}
-	return []byte(builder.String())
+
+	var builder strings.Builder
+	builder.WriteString("theorydb:encrypted:v2")
+	writeLengthPrefixed(&builder, "|attr=", attributeName)
+	writeLengthPrefixed(&builder, "|table=", binding.Table)
+	writeLengthPrefixed(&builder, "|pk=", partitionKey)
+	if binding.SortKey != nil {
+		sortKey, err := canonicalKeyValue(binding.SortKey)
+		if err != nil {
+			return nil, err
+		}
+		writeLengthPrefixed(&builder, "|sk=", sortKey)
+	}
+	return []byte(builder.String()), nil
+}
+
+func writeLengthPrefixed(builder *strings.Builder, prefix, value string) {
+	builder.WriteString(prefix)
+	builder.WriteString(strconv.Itoa(len(value)))
+	builder.WriteString(":")
+	builder.WriteString(value)
 }
 
 // canonicalKeyValue encodes a key attribute value unambiguously. S and N keep
 // their stored text; B is standard base64. The type prefix keeps a string key
-// from colliding with a numeric key of the same text.
-func canonicalKeyValue(av types.AttributeValue) string {
+// from colliding with a numeric key of the same text. Unsupported key types
+// fail closed instead of canonicalizing to an empty value.
+func canonicalKeyValue(av types.AttributeValue) (string, error) {
 	switch value := av.(type) {
 	case *types.AttributeValueMemberS:
-		return "S:" + value.Value
+		return "S:" + value.Value, nil
 	case *types.AttributeValueMemberN:
-		return "N:" + value.Value
+		return "N:" + value.Value, nil
 	case *types.AttributeValueMemberB:
-		return "B:" + base64.StdEncoding.EncodeToString(value.Value)
+		return "B:" + base64.StdEncoding.EncodeToString(value.Value), nil
 	default:
-		return ""
+		return "", fmt.Errorf("%w: unsupported record binding key type %T", customerrors.ErrInvalidEncryptedEnvelope, av)
 	}
 }

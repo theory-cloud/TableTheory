@@ -29,12 +29,15 @@ function aad(ctx: EncryptionContext, version: 1 | 2): Buffer {
   }
   const binding = ctx.binding;
   assert.ok(binding, "v2 requires a record binding");
+  const lengthPrefixed = (name: string, value: string): string =>
+    `|${name}=${Buffer.byteLength(value, "utf8")}:${value}`;
   let text =
-    `theorydb:encrypted:v2|attr=${ctx.attribute}` +
-    `|table=${binding.table}` +
-    `|pk=${canonicalKey(binding.partitionKey)}`;
+    "theorydb:encrypted:v2" +
+    lengthPrefixed("attr", ctx.attribute) +
+    lengthPrefixed("table", binding.table) +
+    lengthPrefixed("pk", canonicalKey(binding.partitionKey));
   if (binding.sortKey !== undefined) {
-    text += `|sk=${canonicalKey(binding.sortKey)}`;
+    text += lengthPrefixed("sk", canonicalKey(binding.sortKey));
   }
   return Buffer.from(text, "utf8");
 }

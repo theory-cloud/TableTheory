@@ -49,9 +49,13 @@ empty value.
 - **Cursor**: an opaque pagination token that encodes DynamoDB `LastEvaluatedKey` + query context.
 - **Encrypted envelope**: the stored representation of an encrypted attribute (map containing `v`, `edk`, `nonce`, `ct`).
   Envelope `v: 1` binds only the attribute name. Envelope `v: 2` additional authenticated data is
-  `theorydb:encrypted:v2|attr=<attribute>|table=<table>|pk=<key>` plus `|sk=<key>` when the record has a sort key,
-  where each key is encoded as `S:<value>`, `N:<value>`, or `B:<base64>`. Readers MUST accept v1 and v2; v2
-  requires the record binding. Writers SHOULD emit v2 whenever the table and record key are known.
+  `theorydb:encrypted:v2|attr=<len>:<attribute>|table=<len>:<table>|pk=<len>:<key>` plus `|sk=<len>:<key>` when the
+  record has a sort key, where each variable-length component is prefixed with its UTF-8 byte length and each key is
+  encoded as `S:<value>`, `N:<value>`, or `B:<base64>`. Length framing keeps a delimiter inside a table, attribute, or
+  key value from producing an ambiguous binding; unsupported key types fail closed. The same AAD is also supplied as
+  the KMS `EncryptionContext` (`theorydb:encryption:aad`) for v2 envelopes, so the wrapped data key is bound to the
+  record identity at KMS as well. Readers MUST accept v1 and v2; v2 requires the record binding. Writers SHOULD emit v2
+  whenever the table and record key are known.
 
 ## DMS file format (proposed)
 

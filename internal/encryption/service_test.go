@@ -22,6 +22,9 @@ type fakeKMS struct {
 	keyARN      string
 	plaintext   []byte
 	edk         []byte
+
+	lastGenerateContext map[string]string
+	lastDecryptContext  map[string]string
 }
 
 func (f *fakeKMS) GenerateDataKey(ctx context.Context, params *kms.GenerateDataKeyInput, optFns ...func(*kms.Options)) (*kms.GenerateDataKeyOutput, error) {
@@ -37,6 +40,7 @@ func (f *fakeKMS) GenerateDataKey(ctx context.Context, params *kms.GenerateDataK
 	if params.KeySpec != kmsTypes.DataKeySpecAes256 {
 		return nil, errors.New("unexpected key spec")
 	}
+	f.lastGenerateContext = params.EncryptionContext
 	return &kms.GenerateDataKeyOutput{
 		Plaintext:      append([]byte(nil), f.plaintext...),
 		CiphertextBlob: append([]byte(nil), f.edk...),
@@ -56,6 +60,7 @@ func (f *fakeKMS) Decrypt(ctx context.Context, params *kms.DecryptInput, optFns 
 	if len(f.edk) > 0 && !bytes.Equal(params.CiphertextBlob, f.edk) {
 		return nil, errors.New("unexpected ciphertext")
 	}
+	f.lastDecryptContext = params.EncryptionContext
 	return &kms.DecryptOutput{
 		Plaintext: append([]byte(nil), f.plaintext...),
 	}, nil
@@ -298,7 +303,7 @@ func TestService_DecryptAttributeValue_Errors(t *testing.T) {
 			edk:       []byte("edk"),
 		}
 		svc := NewService(fake.keyARN, fake)
-		_, err := svc.decryptDataKey(ctx, []byte("edk"))
+		_, err := svc.decryptDataKey(ctx, []byte("edk"), nil)
 		require.Error(t, err)
 		require.ErrorContains(t, err, "unexpected data key plaintext length")
 	})
@@ -472,10 +477,70 @@ func TestBindingFromItemMissingKeyParts(t *testing.T) {
 }
 
 func TestCanonicalKeyValueEncodesEveryKeyType(t *testing.T) {
-	require.Equal(t, "S:value", canonicalKeyValue(&types.AttributeValueMemberS{Value: "value"}))
-	require.Equal(t, "N:42", canonicalKeyValue(&types.AttributeValueMemberN{Value: "42"}))
-	require.Equal(t, "B:AQID", canonicalKeyValue(&types.AttributeValueMemberB{Value: []byte{1, 2, 3}}))
-	require.Equal(t, "", canonicalKeyValue(&types.AttributeValueMemberNULL{Value: true}), "unsupported key types cannot bind")
+	value, err := canonicalKeyValue(&types.AttributeValueMemberS{Value: "value"})
+	require.NoError(t, err)
+	require.Equal(t, "S:value", value)
+
+	value, err = canonicalKeyValue(&types.AttributeValueMemberN{Value: "42"})
+	require.NoError(t, err)
+	require.Equal(t, "N:42", value)
+
+	value, err = canonicalKeyValue(&types.AttributeValueMemberB{Value: []byte{1, 2, 3}})
+	require.NoError(t, err)
+	require.Equal(t, "B:AQID", value)
+
+	_, err = canonicalKeyValue(&types.AttributeValueMemberNULL{Value: true})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidEncryptedEnvelope, "unsupported key types cannot bind")
+
+	_, err = NewRecordBinding("table", &types.AttributeValueMemberBOOL{Value: true}, nil)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidEncryptedEnvelope, "construction rejects unsupported key types")
+
+	_, err = NewRecordBinding("table", &types.AttributeValueMemberS{Value: "pk"}, &types.AttributeValueMemberNULL{Value: true})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidEncryptedEnvelope, "construction rejects unsupported sort keys")
+}
+
+func TestAADLengthPrefixesPreventDelimiterCollisions(t *testing.T) {
+	first, err := aadForBoundRecord("secret", RecordBinding{
+		Table:        "T",
+		PartitionKey: &types.AttributeValueMemberS{Value: "x|sk=S:y"},
+		SortKey:      &types.AttributeValueMemberS{Value: "z"},
+	})
+	require.NoError(t, err)
+
+	second, err := aadForBoundRecord("secret", RecordBinding{
+		Table:        "T",
+		PartitionKey: &types.AttributeValueMemberS{Value: "x"},
+		SortKey:      &types.AttributeValueMemberS{Value: "y|sk=S:z"},
+	})
+	require.NoError(t, err)
+
+	require.NotEqual(t, string(first), string(second))
+	require.Equal(t, "theorydb:encrypted:v2|attr=6:secret|table=1:T|pk=10:S:x|sk=S:y|sk=3:S:z", string(first))
+	require.Equal(t, "theorydb:encrypted:v2|attr=6:secret|table=1:T|pk=3:S:x|sk=10:S:y|sk=S:z", string(second))
+}
+
+func TestEncryptionContextBindsTheAAD(t *testing.T) {
+	require.Nil(t, encryptionContextForAAD([]byte("v1"), envelopeVersionV1))
+	require.Equal(t,
+		map[string]string{encryptionContextAADKey: "v2-aad"},
+		encryptionContextForAAD([]byte("v2-aad"), envelopeVersionV2),
+	)
+
+	svc := newTestService(t)
+	binding := RecordBinding{
+		Table:        "table",
+		PartitionKey: &types.AttributeValueMemberS{Value: "pk"},
+	}
+	envelope, err := svc.EncryptAttributeValueWithBinding(context.Background(), binding, "secret", &types.AttributeValueMemberS{Value: "x"})
+	require.NoError(t, err)
+
+	fake := svc.kms.(*fakeKMS)
+	require.NotNil(t, fake.lastGenerateContext)
+	require.Contains(t, fake.lastGenerateContext, encryptionContextAADKey)
+
+	_, err = svc.DecryptAttributeValueWithBinding(context.Background(), binding, "secret", envelope)
+	require.NoError(t, err)
+	require.Equal(t, fake.lastGenerateContext, fake.lastDecryptContext, "decrypt must supply the same KMS context")
 }
 
 func TestBindingMethodsFailClosedOnNilService(t *testing.T) {

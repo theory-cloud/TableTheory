@@ -27,6 +27,12 @@ const (
 	envelopeKeyEDK        = "edk"
 	envelopeKeyNonce      = "nonce"
 	envelopeKeyCiphertext = "ct"
+
+	// encryptionContextAADKey is the KMS EncryptionContext key that binds the
+	// same AAD into the wrapped data key for v2 envelopes. KMS authenticates
+	// the context on decrypt, so a data key wrapped for one record cannot be
+	// unwrapped for another even before AES-GCM runs.
+	encryptionContextAADKey = "theorydb:encryption:aad"
 )
 
 type kmsAPI interface {
@@ -70,19 +76,24 @@ func NewServiceFromAWSConfigWithRand(keyARN string, cfg aws.Config, rng io.Reade
 // EncryptAttributeValueWithBinding so an envelope cannot be replayed onto
 // another record or table.
 func (s *Service) EncryptAttributeValue(ctx context.Context, attributeName string, av types.AttributeValue) (types.AttributeValue, error) {
-	return s.encryptAttributeValue(ctx, attributeName, av, aadForAttribute(attributeName), envelopeVersionV1)
+	return s.encryptAttributeValue(ctx, attributeName, av, aadForAttribute(attributeName), envelopeVersionV1, nil)
 }
 
 // EncryptAttributeValueWithBinding writes a v2 envelope bound to the record
 // identity (table, partition key, sort key) in addition to the attribute name.
+// The same binding is also supplied to KMS as the data key's EncryptionContext.
 func (s *Service) EncryptAttributeValueWithBinding(ctx context.Context, binding RecordBinding, attributeName string, av types.AttributeValue) (types.AttributeValue, error) {
 	if !binding.Valid() {
 		return nil, fmt.Errorf("encrypted envelope record binding is required")
 	}
-	return s.encryptAttributeValue(ctx, attributeName, av, aadForBoundRecord(attributeName, binding), envelopeVersionV2)
+	aad, err := aadForBoundRecord(attributeName, binding)
+	if err != nil {
+		return nil, err
+	}
+	return s.encryptAttributeValue(ctx, attributeName, av, aad, envelopeVersionV2, encryptionContextForAAD(aad, envelopeVersionV2))
 }
 
-func (s *Service) encryptAttributeValue(ctx context.Context, attributeName string, av types.AttributeValue, aad []byte, envelopeVersion string) (types.AttributeValue, error) {
+func (s *Service) encryptAttributeValue(ctx context.Context, attributeName string, av types.AttributeValue, aad []byte, envelopeVersion string, encryptionContext map[string]string) (types.AttributeValue, error) {
 	if s == nil {
 		return nil, fmt.Errorf("encryption service is nil")
 	}
@@ -102,8 +113,9 @@ func (s *Service) encryptAttributeValue(ctx context.Context, attributeName strin
 	}
 
 	dataKey, err := s.kms.GenerateDataKey(ctx, &kms.GenerateDataKeyInput{
-		KeyId:   aws.String(s.keyARN),
-		KeySpec: kmsTypes.DataKeySpecAes256,
+		KeyId:             aws.String(s.keyARN),
+		KeySpec:           kmsTypes.DataKeySpecAes256,
+		EncryptionContext: encryptionContext,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("kms GenerateDataKey failed: %w", err)
@@ -164,14 +176,19 @@ func (s *Service) decryptAttributeValue(ctx context.Context, attributeName strin
 	}
 
 	aad := aadForAttribute(attributeName)
+	var encryptionContext map[string]string
 	if parts.version == envelopeVersionV2 {
 		if !bindingSupplied || !binding.Valid() {
 			return nil, fmt.Errorf("%w: encrypted envelope v2 requires the record binding", customerrors.ErrInvalidEncryptedEnvelope)
 		}
-		aad = aadForBoundRecord(attributeName, binding)
+		aad, err = aadForBoundRecord(attributeName, binding)
+		if err != nil {
+			return nil, err
+		}
+		encryptionContext = encryptionContextForAAD(aad, parts.version)
 	}
 
-	dataKey, err := s.decryptDataKey(ctx, parts.edk)
+	dataKey, err := s.decryptDataKey(ctx, parts.edk, encryptionContext)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +208,15 @@ func (s *Service) decryptAttributeValue(ctx context.Context, attributeName strin
 
 func aadForAttribute(attributeName string) []byte {
 	return []byte(fmt.Sprintf("theorydb:encrypted:v1|attr=%s", attributeName))
+}
+
+// encryptionContextForAAD returns the KMS EncryptionContext for an envelope
+// version. v1 envelopes carry no context so existing data stays readable.
+func encryptionContextForAAD(aad []byte, version string) map[string]string {
+	if version != envelopeVersionV2 {
+		return nil
+	}
+	return map[string]string{encryptionContextAADKey: string(aad)}
 }
 
 type encryptedEnvelopeParts struct {
@@ -261,10 +287,11 @@ func encryptedEnvelopeVersion(values map[string]types.AttributeValue) (string, e
 	return versionAV.Value, nil
 }
 
-func (s *Service) decryptDataKey(ctx context.Context, edk []byte) ([]byte, error) {
+func (s *Service) decryptDataKey(ctx context.Context, edk []byte, encryptionContext map[string]string) ([]byte, error) {
 	dec, err := s.kms.Decrypt(ctx, &kms.DecryptInput{
-		CiphertextBlob: edk,
-		KeyId:          aws.String(s.keyARN),
+		CiphertextBlob:    edk,
+		KeyId:             aws.String(s.keyARN),
+		EncryptionContext: encryptionContext,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("kms Decrypt failed: %w", err)

@@ -55,19 +55,37 @@ function bindingIsValid(binding: RecordBinding): boolean {
 
 /**
  * Canonical key encoding shared by every runtime: `S:<value>` for strings,
- * `N:<value>` for numbers, and `B:<standard base64>` for binary.
+ * `N:<value>` for numbers, and `B:<standard base64>` for binary. Unsupported
+ * key types fail closed rather than canonicalizing to an empty value.
  */
 export function canonicalKeyValue(av: AttributeValue): string {
   if ('S' in av && typeof av.S === 'string') return `S:${av.S}`;
   if ('N' in av && typeof av.N === 'string') return `N:${av.N}`;
   if ('B' in av && av.B) return `B:${Buffer.from(av.B).toString('base64')}`;
-  return '';
+  throw new TheorydbError(
+    'ErrInvalidEncryptedEnvelope',
+    `unsupported record binding key type: ${Object.keys(av).join(',') || 'empty'}`,
+  );
+}
+
+function utf8ByteLength(value: string): number {
+  return Buffer.byteLength(value, 'utf8');
+}
+
+/**
+ * Length-prefix one variable-length AAD component with its UTF-8 byte length,
+ * so a delimiter inside a table, attribute, or key value cannot make two
+ * distinct record identities produce the same AAD.
+ */
+function lengthPrefixed(name: string, value: string): string {
+  return `|${name}=${utf8ByteLength(value)}:${value}`;
 }
 
 /**
  * The AES-GCM additional authenticated data for an envelope version. v1 binds
  * only the attribute name (legacy); v2 binds the record identity as well and
- * therefore requires a binding.
+ * therefore requires a binding. Every variable-length v2 component is
+ * length-prefixed; the format is a cross-runtime contract.
  */
 export function aadForContext(
   ctx: EncryptionContext,
@@ -88,11 +106,12 @@ export function aadForContext(
   }
 
   let aad =
-    `theorydb:encrypted:v2|attr=${ctx.attribute}` +
-    `|table=${binding.table.trim()}` +
-    `|pk=${canonicalKeyValue(binding.partitionKey)}`;
+    'theorydb:encrypted:v2' +
+    lengthPrefixed('attr', ctx.attribute) +
+    lengthPrefixed('table', binding.table.trim()) +
+    lengthPrefixed('pk', canonicalKeyValue(binding.partitionKey));
   if (binding.sortKey !== undefined) {
-    aad += `|sk=${canonicalKeyValue(binding.sortKey)}`;
+    aad += lengthPrefixed('sk', canonicalKeyValue(binding.sortKey));
   }
   return new TextEncoder().encode(aad);
 }

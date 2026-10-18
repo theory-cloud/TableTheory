@@ -72,11 +72,21 @@ Envelope **v2** authenticates the record identity in the AES-GCM additional
 data:
 
 ```text
-theorydb:encrypted:v2|attr=<attribute>|table=<table>|pk=<key>|sk=<key>
+theorydb:encrypted:v2|attr=<len>:<attribute>|table=<len>:<table>|pk=<len>:<key>|sk=<len>:<key>
 ```
 
+* Every variable-length component is prefixed with its UTF-8 byte length.
+  Length framing is unambiguous: a table, attribute, or key value containing
+  `|` or `:` cannot collide with another record identity.
 * `pk` / `sk` use the canonical key encoding `S:<value>`, `N:<value>`, or
-  `B:<base64>`; `sk` is present only when the record has a sort key.
+  `B:<base64>`; `sk` is present only when the record has a sort key. Key types
+  other than `S`, `N`, and `B` fail closed rather than canonicalizing to an
+  empty value.
+* The same AAD is supplied to KMS as the `EncryptionContext` key
+  `theorydb:encryption:aad` on both `GenerateDataKey` and `Decrypt` for v2
+  envelopes, so the wrapped data key is bound to the record identity at KMS
+  as well as in AES-GCM. v1 envelopes carry no KMS context so existing data
+  stays readable.
 * A v2 envelope copied to another record or another table fails to decrypt.
   This closes cross-record and cross-model envelope replay.
 * **v1 envelopes remain readable.** Existing stored data decrypts exactly as
