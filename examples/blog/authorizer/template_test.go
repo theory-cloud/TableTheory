@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 const testMethodArn = "arn:aws:execute-api:us-east-1:123456789012:api/dev/POST/posts"
@@ -82,13 +83,86 @@ func TestDeclaredAuthorizerDeniesTamperedDeliveredREQUESTEvent(t *testing.T) {
 func TestTemplateDeclaresMatchingREQUESTAuthorizer(t *testing.T) {
 	body, err := os.ReadFile("../deployment/sam-template.yaml")
 	require.NoError(t, err)
-	template := string(body)
+	var document yaml.Node
+	require.NoError(t, yaml.Unmarshal(body, &document))
+	root := document.Content[0]
 
-	require.Contains(t, template, "Type: REQUEST")
-	require.Contains(t, template, "IdentitySource: method.request.header.Authorization")
-	require.Contains(t, template, "RestApiId: !Ref ServerlessRestApi")
-	require.Contains(t, template, "CodeUri: ../authorizer.zip")
-	require.NotContains(t, template, "Type: TOKEN")
+	resources := templateMapping(t, root, "Resources")
+	api := templateMapping(t, resources, "ServerlessRestApi")
+	require.Equal(t, "AWS::Serverless::Api", templateScalar(t, api, "Type"))
+
+	apiProperties := templateMapping(t, api, "Properties")
+	authorizers := templateMapping(t, templateMapping(t, apiProperties, "Auth"), "Authorizers")
+	authorizer := templateMapping(t, authorizers, "BlogAuthorizer")
+	require.Equal(t, "REQUEST", templateScalar(t, authorizer, "FunctionPayloadType"))
+	require.Equal(t, "Authorization", templateScalar(t, templateMapping(t, authorizer, "Identity"), "Header"))
+
+	functionArn := templateMapping(t, authorizer, "FunctionArn")
+	require.Equal(t, "!GetAtt", functionArn.Tag)
+	require.Equal(t, "AuthorizerFunction.Arn", functionArn.Value)
+	authorizerFunction := templateMapping(t, resources, "AuthorizerFunction")
+	require.Equal(t,
+		"../authorizer.zip",
+		templateScalar(t, templateMapping(t, authorizerFunction, "Properties"), "CodeUri"),
+	)
+
+	protectedRoutes := 0
+	for i := 0; i+1 < len(resources.Content); i += 2 {
+		resource := resources.Content[i+1]
+		require.NotEqual(t, "AWS::ApiGateway::Authorizer", templateScalar(t, resource, "Type"),
+			"the authorizer must be declared in the API Auth.Authorizers block, not as a raw authorizer")
+
+		if templateScalar(t, resource, "Type") != "AWS::Serverless::Function" {
+			continue
+		}
+		events, ok := templateOptionalMapping(t, templateMapping(t, resource, "Properties"), "Events")
+		if !ok {
+			continue
+		}
+		for j := 0; j+1 < len(events.Content); j += 2 {
+			event := events.Content[j+1]
+			if templateScalar(t, event, "Type") != "Api" {
+				continue
+			}
+			eventProperties := templateMapping(t, event, "Properties")
+			apiRef := templateMapping(t, eventProperties, "RestApiId")
+			require.Equal(t, "!Ref", apiRef.Tag)
+			require.Equal(t, "ServerlessRestApi", apiRef.Value)
+			auth, protected := templateOptionalMapping(t, eventProperties, "Auth")
+			if !protected {
+				continue
+			}
+			require.Equal(t, "BlogAuthorizer", templateScalar(t, auth, "Authorizer"))
+			protectedRoutes++
+		}
+	}
+	require.Equal(t, 5, protectedRoutes, "every protected route must name the declared REQUEST authorizer")
+}
+
+func templateMapping(t *testing.T, node *yaml.Node, key string) *yaml.Node {
+	t.Helper()
+	value, ok := templateOptionalMapping(t, node, key)
+	require.Truef(t, ok, "template key %q is missing", key)
+	return value
+}
+
+func templateOptionalMapping(t *testing.T, node *yaml.Node, key string) (*yaml.Node, bool) {
+	t.Helper()
+	require.NotNil(t, node)
+	require.Equal(t, yaml.MappingNode, node.Kind)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1], true
+		}
+	}
+	return nil, false
+}
+
+func templateScalar(t *testing.T, node *yaml.Node, key string) string {
+	t.Helper()
+	value := templateMapping(t, node, key)
+	require.Equal(t, yaml.ScalarNode, value.Kind)
+	return value.Value
 }
 
 // TestTOKENEventShapeDoesNotAuthorize documents the inverse contract. A TOKEN

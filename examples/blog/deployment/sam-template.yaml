@@ -24,6 +24,22 @@ Globals:
         ENABLE_ANALYTICS: "true"
 
 Resources:
+  # REST API. Declaring ServerlessRestApi explicitly lets the template own the
+  # stage and declare the authorizer in the API's Auth.Authorizers block, which
+  # is where a function event's Auth.Authorizer reference must resolve.
+  ServerlessRestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        Authorizers:
+          BlogAuthorizer:
+            FunctionArn: !GetAtt AuthorizerFunction.Arn
+            FunctionPayloadType: REQUEST
+            Identity:
+              Header: Authorization
+              ReauthorizeEvery: 300
+
   # DynamoDB Tables
   PostsTable:
     Type: AWS::DynamoDB::Table
@@ -173,16 +189,19 @@ Resources:
         ListPosts:
           Type: Api
           Properties:
+            RestApiId: !Ref ServerlessRestApi
             Path: /posts
             Method: GET
         GetPost:
           Type: Api
           Properties:
+            RestApiId: !Ref ServerlessRestApi
             Path: /posts/{slug}
             Method: GET
         CreatePost:
           Type: Api
           Properties:
+            RestApiId: !Ref ServerlessRestApi
             Path: /posts
             Method: POST
             Auth:
@@ -190,6 +209,7 @@ Resources:
         UpdatePost:
           Type: Api
           Properties:
+            RestApiId: !Ref ServerlessRestApi
             Path: /posts/{id}
             Method: PUT
             Auth:
@@ -197,6 +217,7 @@ Resources:
         DeletePost:
           Type: Api
           Properties:
+            RestApiId: !Ref ServerlessRestApi
             Path: /posts/{id}
             Method: DELETE
             Auth:
@@ -217,16 +238,19 @@ Resources:
         ListComments:
           Type: Api
           Properties:
+            RestApiId: !Ref ServerlessRestApi
             Path: /posts/{postId}/comments
             Method: GET
         CreateComment:
           Type: Api
           Properties:
+            RestApiId: !Ref ServerlessRestApi
             Path: /posts/{postId}/comments
             Method: POST
         ModerateComment:
           Type: Api
           Properties:
+            RestApiId: !Ref ServerlessRestApi
             Path: /comments/{commentId}/moderate
             Method: PUT
             Auth:
@@ -234,37 +258,21 @@ Resources:
         DeleteComment:
           Type: Api
           Properties:
+            RestApiId: !Ref ServerlessRestApi
             Path: /comments/{commentId}
             Method: DELETE
             Auth:
               Authorizer: BlogAuthorizer
 
-  # API Gateway Authorizer. REQUEST authorizers receive the caller's headers,
-  # so the handler reads the Authorization bearer token from event.headers.
-  BlogAuthorizer:
-    Type: AWS::ApiGateway::Authorizer
-    Properties:
-      Name: !Sub "${Environment}-blog-authorizer"
-      RestApiId: !Ref ServerlessRestApi
-      Type: REQUEST
-      IdentitySource: method.request.header.Authorization
-      AuthorizerUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunction.Arn}/invocations"
-      AuthorizerResultTtlInSeconds: 300
-
+  # REQUEST authorizers receive the caller's headers, so the handler reads the
+  # Authorization bearer token from event.headers. SAM generates the invoke
+  # permission from the API's Auth.Authorizers entry.
   AuthorizerFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "${Environment}-blog-authorizer"
       CodeUri: ../authorizer.zip
       Handler: bootstrap
-
-  BlogAuthorizerPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref AuthorizerFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ServerlessRestApi}/*"
 
   # CloudFront Distribution for caching
   BlogCDN:
