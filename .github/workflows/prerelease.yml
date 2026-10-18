@@ -12,6 +12,9 @@ permissions:
 
 jobs:
   release-please:
+    # A manual dispatch from any other ref would execute that ref's scripts
+    # with this workflow's write permissions. Only the release branch runs.
+    if: github.ref == 'refs/heads/premain'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
