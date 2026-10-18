@@ -38,6 +38,20 @@ type bindingKeyedOutbox struct {
 	ReleaseID string `theorydb:"attr:releaseId"`
 }
 
+func bindingEventOf(t *testing.T, input TransitionAppendEventInput) *bindingEvent {
+	t.Helper()
+	event, ok := input.Event.(*bindingEvent)
+	require.True(t, ok)
+	return event
+}
+
+func bindingActualOf(t *testing.T, input TransitionAppendEventInput) *bindingActual {
+	t.Helper()
+	actual, ok := input.Actual.(*bindingActual)
+	require.True(t, ok)
+	return actual
+}
+
 func bindingInput() TransitionAppendEventInput {
 	return TransitionAppendEventInput{
 		Actual: &bindingActual{PK: "RELEASE#service-a", SK: "ACTUAL"},
@@ -69,7 +83,7 @@ func TestTransitionEventBindingAcceptsMatchingTransition(t *testing.T) {
 func TestTransitionEventBindingRejectsMismatchedTransition(t *testing.T) {
 	input := bindingInput()
 	input.EventBinding = map[string]string{"releaseId": "set:pinnedReleaseId"}
-	input.Event.(*bindingEvent).ReleaseID = "rel_001"
+	bindingEventOf(t, input).ReleaseID = "rel_001"
 
 	writer := &fakeTransactionWriter{}
 	err := TransitionAppendEvent(context.Background(), writer, input)
@@ -87,8 +101,8 @@ func TestTransitionEventBindingRejectsMissingAttribute(t *testing.T) {
 
 func TestTransitionEventBindingResolvesActualFields(t *testing.T) {
 	input := bindingInput()
-	input.Actual.(*bindingActual).PinnedReleaseID = "rel_001"
-	input.Event.(*bindingEvent).ReleaseID = "rel_001"
+	bindingActualOf(t, input).PinnedReleaseID = "rel_001"
+	bindingEventOf(t, input).ReleaseID = "rel_001"
 	input.EventBinding = map[string]string{"releaseId": "actual:pinnedReleaseId"}
 
 	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
@@ -98,12 +112,12 @@ func TestTransitionEventBindingSupportsNextVersion(t *testing.T) {
 	expected := int64(4)
 	input := bindingInput()
 	input.ExpectedVersion = &expected
-	input.Event.(*bindingEvent).Version = 5
+	bindingEventOf(t, input).Version = 5
 	input.EventBinding = map[string]string{"version": "nextVersion"}
 
 	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
 
-	input.Event.(*bindingEvent).Version = 4
+	bindingEventOf(t, input).Version = 4
 	err := TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input)
 	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
 
@@ -165,4 +179,108 @@ func TestTransitionOutboxBindingWithoutOutboxIsRejected(t *testing.T) {
 
 	err := TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input)
 	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+}
+
+type bindingNoPartitionOutbox struct {
+	SK        string `theorydb:"sk,attr:SK"`
+	Operation string `theorydb:"attr:operation"`
+}
+
+func TestTransitionBindingResolvesGoFieldNames(t *testing.T) {
+	input := bindingInput()
+	bindingActualOf(t, input).PinnedReleaseID = "rel_001"
+	bindingEventOf(t, input).ReleaseID = "rel_001"
+	input.EventBinding = map[string]string{"releaseId": "actual:PinnedReleaseID"}
+
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
+
+	input.EventBinding = map[string]string{"releaseId": "actual:Missing"}
+	err := TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+}
+
+func TestTransitionBindingAcceptsNumericEquivalence(t *testing.T) {
+	expected := int64(4)
+	input := bindingInput()
+	input.ExpectedVersion = &expected
+	input.Set["status"] = 5
+	bindingEventOf(t, input).Version = 5
+	input.EventBinding = map[string]string{"version": "set:status"}
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
+
+	input.Set["status"] = uint(5)
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
+
+	input.Set["status"] = "5"
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
+
+	input.Set["status"] = "not-a-number"
+	err := TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+}
+
+func TestTransitionOutboxWithoutPartitionKeyIsRejected(t *testing.T) {
+	input := bindingInput()
+	input.Outbox = &bindingNoPartitionOutbox{SK: "OUTBOX#1", Operation: "flip"}
+
+	err := TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+}
+
+func TestTransitionBindingValueComparison(t *testing.T) {
+	type payload struct {
+		A int `json:"a"`
+	}
+	require.True(t, bindingValuesEqual(payload{A: 1}, payload{A: 1}))
+	require.False(t, bindingValuesEqual(payload{A: 1}, payload{A: 2}))
+	require.True(t, bindingValuesEqual(1.5, 1.5))
+	require.False(t, bindingValuesEqual(nil, 1))
+}
+
+func TestTransitionBindingRejectsNonStructRows(t *testing.T) {
+	input := bindingInput()
+	input.Actual = 42
+
+	err := TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+}
+
+func TestTransitionBindingRejectsNilOutboxBindingWithoutRow(t *testing.T) {
+	input := bindingInput()
+	input.Outbox = nil
+	input.OutboxBinding = map[string]string{"releaseId": "set:pinnedReleaseId"}
+
+	err := TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+}
+
+func TestTransitionBindingMatchesFieldAliases(t *testing.T) {
+	input := bindingInput()
+	bindingEventOf(t, input).ReleaseID = "rel_002"
+	input.EventBinding = map[string]string{"releaseId": "set:pinnedReleaseId"}
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
+
+	delete(input.Set, "pinnedReleaseId")
+	input.Set["PinnedReleaseID"] = "rel_002"
+	input.EventBinding = map[string]string{"releaseId": "set:pinnedReleaseId"}
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
+
+	input.EventBinding = map[string]string{"releaseId": "set:PinnedReleaseID"}
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
+}
+
+type bindingInvalidOutbox struct {
+	PK string `theorydb:"pk,attr:bad-name"`
+}
+
+func TestTransitionBindingRejectsUnregisterableOutbox(t *testing.T) {
+	input := bindingInput()
+	input.Outbox = &bindingInvalidOutbox{PK: "RELEASE#service-a"}
+
+	err := TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+}
+
+func TestBindingValuesEqualFloats(t *testing.T) {
+	require.True(t, bindingValuesEqual(float32(1.5), 1.5))
 }
