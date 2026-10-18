@@ -267,6 +267,16 @@ export interface AttributeSchema {
     optional?: boolean;
     omit_empty?: boolean;
     json?: boolean;
+    /**
+     * How a `type: 'S'` JSON attribute is read and written.
+     *
+     * 'carrier' (default) stores and returns raw JSON text, matching DMS v0.2.
+     * 'parse' restores the pre-v3 behavior: writes JSON-encode the value and
+     * reads parse the stored text back into an object, array, or scalar. Use
+     * 'parse' for schemas authored before DMS v0.2 introduced structured M/L
+     * carriers, when authorization code expects the previous runtime type.
+     */
+    jsonStringMode?: 'carrier' | 'parse';
     binary?: boolean;
     format?: string;
     roles?: readonly string[];
@@ -591,6 +601,13 @@ export type TransactModelUpdate = {
     conditionExpression?: string;
     expressionAttributeNames?: Record<string, string>;
     expressionAttributeValues?: Record<string, AttributeValue>;
+    /**
+     * When set, the update atomically increments the model's version attribute
+     * and conditions the write on this expected version, composed with any
+     * caller-supplied condition. Omit to keep the historical model-shaped
+     * behavior, which does not advance the version.
+     */
+    expectedVersion?: number;
     key?: never;
     updateExpression?: never;
     updateFn?: never;
@@ -775,12 +792,23 @@ export declare function selectOptimalIndex(required: RequiredKeys, indexes: read
 ```ts
 import type { AttributeValue } from '@aws-sdk/client-dynamodb';
 import type { AttributeSchema, Model } from './model.js';
+/**
+ * Identifies the stored record an encrypted envelope belongs to. Envelope v2
+ * authenticates this identity in the AES-GCM additional data so an envelope
+ * copied onto another record or table cannot be decrypted.
+ */
+export interface RecordBinding {
+    table: string;
+    partitionKey: AttributeValue;
+    sortKey?: AttributeValue;
+}
 export interface EncryptionContext {
     model: string;
     attribute: string;
+    binding?: RecordBinding;
 }
 export interface EncryptedEnvelope {
-    v: 1;
+    v: 1 | 2;
     edk: Uint8Array;
     nonce: Uint8Array;
     ct: Uint8Array;
@@ -789,11 +817,33 @@ export interface EncryptionProvider {
     encrypt(plaintext: Uint8Array, ctx: EncryptionContext): Promise<EncryptedEnvelope>;
     decrypt(envelope: EncryptedEnvelope, ctx: EncryptionContext): Promise<Uint8Array>;
 }
+/**
+ * Canonical key encoding shared by every runtime: `S:<value>` for strings,
+ * `N:<value>` for numbers, and `B:<standard base64>` for binary.
+ */
+export declare function canonicalKeyValue(av: AttributeValue): string;
+/**
+ * The AES-GCM additional authenticated data for an envelope version. v1 binds
+ * only the attribute name (legacy); v2 binds the record identity as well and
+ * therefore requires a binding.
+ */
+export declare function aadForContext(ctx: EncryptionContext, version: 1 | 2): Uint8Array;
+/** Writes use v2 whenever the record identity is known. */
+export declare function envelopeVersionForContext(ctx: EncryptionContext): 1 | 2;
+/** Builds the record binding from an already-marshaled model key. */
+export declare function recordBindingFromKey(model: Model, key: Record<string, AttributeValue>): RecordBinding;
+/**
+ * Derives a binding from a full or projected item. Returns undefined when the
+ * item does not carry its key attributes, so v2 fails closed while legacy v1
+ * envelopes still decrypt.
+ */
+export declare function recordBindingFromItem(model: Model, item: Record<string, AttributeValue>): RecordBinding | undefined;
+export declare function envelopeToAttributeValue(env: EncryptedEnvelope): AttributeValue;
 export declare function modelHasEncryptedAttributes(model: Model): boolean;
 export declare function marshalPutItemEncrypted(model: Model, item: Record<string, unknown>, provider: EncryptionProvider, opts?: {
     now?: string;
 }): Promise<Record<string, AttributeValue>>;
-export declare function decryptItemAttributes(model: Model, item: Record<string, AttributeValue>, provider: EncryptionProvider): Promise<Record<string, AttributeValue>>;
+export declare function decryptItemAttributes(model: Model, item: Record<string, AttributeValue>, provider: EncryptionProvider, knownBinding?: RecordBinding): Promise<Record<string, AttributeValue>>;
 export declare function encryptAttributeValue(schema: Readonly<AttributeSchema>, value: unknown, provider: EncryptionProvider, ctx: EncryptionContext): Promise<AttributeValue>;
 ```
 
@@ -801,7 +851,7 @@ export declare function encryptAttributeValue(schema: Readonly<AttributeSchema>,
 
 ```ts
 import { type KMSClient } from '@aws-sdk/client-kms';
-import type { EncryptedEnvelope, EncryptionContext, EncryptionProvider } from './encryption.js';
+import { type EncryptedEnvelope, type EncryptionContext, type EncryptionProvider } from './encryption.js';
 export interface AwsKmsEncryptionProviderOptions {
     keyArn: string;
     randomBytes?: (size: number) => Uint8Array;
@@ -861,7 +911,7 @@ export declare function updateTimeToLive(ddb: DynamoDBClient, model: Model, opts
 
 ```ts
 import { type AttributeValue, type DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type { EncryptionProvider } from './encryption.js';
+import { type EncryptionProvider } from './encryption.js';
 import type { Model } from './model.js';
 /** A raw DynamoDB item (attribute-name to AttributeValue). */
 export type MigrationItem = Record<string, AttributeValue>;
@@ -1138,6 +1188,19 @@ export interface ReleaseStateTransitionInput {
     outboxItem?: Record<string, unknown>;
     expectedVersion?: number;
     versionAttribute?: string;
+    /**
+     * Declares which event-history attributes must equal a value from the
+     * authorizing transition. Keys are event attribute names; values are one of
+     * `set:<field>`, `actual:<field>`, or `nextVersion`. A bound attribute that is
+     * missing from the event row, or that disagrees with the transition, is
+     * rejected before anything is submitted.
+     */
+    eventBinding?: Record<string, string>;
+    /**
+     * The same contract for the outbox row. Outbox rows also inherit the generic
+     * same-name partition-key binding.
+     */
+    outboxBinding?: Record<string, string>;
 }
 /**
  * Transactionally update the release-state actual row and append one immutable
