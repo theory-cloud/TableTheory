@@ -147,6 +147,13 @@ func (p *migrationEncryptionPlan) guardItem(ctx context.Context, item map[string
 		}
 	}
 
+	return p.encryptMissingTargetAttributes(ctx, item)
+}
+
+// encryptMissingTargetAttributes encrypts plaintext attributes that become
+// encrypted under the target model, binding each new envelope to the target
+// record identity.
+func (p *migrationEncryptionPlan) encryptMissingTargetAttributes(ctx context.Context, item map[string]types.AttributeValue) error {
 	for _, name := range absentFrom(p.targetEncrypted, p.sourceEncrypted) {
 		av, ok := item[name]
 		if !ok {
