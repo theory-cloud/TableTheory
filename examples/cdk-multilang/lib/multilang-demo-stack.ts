@@ -209,9 +209,9 @@ export class MultilangDemoStack extends Stack {
     key.grantEncryptDecrypt(nodeFn);
     key.grantEncryptDecrypt(pyFn);
 
-    const goUrl = goFn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
-    const nodeUrl = nodeFn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
-    const pyUrl = pyFn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
+    const goUrl = goFn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM });
+    const nodeUrl = nodeFn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM });
+    const pyUrl = pyFn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM });
 
     new CfnOutput(this, 'TableName', { value: table.tableName });
     new CfnOutput(this, 'EvidenceArchiveTableName', {
