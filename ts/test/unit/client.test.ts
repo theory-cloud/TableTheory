@@ -93,6 +93,20 @@ const ReleaseStateEvent = defineModel({
   ],
 });
 
+const NoVersionModel = defineModel({
+  name: 'NoVersionModel',
+  table: { name: 'no_version_contract' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'label', type: 'S', optional: true },
+  ],
+});
+
 class StubDdb {
   sent: unknown[] = [];
   calls = 0;
@@ -749,6 +763,111 @@ void test('TransactModelUpdate rejects lifecycle-owned fields', async (t) => {
       assert.equal(ddb.sent.length, 0);
     });
   }
+});
+
+void test('TransactModelUpdate expectedVersion increments and conditions', async () => {
+  const now = '2026-07-31T12:34:56.123456789Z';
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof TransactWriteItemsCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient, {
+    now: () => now,
+  }).register(User);
+
+  await client.transactWrite([
+    {
+      kind: 'update',
+      model: 'User',
+      item: { PK: 'A', SK: '1', nickname: 'present' },
+      fields: ['nickname'],
+      expectedVersion: 3,
+    },
+  ]);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  const update = cmd.input.TransactItems?.[0]?.Update;
+  assert.equal(
+    update?.UpdateExpression,
+    'SET #u1 = :u1, #u2 = :u2 ADD #u3 :u3',
+  );
+  assert.equal(update?.ConditionExpression, '#c1 = :c1');
+  assert.deepEqual(update?.ExpressionAttributeNames, {
+    '#u1': 'updatedAt',
+    '#u2': 'nickname',
+    '#u3': 'version',
+    '#c1': 'version',
+  });
+  assert.deepEqual(update?.ExpressionAttributeValues, {
+    ':u1': { S: now },
+    ':u2': { S: 'present' },
+    ':u3': { N: '1' },
+    ':c1': { N: '3' },
+  });
+});
+
+void test('TransactModelUpdate expectedVersion composes a caller condition', async () => {
+  const ddb = new StubDdb((cmd) => {
+    if (cmd instanceof TransactWriteItemsCommand) return {};
+    throw new Error('unexpected');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient, {
+    now: () => '2026-07-31T12:34:56.123456789Z',
+  }).register(User);
+
+  await client.transactWrite([
+    {
+      kind: 'update',
+      model: 'User',
+      item: { PK: 'A', SK: '1', nickname: 'present' },
+      fields: ['nickname'],
+      expectedVersion: 3,
+      conditionExpression: '#c1 = :c1',
+      expressionAttributeNames: { '#c1': 'alias' },
+      expressionAttributeValues: { ':c1': { S: 'active' } },
+    },
+  ]);
+
+  const cmd = ddb.sent[0];
+  assert.ok(cmd instanceof TransactWriteItemsCommand);
+  const update = cmd.input.TransactItems?.[0]?.Update;
+  assert.equal(
+    update?.ConditionExpression,
+    '(#c1 = :c1) AND (#caller1 = :caller1)',
+    'colliding caller placeholders are renamed, not rejected',
+  );
+  assert.equal(update?.ExpressionAttributeNames?.['#c1'], 'version');
+  assert.equal(update?.ExpressionAttributeNames?.['#caller1'], 'alias');
+  assert.deepEqual(update?.ExpressionAttributeValues?.[':c1'], { N: '3' });
+  assert.deepEqual(update?.ExpressionAttributeValues?.[':caller1'], {
+    S: 'active',
+  });
+});
+
+void test('TransactModelUpdate rejects expectedVersion without a version role', async () => {
+  const ddb = new StubDdb(() => {
+    throw new Error('should not send');
+  });
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    NoVersionModel,
+  );
+
+  await assert.rejects(
+    () =>
+      client.transactWrite([
+        {
+          kind: 'update',
+          model: 'NoVersionModel',
+          item: { PK: 'A', SK: '1', label: 'x' },
+          fields: ['label'],
+          expectedVersion: 1,
+        },
+      ]),
+    (error) =>
+      error instanceof TheorydbError && error.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 0);
 });
 
 void test('transaction updateFn marshals the key before callback', async () => {

@@ -993,15 +993,29 @@ async function buildTransactModelUpdate(
     }
   }
 
+  const versionAttr = model.roles.version;
+  if (action.expectedVersion !== undefined) {
+    if (!versionAttr) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        `Model ${model.name} does not define a version field`,
+      );
+    }
+    if (!Number.isInteger(action.expectedVersion)) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        'expectedVersion must be an integer',
+      );
+    }
+    builder.add(versionAttr, 1);
+    builder.conditionVersion(action.expectedVersion);
+  }
+
   const built = await builder.build();
-  const names = mergeExpressionAttributes(
-    'ExpressionAttributeNames',
-    built.expressionAttributeNames,
+  const composed = composeConditions(
+    built,
+    action.conditionExpression,
     action.expressionAttributeNames,
-  );
-  const values = mergeExpressionAttributes(
-    'ExpressionAttributeValues',
-    built.expressionAttributeValues,
     action.expressionAttributeValues,
   );
 
@@ -1009,30 +1023,91 @@ async function buildTransactModelUpdate(
     TableName: model.tableName,
     Key: marshalKey(model, action.item),
     UpdateExpression: built.updateExpression,
-    ConditionExpression: action.conditionExpression,
-    ExpressionAttributeNames: names,
-    ExpressionAttributeValues: values,
+    ConditionExpression: composed.conditionExpression,
+    ...(Object.keys(composed.names).length
+      ? { ExpressionAttributeNames: composed.names }
+      : {}),
+    ...(Object.keys(composed.values).length
+      ? { ExpressionAttributeValues: composed.values }
+      : {}),
   };
 }
 
-function mergeExpressionAttributes<T>(
-  label: string,
-  generated: Record<string, T> | undefined,
-  supplied: Record<string, T> | undefined,
-): Record<string, T> | undefined {
-  if (!generated && !supplied) return undefined;
-
-  const merged = { ...(generated ?? {}) };
-  for (const [key, value] of Object.entries(supplied ?? {})) {
-    if (key in merged) {
-      throw new TheorydbError(
-        'ErrInvalidOperator',
-        `${label} collision: ${key}`,
-      );
-    }
-    merged[key] = value;
+/**
+ * Composes the generated version condition with a caller-supplied condition.
+ * Caller placeholders that collide with generated ones are renamed and their
+ * tokens rewritten, so the two conditions can always be joined with AND.
+ */
+function composeConditions(
+  generated: {
+    conditionExpression?: string;
+    expressionAttributeNames?: Record<string, string>;
+    expressionAttributeValues?: Record<string, AttributeValue>;
+  },
+  suppliedExpression: string | undefined,
+  suppliedNames: Record<string, string> | undefined,
+  suppliedValues: Record<string, AttributeValue> | undefined,
+): {
+  conditionExpression?: string;
+  names: Record<string, string>;
+  values: Record<string, AttributeValue>;
+} {
+  const names = { ...(generated.expressionAttributeNames ?? {}) };
+  const values = { ...(generated.expressionAttributeValues ?? {}) };
+  if (!suppliedExpression) {
+    return {
+      ...(generated.conditionExpression
+        ? { conditionExpression: generated.conditionExpression }
+        : {}),
+      names,
+      values,
+    };
   }
-  return merged;
+
+  let expression = suppliedExpression as string;
+  for (const [placeholder, attribute] of Object.entries(suppliedNames ?? {})) {
+    let target = placeholder;
+    if (target in names) {
+      target = nextPlaceholder('#caller', names);
+      expression = replacePlaceholder(expression, placeholder, target);
+    }
+    names[target] = attribute;
+  }
+  for (const [placeholder, value] of Object.entries(suppliedValues ?? {})) {
+    let target = placeholder;
+    if (target in values) {
+      target = nextPlaceholder(':caller', values);
+      expression = replacePlaceholder(expression, placeholder, target);
+    }
+    values[target] = value;
+  }
+
+  if (!generated.conditionExpression) {
+    return { conditionExpression: expression, names, values };
+  }
+  return {
+    conditionExpression: `(${generated.conditionExpression}) AND (${expression})`,
+    names,
+    values,
+  };
+}
+
+function replacePlaceholder(
+  expression: string,
+  from: string,
+  to: string,
+): string {
+  const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return expression.replace(new RegExp(`${escaped}(?![A-Za-z0-9_])`, 'g'), to);
+}
+
+function nextPlaceholder(
+  prefix: string,
+  used: Record<string, unknown>,
+): string {
+  let index = 1;
+  while (`${prefix}${index}` in used) index += 1;
+  return `${prefix}${index}`;
 }
 
 function isTransactModelUpdate(
