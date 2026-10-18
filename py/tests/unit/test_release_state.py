@@ -492,24 +492,25 @@ def test_transition_release_state_accepts_next_version_binding() -> None:
     client.assert_no_pending()
 
 
-def test_transition_release_state_accepts_numeric_string_next_version_binding() -> None:
+def test_transition_release_state_rejects_numeric_string_next_version_binding() -> None:
     client = FakeDynamoDBClient()
     actual_table = _actual_table(client)
     event_table = _event_table(client)
-    client.expect("transact_write_items", None, response={})
 
-    transition_release_state(
-        actual_table,
-        event_table,
-        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
-        expected_version=2,
-        set_values={"status": "active"},
-        event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1", version_text="3"),
-        event_binding={"versionText": "nextVersion"},
-    )
+    with pytest.raises(ValidationError, match='event attribute "versionText"'):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            expected_version=2,
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(
+                pk="RELEASE#service-a", sk="EVENT#1", version_text="3"
+            ),
+            event_binding={"versionText": "nextVersion"},
+        )
 
-    assert len(client.calls) == 1
-    client.assert_no_pending()
+    assert client.calls == []
 
 
 def test_transition_release_state_rejects_stale_next_version_binding() -> None:

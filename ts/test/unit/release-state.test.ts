@@ -633,7 +633,8 @@ function evidenceOf(
 }
 
 {
-  // nextVersion binds the event to expectedVersion + 1 (numeric string allowed).
+  // nextVersion binds the event to expectedVersion + 1. Numeric strings are
+  // not coerced: "007" must not satisfy nextVersion=7.
   const ddb = new StubDdb();
   const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
     ReleaseStateBindingActual,
@@ -646,10 +647,25 @@ function evidenceOf(
     expectedVersion: 3,
     set: { pinnedReleaseId: 'rel_002' },
     eventModel: 'ReleaseStateBindingEvent',
-    eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1', version: '4' },
+    eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1', version: 4 },
     eventBinding: { version: 'nextVersion' },
   });
 
+  assert.equal(ddb.sent.length, 1);
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        expectedVersion: 3,
+        set: { pinnedReleaseId: 'rel_002' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: { PK: 'RELEASE#service-a', SK: 'EVENT#1', version: '4' },
+        eventBinding: { version: 'nextVersion' },
+      }),
+    (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
   assert.equal(ddb.sent.length, 1);
 }
 

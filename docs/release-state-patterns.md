@@ -158,7 +158,11 @@ TransitionAppendEventInput{
 
 TypeScript uses `eventBinding` / `outboxBinding`; Python uses `event_binding` /
 `outbox_binding`. A bound attribute that is missing from the row, or that
-disagrees with the transition, is rejected before anything is submitted.
+disagrees with the transition, is rejected before anything is submitted. Each
+entry is enforced exactly when it is named: a partial map checks only the
+attributes it declares, and an empty map declares nothing. The always-on
+partition check still runs regardless of the map. Numeric identity comparisons
+do not coerce strings, so a stored `"007"` cannot satisfy `nextVersion=7`.
 
 Omitting the maps preserves the previous behavior, so existing callers keep
 working; consumers that need a release-identity or version guarantee should

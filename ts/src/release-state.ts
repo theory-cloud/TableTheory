@@ -232,7 +232,6 @@ function sameKeyValue(left: unknown, right: unknown): boolean {
 const BINDING_SET_PREFIX = 'set:';
 const BINDING_ACTUAL_PREFIX = 'actual:';
 const BINDING_NEXT_VERSION = 'nextVersion';
-const NUMERIC_STRING_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 type BindingKind = 'event' | 'outbox';
 
@@ -390,11 +389,8 @@ function numericBindingValue(value: unknown): number | undefined {
     return Number.isFinite(value) ? value : undefined;
   }
   if (typeof value === 'bigint') return Number(value);
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!NUMERIC_STRING_RE.test(trimmed)) return undefined;
-    return Number(trimmed);
-  }
+  // Numeric string coercion is deliberately not applied: "007" must not
+  // satisfy nextVersion=7, or a string-typed version could erode the binding.
   return undefined;
 }
 

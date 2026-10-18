@@ -337,27 +337,20 @@ def _binding_values_equal(left: Any, right: Any) -> bool:
 
 
 def _numeric_value(value: Any) -> float | None:
-    scalar = _attribute_value_scalar(value)
+    if isinstance(value, Mapping) and len(value) == 1:
+        kind, inner = next(iter(value.items()))
+        if kind != "N" or isinstance(inner, bool):
+            return None
+        try:
+            return float(inner)
+        except (TypeError, ValueError):
+            return None
+    scalar = value
     if scalar is None or isinstance(scalar, bool):
         return None
     if isinstance(scalar, (int, float)):
         return float(scalar)
-    if isinstance(scalar, str):
-        try:
-            return float(scalar.strip())
-        except ValueError:
-            return None
     return None
-
-
-def _attribute_value_scalar(value: Any) -> Any:
-    if isinstance(value, Mapping) and len(value) == 1:
-        kind, inner = next(iter(value.items()))
-        if kind in {"S", "N", "B", "BOOL"}:
-            return inner
-        if kind == "NULL":
-            return None
-    return value
 
 
 def validate_deploy_authority_metadata(item: Mapping[str, Any]) -> None:
