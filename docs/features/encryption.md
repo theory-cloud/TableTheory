@@ -65,11 +65,46 @@ class Credential:
     secret: str = theorydb_field(encrypted=True)
 ```
 
+## Record binding (envelope v2)
+
+Encrypted attributes are stored as an envelope map: `v`, `edk`, `nonce`, `ct`.
+Envelope **v2** authenticates the record identity in the AES-GCM additional
+data:
+
+```text
+theorydb:encrypted:v2|attr=<len>:<attribute>|table=<len>:<table>|pk=<len>:<key>|sk=<len>:<key>
+```
+
+* Every variable-length component is prefixed with its UTF-8 byte length.
+  Length framing is unambiguous: a table, attribute, or key value containing
+  `|` or `:` cannot collide with another record identity.
+* `pk` / `sk` use the canonical key encoding `S:<value>`, `N:<value>`, or
+  `B:<base64>`; `sk` is present only when the record has a sort key. Key types
+  other than `S`, `N`, and `B` fail closed rather than canonicalizing to an
+  empty value.
+* The same AAD is supplied to KMS as the `EncryptionContext` key
+  `theorydb:encryption:aad` on both `GenerateDataKey` and `Decrypt` for v2
+  envelopes, so the wrapped data key is bound to the record identity at KMS
+  as well as in AES-GCM. v1 envelopes carry no KMS context so existing data
+  stays readable.
+* A v2 envelope copied to another record or another table fails to decrypt.
+  This closes cross-record and cross-model envelope replay.
+* **v1 envelopes remain readable.** Existing stored data decrypts exactly as
+  before; no migration is required. The write paths only start producing v2
+  once a runtime that supports it writes the record again.
+* A v2 envelope needs the record key to decrypt. A projected read that omits
+  `PK`/`SK` fails closed with `ErrInvalidEncryptedEnvelope`; include the key
+  attributes in the projection when reading encrypted fields.
+
+The AAD string and canonical key encoding are a cross-runtime contract shared
+by Go, TypeScript, and Python.
+
 ## What "fail-closed" actually means
 
 - **No KMS key configured + encrypted field write**: write fails before touching DynamoDB.
 - **KMS key revoked / inaccessible + encrypted field read**: read fails, returning a typed encryption error.
 - **Decryption fails (wrong key, corrupted ciphertext)**: read fails. The plaintext is never inferred or guessed.
+- **A v2 envelope is replayed onto another record or table**: read fails; the additional authenticated data does not match.
 - **Cross-region replication**: the consumer must configure the encryption key in the target region; otherwise reads from that region fail closed.
 
 ## Local development

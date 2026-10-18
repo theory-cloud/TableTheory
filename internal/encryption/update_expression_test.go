@@ -49,6 +49,7 @@ func TestEncryptUpdateExpressionValues_EncryptsEncryptedSetAssignments(t *testin
 	require.NoError(t, EncryptUpdateExpressionValues(
 		context.Background(),
 		svc,
+		testBinding(),
 		metadata,
 		"SET #s = :v",
 		exprAttrNames,
@@ -71,6 +72,7 @@ func TestEncryptUpdateExpressionValues_EncryptsIfNotExistsDefault(t *testing.T) 
 	require.NoError(t, EncryptUpdateExpressionValues(
 		context.Background(),
 		svc,
+		testBinding(),
 		metadata,
 		"SET #s = if_not_exists(#s, :v)",
 		exprAttrNames,
@@ -93,6 +95,7 @@ func TestEncryptUpdateExpressionValues_RejectsEncryptedNestedOrIndexedUpdates(t 
 	err := EncryptUpdateExpressionValues(
 		context.Background(),
 		svc,
+		testBinding(),
 		metadata,
 		"SET #s.a = :v",
 		exprAttrNames,
@@ -116,6 +119,7 @@ func TestEncryptUpdateExpressionValues_RejectsUnsupportedIfNotExists(t *testing.
 	err := EncryptUpdateExpressionValues(
 		context.Background(),
 		svc,
+		testBinding(),
 		metadata,
 		"SET #s = if_not_exists(#s, 123)",
 		exprAttrNames,
@@ -142,6 +146,7 @@ func TestEncryptUpdateExpressionValues_RejectsUnsupportedEncryptedUpdateExpressi
 	err := EncryptUpdateExpressionValues(
 		context.Background(),
 		svc,
+		testBinding(),
 		metadata,
 		"SET #s = list_append(:a, :b)",
 		exprAttrNames,
@@ -167,6 +172,7 @@ func TestEncryptUpdateExpressionValues_ErrorsWhenEncryptedValueRefMissing(t *tes
 	err := EncryptUpdateExpressionValues(
 		context.Background(),
 		svc,
+		testBinding(),
 		metadata,
 		"SET #s = :missing",
 		exprAttrNames,
@@ -194,6 +200,7 @@ func TestEncryptUpdateExpressionValues_RejectsADDAndDELETE(t *testing.T) {
 		err := EncryptUpdateExpressionValues(
 			context.Background(),
 			svc,
+			testBinding(),
 			metadata,
 			"SET #s = :v ADD #s :n",
 			exprAttrNames,
@@ -212,6 +219,7 @@ func TestEncryptUpdateExpressionValues_RejectsADDAndDELETE(t *testing.T) {
 		err := EncryptUpdateExpressionValues(
 			context.Background(),
 			svc,
+			testBinding(),
 			metadata,
 			"DELETE #s :v",
 			exprAttrNames,
@@ -236,6 +244,7 @@ func TestEncryptUpdateExpressionValues_IgnoresAddForNonEncryptedField(t *testing
 	require.NoError(t, EncryptUpdateExpressionValues(
 		context.Background(),
 		svc,
+		testBinding(),
 		metadata,
 		"ADD #p :n",
 		exprAttrNames,
@@ -254,6 +263,7 @@ func TestEncryptUpdateExpressionValues_EarlyReturnWhenNoValues(t *testing.T) {
 	require.NoError(t, EncryptUpdateExpressionValues(
 		context.Background(),
 		svc,
+		testBinding(),
 		metadata,
 		"SET #s = :v",
 		map[string]string{"#s": "secret"},
@@ -279,6 +289,7 @@ func TestEncryptSetAssignment_IgnoresUnknownOrUnencryptedFields(t *testing.T) {
 		require.NoError(t, encryptSetAssignment(
 			context.Background(),
 			svc,
+			testBinding(),
 			map[string]struct{}{"secret": {}},
 			"#s = :v",
 			map[string]string{},
@@ -292,6 +303,7 @@ func TestEncryptSetAssignment_IgnoresUnknownOrUnencryptedFields(t *testing.T) {
 		require.NoError(t, encryptSetAssignment(
 			context.Background(),
 			svc,
+			testBinding(),
 			map[string]struct{}{"other": {}},
 			"#s = :v",
 			map[string]string{"#s": "secret"},
@@ -324,7 +336,14 @@ func TestEncryptedAttributeNameSet_CoversNilAndTaggedFields(t *testing.T) {
 
 func TestEncryptValueRef_PropagatesEncryptErrors(t *testing.T) {
 	values := map[string]types.AttributeValue{":v": &types.AttributeValueMemberS{Value: "hello"}}
-	err := encryptValueRef(context.Background(), nil, "secret", ":v", values)
+	err := encryptValueRef(context.Background(), nil, testBinding(), "secret", ":v", values)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "encryption service is nil")
+}
+
+func testBinding() RecordBinding {
+	return RecordBinding{
+		Table:        "test-table",
+		PartitionKey: &types.AttributeValueMemberS{Value: "test-pk"},
+	}
 }

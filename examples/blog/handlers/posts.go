@@ -6,6 +6,7 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -64,14 +65,11 @@ func (h *PostHandler) HandleRequest(ctx context.Context, request events.APIGatew
 	}
 }
 
-// listPosts returns paginated list of posts
+// listPosts returns paginated list of posts. It is a public endpoint, so it
+// always reports published posts and never lets a caller select draft,
+// archived, or otherwise unpublished content.
 func (h *PostHandler) listPosts(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// Parse query parameters
-	status := request.QueryStringParameters["status"]
-	if status == "" {
-		status = models.PostStatusPublished
-	}
-
 	limit, _ := strconv.Atoi(request.QueryStringParameters["limit"])
 	if limit <= 0 || limit > 100 {
 		limit = 20
@@ -91,7 +89,7 @@ func (h *PostHandler) listPosts(ctx context.Context, request events.APIGatewayPr
 	// Build query
 	query := h.db.Model(&models.Post{}).
 		Index("gsi-status-date").
-		Where("Status", "=", status).
+		Where("Status", "=", models.PostStatusPublished).
 		OrderBy("PublishedAt", "DESC").
 		Limit(limit + 1) // Request one extra to check if there are more results
 
@@ -106,7 +104,7 @@ func (h *PostHandler) listPosts(ctx context.Context, request events.APIGatewayPr
 		query = h.db.Model(&models.Post{}).
 			Index("gsi-author").
 			Where("AuthorID", "=", authorID).
-			Filter("Status", "=", status).
+			Filter("Status", "=", models.PostStatusPublished).
 			OrderBy("CreatedAt", "DESC").
 			Limit(limit + 1)
 
@@ -173,14 +171,14 @@ func (h *PostHandler) listPosts(ctx context.Context, request events.APIGatewayPr
 	// Build response
 	type enrichedPost struct {
 		*models.Post
-		Author *models.Author `json:"author,omitempty"`
+		Author *publicAuthor `json:"author,omitempty"`
 	}
 
 	enrichedPosts := make([]enrichedPost, len(posts))
 	for i, post := range posts {
 		enrichedPosts[i] = enrichedPost{
 			Post:   post,
-			Author: authorMap[post.AuthorID],
+			Author: publicAuthorOf(authorMap[post.AuthorID]),
 		}
 	}
 
@@ -215,8 +213,10 @@ func (h *PostHandler) getPostBySlug(ctx context.Context, request events.APIGatew
 		return errorResponse(http.StatusInternalServerError, "Failed to fetch post"), nil
 	}
 
-	// Only return published posts to public
-	if post.Status != models.PostStatusPublished && !isAuthorized(request) {
+	// Public readers only ever see published posts. Draft previews need a
+	// trusted authorizer context, which this public route does not carry, so an
+	// unpublished slug is reported as missing.
+	if post.Status != models.PostStatusPublished {
 		return errorResponse(http.StatusNotFound, "Post not found"), nil
 	}
 
@@ -243,7 +243,7 @@ func (h *PostHandler) getPostBySlug(ctx context.Context, request events.APIGatew
 	// Build response
 	response := map[string]any{
 		"post":     post,
-		"author":   author,
+		"author":   publicAuthorOf(&author),
 		"category": category,
 	}
 
@@ -700,22 +700,106 @@ func generateSlug(title string) string {
 	return slug
 }
 
+// publicAuthor is the author projection returned by public endpoints. It omits
+// account-only data such as the email address, role, and login timestamps.
+type publicAuthor struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Bio      string `json:"bio,omitempty"`
+	Avatar   string `json:"avatar,omitempty"`
+}
+
+func publicAuthorOf(author *models.Author) *publicAuthor {
+	if author == nil {
+		return nil
+	}
+	return &publicAuthor{
+		ID:       author.ID,
+		Username: author.Username,
+		Name:     author.Name,
+		Bio:      author.Bio,
+		Avatar:   author.Avatar,
+	}
+}
+
+const (
+	// authorizerAuthorIDKey and authorizerRoleKey are the API Gateway
+	// authorizer context keys the BlogAuthorizer returns, matching the
+	// authorizer context contract documented in README.md.
+	authorizerAuthorIDKey = "authorId"
+	authorizerRoleKey     = "role"
+
+	// allowHeaderIdentityEnv is the explicit local-development escape hatch
+	// that re-enables the legacy X-Author-ID / X-Author-Role header trust.
+	// It must never be set on a deployed API Gateway stage: those headers are
+	// caller-controlled and are not an authenticated identity.
+	allowHeaderIdentityEnv = "BLOG_ALLOW_HEADER_IDENTITY"
+)
+
+// identityFromRequest resolves the caller identity. Authorizer context is the
+// only trusted source. When it is absent the request is anonymous, unless the
+// operator explicitly opted into header identity for local development.
+func identityFromRequest(request events.APIGatewayProxyRequest) (authorID string, role string) {
+	if len(request.RequestContext.Authorizer) > 0 {
+		authorID = authorizerContextValue(request.RequestContext.Authorizer, authorizerAuthorIDKey)
+		role = authorizerContextValue(request.RequestContext.Authorizer, authorizerRoleKey)
+		if authorID != "" {
+			return authorID, role
+		}
+	}
+
+	if headerIdentityAllowed() {
+		return headerValue(request.Headers, "X-Author-ID"), headerValue(request.Headers, "X-Author-Role")
+	}
+
+	return "", ""
+}
+
+// authorizerContextValue reads a string claim out of the API Gateway
+// authorizer context, which is decoded as map[string]any.
+func authorizerContextValue(context map[string]any, key string) string {
+	value, ok := context[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return text
+}
+
+// headerValue reads a header case-insensitively, because API Gateway preserves
+// the caller's header casing.
+func headerValue(headers map[string]string, name string) string {
+	if value := headers[name]; value != "" {
+		return value
+	}
+	for key, value := range headers {
+		if strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
+}
+
+func headerIdentityAllowed() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(allowHeaderIdentityEnv)), "true")
+}
+
 func getAuthorID(request events.APIGatewayProxyRequest) string {
-	// Extract from JWT claims or headers
-	// This is a simplified version
-	return request.Headers["X-Author-ID"]
+	authorID, _ := identityFromRequest(request)
+	return authorID
 }
 
 func getSessionID(request events.APIGatewayProxyRequest) string {
-	return request.Headers["X-Session-ID"]
-}
-
-func isAuthorized(request events.APIGatewayProxyRequest) bool {
-	return getAuthorID(request) != ""
+	return headerValue(request.Headers, "X-Session-ID")
 }
 
 func isAdmin(request events.APIGatewayProxyRequest) bool {
-	return request.Headers["X-Author-Role"] == models.RoleAdmin
+	_, role := identityFromRequest(request)
+	return role == models.RoleAdmin
 }
 
 func successResponse(statusCode int, data any) events.APIGatewayProxyResponse {

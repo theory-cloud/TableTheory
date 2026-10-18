@@ -10,7 +10,13 @@ import {
 
 import { chunk, sleep } from './batch.js';
 import { encodeEncryptedPayload } from './encryption-avjson.js';
-import type { EncryptionProvider } from './encryption.js';
+import {
+  envelopeToAttributeValue,
+  envelopeVersionForContext,
+  recordBindingFromItem,
+  type EncryptionProvider,
+  type RecordBinding,
+} from './encryption.js';
 import { TheorydbError } from './errors.js';
 import type { Model } from './model.js';
 import { createTable, describeTable, ensureTable } from './schema.js';
@@ -97,7 +103,7 @@ export async function autoMigrate(
         srcEnc,
         targetEnc,
         provider: opts.encryption,
-        targetModelName: targetModel.name,
+        targetModel,
       },
     );
   }
@@ -119,7 +125,7 @@ interface MigrationEncryptionContext {
   srcEnc: ReadonlySet<string>;
   targetEnc: ReadonlySet<string>;
   provider: EncryptionProvider | undefined;
-  targetModelName: string;
+  targetModel: Model;
 }
 
 async function copyData(
@@ -153,7 +159,7 @@ async function copyData(
             encryption.srcEnc,
             encryption.targetEnc,
             encryption.provider,
-            encryption.targetModelName,
+            encryption.targetModel,
           );
         }
         requests.push({ PutRequest: { Item: item } });
@@ -215,7 +221,7 @@ async function guardMigrationItem(
   srcEnc: ReadonlySet<string>,
   targetEnc: ReadonlySet<string>,
   provider: EncryptionProvider | undefined,
-  targetModelName: string,
+  targetModel: Model,
 ): Promise<MigrationItem> {
   for (const name of [...srcEnc].sort()) {
     const value = item[name];
@@ -253,11 +259,22 @@ async function guardMigrationItem(
           '": the value is already an encrypted envelope under a different attribute name',
       );
     }
+    const binding = recordBindingFromItem(targetModel, item);
+    if (!binding) {
+      throw new TheorydbError(
+        'ErrMigrationEncryptionRequired',
+        'migration cannot bind encrypted attribute "' +
+          name +
+          '" to the target record: missing key attributes',
+      );
+    }
+
     item[name] = await encryptRawAttributeValue(
       value,
       name,
       provider,
-      targetModelName,
+      targetModel,
+      binding,
     );
   }
 
@@ -268,13 +285,14 @@ async function encryptRawAttributeValue(
   av: AttributeValue,
   attrName: string,
   provider: EncryptionProvider | undefined,
-  modelName: string,
+  targetModel: Model,
+  binding: RecordBinding,
 ): Promise<AttributeValue> {
   if (!provider) {
     throw new TheorydbError(
       'ErrMigrationEncryptionRequired',
       'migration target model "' +
-        modelName +
+        targetModel.name +
         '" requires encryption for attribute(s) ' +
         attrName +
         '; supply AutoMigrateOptions.encryption',
@@ -282,25 +300,20 @@ async function encryptRawAttributeValue(
   }
 
   const bytes = encodeEncryptedPayload(av);
-  const env = await provider.encrypt(bytes, {
-    model: modelName,
+  const ctx = {
+    model: targetModel.name,
     attribute: attrName,
-  });
-  if (env.v !== 1) {
+    binding,
+  };
+  const env = await provider.encrypt(bytes, ctx);
+  if (env.v !== envelopeVersionForContext(ctx)) {
     throw new TheorydbError(
       'ErrInvalidEncryptedEnvelope',
       'Unsupported envelope version',
     );
   }
 
-  return {
-    M: {
-      v: { N: '1' },
-      edk: { B: env.edk },
-      nonce: { B: env.nonce },
-      ct: { B: env.ct },
-    },
-  };
+  return envelopeToAttributeValue(env);
 }
 
 function isEncryptedEnvelope(av: unknown): boolean {
@@ -311,7 +324,8 @@ function isEncryptedEnvelope(av: unknown): boolean {
 
   const version = envelope.v;
   if (typeof version !== 'object' || version === null) return false;
-  if ((version as { N?: unknown }).N !== '1') return false;
+  const versionValue = (version as { N?: unknown }).N;
+  if (versionValue !== '1' && versionValue !== '2') return false;
 
   for (const key of ['edk', 'nonce', 'ct']) {
     const field = envelope[key];

@@ -28,6 +28,39 @@ if [[ -z "${profile}" ]]; then
   exit 1
 fi
 
+region="${AWS_REGION:-}"
+if [[ -z "${region}" ]]; then
+  region="$(aws configure get region --profile "${profile}" 2>/dev/null || true)"
+fi
+if [[ -z "${region}" ]]; then
+  echo "smoke: FAIL (AWS region is required for SigV4)"
+  exit 1
+fi
+
+creds="$(aws configure export-credentials --profile "${profile}" --format json 2>/dev/null)" || {
+  echo "smoke: FAIL (could not export credentials for ${profile})"
+  exit 1
+}
+access_key="$(jq -r '.AccessKeyId // empty' <<<"${creds}")"
+secret_key="$(jq -r '.SecretAccessKey // empty' <<<"${creds}")"
+session_token="$(jq -r '.SessionToken // empty' <<<"${creds}")"
+if [[ -z "${access_key}" || -z "${secret_key}" ]]; then
+  echo "smoke: FAIL (exported credentials are incomplete)"
+  exit 1
+fi
+
+# The demo Function URLs require IAM authentication, so every request is
+# SigV4-signed with the deployed account's credentials.
+signed_curl() {
+  local url="$1"
+  shift
+  local args=(--silent --show-error --aws-sigv4 "aws:amz:${region}:lambda" --user "${access_key}:${secret_key}")
+  if [[ -n "${session_token}" ]]; then
+    args+=(-H "x-amz-security-token: ${session_token}")
+  fi
+  curl "${args[@]}" "$@" "${url}"
+}
+
 go_url="$(jq -r '.TheorydbMultilangDemoStack.GoFunctionUrl' "${out_file}")"
 node_url="$(jq -r '.TheorydbMultilangDemoStack.NodeFunctionUrl' "${out_file}")"
 py_url="$(jq -r '.TheorydbMultilangDemoStack.PythonFunctionUrl' "${out_file}")"
@@ -54,17 +87,17 @@ pk_enc="enc-demo"
 sk_enc="item-1"
 
 echo "==> encryption: PUT via Go (/enc)"
-curl -sS -X PUT "${go_url}enc" \
+signed_curl "${go_url}enc" -X PUT \
   -H 'content-type: application/json' \
   -d "{\"pk\":\"${pk_enc}\",\"sk\":\"${sk_enc}\",\"value\":\"v1\",\"secret\":\"shh\"}" \
   | jq -e '.ok == true and .item.secret == "shh"' >/dev/null
 
 echo "==> encryption: GET via Node"
-curl -sS "${node_url}?pk=${pk_enc}&sk=${sk_enc}" \
+signed_curl "${node_url}?pk=${pk_enc}&sk=${sk_enc}" \
   | jq -e '.ok == true and .item.secret == "shh" and .item.lang == "go"' >/dev/null
 
 echo "==> encryption: GET via Python"
-curl -sS "${py_url}?pk=${pk_enc}&sk=${sk_enc}" \
+signed_curl "${py_url}?pk=${pk_enc}&sk=${sk_enc}" \
   | jq -e '.ok == true and .item.secret == "shh" and .item.lang == "go"' >/dev/null
 
 echo "==> encryption: raw DynamoDB check (secret is envelope map)"
@@ -76,23 +109,23 @@ AWS_PROFILE="${profile}" aws dynamodb get-item \
   | jq -e '.Item.secret.M.v.N == "1" and (.Item.secret.M.edk.B|length) > 0 and (.Item.secret.M.nonce.B|length) > 0 and (.Item.secret.M.ct.B|length) > 0' >/dev/null
 
 echo "==> batch: POST via Node (/batch)"
-curl -sS -X POST "${node_url}batch" \
+signed_curl "${node_url}batch" -X POST \
   -H 'content-type: application/json' \
   -d '{"pk":"batch-demo","skPrefix":"B-","count":3,"value":"vb","secret":"batch-secret"}' \
   | jq -e '.ok == true and .count == 3 and (.items|length) == 3' >/dev/null
 
 echo "==> batch: GET via Go"
-curl -sS "${go_url}?pk=batch-demo&sk=B-1" \
+signed_curl "${go_url}?pk=batch-demo&sk=B-1" \
   | jq -e '.ok == true and .item.secret == "batch-secret" and .item.lang == "ts"' >/dev/null
 
 echo "==> tx: POST via Python (/tx)"
-curl -sS -X POST "${py_url}tx" \
+signed_curl "${py_url}tx" -X POST \
   -H 'content-type: application/json' \
   -d '{"pk":"tx-demo","skPrefix":"T-","value":"vt","secret":"tx-secret"}' \
   | jq -e '.ok == true and .count == 2 and (.items|length) == 2' >/dev/null
 
 echo "==> tx: GET via Node"
-curl -sS "${node_url}?pk=tx-demo&sk=T-1" \
+signed_curl "${node_url}?pk=tx-demo&sk=T-1" \
   | jq -e '.ok == true and .item.secret == "tx-secret" and .item.lang == "py"' >/dev/null
 
 echo "smoke: PASS"

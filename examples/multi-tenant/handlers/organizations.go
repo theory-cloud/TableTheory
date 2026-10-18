@@ -254,9 +254,8 @@ func (h *OrganizationHandler) UpdateOrganizationSettings(w http.ResponseWriter, 
 		return
 	}
 
-	userID, ok := userIDFromContext(r.Context())
+	_, userID, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin)
 	if !ok {
-		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 

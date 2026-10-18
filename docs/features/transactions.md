@@ -72,6 +72,13 @@ document paths. `UpdateWithBuilder` remains a caller-controlled low-level
 surface. The model-based path does not increment version or add a version
 condition; use `UpdateWithBuilder` for optimistic locking in a transaction.
 
+TypeScript's model-shaped transaction update (`kind: 'update'` with `item` and
+`fields`) accepts an optional `expectedVersion`. When supplied, the runtime
+emits `ADD <version> 1` and conditions the write on `<version> = expected`,
+composed with any caller condition; colliding caller placeholders are renamed
+so both conditions always apply. Omitting `expectedVersion` keeps the
+historical behavior above: no increment and no generated version condition.
+
 ### Legacy one-argument `Transaction.Update(model)`
 
 The legacy `(*transaction.Transaction).Update(model)` path is a whole-model,

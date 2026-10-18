@@ -131,7 +131,14 @@ func (qe *queryExecutor) decryptItem(item map[string]types.AttributeValue) error
 			continue
 		}
 
-		decrypted, err := svc.DecryptAttributeValue(qe.ctxOrBackground(), fieldMeta.DBName, attrValue)
+		var decrypted types.AttributeValue
+		if binding, ok := qe.recordBinding(item); ok {
+			decrypted, err = svc.DecryptAttributeValueWithBinding(qe.ctxOrBackground(), binding, fieldMeta.DBName, attrValue)
+		} else {
+			// Legacy v1 envelopes decrypt without a binding; a v2 envelope
+			// fails closed when the projection omits the key attributes.
+			decrypted, err = svc.DecryptAttributeValue(qe.ctxOrBackground(), fieldMeta.DBName, attrValue)
+		}
 		if err != nil {
 			return &customerrors.EncryptedFieldError{
 				Operation: "decrypt",
@@ -158,6 +165,11 @@ func (qe *queryExecutor) encryptItem(item map[string]types.AttributeValue) error
 		return err
 	}
 
+	binding, ok := qe.recordBinding(item)
+	if !ok {
+		return fmt.Errorf("cannot bind encrypted fields to a record without its key attributes")
+	}
+
 	for _, fieldMeta := range qe.metadata.Fields {
 		if fieldMeta == nil || !fieldMeta.IsEncrypted {
 			continue
@@ -168,7 +180,7 @@ func (qe *queryExecutor) encryptItem(item map[string]types.AttributeValue) error
 			continue
 		}
 
-		encryptedAV, err := svc.EncryptAttributeValue(qe.ctxOrBackground(), fieldMeta.DBName, av)
+		encryptedAV, err := svc.EncryptAttributeValueWithBinding(qe.ctxOrBackground(), binding, fieldMeta.DBName, av)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt field %s: %w", fieldMeta.DBName, err)
 		}
@@ -176,6 +188,13 @@ func (qe *queryExecutor) encryptItem(item map[string]types.AttributeValue) error
 	}
 
 	return nil
+}
+
+func (qe *queryExecutor) recordBinding(item map[string]types.AttributeValue) (encryption.RecordBinding, bool) {
+	if qe == nil || qe.metadata == nil {
+		return encryption.RecordBinding{}, false
+	}
+	return encryption.BindingFromItem(qe.metadata.TableName, qe.metadata, item)
 }
 
 func (qe *queryExecutor) unmarshalItem(item map[string]types.AttributeValue, dest any) error {
@@ -829,9 +848,14 @@ func (qe *queryExecutor) buildUpdateItemInput(input *core.CompiledQuery, key map
 		if err != nil {
 			return nil, err
 		}
+		binding, err := encryption.NewRecordBindingFromKey(qe.metadata.TableName, qe.metadata, key)
+		if err != nil {
+			return nil, fmt.Errorf("cannot bind encrypted update values to the record key: %w", err)
+		}
 		if err := encryption.EncryptUpdateExpressionValues(
 			qe.ctxOrBackground(),
 			svc,
+			binding,
 			qe.metadata,
 			input.UpdateExpression,
 			input.ExpressionAttributeNames,

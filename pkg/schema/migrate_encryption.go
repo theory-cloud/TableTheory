@@ -21,6 +21,7 @@ var ErrMigrationEncryptionRequired = errors.New("schema migration encryption req
 // attributeEncryptor is the envelope-encryption surface the migration path needs.
 type attributeEncryptor interface {
 	EncryptAttributeValue(ctx context.Context, attributeName string, av types.AttributeValue) (types.AttributeValue, error)
+	EncryptAttributeValueWithBinding(ctx context.Context, binding encryption.RecordBinding, attributeName string, av types.AttributeValue) (types.AttributeValue, error)
 }
 
 // migrationEncryptionPlan records the per-attribute encryption decisions for a
@@ -30,6 +31,7 @@ type migrationEncryptionPlan struct {
 	encryptor       attributeEncryptor
 	sourceEncrypted map[string]struct{}
 	targetEncrypted map[string]struct{}
+	targetMetadata  *model.Metadata
 	targetName      string
 }
 
@@ -110,6 +112,7 @@ func newMigrationEncryptionPlan(sourceMetadata, targetMetadata *model.Metadata, 
 		encryptor:       encryptor,
 		sourceEncrypted: encryptedAttributeNames(sourceMetadata),
 		targetEncrypted: encryptedAttributeNames(targetMetadata),
+		targetMetadata:  targetMetadata,
 		targetName:      targetName,
 	}
 }
@@ -144,6 +147,13 @@ func (p *migrationEncryptionPlan) guardItem(ctx context.Context, item map[string
 		}
 	}
 
+	return p.encryptMissingTargetAttributes(ctx, item)
+}
+
+// encryptMissingTargetAttributes encrypts plaintext attributes that become
+// encrypted under the target model, binding each new envelope to the target
+// record identity.
+func (p *migrationEncryptionPlan) encryptMissingTargetAttributes(ctx context.Context, item map[string]types.AttributeValue) error {
 	for _, name := range absentFrom(p.targetEncrypted, p.sourceEncrypted) {
 		av, ok := item[name]
 		if !ok {
@@ -161,7 +171,14 @@ func (p *migrationEncryptionPlan) guardItem(ctx context.Context, item map[string
 				ErrMigrationEncryptionRequired, p.targetName, name,
 			)
 		}
-		encrypted, err := p.encryptor.EncryptAttributeValue(ctx, name, av)
+		binding, err := encryption.NewRecordBindingFromKey(p.targetName, p.targetMetadata, item)
+		if err != nil {
+			return fmt.Errorf(
+				"%w: migration cannot bind encrypted attribute %q to the target record: %v",
+				ErrMigrationEncryptionRequired, name, err,
+			)
+		}
+		encrypted, err := p.encryptor.EncryptAttributeValueWithBinding(ctx, binding, name, av)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt migration attribute %s: %w", name, err)
 		}
@@ -171,14 +188,14 @@ func (p *migrationEncryptionPlan) guardItem(ctx context.Context, item map[string
 	return nil
 }
 
-// isEncryptedEnvelope reports whether av is a theorydb v1 encrypted envelope.
+// isEncryptedEnvelope reports whether av is a theorydb v1 or v2 encrypted envelope.
 func isEncryptedEnvelope(av types.AttributeValue) bool {
 	envelope, ok := av.(*types.AttributeValueMemberM)
 	if !ok || envelope == nil {
 		return false
 	}
 	version, ok := envelope.Value["v"].(*types.AttributeValueMemberN)
-	if !ok || version == nil || version.Value != "1" {
+	if !ok || version == nil || (version.Value != "1" && version.Value != "2") {
 		return false
 	}
 	for _, key := range []string{"edk", "nonce", "ct"} {

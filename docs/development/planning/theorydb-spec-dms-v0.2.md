@@ -48,6 +48,14 @@ empty value.
 - **Index**: a GSI or LSI definition.
 - **Cursor**: an opaque pagination token that encodes DynamoDB `LastEvaluatedKey` + query context.
 - **Encrypted envelope**: the stored representation of an encrypted attribute (map containing `v`, `edk`, `nonce`, `ct`).
+  Envelope `v: 1` binds only the attribute name. Envelope `v: 2` additional authenticated data is
+  `theorydb:encrypted:v2|attr=<len>:<attribute>|table=<len>:<table>|pk=<len>:<key>` plus `|sk=<len>:<key>` when the
+  record has a sort key, where each variable-length component is prefixed with its UTF-8 byte length and each key is
+  encoded as `S:<value>`, `N:<value>`, or `B:<base64>`. Length framing keeps a delimiter inside a table, attribute, or
+  key value from producing an ambiguous binding; unsupported key types fail closed. The same AAD is also supplied as
+  the KMS `EncryptionContext` (`theorydb:encryption:aad`) for v2 envelopes, so the wrapped data key is bound to the
+  record identity at KMS as well. Readers MUST accept v1 and v2; v2 requires the record binding. Writers SHOULD emit v2
+  whenever the table and record key are known.
 
 ## DMS file format (proposed)
 
@@ -132,10 +140,19 @@ Every `attributes[]` entry supports:
   - `int` (version)
 - `json` (bool, default false): mark the attribute as carrying a JSON-compatible value.
   - Supported storage types are `S`, `N`, `BOOL`, `NULL`, `L`, and `M`.
-  - `type: "S"` is the string-carrier form: values are stored as raw JSON text.
+  - `type: "S"` is the string-carrier form: values are stored as raw JSON text unless
+    `json_string_mode: "parse"` is set (see below).
   - `type: "N"`, `BOOL`, `NULL`, `L`, and `M` use native DynamoDB scalar/document storage.
   - Readers MUST accept both native DynamoDB values and legacy `S` JSON strings for compatibility.
   - String-carrier serialization MUST be deterministic (no insignificant whitespace; object keys sorted recursively).
+  - `json_string_mode` (optional; `S` + `json: true` only): `"carrier"` (default) keeps the raw-text
+    string-carrier behavior. `"parse"` is the explicit compatibility discriminator for schemas authored
+    before structured `M`/`L` carriers existed: writers JSON-encode the value and readers parse the stored
+    text back into the structured value. Parse-mode readers MUST also accept native DynamoDB values
+    (the general read-both rule above) and return them as the equivalent JSON value. The parsed result may
+    be any JSON type, including a scalar string; schemas that need a particular shape must validate it at
+    the application boundary. Runtimes that discriminate by declared language type (Go string
+    fields, Python `str` fields) already provide the equivalent behavior and MAY ignore this hint.
   - `null` values MUST be stored as DynamoDB `NULL` (not as the string `"null"`).
 - `binary` (bool, default false): indicates the attribute is treated as a binary blob.
   - Requires `type: "B"`.

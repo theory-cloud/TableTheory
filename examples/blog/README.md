@@ -83,6 +83,44 @@ make run-local
 make test
 ```
 
+## Authorization
+
+Protected routes (`POST /posts`, `PUT /posts/{id}`, `DELETE /posts/{id}`,
+`PUT /comments/{commentId}/moderate`, `DELETE /comments/{commentId}`) use the
+`BlogAuthorizer` **REQUEST** authorizer. The SAM template declares it in the
+API's `Auth.Authorizers` block with `FunctionPayloadType: REQUEST` and
+`Identity.Headers: [Authorization]` (SAM emits the API Gateway authorizer with
+`IdentitySource: method.request.header.Authorization`), so API Gateway passes
+the caller's `Authorization` header to the authorizer function. The authorizer verifies an HS256 bearer token signed with `JWT_SECRET`
+and returns this context:
+
+| Context key | Meaning |
+| --- | --- |
+| `authorId` | The author ID from the token's `sub` claim |
+| `role` | The role from the token's `role` claim (defaults to `author`) |
+
+Handlers read identity **only** from `requestContext.authorizer`. The
+`X-Author-ID` and `X-Author-Role` headers are caller-controlled and are ignored
+on a deployed stage, so a request without a valid authorizer context is
+anonymous and protected routes return `401`/`403`.
+
+The authorizer source is [`authorizer/main.go`](authorizer/main.go). `make build`
+compiles each Lambda bootstrap (`cmd/posts`, `cmd/comments`, `authorizer`) and
+produces `posts.zip`, `comments.zip`, and `authorizer.zip`, which are the
+`CodeUri` artifacts the SAM template deploys. Handler unit tests plus
+`authorizer/template_test.go` pin the REQUEST event shape and the template
+wiring, so building and deploying this example cannot silently fall back to a
+TOKEN-shaped contract.
+
+### Local development only
+
+For local development without API Gateway, set `BLOG_ALLOW_HEADER_IDENTITY=true`
+to restore the legacy `X-Author-ID` / `X-Author-Role` header identity fallback.
+That flag is a **development-only** escape hatch: caller-controlled headers are
+not an authenticated identity, and enabling it on a deployed stage is a complete
+identity bypass. The SAM template deliberately does not declare the flag, so a
+template-conformant deployment cannot turn it on.
+
 ## API Reference
 
 ### Posts API

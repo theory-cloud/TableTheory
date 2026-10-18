@@ -16,8 +16,13 @@ from . import aws_errors as _aws_errors
 from .attr_types import (
     _coerce_value,
     decode_json_field_from_storage,
-    normalize_json_field_for_storage,
     resolve_attribute_storage_type,
+)
+from .encryption_support import (
+    decrypt_attr_value,
+    record_binding_from_item,
+    record_binding_from_key,
+    serialize_attr_value,
 )
 from .errors import (
     BatchRetryExceededError,
@@ -62,6 +67,7 @@ from .write_policy import (
 )
 
 if TYPE_CHECKING:
+    from .encryption import RecordBinding
     from .optimizer import QueryShape, ScanShape
     from .update_builder import UpdateBuilder
 
@@ -1037,6 +1043,7 @@ class Table[T]:
         return_values: str | None = None,
     ) -> dict[str, Any]:
         key = self._to_key(pk, sk)
+        binding = self._record_binding_from_key(key)
         assert_mutable_write_policy(self._model, "update")
         assert_protected_fields_can_mutate(
             self._model,
@@ -1093,6 +1100,7 @@ class Table[T]:
                     update_values[value_ref] = self._serialize_attr_value(
                         attr_def,
                         normalize_set(value.value),
+                        binding=binding,
                     )
                 else:
                     if not isinstance(value.value, (int, float, Decimal)):
@@ -1104,7 +1112,11 @@ class Table[T]:
 
             if isinstance(value, UpdateSetIfNotExists):
                 value_ref = f":d_{field_name}"
-                update_values[value_ref] = self._serialize_attr_value(attr_def, value.default_value)
+                update_values[value_ref] = self._serialize_attr_value(
+                    attr_def,
+                    value.default_value,
+                    binding=binding,
+                )
                 set_parts.append(f"{name_ref} = if_not_exists({name_ref}, {value_ref})")
                 continue
 
@@ -1113,14 +1125,18 @@ class Table[T]:
                 continue
 
             value_ref = f":d_{field_name}"
-            update_values[value_ref] = self._serialize_attr_value(attr_def, value)
+            update_values[value_ref] = self._serialize_attr_value(attr_def, value, binding=binding)
             set_parts.append(f"{name_ref} = {value_ref}")
 
         if updated_at_attr is not None:
             updated_at_name_ref = f"#d_{updated_at_attr.python_name}"
             updated_at_value_ref = f":d_{updated_at_attr.python_name}"
             update_names[updated_at_name_ref] = updated_at_attr.attribute_name
-            update_values[updated_at_value_ref] = self._serialize_attr_value(updated_at_attr, self._now())
+            update_values[updated_at_value_ref] = self._serialize_attr_value(
+                updated_at_attr,
+                self._now(),
+                binding=binding,
+            )
             set_parts.insert(0, f"{updated_at_name_ref} = {updated_at_value_ref}")
 
         version_condition: str | None = None
@@ -1129,6 +1145,7 @@ class Table[T]:
             update_values[":d_expected_version"] = self._serialize_attr_value(
                 version_attr,
                 expected_version,
+                binding=binding,
             )
             update_values[":d_version_increment"] = self._serializer.serialize(1)
             add_parts.append("#d_version :d_version_increment")
@@ -1183,43 +1200,20 @@ class Table[T]:
             out[k] = self._serializer.serialize(v)
         return out
 
-    def _serialize_attr_value(self, attr_def: AttributeDefinition, value: Any) -> Any:
-        if attr_def.converter is not None and value is not None:
-            value = attr_def.converter.to_dynamodb(value)
-
-        if attr_def.set and isinstance(value, set) and len(value) == 0:
-            return self._serializer.serialize(None)
-
-        if attr_def.json and value is not None:
-            value = normalize_json_field_for_storage(
-                value,
-                storage_type=self._attribute_storage_type(attr_def),
-                field_name=attr_def.attribute_name,
-            )
-
-        av = self._serializer.serialize(value)
-
-        if attr_def.encrypted:
-            if not self._kms_key_arn or self._kms_client is None:
-                raise EncryptionNotConfiguredError(
-                    f"encrypted field requires kms_key_arn: {attr_def.python_name}"
-                )
-            from .encryption import encrypt_attribute_value
-
-            envelope = encrypt_attribute_value(
-                av,
-                attr_name=attr_def.attribute_name,
-                kms_key_arn=self._kms_key_arn,
-                kms_client=self._kms_client,
-                rand_bytes=self._rand_bytes,
-            )
-            return self._serializer.serialize(envelope)
-
-        return av
+    def _serialize_attr_value(
+        self,
+        attr_def: AttributeDefinition,
+        value: Any,
+        *,
+        binding: RecordBinding | None = None,
+    ) -> Any:
+        return serialize_attr_value(self, attr_def, value, binding=binding)
 
     def _to_item(self, item: T) -> dict[str, Any]:
         if not is_dataclass(item):
             raise ValidationError("item must be a dataclass instance")
+
+        binding = record_binding_from_item(self, item)
 
         out: dict[str, Any] = {}
         now: str | None = None
@@ -1233,7 +1227,11 @@ class Table[T]:
                 value = 0
             if attr_def.omitempty and _is_empty(value):
                 continue
-            out[attr_def.attribute_name] = self._serialize_attr_value(attr_def, value)
+            out[attr_def.attribute_name] = self._serialize_attr_value(
+                attr_def,
+                value,
+                binding=binding,
+            )
 
         if self._model.pk.attribute_name not in out:
             raise ValidationError("missing pk")
@@ -1261,7 +1259,16 @@ class Table[T]:
             key[self._model.sk.attribute_name] = self._serialize_attr_value(self._model.sk, sk)
         return key
 
-    def _from_item(self, item: Mapping[str, Any]) -> T:
+    def _record_binding_from_key(self, key: Mapping[str, Any]) -> RecordBinding | None:
+        return record_binding_from_key(self, key)
+
+    def _from_item(
+        self,
+        item: Mapping[str, Any],
+        *,
+        binding: RecordBinding | None = None,
+    ) -> T:
+        record_binding = self._record_binding_from_key(item) or binding
         model_cls = self._model.model_type
         model_annotations = getattr(model_cls, "__annotations__", {})
 
@@ -1275,24 +1282,12 @@ class Table[T]:
                 continue
 
             if attr_def.encrypted:
-                if not self._kms_key_arn or self._kms_client is None:
-                    raise EncryptionNotConfiguredError(
-                        f"encrypted field requires kms_key_arn: {attr_def.python_name}"
-                    )
-
-                from .encryption import decrypt_attribute_value
-
-                envelope = self._deserializer.deserialize(item[attr_def.attribute_name])
-                if not isinstance(envelope, dict):
-                    raise ValidationError(f"encrypted envelope must be a map: {attr_def.python_name}")
-
-                decrypted_av = decrypt_attribute_value(
-                    envelope,
-                    attr_name=attr_def.attribute_name,
-                    kms_key_arn=self._kms_key_arn,
-                    kms_client=self._kms_client,
+                raw = decrypt_attr_value(
+                    self,
+                    attr_def,
+                    item[attr_def.attribute_name],
+                    binding=record_binding,
                 )
-                raw = self._deserializer.deserialize(cast(Any, decrypted_av))
             else:
                 raw = self._deserializer.deserialize(item[attr_def.attribute_name])
             if attr_def.json:

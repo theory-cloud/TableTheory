@@ -146,7 +146,7 @@ func (tx *Transaction) Update(model any) (err error) {
 		return errors.ErrNoUpdatableFields
 	}
 
-	if err := tx.encryptUpdateExpressionValues(metadata, updateExpression, expressionAttributeNames, expressionAttributeValues); err != nil {
+	if err := tx.encryptUpdateExpressionValues(metadata, key, updateExpression, expressionAttributeNames, expressionAttributeValues); err != nil {
 		return err
 	}
 
@@ -172,6 +172,7 @@ func (tx *Transaction) Update(model any) (err error) {
 
 func (tx *Transaction) encryptUpdateExpressionValues(
 	metadata *model.Metadata,
+	key map[string]types.AttributeValue,
 	updateExpression string,
 	expressionAttributeNames map[string]string,
 	expressionAttributeValues map[string]types.AttributeValue,
@@ -194,9 +195,15 @@ func (tx *Transaction) encryptUpdateExpressionValues(
 		svc = encryption.NewServiceFromAWSConfigWithRand(keyARN, tx.session.AWSConfig(), rng)
 	}
 
+	binding, err := encryption.NewRecordBindingFromKey(metadata.TableName, metadata, key)
+	if err != nil {
+		return fmt.Errorf("cannot bind encrypted update values to the record key: %w", err)
+	}
+
 	return encryption.EncryptUpdateExpressionValues(
 		tx.ctx,
 		svc,
+		binding,
 		metadata,
 		updateExpression,
 		expressionAttributeNames,
@@ -678,6 +685,11 @@ func (tx *Transaction) encryptItemIfNeeded(metadata *model.Metadata, item map[st
 		ctx = context.Background()
 	}
 
+	binding, err := encryption.NewRecordBindingFromKey(metadata.TableName, metadata, item)
+	if err != nil {
+		return fmt.Errorf("cannot bind encrypted fields to the record key: %w", err)
+	}
+
 	for _, fieldMeta := range metadata.Fields {
 		if fieldMeta == nil || !fieldMeta.IsEncrypted {
 			continue
@@ -687,7 +699,7 @@ func (tx *Transaction) encryptItemIfNeeded(metadata *model.Metadata, item map[st
 			continue
 		}
 
-		encryptedAV, err := svc.EncryptAttributeValue(ctx, fieldMeta.DBName, av)
+		encryptedAV, err := svc.EncryptAttributeValueWithBinding(ctx, binding, fieldMeta.DBName, av)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt field %s: %w", fieldMeta.DBName, err)
 		}

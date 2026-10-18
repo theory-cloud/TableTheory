@@ -29,7 +29,10 @@ func NewProjectHandler(db core.ExtendedDB) *ProjectHandler {
 func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
-	userID := r.Context().Value("user_id").(string)
+	_, userID, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin)
+	if !ok {
+		return
+	}
 
 	// Ensure proper org ID format
 	if !strings.HasPrefix(orgID, "org#") {
@@ -203,6 +206,12 @@ func (h *ProjectHandler) GetProject(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(projectID, "project#") {
 		projectID = fmt.Sprintf("project#%s", projectID)
 	}
+	if !callerCanReadProject(h.db, r.Context(), projectID) {
+		// Same answer as a missing project, so a restricted member cannot
+		// confirm that an unassigned project exists.
+		http.Error(w, "project not found", http.StatusNotFound)
+		return
+	}
 
 	var project models.Project
 	compositeID := fmt.Sprintf("%s#%s", orgID, projectID)
@@ -232,7 +241,11 @@ func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 	projectID := vars["project_id"]
-	userID := r.Context().Value("user_id").(string)
+	caller, userID, ok := callerOrgUser(h.db, r.Context())
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	// Ensure proper ID formats
 	if !strings.HasPrefix(orgID, "org#") {
@@ -268,6 +281,12 @@ func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !canManageProject(caller, userID, &project) {
+		// Do not confirm the existence of a project the caller cannot manage.
+		http.Error(w, "project not found", http.StatusNotFound)
 		return
 	}
 
@@ -321,7 +340,11 @@ func (h *ProjectHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 	projectID := vars["project_id"]
-	userID := r.Context().Value("user_id").(string)
+	caller, userID, ok := callerOrgUser(h.db, r.Context())
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	// Ensure proper ID formats
 	if !strings.HasPrefix(orgID, "org#") {
@@ -343,6 +366,11 @@ func (h *ProjectHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !canManageProject(caller, userID, &project) {
+		http.Error(w, "project not found", http.StatusNotFound)
 		return
 	}
 

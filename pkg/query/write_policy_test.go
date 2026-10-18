@@ -2,6 +2,7 @@ package query
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -275,4 +276,46 @@ func TestWritePolicy_FieldRootHelpers(t *testing.T) {
 	require.Equal(t, "pinnedReleaseId", rootAttributeName("pinnedReleaseId[0]"))
 	require.Equal(t, "status.tail", replaceRootAttribute("Status.tail", "status"))
 	require.Equal(t, "status[0]", replaceRootAttribute("Status[0]", "status"))
+}
+
+type caseCollisionItem struct {
+	PK      string `theorydb:"pk"`
+	SK      string `theorydb:"sk"`
+	Status  string `theorydb:"attr:status"`
+	Version int64  `theorydb:"version"`
+}
+
+func (caseCollisionItem) TableName() string { return "case_collision_items" }
+
+func (caseCollisionItem) WritePolicy() model.WritePolicy {
+	return model.WritePolicy{
+		Mode:                model.WritePolicyModeMutable,
+		ProtectedAttributes: []string{"status"},
+	}
+}
+
+func TestWritePolicy_CaseCollidingReservedNameCannotRedirectProtectedUpdate(t *testing.T) {
+	item := &caseCollisionItem{
+		PK:      "release#svc",
+		SK:      "actual",
+		Status:  "protected",
+		Version: 1,
+	}
+	q, executor := newWritePolicyQuery(t, item)
+	q.Where("PK", "=", item.PK)
+	q.Where("SK", "=", item.SK)
+
+	err := q.UpdateBuilder().
+		Set("STATUS", "public-updated").
+		Condition("status", "=", "protected").
+		Execute()
+	require.NoError(t, err)
+	require.NotNil(t, executor.compiled)
+
+	require.Contains(t, executor.compiled.UpdateExpression, "#STATUS")
+	require.Equal(t, "STATUS", executor.compiled.ExpressionAttributeNames["#STATUS"])
+
+	conditionPlaceholder := strings.Split(executor.compiled.ConditionExpression, " ")[0]
+	require.NotEqual(t, "#STATUS", conditionPlaceholder)
+	require.Equal(t, "status", executor.compiled.ExpressionAttributeNames[conditionPlaceholder])
 }

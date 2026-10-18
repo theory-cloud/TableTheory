@@ -167,6 +167,46 @@ void test('createDeterministicEncryptionProvider round-trips + binds AAD to attr
   );
 });
 
+void test('createDeterministicEncryptionProvider binds v2 envelopes to a record', async () => {
+  const provider = createDeterministicEncryptionProvider('seed-2');
+  const binding = {
+    table: 'users_contract',
+    partitionKey: { S: 'USER#1' },
+    sortKey: { S: 'PROFILE' },
+  };
+
+  const env = await provider.encrypt(new TextEncoder().encode('secret'), {
+    model: 'T',
+    attribute: 'secret',
+    binding,
+  });
+  assert.equal(env.v, 2);
+
+  const pt = await provider.decrypt(env, {
+    model: 'T',
+    attribute: 'secret',
+    binding,
+  });
+  assert.equal(new TextDecoder().decode(pt), 'secret');
+
+  const isRejected = (err: unknown): boolean =>
+    hasTheorydbErrorCode(err, 'ErrInvalidEncryptedEnvelope');
+
+  await assert.rejects(
+    () =>
+      provider.decrypt(env, {
+        model: 'T',
+        attribute: 'secret',
+        binding: { ...binding, partitionKey: { S: 'USER#2' } },
+      }),
+    isRejected,
+  );
+  await assert.rejects(
+    () => provider.decrypt(env, { model: 'T', attribute: 'secret' }),
+    isRejected,
+  );
+});
+
 void test('createStatefulDynamoDBClient stores, queries, and checks versions', async () => {
   const stateful = createStatefulDynamoDBClient();
   const model = defineModel({

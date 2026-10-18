@@ -60,6 +60,10 @@ func (h *ResourceHandler) RecordUsage(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(req.ProjectID, "project#") {
 		req.ProjectID = fmt.Sprintf("project#%s", req.ProjectID)
 	}
+	if !apiKeyAllowsProject(h.db, r.Context(), req.ProjectID) {
+		http.Error(w, "project not found", http.StatusNotFound)
+		return
+	}
 
 	// Verify project belongs to organization
 	var project models.Project
@@ -186,6 +190,10 @@ func (h *ResourceHandler) GetProjectUsage(w http.ResponseWriter, r *http.Request
 	}
 	if !strings.HasPrefix(projectID, "project#") {
 		projectID = fmt.Sprintf("project#%s", projectID)
+	}
+	if !callerCanReadProject(h.db, r.Context(), projectID) {
+		http.Error(w, "project not found", http.StatusNotFound)
+		return
 	}
 
 	// Get date range from query params

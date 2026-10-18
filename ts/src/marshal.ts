@@ -405,6 +405,10 @@ function marshalJsonScalar(
     return { S: toJsonCarrierText(value, schema.attribute) };
   }
 
+  if (isJsonLegacyParse(schema)) {
+    return { S: stableJsonStringify(value, schema.attribute) };
+  }
+
   const normalized = normalizeStructuredJsonValue(value, schema.attribute);
   return marshalScalar({ ...schema, json: false }, normalized);
 }
@@ -422,6 +426,17 @@ function unmarshalJsonScalar(
       normalizeJsonValue(unmarshalDocumentValue(av, opts), schema.attribute),
       schema.attribute,
     );
+  }
+
+  if (isJsonLegacyParse(schema)) {
+    if ('S' in av && av.S !== undefined) {
+      return parseJsonText(av.S, schema.attribute);
+    }
+    // Parse mode restores a structured runtime type. The DMS read-both rule
+    // requires accepting native DynamoDB values for a JSON attribute, so a
+    // native M/L/N/BOOL/NULL value is returned rather than rejected against
+    // the S schema type.
+    return unmarshalNativeJsonValue(schema, av, opts);
   }
 
   if ('S' in av && av.S !== undefined) {
@@ -465,7 +480,11 @@ function unmarshalNativeJsonNumber(
 }
 
 function isJsonStringCarrier(schema: Readonly<AttributeSchema>): boolean {
-  return schema.type === 'S';
+  return schema.type === 'S' && schema.jsonStringMode !== 'parse';
+}
+
+function isJsonLegacyParse(schema: Readonly<AttributeSchema>): boolean {
+  return schema.type === 'S' && schema.jsonStringMode === 'parse';
 }
 
 function toJsonCarrierText(value: unknown, label: string): string {
