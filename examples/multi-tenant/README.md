@@ -71,7 +71,7 @@ make setup
 
 2. **Start services**:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 3. **Run tests**:

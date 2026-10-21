@@ -7,7 +7,7 @@ help:
 	@echo "  test        - Run unit and integration tests"
 	@echo "  build       - Build Lambda functions"
 	@echo "  deploy      - Deploy to AWS"
-	@echo "  run-local   - Run locally with docker-compose"
+	@echo "  run-local   - Run locally with docker compose"
 	@echo "  clean       - Clean build artifacts"
 
 # Install dependencies
@@ -16,7 +16,7 @@ setup:
 	go mod init github.com/theory-cloud/tabletheory/v6/examples/blog || true
 	go mod tidy
 	@echo "Setting up local DynamoDB..."
-	cd deployment && docker-compose up -d
+	cd deployment && docker compose up -d
 	@echo "Waiting for DynamoDB to start..."
 	sleep 5
 	@echo "Creating tables..."
@@ -56,20 +56,20 @@ deploy: build
 # Run locally
 run-local:
 	@echo "Starting local environment..."
-	cd deployment && docker-compose up -d
+	cd deployment && docker compose up -d
 	@echo "Running local server..."
 	DYNAMODB_ENDPOINT=http://localhost:8000 go run cmd/local/main.go
 
 # Stop local environment
 stop-local:
 	@echo "Stopping local environment..."
-	cd deployment && docker-compose down
+	cd deployment && docker compose down
 
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -f *.zip bootstrap
-	cd deployment && docker-compose down -v
+	cd deployment && docker compose down -v
 
 # Format code
 fmt:
@@ -89,7 +89,7 @@ seed:
 
 # View logs
 logs:
-	cd deployment && docker-compose logs -f
+	cd deployment && docker compose logs -f
 
 # DynamoDB shell
 shell:

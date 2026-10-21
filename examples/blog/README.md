@@ -70,7 +70,7 @@ make setup
 
 2. **Start local DynamoDB**:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 3. **Run locally**:
@@ -254,18 +254,6 @@ sam build
 2. **Deploy**:
 ```bash
 sam deploy --guided
-```
-
-### Using Serverless Framework
-
-1. **Install dependencies**:
-```bash
-npm install -g serverless
-```
-
-2. **Deploy**:
-```bash
-serverless deploy
 ```
 
 ### Environment Variables
