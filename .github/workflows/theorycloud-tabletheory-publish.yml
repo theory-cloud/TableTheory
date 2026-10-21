@@ -76,7 +76,13 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Pinned rather than left on ubuntu-latest: the pinned publish tooling is
+    # installed with the image's system python3, so the platform is part of the
+    # contract. 26.04 is the image ubuntu-latest is migrating to (Oct 19 - Nov 19,
+    # 2026); its system python3 is 3.14, the hash-pinned lock resolves for cp314,
+    # and the image allows `pip install --user` (break-system-packages in
+    # /etc/pip.conf) exactly as the 24.04 image does.
+    runs-on: ubuntu-26.04
     env:
       AWS_REGION: us-east-1
       THEORYCLOUD_STAGE: ${{ github.ref_name == 'premain' && 'lab' || github.ref_name == 'main' && 'live' || '' }}

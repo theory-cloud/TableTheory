@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Purpose: fail when a TableTheory surface that declares an AWS Lambda runtime
 # declares one AWS has deprecated (nodejs20.x and older, python3.9 and older,
-# provided and provided.al2).
+# provided and provided.al2). CDK stacks, SAM/CloudFormation templates, and the
+# fenced deploy snippets in the example docs are all surfaces.
 #
 # The checker owns the scope, the deprecated set, and the modelled declaration
 # forms, and it fails closed on a scanned surface that is missing or unreadable.

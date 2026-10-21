@@ -108,7 +108,11 @@ concurrency:
 jobs:
   build:
     name: Build Jekyll site
-    runs-on: ubuntu-latest
+    # Pinned rather than left on ubuntu-latest: this job runs the image's system
+    # python3 to generate the pip find-links index, so the platform is part of the
+    # contract. 26.04 is the image ubuntu-latest is migrating to (Oct 19 - Nov 19,
+    # 2026) and ships Python 3.14; the generator is stdlib-only and passes there.
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     # Pushes deploy from staging only (defense in depth behind the branch
