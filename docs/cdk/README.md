@@ -141,7 +141,7 @@ const rateLimitTable = new dynamodb.Table(this, 'RateLimitTable', {
         type: dynamodb.AttributeType.STRING
     },
     billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // Or provisioned
-    pointInTimeRecovery: true,
+    pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     timeToLiveAttribute: 'ExpiresAt',
     stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES, // If needed
 });
@@ -186,7 +186,7 @@ const idempotencyTable = new dynamodb.Table(this, 'IdempotencyTable', {
         type: dynamodb.AttributeType.STRING
     },
     billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-    pointInTimeRecovery: true,
+    pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     timeToLiveAttribute: 'ExpiresAt',
 });
 

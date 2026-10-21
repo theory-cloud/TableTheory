@@ -26,7 +26,7 @@ The most advanced basic example, demonstrating composite keys, complex filtering
 ### 1. Start DynamoDB Local
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 2. Run the Application

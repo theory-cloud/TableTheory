@@ -49,7 +49,7 @@ removal policy, or override the billing mode without editing generated code:
 import { createUserTable } from './generated-tables';
 
 const userTable = createUserTable(this, 'UserTable', {
-  pointInTimeRecovery: true,
+  pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
   stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
 });
 ```

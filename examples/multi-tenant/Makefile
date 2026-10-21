@@ -17,7 +17,7 @@ setup:
 
 # Start local services
 docker-up:
-	docker-compose up -d
+	docker compose up -d
 	@echo "Waiting for DynamoDB to be ready..."
 	@sleep 3
 	@echo "DynamoDB is ready at http://localhost:8000"
@@ -25,7 +25,7 @@ docker-up:
 
 # Stop local services
 docker-down:
-	docker-compose down
+	docker compose down
 
 # Run the API server locally. JWT_SECRET is the local development secret the
 # server verifies bearer tokens with; mint a token with `make token USER=...`.
