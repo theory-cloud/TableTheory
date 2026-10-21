@@ -256,18 +256,6 @@ sam build
 sam deploy --guided
 ```
 
-### Using Serverless Framework
-
-1. **Install dependencies**:
-```bash
-npm install -g serverless
-```
-
-2. **Deploy**:
-```bash
-serverless deploy
-```
-
 ### Environment Variables
 
 - `DYNAMODB_REGION`: AWS region (default: us-east-1)
