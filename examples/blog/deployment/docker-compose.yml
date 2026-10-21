@@ -14,7 +14,7 @@ services:
       - blog-network
 
   dynamodb-admin:
-    image: aaronshaf/dynamodb-admin
+    image: aaronshaf/dynamodb-admin:5.3.4@sha256:ac41724cd99706256d405a14a5fb96f51f18c41a630c84fa3357f900cbd16d2e
     ports:
       - "8001:8001"
     environment:
