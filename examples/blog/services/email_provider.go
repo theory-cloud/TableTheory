@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/smtp"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,32 @@ import (
 // deadline, so a stalled SMTP peer can never hold the calling goroutine open
 // indefinitely.
 const defaultSMTPTimeout = 10 * time.Second
+
+// flattenToLine returns value as a single line by replacing each CR and LF with
+// a space. The provider frames a message as CRLF-terminated header fields, a
+// blank line, then the body, so a value that carries CR or LF can close its field
+// and start one of the sender's choosing - an extra Bcc recipient, a replacement
+// Content-Type, or a body that replaces the real one. Subjects and display names
+// are built from attacker-controlled text (a post title, a commenter's name), so
+// they must be flattened before being framed. A space keeps the surrounding words
+// apart; nothing else is rewritten, because the rest of the value is display
+// text and stays as the user wrote it.
+func flattenToLine(value string) string {
+	value = strings.ReplaceAll(value, "\r", " ")
+	return strings.ReplaceAll(value, "\n", " ")
+}
+
+// validateAddress refuses an address that carries a line break instead of
+// repairing it. An address is not display text: it is a machine identifier that
+// the provider hands to the SMTP envelope commands, where a newline would start a
+// second RCPT TO. Repairing a malformed address would silently deliver to an
+// address nobody wrote, so the caller gets an error instead.
+func validateAddress(label, address string) (string, error) {
+	if strings.ContainsAny(address, "\r\n") {
+		return "", fmt.Errorf("%s must not contain a line break", label)
+	}
+	return address, nil
+}
 
 // EmailConfig holds email provider configuration
 type EmailConfig struct {
@@ -46,23 +73,42 @@ func (p *EmailProvider) Send(ctx context.Context, notification *Notification) er
 		return fmt.Errorf("recipient email is required")
 	}
 
-	// In test mode, just log the email
+	recipientEmail, err := validateAddress("recipient email", notification.Recipient.Email)
+	if err != nil {
+		return err
+	}
+	fromEmail, err := validateAddress("sender email", p.config.FromEmail)
+	if err != nil {
+		return err
+	}
+
+	// Subject and display names are free text, so they are cleaned rather than
+	// refused: flattening the line breaks is what makes them safe to frame.
+	subject := flattenToLine(notification.Subject)
+	fromName := flattenToLine(p.config.FromName)
+	recipientName := flattenToLine(notification.Recipient.Name)
+
+	// In test mode, just log the email. The body is flattened too: a newline in
+	// it would otherwise start a log entry that the sender never emitted.
 	if p.config.TestMode {
 		log.Printf("TEST MODE - Email notification:\nTo: %s\nSubject: %s\nContent:\n%s\n",
-			notification.Recipient.Email,
-			notification.Subject,
-			notification.Content)
+			recipientEmail,
+			subject,
+			flattenToLine(notification.Content))
 		return nil
 	}
 
 	// Prepare email
-	from := fmt.Sprintf("%s <%s>", p.config.FromName, p.config.FromEmail)
-	to := notification.Recipient.Email
-	if notification.Recipient.Name != "" {
-		to = fmt.Sprintf("%s <%s>", notification.Recipient.Name, notification.Recipient.Email)
+	from := fmt.Sprintf("%s <%s>", fromName, fromEmail)
+	to := recipientEmail
+	if recipientName != "" {
+		to = fmt.Sprintf("%s <%s>", recipientName, recipientEmail)
 	}
 
-	// Build email message
+	// Build email message. The content sits after the blank line that separates
+	// headers from body, so its own line breaks are ordinary body text and cannot
+	// start a header; net/smtp additionally dot-stuffs a leading period so the
+	// body cannot end the MAIL transaction early.
 	message := []byte(fmt.Sprintf(
 		"From: %s\r\n"+
 			"To: %s\r\n"+
@@ -70,7 +116,7 @@ func (p *EmailProvider) Send(ctx context.Context, notification *Notification) er
 			"Content-Type: text/plain; charset=UTF-8\r\n"+
 			"\r\n"+
 			"%s",
-		from, to, notification.Subject, notification.Content,
+		from, to, subject, notification.Content,
 	))
 
 	// Give an unbounded caller a finite ceiling of its own.
@@ -81,11 +127,11 @@ func (p *EmailProvider) Send(ctx context.Context, notification *Notification) er
 	}
 
 	addr := net.JoinHostPort(p.config.SMTPHost, p.config.SMTPPort)
-	if err := p.deliver(ctx, addr, p.config.FromEmail, notification.Recipient.Email, message); err != nil {
+	if err := p.deliver(ctx, addr, fromEmail, recipientEmail, message); err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 
-	log.Printf("Email sent successfully to %s", notification.Recipient.Email)
+	log.Printf("Email sent successfully to %s", recipientEmail)
 	return nil
 }
 
