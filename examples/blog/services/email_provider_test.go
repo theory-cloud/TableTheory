@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"log"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -200,6 +202,91 @@ func TestEmailProviderCanceledContextAbortsHandshake(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return runtime.NumGoroutine() <= baseline+1
 	}, 2*time.Second, 25*time.Millisecond, "delivery must not leak goroutines")
+}
+
+// TestEmailProviderPreventsHeaderInjection proves line breaks in untrusted
+// fields cannot add SMTP headers. A post title becomes a Subject and a commenter
+// name becomes a display name, so both carry attacker-chosen text: one newline
+// ends the field and starts one of the attacker's choosing, turning a
+// notification into a spoofed message with an extra Bcc recipient.
+func TestEmailProviderPreventsHeaderInjection(t *testing.T) {
+	server := startFakeSMTPServer(t, false)
+	provider := newTestEmailProvider(server)
+
+	notification := &Notification{
+		Recipient: NotificationRecipient{
+			Email: "reader@example.com",
+			Name:  "Reader\r\nBcc: attacker@evil.example",
+		},
+		Subject: "Hello\r\nBcc: attacker@evil.example\r\n\r\nForged body",
+		Content: "Comment body",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, provider.Send(ctx, notification))
+
+	select {
+	case data := <-server.received:
+		headers, body, ok := strings.Cut(string(data), "\r\n\r\n")
+		require.True(t, ok, "message must keep a header/body separator")
+
+		// The attacker text survives as inert words inside a header value, which is
+		// the point: it must stay inside the field it was written for. What it must
+		// not do is become a field of its own, so assert the exact header set.
+		lines := strings.Split(headers, "\r\n")
+		require.Len(t, lines, 4, "a newline must not add a header")
+		require.True(t, strings.HasPrefix(lines[0], "From: "))
+		require.True(t, strings.HasPrefix(lines[1], "To: "))
+		require.True(t, strings.HasPrefix(lines[2], "Subject: Hello"))
+		require.True(t, strings.HasPrefix(lines[3], "Content-Type: "))
+
+		require.NotContains(t, body, "Forged body", "a newline must not replace the body")
+		require.Contains(t, body, "Comment body")
+	case <-time.After(2 * time.Second):
+		t.Fatal("fast SMTP peer did not receive the message")
+	}
+}
+
+// TestEmailProviderRejectsLineBreaksInAddress proves an address that carries a
+// line break is refused instead of reaching the SMTP envelope commands, where a
+// newline would start a second RCPT TO.
+func TestEmailProviderRejectsLineBreaksInAddress(t *testing.T) {
+	server := startFakeSMTPServer(t, false)
+	provider := newTestEmailProvider(server)
+
+	notification := &Notification{
+		Recipient: NotificationRecipient{Email: "reader@example.com\r\nRCPT TO:<attacker@evil.example>"},
+		Subject:   "Hello",
+		Content:   "Comment body",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := provider.Send(ctx, notification)
+	require.Error(t, err, "an address carrying a line break must be refused")
+	require.Contains(t, err.Error(), "line break")
+}
+
+// TestEmailProviderTestModeLogsOneEntry proves untrusted content cannot forge log
+// records: newlines in the subject or content stay inside the entry that the
+// provider emitted instead of starting a record of the attacker's making.
+func TestEmailProviderTestModeLogsOneEntry(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	provider := NewEmailProvider(EmailConfig{TestMode: true})
+	notification := &Notification{
+		Recipient: NotificationRecipient{Email: "reader@example.com"},
+		Subject:   "Hello\nlevel=ERROR forged entry",
+		Content:   "Comment body\r\nlevel=ERROR forged body",
+	}
+
+	require.NoError(t, provider.Send(context.Background(), notification))
+	require.NotContains(t, logged.String(), "\nlevel=ERROR forged entry")
+	require.NotContains(t, logged.String(), "\nlevel=ERROR forged body")
 }
 
 // TestEmailProviderFastPeerDeliversMessage is the ordinary authorized-success
