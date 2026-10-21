@@ -94,8 +94,13 @@
 //   examples/cdk-multilang/lib/multilang-demo-stack.ts
 //   examples/cdk-multilang/lib/tabletheory-ttl-archive.ts
 //
-// Coverage is enforced rather than assumed. SCAN_ROOTS is walked and every file
-// under it that declares a Lambda runtime must be a declared surface; a file
+// SCANNED_TEMPLATE_SURFACES and SCANNED_SNIPPET_SURFACES are the same thing for
+// SAM/CloudFormation templates and for fenced deploy snippets in the docs; both
+// classes are described under "Template and deploy-snippet surfaces" below.
+//
+// Coverage is enforced rather than assumed. Each class owns scan roots, which
+// are walked, and every file under them that declares a Lambda runtime must be a
+// declared surface of that class; a file
 // that declares one without being listed fails the gate, so a new CDK stack
 // cannot arrive declaring a runtime nobody judges. Symmetrically, a declared
 // surface must exist and must still declare at least one modelled runtime, so
@@ -119,7 +124,7 @@
 // with no modelled runtime, which fails closed. Hiding one of several does not:
 // the remaining declarations still satisfy the coverage walk, so this checker
 // passes, and the obfuscated runtime is caught instead by the policy test's
-// `declarations 4` count pin over the real surfaces. The multi-declaration case
+// `declarations 7` count pin over the real surfaces. The multi-declaration case
 // is therefore a caught regression rather than a silent one, but it is caught by
 // that pin, not by the coverage walk.
 //
@@ -150,12 +155,55 @@
 // runtimes, not occurrences. This is a deliberate divergence from FaceTheory's
 // checker, which counts the property read separately.
 //
+// ===========================================================================
+// Template and deploy-snippet surfaces
+// ===========================================================================
+// Reading only the CDK stacks is why `Runtime: provided.al2` survived in the
+// blog SAM template: the template was never a scanned surface, so no gate ever
+// looked at the line that decides the deployed runtime. A SAM template, a
+// CloudFormation template, and the copy-paste `aws lambda create-function`
+// snippet in an example README decide a Lambda runtime exactly as directly as a
+// CDK `runtime:` line does, so they are modelled here as two further surface
+// classes.
+//
+// A template declaration is a `Runtime:` key whose value is a scalar, in YAML or
+// in CloudFormation JSON - the JSON form needs no separate rule, because a
+// quoted key also starts its own line. A snippet declaration is the value of a
+// `--runtime` flag, or a `Runtime:` scalar, inside a fenced Markdown code block.
+// Prose outside a fence is never read: a runtime named in a sentence is
+// documentation, not a deployable declaration. `--runtime-version` and
+// `--runtime-import` are different flags that share a prefix, so the flag rule
+// requires whitespace or `=` after `--runtime`.
+//
+// Both classes resolve to the same identifiers as a CDK literal, so they share
+// DEPRECATED_LAMBDA_RUNTIMES and SUPPORTED_LAMBDA_RUNTIMES and the same three
+// verdicts: deprecated, unmodelled (in neither set), or supported. Declarations
+// are de-duplicated per surface by the runtime they resolve to, exactly as in a
+// CDK surface, so a template counts runtimes rather than occurrences.
+//
+// Three forms stay outside the model, measured as declaring nothing:
+//
+//   Runtime: !Ref RuntimeParameter   a tag resolves at deploy time
+//   Runtime: !Sub "${Stage}..."      an interpolation resolves at deploy time
+//   Runtime: {"Ref": "..."}          a collection is not a scalar
+//
+// A surface whose only runtime is one of those fails closed on the same
+// "declares no modelled Lambda runtime" rule a stack with only a dynamic
+// `fromString` fails, rather than being judged by a guess about the parameter.
+// Commented-out lines declare nothing in either class: a YAML comment cannot
+// match a key rule anchored at the start of the line, and a shell comment inside
+// a fence is skipped. A file is dispatched by extension - scripts and stacks by
+// .ts/.tsx/.js/.jsx/.mjs/.cjs/.mts/.cts, templates by .yaml/.yml/.json,
+// snippets by .md/.markdown - so an extension this gate does not model is a
+// known limit rather than a scanned surface.
+//
 // Fail-closed cases: a surface that is missing, unreadable, or declares no
 // modelled runtime; a runtime literal in a modelled shape whose family or value
 // is not modelled, including a `fromString` argument that resolves to no runtime
-// at all; a declaration that names an unpinned moving alias rather than a pinned
-// runtime; and any file inside SCAN_ROOTS that declares a Lambda runtime without
-// being a declared surface.
+// at all and a template or snippet value that names no modelled runtime; a
+// declaration that names an unpinned moving alias rather than a pinned runtime;
+// and any file inside a scan root that declares a Lambda runtime without being a
+// declared surface.
 //
 // A coverage walk that cannot run is a gate failure in its own right, and it
 // reports as this gate's FAIL line rather than as an uncaught stack trace: a
@@ -234,8 +282,36 @@ const SCAN_ROOTS = ["examples/cdk-multilang/lib"];
 
 const EXPECTED_SCAN_ROOTS = ["examples/cdk-multilang/lib"];
 
+// SAM and CloudFormation templates whose runtime declarations are judged.
+const SCANNED_TEMPLATE_SURFACES = [
+  "examples/blog/deployment/sam-template.yaml",
+  "examples/multi-tenant/deployment/template.yaml",
+];
+
+// The template set, restated independently for the same reason.
+const EXPECTED_SCANNED_TEMPLATE_SURFACES = [
+  "examples/blog/deployment/sam-template.yaml",
+  "examples/multi-tenant/deployment/template.yaml",
+];
+
+// Deploy docs whose fenced snippets are judged.
+const SCANNED_SNIPPET_SURFACES = ["examples/lambda/README.md"];
+
+const EXPECTED_SCANNED_SNIPPET_SURFACES = ["examples/lambda/README.md"];
+
+// Every template and every deploy snippet under these roots has to be a declared
+// surface of its class. `examples` covers the shipped deployment lanes and
+// `docs` covers the guides that tell a reader how to deploy.
+const TEMPLATE_SCAN_ROOTS = ["examples", "docs"];
+
+const EXPECTED_TEMPLATE_SCAN_ROOTS = ["examples", "docs"];
+
+const SNIPPET_SCAN_ROOTS = ["examples", "docs"];
+
+const EXPECTED_SNIPPET_SCAN_ROOTS = ["examples", "docs"];
+
 // Directory names the coverage walk does not descend into: dependency, build,
-// coverage, and vendored trees that hold no declaration of ours.
+// coverage, vendored, and generated trees that hold no declaration of ours.
 const SKIPPED_DIRECTORY_NAMES = new Set([
   "node_modules",
   "dist",
@@ -243,6 +319,11 @@ const SKIPPED_DIRECTORY_NAMES = new Set([
   "cdk.out",
   ".cdk.staging",
   "vendor",
+  ".venv",
+  "__pycache__",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
 ]);
 
 // CDK's enum names for the runtimes this gate models, read from the pinned
@@ -623,6 +704,160 @@ function collectDeclarations(text) {
   return [...byKey.values()].sort((left, right) => left.index - right.index);
 }
 
+// === template and deploy-snippet declarations ==============================
+
+// A `.ts` file is a stack, a `.yaml` file is a template, a `.md` file is a
+// snippet. Anything else is not a surface class this gate models.
+const CDK_SURFACE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]);
+const TEMPLATE_SURFACE_EXTENSIONS = new Set([".yaml", ".yml", ".json"]);
+const SNIPPET_SURFACE_EXTENSIONS = new Set([".md", ".markdown"]);
+
+// A `Runtime:` key at the start of its line. The key may be quoted because
+// CloudFormation JSON writes it that way, and requiring the key to start the
+// line is what keeps a commented-out `# Runtime: ...` from being a declaration.
+const TEMPLATE_RUNTIME_KEY_RE = /^[ \t]*["']?(?:Runtime|runtime)["']?[ \t]*:[ \t]*(.*)$/;
+
+// The `--runtime` flag and the rest of its line. The delimiter is whitespace or
+// `=`, so the `--runtime-version` and `--runtime-import` flags this repository
+// also uses can never be read as a runtime declaration.
+const CLI_RUNTIME_FLAG_RE = /--runtime(?:[ \t]+|=)(.*)$/;
+
+// A fenced code block delimiter. Snippets are read only inside a fence, so a
+// runtime named in prose is documentation rather than a declaration.
+const FENCE_RE = /^[ \t]*(?:`{3,}|~{3,})/;
+
+// The literal a template or snippet value names, or null when the value is not a
+// readable literal. Quotes are honoured so a quoted scalar keeps its content; an
+// unquoted scalar loses a trailing inline comment, separator, or line
+// continuation. A tag (`!Ref`, `!Sub`), an interpolation, or a collection
+// resolves at deploy time rather than here, so it declares nothing.
+function templateScalar(value) {
+  const text = value.trim();
+  if (text === "") return null;
+  const quoted = /^(["'])(.*?)\1/.exec(text);
+  if (quoted !== null) return quoted[2];
+  const unquoted = text
+    .replace(/[ \t]+#.*$/, "")
+    .replace(/[\\,]+$/, "")
+    .trim();
+  if (unquoted === "") return null;
+  if (unquoted.startsWith("!") || unquoted.startsWith("{") || unquoted.startsWith("[")) return null;
+  if (unquoted.includes("${")) return null;
+  return unquoted;
+}
+
+// The value of a `--runtime` flag: a quoted string, or the single bare token up
+// to the next whitespace, so the flags that follow on the same line are never
+// read as part of the value. A trailing comma or line continuation is dropped.
+function cliFlagValue(rest) {
+  const text = rest.trim();
+  if (text === "") return null;
+  const quoted = /^(["'])(.*?)\1/.exec(text);
+  if (quoted !== null) return quoted[2];
+  const token = /^[^\s]+/.exec(text);
+  if (token === null) return null;
+  const value = token[0].replace(/[\\,]+$/, "");
+  return value === "" ? null : value;
+}
+
+// Records one template or snippet declaration, de-duplicated by the runtime it
+// resolves to so a template counts runtimes rather than occurrences - the same
+// rule the CDK collector applies.
+function templateDeclarationCollector(text) {
+  const byKey = new Map();
+  return {
+    record(index, literal, form = `Runtime: ${literal}`) {
+      const identifier = runtimeIdentifierFromLiteral(literal) ?? literal;
+      const key = `runtime:${identifier}`;
+      if (byKey.has(key)) return;
+      byKey.set(key, {
+        index,
+        line: lineOf(text, index),
+        form,
+        enumName: null,
+        literal,
+        identifier,
+      });
+    },
+    declarations() {
+      return [...byKey.values()].sort((left, right) => left.index - right.index);
+    },
+  };
+}
+
+// Walks a template line by line. The line index is a real source position, so a
+// violation reports the line the key is on.
+function collectTemplateDeclarations(text) {
+  const collector = templateDeclarationCollector(text);
+  let offset = 0;
+  for (const lineText of text.split("\n")) {
+    const match = TEMPLATE_RUNTIME_KEY_RE.exec(lineText);
+    if (match !== null) {
+      const literal = templateScalar(match[1]);
+      if (literal !== null) collector.record(offset + lineText.indexOf(":"), literal);
+    }
+    offset += lineText.length + 1;
+  }
+  return collector.declarations();
+}
+
+// Walks a Markdown file and reads only fenced code. A shell comment inside a
+// fence is skipped, so `# --runtime provided.al2` documents nothing.
+function collectSnippetDeclarations(text) {
+  const collector = templateDeclarationCollector(text);
+  let inFence = false;
+  let offset = 0;
+  for (const lineText of text.split("\n")) {
+    if (FENCE_RE.test(lineText)) {
+      inFence = !inFence;
+      offset += lineText.length + 1;
+      continue;
+    }
+    if (inFence && !lineText.trim().startsWith("#")) {
+      const keyMatch = TEMPLATE_RUNTIME_KEY_RE.exec(lineText);
+      const flagMatch = CLI_RUNTIME_FLAG_RE.exec(lineText);
+      if (keyMatch !== null) {
+        const literal = templateScalar(keyMatch[1]);
+        if (literal !== null) collector.record(offset + lineText.indexOf(":"), literal);
+      } else if (flagMatch !== null) {
+        const literal = cliFlagValue(flagMatch[1]);
+        if (literal !== null) {
+          collector.record(
+            offset + lineText.indexOf("--runtime"),
+            literal,
+            `--runtime ${literal}`,
+          );
+        }
+      }
+    }
+    offset += lineText.length + 1;
+  }
+  return collector.declarations();
+}
+
+// === surface dispatch ======================================================
+
+// The surface class a path belongs to, decided by extension. A file in a scan
+// root whose extension is not modelled below is not a surface this gate reads.
+function surfaceKind(label) {
+  const extension = path.extname(label).toLowerCase();
+  if (CDK_SURFACE_EXTENSIONS.has(extension)) return "cdk";
+  if (TEMPLATE_SURFACE_EXTENSIONS.has(extension)) return "template";
+  if (SNIPPET_SURFACE_EXTENSIONS.has(extension)) return "snippet";
+  return null;
+}
+
+function collectDeclarationsFor(label, text) {
+  switch (surfaceKind(label)) {
+    case "template":
+      return collectTemplateDeclarations(text);
+    case "snippet":
+      return collectSnippetDeclarations(text);
+    default:
+      return collectDeclarations(text);
+  }
+}
+
 // === classification ========================================================
 
 // Classifies one declaration. Returns a violation object, or null when the
@@ -683,6 +918,34 @@ function classifyDeclaration(declaration) {
   };
 }
 
+// Classifies a template or snippet declaration. The value is already the literal
+// the surface wrote, so there is no receiver or enum to unwrap: a value in the
+// deprecated set fails, a value in the supported set passes, and a value in
+// neither fails closed as unmodelled rather than being skipped.
+function classifyRuntimeValue(declaration) {
+  if (DEPRECATED_LAMBDA_RUNTIMES.includes(declaration.identifier)) {
+    return {
+      kind: "deprecated",
+      line: declaration.line,
+      form: declaration.form,
+      detail: `declares '${declaration.identifier}', which AWS has deprecated`,
+    };
+  }
+  if (SUPPORTED_LAMBDA_RUNTIMES.includes(declaration.identifier)) return null;
+  return {
+    kind: "unmodelled-runtime",
+    line: declaration.line,
+    form: declaration.form,
+    detail:
+      `declares '${declaration.identifier}', which is neither a deprecated runtime nor a ` +
+      `supported pinned runtime; ${UNMODELLED_DECLARATION_HINT}`,
+  };
+}
+
+function classifyDeclarationFor(label, declaration) {
+  return surfaceKind(label) === "cdk" ? classifyDeclaration(declaration) : classifyRuntimeValue(declaration);
+}
+
 // === scan ==================================================================
 
 function resolveSurface(label) {
@@ -697,7 +960,7 @@ function scanSurface(label) {
   } catch (err) {
     throw new GateFailure(`could not read scanned surface ${label}: ${err.message}`);
   }
-  const declarations = collectDeclarations(text);
+  const declarations = collectDeclarationsFor(label, text);
   if (declarations.length === 0) {
     throw new GateFailure(
       `${label} declares no modelled Lambda runtime; a scanned surface must still declare one, ` +
@@ -709,16 +972,23 @@ function scanSurface(label) {
     declarationCount: declarations.length,
     declarations,
     violations: declarations
-      .map(classifyDeclaration)
+      .map((declaration) => classifyDeclarationFor(label, declaration))
       .filter((violation) => violation !== null)
       .map((violation) => ({ ...violation, label })),
   };
 }
 
-// Every file inside SCAN_ROOTS that declares a Lambda runtime, whether or not it
-// is a declared surface. Used to fail closed on an unmodelled surface.
+// Every file inside a scan root that declares a Lambda runtime, per surface
+// class, whether or not it is a declared surface. Used to fail closed on an
+// unmodelled surface.
+//
+// The three classes share one walk because they share roots: `examples` is a
+// template root and a snippet root, so walking each root set separately would
+// read the same tree twice. A file is bucketed by its extension, not by which
+// root reached it, and a file whose extension this gate does not model is not a
+// surface at all.
 function collectDeclarationSurfaces() {
-  const found = new Set();
+  const found = { cdk: new Set(), template: new Set(), snippet: new Set() };
 
   const visit = (absolute) => {
     const entries = fs.readdirSync(absolute, { withFileTypes: true });
@@ -730,27 +1000,37 @@ function collectDeclarationSurfaces() {
         continue;
       }
       if (!entry.isFile()) continue;
+      const label = path.relative(repositoryRoot, child);
+      const kind = surfaceKind(label);
+      if (kind === null) continue;
       let text;
       try {
         text = fs.readFileSync(child, "utf8");
       } catch {
         continue;
       }
-      if (collectDeclarations(text).length > 0) {
-        found.add(path.relative(repositoryRoot, child));
+      if (collectDeclarationsFor(label, text).length > 0) {
+        found[kind].add(label);
       }
     }
   };
 
-  for (const root of SCAN_ROOTS) {
+  const walked = new Set();
+  for (const root of [...SCAN_ROOTS, ...TEMPLATE_SCAN_ROOTS, ...SNIPPET_SCAN_ROOTS]) {
     const absolute = path.join(repositoryRoot, root);
     if (!fs.existsSync(absolute)) {
       throw new GateFailure(`scan root ${root} is missing; the coverage scope cannot be walked`);
     }
+    if (walked.has(root)) continue;
+    walked.add(root);
     visit(absolute);
   }
 
-  return [...found].sort();
+  return {
+    cdk: [...found.cdk].sort(),
+    template: [...found.template].sort(),
+    snippet: [...found.snippet].sort(),
+  };
 }
 
 function describeViolation(violation) {
@@ -1011,6 +1291,124 @@ const CLASSIFIER_CASES = [
     text: 'const endpoint = "https://runtime.example.com/path";\nruntime: lambda.Runtime.NODEJS_24_X,\n',
     expected: [],
   },
+  // --- templates: SAM / CloudFormation runtime scalars ----------------------
+  // The class the first version of this gate could not see: a SAM Globals runtime
+  // is a YAML scalar, not a CDK enum, so no `runtime:` line was ever judged.
+  {
+    name: "deprecated-provided-al2-in-sam-globals",
+    file: "template.yaml",
+    text: "Globals:\n  Function:\n    Runtime: provided.al2\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "supported-provided-al2023-in-sam-globals",
+    file: "template.yaml",
+    text: "Globals:\n  Function:\n    Runtime: provided.al2023\n",
+    expected: [],
+  },
+  {
+    name: "deprecated-nodejs-runtime-in-a-template",
+    file: "template.yml",
+    text: "Resources:\n  Function:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: nodejs18.x\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "quoted-deprecated-runtime-in-a-template",
+    file: "template.yaml",
+    text: "    Runtime: \"provided.al2\"\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "deprecated-runtime-with-an-inline-comment",
+    file: "template.yaml",
+    text: "    Runtime: provided.al2  # pinned for the legacy lane\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "unmodelled-runtime-in-a-template",
+    file: "template.yaml",
+    text: "    Runtime: ruby3.2\n",
+    expected: ["unmodelled-runtime"],
+  },
+  // A commented-out key is not a declaration, and the live key beside it is.
+  {
+    name: "commented-out-template-runtime-is-not-a-declaration",
+    file: "template.yaml",
+    text: "# Runtime: provided.al2\nGlobals:\n  Function:\n    Runtime: provided.al2023\n",
+    expected: [],
+    expectedDeclarations: ["provided.al2023"],
+  },
+  {
+    name: "deprecated-runtime-in-cloudformation-json",
+    file: "template.json",
+    text: '{\n  "Resources": {\n    "Function": {\n      "Properties": {\n        "Runtime": "provided.al2"\n      }\n    }\n  }\n}\n',
+    expected: ["deprecated"],
+  },
+  {
+    name: "supported-runtime-in-cloudformation-json",
+    file: "template.json",
+    text: '{\n  "Properties": {\n    "Runtime": "provided.al2023",\n  }\n}\n',
+    expected: [],
+  },
+  // A template that declares the same runtime twice counts one runtime, the same
+  // de-duplication the CDK collector applies to a declaration and its property
+  // read.
+  {
+    name: "template-repeated-runtime-counts-once",
+    file: "template.yaml",
+    text: "Resources:\n  A:\n    Properties:\n      Runtime: provided.al2023\n  B:\n    Properties:\n      Runtime: provided.al2023\n",
+    expected: [],
+    expectedDeclarations: ["provided.al2023"],
+  },
+  // --- deploy snippets: fenced `--runtime` flags and YAML blocks ------------
+  {
+    name: "deprecated-runtime-in-a-deploy-snippet",
+    file: "README.md",
+    text: "```bash\naws lambda create-function \\\n  --function-name demo \\\n  --runtime provided.al2 \\\n  --handler bootstrap\n```\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "supported-runtime-in-a-deploy-snippet",
+    file: "README.md",
+    text: "```bash\naws lambda create-function \\\n  --function-name demo \\\n  --runtime provided.al2023 \\\n  --handler bootstrap\n```\n",
+    expected: [],
+  },
+  {
+    name: "deprecated-runtime-in-a-snippet-with-an-equals-sign",
+    file: "README.md",
+    text: "```bash\naws lambda update-function-configuration --runtime=provided.al2 --function-name demo\n```\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "deprecated-runtime-in-a-yaml-block-inside-a-fence",
+    file: "README.md",
+    text: "~~~yaml\nGlobals:\n  Function:\n    Runtime: provided.al2\n~~~\n",
+    expected: ["deprecated"],
+  },
+  // Prose is documentation, not a declaration: the same sentence outside a fence
+  // names nothing, and the fenced flag beside it is what is judged.
+  {
+    name: "runtime-in-prose-is-not-a-declaration",
+    file: "README.md",
+    text: "Deploy with `--runtime provided.al2` if you must.\n\n```bash\naws lambda create-function --runtime provided.al2023 --handler bootstrap\n```\n",
+    expected: [],
+    expectedDeclarations: ["provided.al2023"],
+  },
+  {
+    name: "commented-out-snippet-flag-is-not-a-declaration",
+    file: "README.md",
+    text: "```bash\n# --runtime provided.al2\naws lambda create-function --runtime provided.al2023 --handler bootstrap\n```\n",
+    expected: [],
+    expectedDeclarations: ["provided.al2023"],
+  },
+  // `--runtime-version` shares the `--runtime` prefix but is a different flag.
+  {
+    name: "runtime-version-flag-is-not-a-runtime-declaration",
+    file: "README.md",
+    text: "```bash\ntabletheory init --lang go --runtime-version 3.0.0\naws lambda create-function --runtime provided.al2023\n```\n",
+    expected: [],
+    expectedDeclarations: ["provided.al2023"],
+  },
 ];
 
 const FAIL_CLOSED_CASES = [
@@ -1072,6 +1470,41 @@ const FAIL_CLOSED_CASES = [
     text: "/* runtime: lambda.Runtime.PYTHON_3_8, */\n",
     expectFailureReason: "declares no modelled Lambda runtime",
   },
+  // A template whose only runtime is a deploy-time parameter declares nothing
+  // readable, so it fails closed instead of passing on a guess about the value.
+  {
+    name: "template-with-only-a-parameterized-runtime",
+    file: "template.yaml",
+    text: "Globals:\n  Function:\n    Runtime: !Ref RuntimeParameter\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  {
+    name: "template-with-only-an-interpolated-runtime",
+    file: "template.yaml",
+    text: "    Runtime: !Sub \"${RuntimeFamily}.al2023\"\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  // A snippet that only names a different flag declares no runtime at all.
+  {
+    name: "snippet-with-only-a-runtime-version-flag",
+    file: "README.md",
+    text: "```bash\ntabletheory init --lang go --runtime-version 3.0.0\n```\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  {
+    name: "snippet-with-only-a-commented-runtime",
+    file: "README.md",
+    text: "```bash\n# --runtime provided.al2\n```\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  // A runtime named in prose is documentation; a doc with only prose declares no
+  // deployment at all.
+  {
+    name: "doc-with-only-a-prose-runtime",
+    file: "README.md",
+    text: "Deploy with `--runtime provided.al2` when you need it.\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
 ];
 
 function selfTestViolationKinds(outcome) {
@@ -1079,57 +1512,116 @@ function selfTestViolationKinds(outcome) {
 }
 
 function writeSyntheticSurface(tempDir, scenario) {
-  const file = path.join(tempDir, scenario.name, "surface.ts");
+  const file = path.join(tempDir, scenario.name, scenario.file ?? "surface.ts");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, scenario.text);
   return file;
+}
+
+// A declared-surface list is pinned against an independently restated copy, so
+// narrowing the scope fails the self-test instead of quietly scanning less.
+function scopePinFailures(actual, expected, description) {
+  const matches =
+    actual.length === expected.length && actual.every((entry, index) => entry === expected[index]);
+  return {
+    matches,
+    failure: matches
+      ? null
+      : `${description} must be exactly ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+  };
 }
 
 function runSelfTest() {
   const failures = [];
   let classifierCases = 0;
 
-  const scopeCases = 2;
-  const scopeMatches =
-    SCANNED_SURFACES.length === EXPECTED_SCANNED_SURFACES.length &&
-    SCANNED_SURFACES.every((label, index) => label === EXPECTED_SCANNED_SURFACES[index]);
-  if (!scopeMatches) {
-    failures.push(
-      `scanned surface set must be exactly ${JSON.stringify(EXPECTED_SCANNED_SURFACES)}, ` +
-        `got ${JSON.stringify(SCANNED_SURFACES)}`,
-    );
+  const scopeCases = 6;
+  const scopePins = [
+    {
+      label: "scan scope",
+      actual: SCANNED_SURFACES,
+      expected: EXPECTED_SCANNED_SURFACES,
+      description: "scanned surface set",
+      summary: `surfaces ${SCANNED_SURFACES.length}`,
+    },
+    {
+      label: "coverage scope",
+      actual: SCAN_ROOTS,
+      expected: EXPECTED_SCAN_ROOTS,
+      description: "coverage scan roots",
+      summary: `roots ${SCAN_ROOTS.length}`,
+    },
+    {
+      label: "template scan scope",
+      actual: SCANNED_TEMPLATE_SURFACES,
+      expected: EXPECTED_SCANNED_TEMPLATE_SURFACES,
+      description: "scanned template surface set",
+      summary: `surfaces ${SCANNED_TEMPLATE_SURFACES.length}`,
+    },
+    {
+      label: "template coverage scope",
+      actual: TEMPLATE_SCAN_ROOTS,
+      expected: EXPECTED_TEMPLATE_SCAN_ROOTS,
+      description: "template coverage scan roots",
+      summary: `roots ${TEMPLATE_SCAN_ROOTS.length}`,
+    },
+    {
+      label: "snippet scan scope",
+      actual: SCANNED_SNIPPET_SURFACES,
+      expected: EXPECTED_SCANNED_SNIPPET_SURFACES,
+      description: "scanned snippet surface set",
+      summary: `surfaces ${SCANNED_SNIPPET_SURFACES.length}`,
+    },
+    {
+      label: "snippet coverage scope",
+      actual: SNIPPET_SCAN_ROOTS,
+      expected: EXPECTED_SNIPPET_SCAN_ROOTS,
+      description: "snippet coverage scan roots",
+      summary: `roots ${SNIPPET_SCAN_ROOTS.length}`,
+    },
+  ];
+  for (const pin of scopePins) {
+    const { matches, failure } = scopePinFailures(pin.actual, pin.expected, pin.description);
+    if (failure !== null) failures.push(failure);
+    console.log(`  self-test ${pin.label}: ${matches ? pin.summary : "NOT THE EXPECTED SET"}`);
   }
-  console.log(
-    `  self-test scan scope: ${scopeMatches ? `surfaces ${SCANNED_SURFACES.length}` : "NOT THE EXPECTED SET"}`,
-  );
 
-  const rootMatches =
-    SCAN_ROOTS.length === EXPECTED_SCAN_ROOTS.length &&
-    SCAN_ROOTS.every((root, index) => root === EXPECTED_SCAN_ROOTS[index]);
-  if (!rootMatches) {
-    failures.push(
-      `coverage scan roots must be exactly ${JSON.stringify(EXPECTED_SCAN_ROOTS)}, ` +
-        `got ${JSON.stringify(SCAN_ROOTS)}`,
-    );
-  }
-  console.log(
-    `  self-test coverage scope: ${rootMatches ? `roots ${SCAN_ROOTS.length}` : "NOT THE EXPECTED SET"}`,
-  );
-
-  // The declared surface list and the coverage walk must agree, or the gate has
-  // an unmodelled surface before it even starts scanning.
+  // The declared surface lists and the coverage walk must agree per class, or the
+  // gate has an unmodelled surface of that class before it even starts scanning.
   try {
     const discovered = collectDeclarationSurfaces();
-    const expected = [...SCANNED_SURFACES].sort();
-    if (discovered.join("\n") !== expected.join("\n")) {
-      failures.push(
-        `coverage walk under ${JSON.stringify(SCAN_ROOTS)} must find exactly the declared surfaces; ` +
-          `found ${JSON.stringify(discovered)}`,
+    for (const surfaceClass of [
+      {
+        kind: "cdk",
+        roots: SCAN_ROOTS,
+        declared: [...SCANNED_SURFACES].sort(),
+        label: "coverage walk",
+      },
+      {
+        kind: "template",
+        roots: TEMPLATE_SCAN_ROOTS,
+        declared: [...SCANNED_TEMPLATE_SURFACES].sort(),
+        label: "template coverage walk",
+      },
+      {
+        kind: "snippet",
+        roots: SNIPPET_SCAN_ROOTS,
+        declared: [...SCANNED_SNIPPET_SURFACES].sort(),
+        label: "snippet coverage walk",
+      },
+    ]) {
+      const found = discovered[surfaceClass.kind];
+      const matches = found.join("\n") === surfaceClass.declared.join("\n");
+      if (!matches) {
+        failures.push(
+          `coverage walk under ${JSON.stringify(surfaceClass.roots)} must find exactly the declared ` +
+            `${surfaceClass.kind} surfaces; found ${JSON.stringify(found)}`,
+        );
+      }
+      console.log(
+        `  self-test ${surfaceClass.label}: ${matches ? `${found.length} surfaces` : "NOT THE DECLARED SET"}`,
       );
     }
-    console.log(
-      `  self-test coverage walk: ${discovered.join("\n") === expected.join("\n") ? `${discovered.length} surfaces` : "NOT THE DECLARED SET"}`,
-    );
   } catch (err) {
     failures.push(`coverage walk threw ${err.message}`);
     console.log("  self-test coverage walk: UNEXPECTED FAILURE");
@@ -1331,22 +1823,34 @@ function main() {
       // The coverage walk is what makes an unmodelled surface fail closed; it runs
       // on every real scan, not only under --self-test.
       const discovered = collectDeclarationSurfaces();
-      const expected = [...SCANNED_SURFACES].sort();
-      const undeclared = discovered.filter((label) => !SCANNED_SURFACES.includes(label));
-      if (undeclared.length > 0) {
-        fail(
-          `unmodelled surface(s) declare a Lambda runtime but are not judged: ` +
-            `${undeclared.join(", ")}; add each to SCANNED_SURFACES in ` +
-            `scripts/check-lambda-runtime-deprecations.mjs - surfaces are never skipped`,
+      const surfaceClasses = [
+        { kind: "cdk", declared: SCANNED_SURFACES, list: "SCANNED_SURFACES" },
+        { kind: "template", declared: SCANNED_TEMPLATE_SURFACES, list: "SCANNED_TEMPLATE_SURFACES" },
+        { kind: "snippet", declared: SCANNED_SNIPPET_SURFACES, list: "SCANNED_SNIPPET_SURFACES" },
+      ];
+      for (const surfaceClass of surfaceClasses) {
+        const undeclared = discovered[surfaceClass.kind].filter(
+          (label) => !surfaceClass.declared.includes(label),
         );
-      }
-      for (const label of expected) {
-        if (!discovered.includes(label)) {
-          fail(`declared surface ${label} declares no modelled Lambda runtime`);
+        if (undeclared.length > 0) {
+          fail(
+            `unmodelled surface(s) declare a Lambda runtime but are not judged: ` +
+              `${undeclared.join(", ")}; add each to ${surfaceClass.list} in ` +
+              `scripts/check-lambda-runtime-deprecations.mjs - surfaces are never skipped`,
+          );
+        }
+        for (const label of [...surfaceClass.declared].sort()) {
+          if (!discovered[surfaceClass.kind].includes(label)) {
+            fail(`declared surface ${label} declares no modelled Lambda runtime`);
+          }
         }
       }
     }
-    outcomes = SCANNED_SURFACES.map((label) => scanSurface(label));
+    outcomes = [
+      ...SCANNED_SURFACES,
+      ...SCANNED_TEMPLATE_SURFACES,
+      ...SCANNED_SNIPPET_SURFACES,
+    ].map((label) => scanSurface(label));
   } catch (err) {
     if (err instanceof GateFailure) fail(err.message);
     throw err;
@@ -1374,8 +1878,10 @@ function main() {
       `${selfTestCounts.scopeCases} scope cases + ${selfTestCounts.entryPointProbes} entry-point probe; `
     : "";
   console.log(
-    `lambda-runtime-deprecations: PASS (${selfTestSummary}surfaces ${outcomes.length}; ` +
-      `declarations ${declarationCount}; deprecated set ${DEPRECATED_LAMBDA_RUNTIMES.length}; ` +
+    `lambda-runtime-deprecations: PASS (${selfTestSummary}surfaces ${outcomes.length} ` +
+      `(cdk ${SCANNED_SURFACES.length}, template ${SCANNED_TEMPLATE_SURFACES.length}, ` +
+      `snippet ${SCANNED_SNIPPET_SURFACES.length}); declarations ${declarationCount}; ` +
+      `deprecated set ${DEPRECATED_LAMBDA_RUNTIMES.length}; ` +
       `supported set ${SUPPORTED_LAMBDA_RUNTIMES.length})`,
   );
 }
