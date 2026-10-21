@@ -143,6 +143,24 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.1.1](https://github.com/theory-cloud/TableTheory/compare/v6.1.1-rc...v6.1.1) (2026-10-21)
+
+Stable promotion of `v6.1.1-rc`.
+
+
+## [6.1.1-rc](https://github.com/theory-cloud/TableTheory/compare/v6.1.0...v6.1.1-rc) (2026-10-21)
+
+
+### Bug Fixes
+
+* **deps:** bump certifi to 2026.10.19 in publish tooling lock ([a72201f](https://github.com/theory-cloud/TableTheory/commit/a72201fd7e499eb99e6be309b918a88aefc34887))
+* **deps:** bump certifi to 2026.10.19 in publish tooling lock ([91ceabb](https://github.com/theory-cloud/TableTheory/commit/91ceabb472a928f54919c9b073ef09ce0f203cbe))
+* **examples/blog:** flatten CRLF in untrusted email fields ([fac264e](https://github.com/theory-cloud/TableTheory/commit/fac264e0ac3862353bbbf51578f5c854fe144a4a))
+* **examples/blog:** flatten CRLF in untrusted email fields ([7495924](https://github.com/theory-cloud/TableTheory/commit/74959249fb711eaf937039118e46f2c8cefd17b1))
+* **go:** move every module to Go 1.27.3 ([2865c9d](https://github.com/theory-cloud/TableTheory/commit/2865c9deafc5151de30bc40c79a4e4f23539efdc))
+* **go:** move every module to Go 1.27.3 ([3088a34](https://github.com/theory-cloud/TableTheory/commit/3088a34331a6b9badf35b8737d47d65d90c5f53f))
+* **lambda:** deploy on provided.al2023 and judge templates in the gate ([c6464de](https://github.com/theory-cloud/TableTheory/commit/c6464dec6aff1e02bac782efb7af35e8f5b60e89))
+
 ## [6.1.0](https://github.com/theory-cloud/TableTheory/compare/v6.1.0-rc...v6.1.0) (2026-10-18)
 
 Stable promotion of `v6.1.0-rc`.
