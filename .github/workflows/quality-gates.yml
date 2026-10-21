@@ -11,7 +11,12 @@ permissions:
 
 jobs:
   rubric:
-    runs-on: ubuntu-latest
+    # Pinned rather than left on ubuntu-latest: this job installs an apt package
+    # and runs the image's Docker and system tool versions, so the platform is
+    # part of the contract. 26.04 is the image ubuntu-latest is migrating to
+    # (Oct 19 - Nov 19, 2026); ripgrep is available there and every toolchain the
+    # rubric uses is installed by an action or `go install` rather than inherited.
+    runs-on: ubuntu-26.04
     services:
       dynamodb-local:
         image: amazon/dynamodb-local:3.1.0

@@ -24,7 +24,7 @@ Building on the Todo app, this example introduces more advanced TableTheory feat
 ### 1. Start DynamoDB Local
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 2. Run the Application

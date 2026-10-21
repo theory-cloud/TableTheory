@@ -101,7 +101,7 @@ zip function.zip bootstrap
 # Create function
 aws lambda create-function \
   --function-name theorydb-example \
-  --runtime provided.al2 \
+  --runtime provided.al2023 \
   --role arn:aws:iam::YOUR_ACCOUNT:role/lambda-execution-role \
   --handler bootstrap \
   --zip-file fileb://function.zip \
