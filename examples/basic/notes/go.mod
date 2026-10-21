@@ -2,7 +2,7 @@ module github.com/theory-cloud/tabletheory/v6/examples/basic/notes
 
 go 1.27
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
