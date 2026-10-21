@@ -138,11 +138,7 @@ docker-up:
 		echo "DynamoDB Local is already running"; \
 	else \
 		if [ -f docker-compose.yml ]; then \
-			if command -v docker-compose > /dev/null 2>&1; then \
-				docker-compose up -d dynamodb-local; \
-			else \
-				docker compose up -d dynamodb-local; \
-			fi; \
+			docker compose up -d dynamodb-local; \
 		else \
 			if docker ps -a --format '{{.Names}}' | grep -qx 'dynamodb-local'; then \
 				docker start dynamodb-local; \
@@ -169,11 +165,7 @@ docker-up:
 docker-down:
 	@echo "Stopping DynamoDB Local..."
 	@if [ -f docker-compose.yml ]; then \
-		if command -v docker-compose > /dev/null 2>&1; then \
-			docker-compose stop dynamodb-local; \
-		else \
-			docker compose stop dynamodb-local; \
-		fi; \
+		docker compose stop dynamodb-local; \
 	elif docker ps --format '{{.Names}}' | grep -qx 'dynamodb-local'; then \
 		docker stop dynamodb-local; \
 	else \
@@ -184,11 +176,7 @@ docker-down:
 docker-clean:
 	@echo "Removing DynamoDB Local container..."
 	@if [ -f docker-compose.yml ]; then \
-		if command -v docker-compose > /dev/null 2>&1; then \
-			docker-compose down; \
-		else \
-			docker compose down; \
-		fi; \
+		docker compose down; \
 		echo "Containers removed"; \
 	elif docker ps -a --format '{{.Names}}' | grep -qx 'dynamodb-local'; then \
 		docker rm -f dynamodb-local; \
