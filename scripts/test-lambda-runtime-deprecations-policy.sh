@@ -105,11 +105,60 @@ write_surface() {
   printf '%s' "${content}" >"${root}/${relative}"
 }
 
+# write_surface_verbatim <repository root> <relative path> < content-on-stdin>
+# For content that contains backticks or dollar signs, where shell quoting would
+# otherwise mangle a fenced snippet.
+write_surface_verbatim() {
+  local root="$1"
+  local relative="$2"
+
+  mkdir -p "${root}/$(dirname "${relative}")"
+  cat >"${root}/${relative}"
+}
+
+# The declared surfaces of the two classes added with the SAM/snippet scope,
+# restated here so a probe that targets one of them fails loudly if the scope
+# moves.
+template_a="examples/blog/deployment/sam-template.yaml"
+template_b="examples/multi-tenant/deployment/template.yaml"
+snippet_a="examples/lambda/README.md"
+
+# write_healthy_tree <repository root>
+# Every declared surface of every class, present and current: 5 surfaces and 5
+# declarations (one per CDK stack, one per template, one snippet flag).
+write_healthy_tree() {
+  local root="$1"
+
+  mkdir -p "${root}/scripts" "${root}/docs"
+  write_surface "${root}" "${surface_a}" "runtime: lambda.Runtime.NODEJS_24_X,
+"
+  write_surface "${root}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL2023,
+"
+  write_surface "${root}" "${template_a}" "Globals:
+  Function:
+    Runtime: provided.al2023
+"
+  write_surface "${root}" "${template_b}" "Globals:
+  Function:
+    Runtime: provided.al2023
+"
+  write_surface_verbatim "${root}" "${snippet_a}" <<'SNIPPET'
+### Deploy with AWS CLI
+
+```bash
+aws lambda create-function \
+  --function-name theorydb-example \
+  --runtime provided.al2023 \
+  --handler bootstrap
+```
+SNIPPET
+}
+
 # --- the real tree, through the shipped wrapper -----------------------------
 # A scanner-level probe, not a predicate probe: these are the shipped gate's own
 # summary numbers over the real scanned surfaces.
-expect_success_contains "surfaces 2" bash "${wrapper}"
-expect_success_contains "declarations 4" bash "${wrapper}"
+expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" bash "${wrapper}"
+expect_success_contains "declarations 7" bash "${wrapper}"
 expect_success_contains "deprecated set 18" bash "${wrapper}"
 expect_success_contains "supported set 8" bash "${wrapper}"
 
@@ -143,16 +192,116 @@ expect_failure_reports_a_fail_line \
   "scan root examples/cdk-multilang/lib is missing" \
   node "${synthetic_checker}" --self-test
 
-# A healthy synthetic tree: both declared surfaces present, both current.
-write_surface "${synthetic}" "${surface_a}" "runtime: lambda.Runtime.NODEJS_24_X,
-"
-write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL2023,
-"
-expect_success_contains "surfaces 2" node "${synthetic_checker}"
-expect_success_contains "declarations 2" node "${synthetic_checker}"
+# A healthy synthetic tree: every declared surface of every class present and
+# current.
+write_healthy_tree "${synthetic}"
+expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" node "${synthetic_checker}"
+expect_success_contains "declarations 5" node "${synthetic_checker}"
 expect_success_contains \
-  "self-test 53 synthetic surfaces + 2 scope cases + 1 entry-point probe" \
+  "self-test 75 synthetic surfaces + 6 scope cases + 1 entry-point probe" \
   node "${synthetic_checker}" --self-test
+
+# --- templates and snippets are judged, not merely walked -------------------
+# The class this gate could not see before: a SAM Globals runtime is a YAML
+# scalar, so `Runtime: provided.al2` shipped while every check stayed green.
+write_surface "${synthetic}" "${template_a}" "Globals:
+  Function:
+    Runtime: provided.al2
+"
+expect_failure_contains \
+  "${template_a}:3 Runtime: provided.al2 declares 'provided.al2', which AWS has deprecated" \
+  node "${synthetic_checker}"
+
+# The same value in a normally formatted CloudFormation JSON template resolves
+# through the same rule.
+write_surface "${synthetic}" "${template_a}" "{
+  \"Resources\": {
+    \"Function\": {
+      \"Properties\": {
+        \"Runtime\": \"provided.al2\"
+      }
+    }
+  }
+}
+"
+expect_failure_contains \
+  "declares 'provided.al2', which AWS has deprecated" \
+  node "${synthetic_checker}"
+
+write_surface "${synthetic}" "${template_a}" "Globals:
+  Function:
+    Runtime: ruby3.2
+"
+expect_failure_contains \
+  "declares 'ruby3.2', which is neither a deprecated runtime nor a supported pinned runtime" \
+  node "${synthetic_checker}"
+
+# A copy-paste deploy snippet is judged at the flag it writes, inside its fence.
+write_surface_verbatim "${synthetic}" "${snippet_a}" <<'SNIPPET'
+### Deploy with AWS CLI
+
+```bash
+aws lambda create-function \
+  --function-name theorydb-example \
+  --runtime provided.al2 \
+  --handler bootstrap
+```
+SNIPPET
+expect_failure_contains \
+  "${snippet_a}:6 --runtime provided.al2 declares 'provided.al2', which AWS has deprecated" \
+  node "${synthetic_checker}"
+
+# Prose is not a deployment: the same sentence outside a fence declares nothing,
+# so a doc whose only runtime is prose fails closed instead of passing on it.
+write_surface "${synthetic}" "${snippet_a}" "Deploy with \`--runtime provided.al2\` when you need it.
+"
+expect_failure_contains \
+  "declares no modelled Lambda runtime" \
+  node "${synthetic_checker}"
+
+# A template whose runtime is a deploy-time parameter declares nothing readable
+# and fails closed rather than being judged by a guess.
+write_surface "${synthetic}" "${template_a}" "Globals:
+  Function:
+    Runtime: !Ref RuntimeParameter
+"
+expect_failure_contains \
+  "declares no modelled Lambda runtime" \
+  node "${synthetic_checker}"
+
+# --- unmodelled surfaces of the new classes fail closed --------------------
+# A new template nobody declared is caught by the walk over the template roots.
+write_healthy_tree "${synthetic}"
+write_surface "${synthetic}" "examples/blog/deployment/extra-template.yaml" "Globals:
+  Function:
+    Runtime: provided.al2023
+"
+expect_failure_contains \
+  "unmodelled surface(s) declare a Lambda runtime but are not judged: examples/blog/deployment/extra-template.yaml; add each to SCANNED_TEMPLATE_SURFACES" \
+  node "${synthetic_checker}"
+rm -f "${synthetic}/examples/blog/deployment/extra-template.yaml"
+
+# A new deploy doc nobody declared is caught by the walk over the snippet roots,
+# including one that only reaches `docs`.
+write_surface "${synthetic}" "docs/examples/new-deploy.md" "\`\`\`bash
+aws lambda create-function --runtime provided.al2023 --handler bootstrap
+\`\`\`
+"
+expect_failure_contains \
+  "unmodelled surface(s) declare a Lambda runtime but are not judged: docs/examples/new-deploy.md; add each to SCANNED_SNIPPET_SURFACES" \
+  node "${synthetic_checker}"
+rm -rf "${synthetic}/docs/examples"
+
+# A declared surface that declares nothing is refused, so the scope cannot be
+# narrowed by emptying a template.
+write_healthy_tree "${synthetic}"
+write_surface "${synthetic}" "${template_b}" "# Runtime: provided.al2023
+Description: no runtime here
+"
+expect_failure_contains \
+  "declared surface ${template_b} declares no modelled Lambda runtime" \
+  node "${synthetic_checker}"
+write_healthy_tree "${synthetic}"
 
 # --- deprecated declarations ------------------------------------------------
 # A deprecated declaration fails and is reported at file:line with the idiom the
@@ -277,31 +426,27 @@ expect_failure_contains \
 # `lambda.Runtime.PROVIDED_AL2023.bundlingImage` reads the bundling image of the
 # runtime the `runtime:` line already declared. Declarations are counted per
 # surface by the runtime they resolve to, so adding the property read must not
-# move the count.
-write_surface "${synthetic}" "${surface_a}" "runtime: lambda.Runtime.PROVIDED_AL2023,
-"
-write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL2023,
-"
-expect_success_contains "declarations 2" node "${synthetic_checker}"
+# move the count: 5 declarations across the 5 surfaces, not 6.
+write_healthy_tree "${synthetic}"
+expect_success_contains "declarations 5" node "${synthetic_checker}"
 
-# The same tree with the bundling-image read added: still two, not three.
+# The same tree with the bundling-image read added: still five, not six.
 write_surface "${synthetic}" "${surface_a}" "runtime: lambda.Runtime.PROVIDED_AL2023,
 code: lambda.Code.fromAsset(dir, {
   bundling: { image: lambda.Runtime.PROVIDED_AL2023.bundlingImage },
 }),
 "
-expect_success_contains "declarations 2" node "${synthetic_checker}"
+expect_success_contains "declarations 5" node "${synthetic_checker}"
 
 # A deprecated runtime read the same way is still one violation, not two, and
 # the property read does not hide it.
 write_surface "${synthetic}" "${surface_a}" "runtime: lambda.Runtime.NODEJS_18_X,
 bundling: { image: lambda.Runtime.NODEJS_18_X.bundlingImage },
 "
-write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL2023,
-"
 expect_failure_contains \
-  "1 Lambda runtime declaration(s) are deprecated or unmodelled (2 declarations across 2 surfaces)" \
+  "1 Lambda runtime declaration(s) are deprecated or unmodelled (5 declarations across 5 surfaces)" \
   node "${synthetic_checker}"
+write_healthy_tree "${synthetic}"
 
 # --- comments cannot hide a declaration, nor invent one ---------------------
 # The original hostile wrote a block comment between `fromString(` and its
@@ -350,6 +495,6 @@ runtime: lambda.Runtime.fromString(/* keep */ 'nodejs24.x'), // current
 "
 write_surface "${synthetic}" "${surface_b}" "runtime: lambda.Runtime.PROVIDED_AL2023,
 "
-expect_success_contains "surfaces 2" node "${synthetic_checker}"
+expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" node "${synthetic_checker}"
 
 echo "lambda-runtime-deprecations-policy-test: PASS"

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69.0.0", "wheel"]
+requires = ["setuptools>=77.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,10 +7,8 @@ name = "tabletheory-py"
 description = "TableTheory Python implementation for DynamoDB"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { file = "LICENSE" }
-classifiers = [
-    "License :: OSI Approved :: Apache Software License",
-]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dynamic = ["version"]
 dependencies = [
     "boto3>=1.42.49",
@@ -31,7 +29,6 @@ dev = [
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-license-files = ["LICENSE"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

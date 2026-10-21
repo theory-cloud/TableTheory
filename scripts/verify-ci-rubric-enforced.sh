@@ -237,10 +237,13 @@ fi
 # not on the bare path. The bare paths also appear in the checker's header
 # comment, so an unanchored needle would still match that prose after the arrays
 # were emptied; anchoring on the quoted element pins the constant instead of the
-# comment. The single-element SCAN_ROOTS array carries its closing bracket in the
-# needle for the same reason. The checker's own self-test independently fails
-# when SCANNED_SURFACES or SCAN_ROOTS drift from their EXPECTED_* copies, so the
-# pair covers both the constant being present and the two copies agreeing.
+# comment. Each of the three surface classes is pinned, so the template and
+# snippet classes cannot be dropped from the scope without failing here. The
+# single-element SCAN_ROOTS array carries its closing bracket in the needle for
+# the same reason. The checker's own self-test independently fails when
+# SCANNED_SURFACES, SCANNED_TEMPLATE_SURFACES, SCANNED_SNIPPET_SURFACES or the
+# scan roots drift from their EXPECTED_* copies, so the pair covers both the
+# constant being present and the two copies agreeing.
 runtime_checker="scripts/check-lambda-runtime-deprecations.mjs"
 if [[ ! -f "${runtime_checker}" ]]; then
   echo "ci-rubric: FAIL (missing ${runtime_checker})"
@@ -249,6 +252,9 @@ else
   for needle in \
     '"examples/cdk-multilang/lib/multilang-demo-stack.ts",' \
     '"examples/cdk-multilang/lib/tabletheory-ttl-archive.ts",' \
+    '"examples/blog/deployment/sam-template.yaml",' \
+    '"examples/multi-tenant/deployment/template.yaml",' \
+    '"examples/lambda/README.md"' \
     '"examples/cdk-multilang/lib"]'; do
     grep -Fq -- "${needle}" "${runtime_checker}" || {
       echo "ci-rubric: ${runtime_checker}: must pin the scanned scope entry ${needle}"
