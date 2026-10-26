@@ -162,7 +162,7 @@ expect_failure_contains \
   node "${checker}" "${tmpdir}/empty-report.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang
 
 # Positive fixed-graph guard for the retired AWS-bundled brace-expansion exception.
-# examples/cdk-multilang now pins aws-cdk-lib 2.273.0, which bundles brace-expansion
+# examples/cdk-multilang now pins aws-cdk-lib 2.274.0, which bundles brace-expansion
 # 5.0.12 (the fixed version for GHSA-q2hr-2g5m-vwhr / qhr7-859c-m2p7 / 6j4f-fj2g-mc7p).
 # This guard keeps that state honest: it asserts the actual bundled graph, proves the
 # bundled minimatch still accepts the bundled brace-expansion, refuses any vulnerable
