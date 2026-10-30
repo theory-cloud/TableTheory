@@ -506,4 +506,154 @@ write_surface "${synthetic}" "${surface_b}" "const fn = { runtime: lambda.Runtim
 "
 expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" node "${synthetic_checker}"
 
+# --- hostile source shapes (R37) --------------------------------------------
+# A regex character class can contain the character pairs a comment stripper
+# treats as comment openers. The declaration beside it must still be judged.
+write_healthy_tree "${synthetic}"
+write_surface "${synthetic}" "${surface_a}" "const marker = /[//]/; const re = /[/*]/; const fn = { runtime: lambda.Runtime.NODEJS_18_X };
+"
+expect_failure_reports_a_fail_line \
+  "${surface_a}:1 lambda.Runtime.NODEJS_18_X declares 'nodejs18.x', which AWS has deprecated" \
+  node "${synthetic_checker}"
+
+# A template expression is executable code, not opaque text.
+write_surface_verbatim "${synthetic}" "${surface_a}" <<'TS'
+const note = `${lambda.Runtime.NODEJS_18_X}`;
+const fn = { runtime: lambda.Runtime.NODEJS_24_X };
+TS
+expect_failure_reports_a_fail_line \
+  "declares 'nodejs18.x', which AWS has deprecated" \
+  node "${synthetic_checker}"
+
+# Ordinary division is not a comment opener and does not change the verdict.
+write_healthy_tree "${synthetic}"
+write_surface "${synthetic}" "${surface_a}" "const ratio = total / count; const fn = { runtime: lambda.Runtime.NODEJS_24_X };
+"
+expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" node "${synthetic_checker}"
+
+# A source the parser rejects fails closed even when the recovered text still
+# contains a supported runtime.
+write_surface "${synthetic}" "${surface_a}" "function ( {
+const fn = { runtime: lambda.Runtime.NODEJS_24_X };
+"
+expect_failure_reports_a_fail_line \
+  "could not be parsed as TypeScript" \
+  node "${synthetic_checker}"
+write_healthy_tree "${synthetic}"
+
+# --- hostile template shapes (R50) ------------------------------------------
+# Flow YAML and compact JSON never put Runtime at the start of a line.
+write_surface "${synthetic}" "${template_a}" "{Globals: {Function: {Runtime: provided.al2}}}
+"
+expect_failure_reports_a_fail_line \
+  "declares 'provided.al2', which AWS has deprecated" \
+  node "${synthetic_checker}"
+
+write_surface "${synthetic}" "${template_a}" "{Globals: {Function: {Runtime: provided.al2023}}}
+"
+expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" node "${synthetic_checker}"
+
+write_surface "${synthetic}" "${template_a}" '{"Resources":{"Function":{"Properties":{"Runtime":"provided.al2"}}}}
+'
+expect_failure_reports_a_fail_line \
+  "declares 'provided.al2', which AWS has deprecated" \
+  node "${synthetic_checker}"
+
+write_surface "${synthetic}" "${template_a}" '{"Resources":{"Function":{"Properties":{"Runtime":"provided.al2023"}}}}
+'
+expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" node "${synthetic_checker}"
+
+# The resource runtime is effective over the global. A supported global does not
+# hide a deprecated resource override.
+write_surface "${synthetic}" "${template_a}" "Globals:
+  Function:
+    Runtime: provided.al2023
+Resources:
+  Fn:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: provided.al2
+"
+expect_failure_reports_a_fail_line \
+  "declares 'provided.al2', which AWS has deprecated" \
+  node "${synthetic_checker}"
+
+# A deprecated global that every runtime-bearing resource overrides is not the
+# effective runtime, so it does not fail.
+write_surface "${synthetic}" "${template_a}" "Globals:
+  Function:
+    Runtime: provided.al2
+Resources:
+  Fn:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: provided.al2023
+"
+expect_success_contains "declarations 5" node "${synthetic_checker}"
+
+# A dynamic resource override is what deploys, so a supported global cannot
+# rescue it.
+write_surface "${synthetic}" "${template_a}" "Globals:
+  Function:
+    Runtime: provided.al2023
+Resources:
+  Fn:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: !Ref RuntimeParameter
+"
+expect_failure_reports_a_fail_line \
+  "declares no modelled Lambda runtime" \
+  node "${synthetic_checker}"
+
+# The same ambiguity in JSON, in an undeclared template, is discovered by the
+# coverage walk and fails closed on the dynamic effective runtime.
+write_surface "${synthetic}" "examples/blog/deployment/extra.json" '{"Resources":{"Fn":{"Type":"AWS::Serverless::Function","Properties":{"Runtime":{"Ref":"RuntimeParameter"}}}}}'
+expect_failure_reports_a_fail_line \
+  "declares no modelled Lambda runtime" \
+  node "${synthetic_checker}"
+rm -f "${synthetic}/examples/blog/deployment/extra.json"
+
+# A malformed declared template is parse ambiguity, not an empty template.
+write_surface "${synthetic}" "${template_a}" "Globals:
+  Function:
+    Runtime: provided.al2023
+Resources: [
+"
+expect_failure_reports_a_fail_line \
+  "could not be parsed as YAML" \
+  node "${synthetic_checker}"
+
+# An undeclared flow template is still discovered, and one that declares a
+# deprecated runtime is judged rather than skipped.
+write_healthy_tree "${synthetic}"
+write_surface "${synthetic}" "examples/blog/deployment/extra.yaml" "{Globals: {Function: {Runtime: provided.al2}}}
+"
+expect_failure_contains \
+  "unmodelled surface(s) declare a Lambda runtime but are not judged: examples/blog/deployment/extra.yaml" \
+  node "${synthetic_checker}"
+rm -f "${synthetic}/examples/blog/deployment/extra.yaml"
+
+# The same is true of a compact JSON template nobody declared.
+write_surface "${synthetic}" "examples/blog/deployment/extra.json" '{"Resources":{"Function":{"Properties":{"Runtime":"provided.al2"}}}}'
+expect_failure_contains \
+  "unmodelled surface(s) declare a Lambda runtime but are not judged: examples/blog/deployment/extra.json" \
+  node "${synthetic_checker}"
+rm -f "${synthetic}/examples/blog/deployment/extra.json"
+
+# An unrelated JSON/YAML document is not a template: an invalid-JSON file with
+# no CloudFormation marker and no Runtime key is ignored, not parsed as a
+# template and not reported.
+write_surface "${synthetic}" "docs/search.json" "---
+layout: null
+---
+No runtime here
+"
+expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" node "${synthetic_checker}"
+rm -f "${synthetic}/docs/search.json"
+
+# Ordinary valid sources and joined work keep passing after the hostile cases.
+write_healthy_tree "${synthetic}"
+expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" node "${synthetic_checker}"
+
 echo "lambda-runtime-deprecations-policy-test: PASS"

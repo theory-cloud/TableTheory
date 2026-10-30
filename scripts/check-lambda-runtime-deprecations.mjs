@@ -2248,4 +2248,15 @@ function main() {
   );
 }
 
-main();
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invokedDirectly) main();
+
+// The synthesized-template assertion reuses the same verdict sets, so a runtime
+// added to this gate is judged the same way after `cdk synth`.
+export {
+  DEPRECATED_LAMBDA_RUNTIMES,
+  SUPPORTED_LAMBDA_RUNTIMES,
+  runtimeIdentifierFromLiteral,
+};
