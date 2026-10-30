@@ -29,8 +29,11 @@ writes payment state:
 Zero or negative limits are fail-closed: they deny positive payments and are not
 an unlimited legacy mode. Minute and day usage counters are incremented with a
 conditional `ADD` in the same DynamoDB transaction as the payment and
-transaction records, so concurrent requests cannot overshoot. A refusal leaves
-no payment, transaction, counter, webhook, or idempotency record behind.
+transaction records, so concurrent requests cannot overshoot. A merchant-policy
+refusal before the idempotency reservation leaves no payment, transaction,
+counter, webhook, or idempotency record behind. A rate-limit refusal rolls back
+the payment, transaction, and counter writes and records the 429 against the
+idempotency key for replay.
 
 Merchant webhooks are public HTTPS only. The sender validates the URL and every
 DNS answer before record creation, before each attempt, and on every redirect;
