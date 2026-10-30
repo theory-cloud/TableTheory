@@ -94,7 +94,7 @@ import type { TransactAction, TransactGetAction } from './transaction.js';
 import { UpdateBuilder } from './update-builder.js';
 import { type EncryptionProvider } from './encryption.js';
 import { type WritePolicyOptions } from './write-policy.js';
-export interface TheorydbClientOptions {
+export interface TheorydbClientOptions<TNumberMode extends NumberUnmarshalMode = NumberUnmarshalMode> {
     encryption?: EncryptionProvider;
     now?: () => string;
     sendOptions?: SendOptions;
@@ -114,15 +114,39 @@ export interface TheorydbClientOptions {
      * are precision-safe for integers outside the safe range and high-precision
      * decimals. Use 'number' only when lossy JavaScript Number conversion is
      * acceptable for a specific client.
+     *
+     * The value is also the client's declared number mode: passing 'number'
+     * constructs a `TheorydbClient<'number'>`, so typed model reads declare N and
+     * NS values as numbers exactly when the runtime produces numbers. Passing
+     * 'string', or omitting the option, constructs a `TheorydbClient<'string'>`.
      */
-    numberUnmarshalMode?: NumberUnmarshalMode;
+    numberUnmarshalMode?: TNumberMode;
 }
+/**
+ * Requires the option that selects a non-default number mode.
+ *
+ * The declared mode is only truthful when the option that sets it is present, so
+ * a `TheorydbClient<'number'>` cannot be handed an options object that omits the
+ * option or contradicts it. The default mode stays omissible. Without this,
+ * `{}` or `{ numberUnmarshalMode: 'string' }` next to a number declaration would
+ * type-check while the client ran in string mode.
+ *
+ * TypeScript cannot reject an explicit type argument on a one-argument
+ * construction, so `new TheorydbClient<'number'>(ddb)` still compiles; that form
+ * is not part of the supported surface. Pass the option and let the constructor
+ * infer the mode.
+ */
+type NumberModeOption<N extends NumberUnmarshalMode> = N extends 'number' ? {
+    numberUnmarshalMode: 'number';
+} : {
+    numberUnmarshalMode?: N;
+};
 type ModelKey<TItem extends Record<string, unknown>> = Partial<TItem>;
 type ModelField<TItem extends Record<string, unknown>> = Extract<keyof TItem, string>;
 export declare class ModelRepository<TItem extends Record<string, unknown> = Record<string, unknown>> {
     private readonly client;
     private readonly modelDef;
-    constructor(client: TheorydbClient, modelDef: Model<TItem>);
+    constructor(client: TheorydbClient<NumberUnmarshalMode>, modelDef: Model<TItem>);
     create(item: TItem, opts?: {
         ifNotExists?: boolean;
     }): Promise<void>;
@@ -150,7 +174,27 @@ export declare class TheorydbClient<TNumberMode extends NumberUnmarshalMode = 's
     private readonly sendOptions;
     private readonly unmarshalOptions;
     private readonly redactItemImages;
-    constructor(ddb: DynamoDBClient, opts?: TheorydbClientOptions);
+    /**
+     * The number mode this client is declared with, defaulted the same way the
+     * constructor defaults it.
+     *
+     * The field is deliberately typed with the class parameter rather than the
+     * widened `NumberUnmarshalMode`, so a `TheorydbClient<'string'>` is not
+     * assignable where a `TheorydbClient<'number'>` is required. A declared mode
+     * therefore has to match the option that produced it instead of resolving to
+     * the recursive structural comparison, which would accept either side.
+     */
+    private readonly numberMode;
+    constructor(ddb: DynamoDBClient, opts?: TheorydbClientOptions<TNumberMode> & NumberModeOption<TNumberMode>);
+    /**
+     * Builds a derived client that keeps this client's declared number mode.
+     *
+     * The constructor narrows its mode option to the declared type parameter, and
+     * every derived client copies the mode it was constructed with, so the cast
+     * here is the single place the stored mode and the type parameter are
+     * asserted to be the same value.
+     */
+    private static derive;
     /**
      * Maps an SDK error to the typed TableTheory error, applying this client's
      * configured cause redaction. Every client write/read path funnels through

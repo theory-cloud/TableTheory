@@ -69,7 +69,9 @@ import {
   type WritePolicyOptions,
 } from './write-policy.js';
 
-export interface TheorydbClientOptions {
+export interface TheorydbClientOptions<
+  TNumberMode extends NumberUnmarshalMode = NumberUnmarshalMode,
+> {
   encryption?: EncryptionProvider;
   now?: () => string;
   sendOptions?: SendOptions;
@@ -89,9 +91,32 @@ export interface TheorydbClientOptions {
    * are precision-safe for integers outside the safe range and high-precision
    * decimals. Use 'number' only when lossy JavaScript Number conversion is
    * acceptable for a specific client.
+   *
+   * The value is also the client's declared number mode: passing 'number'
+   * constructs a `TheorydbClient<'number'>`, so typed model reads declare N and
+   * NS values as numbers exactly when the runtime produces numbers. Passing
+   * 'string', or omitting the option, constructs a `TheorydbClient<'string'>`.
    */
-  numberUnmarshalMode?: NumberUnmarshalMode;
+  numberUnmarshalMode?: TNumberMode;
 }
+
+/**
+ * Requires the option that selects a non-default number mode.
+ *
+ * The declared mode is only truthful when the option that sets it is present, so
+ * a `TheorydbClient<'number'>` cannot be handed an options object that omits the
+ * option or contradicts it. The default mode stays omissible. Without this,
+ * `{}` or `{ numberUnmarshalMode: 'string' }` next to a number declaration would
+ * type-check while the client ran in string mode.
+ *
+ * TypeScript cannot reject an explicit type argument on a one-argument
+ * construction, so `new TheorydbClient<'number'>(ddb)` still compiles; that form
+ * is not part of the supported surface. Pass the option and let the constructor
+ * infer the mode.
+ */
+type NumberModeOption<N extends NumberUnmarshalMode> = N extends 'number'
+  ? { numberUnmarshalMode: 'number' }
+  : { numberUnmarshalMode?: N };
 
 type ModelKey<TItem extends Record<string, unknown>> = Partial<TItem>;
 type ModelField<TItem extends Record<string, unknown>> = Extract<
@@ -103,7 +128,7 @@ export class ModelRepository<
   TItem extends Record<string, unknown> = Record<string, unknown>,
 > {
   constructor(
-    private readonly client: TheorydbClient,
+    private readonly client: TheorydbClient<NumberUnmarshalMode>,
     private readonly modelDef: Model<TItem>,
   ) {}
 
@@ -178,18 +203,48 @@ export class TheorydbClient<
   private readonly sendOptions: SendOptions | undefined;
   private readonly unmarshalOptions: UnmarshalOptions;
   private readonly redactItemImages: boolean;
+  /**
+   * The number mode this client is declared with, defaulted the same way the
+   * constructor defaults it.
+   *
+   * The field is deliberately typed with the class parameter rather than the
+   * widened `NumberUnmarshalMode`, so a `TheorydbClient<'string'>` is not
+   * assignable where a `TheorydbClient<'number'>` is required. A declared mode
+   * therefore has to match the option that produced it instead of resolving to
+   * the recursive structural comparison, which would accept either side.
+   */
+  private readonly numberMode: TNumberMode;
 
   constructor(
     private readonly ddb: DynamoDBClient,
-    opts: TheorydbClientOptions = {},
+    opts: TheorydbClientOptions<TNumberMode> &
+      NumberModeOption<TNumberMode> = {} as never,
   ) {
+    const configured = (opts as { numberUnmarshalMode?: TNumberMode })
+      .numberUnmarshalMode;
     this.encryption = opts.encryption;
     this.now = opts.now ?? (() => nowRfc3339Nano());
     this.sendOptions = opts.sendOptions;
+    this.numberMode = (configured ?? 'string') as TNumberMode;
     this.unmarshalOptions = {
-      numberMode: opts.numberUnmarshalMode ?? 'string',
+      numberMode: this.numberMode,
     };
     this.redactItemImages = opts.redactItemImages ?? false;
+  }
+
+  /**
+   * Builds a derived client that keeps this client's declared number mode.
+   *
+   * The constructor narrows its mode option to the declared type parameter, and
+   * every derived client copies the mode it was constructed with, so the cast
+   * here is the single place the stored mode and the type parameter are
+   * asserted to be the same value.
+   */
+  private static derive<T extends NumberUnmarshalMode>(
+    ddb: DynamoDBClient,
+    opts: TheorydbClientOptions<T>,
+  ): TheorydbClient<T> {
+    return new TheorydbClient<T>(ddb, opts as never);
   }
 
   /**
@@ -213,11 +268,11 @@ export class TheorydbClient<
   }
 
   withSendOptions(sendOptions?: SendOptions): TheorydbClient<TNumberMode> {
-    const next = new TheorydbClient<TNumberMode>(this.ddb, {
+    const next = TheorydbClient.derive<TNumberMode>(this.ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(sendOptions ? { sendOptions } : {}),
-      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+      numberUnmarshalMode: this.numberMode,
       redactItemImages: this.redactItemImages,
     });
     next.register(...this.models.values());
@@ -225,11 +280,11 @@ export class TheorydbClient<
   }
 
   withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient<TNumberMode> {
-    const next = new TheorydbClient<TNumberMode>(ddb, {
+    const next = TheorydbClient.derive<TNumberMode>(ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
-      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+      numberUnmarshalMode: this.numberMode,
       redactItemImages: this.redactItemImages,
     });
     next.register(...this.models.values());
@@ -256,11 +311,11 @@ export class TheorydbClient<
    * shared registry.
    */
   fork(): TheorydbClient<TNumberMode> {
-    return new TheorydbClient<TNumberMode>(this.ddb, {
+    return TheorydbClient.derive<TNumberMode>(this.ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
-      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+      numberUnmarshalMode: this.numberMode,
       redactItemImages: this.redactItemImages,
     });
   }
