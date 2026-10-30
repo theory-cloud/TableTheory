@@ -93,6 +93,7 @@ export interface Step {
   transact_write?: TransactWriteRequest;
   actual?: TransitionActual;
   event?: TransitionEvent;
+  event_binding?: Record<string, string>;
   ms?: number;
   save?: Record<string, string>;
   expect?: Expectation;

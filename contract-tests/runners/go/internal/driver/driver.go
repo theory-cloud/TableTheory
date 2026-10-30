@@ -126,8 +126,9 @@ type TransitionActual struct {
 }
 
 type TransitionEvent struct {
-	Model string
-	Item  map[string]any
+	Model   string
+	Item    map[string]any
+	Binding map[string]string
 }
 
 func MapError(err error) ErrorCode {
@@ -790,6 +791,7 @@ func (d *TheorydbDriver) TransitionAppendEvent(ctx context.Context, actual Trans
 		Event:           eventModel,
 		Set:             actual.Set,
 		ExpectedVersion: actual.ExpectedVersion,
+		EventBinding:    event.Binding,
 	})
 }
 

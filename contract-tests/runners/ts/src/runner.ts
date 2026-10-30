@@ -282,6 +282,7 @@ async function runStep(opts: {
           model: event.model,
           item: event.item,
         },
+        step.event_binding,
       ),
     );
     assertExpectation(step.expect, { err, model, vars });

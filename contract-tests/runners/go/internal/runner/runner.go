@@ -244,8 +244,9 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 			Set:             step.Actual.Set,
 			ExpectedVersion: step.Actual.ExpectedVersion,
 		}, driver.TransitionEvent{
-			Model: step.Event.Model,
-			Item:  step.Event.Item,
+			Model:   step.Event.Model,
+			Item:    step.Event.Item,
+			Binding: step.EventBinding,
 		})
 		r.assertStepResult(t, step.Expect, nil, err, nil, model)
 		return
