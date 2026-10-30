@@ -46,6 +46,8 @@ if [[ "${have_go}" -eq 1 ]]; then
   echo "cross-runtime-contracts: go"
   # Serialization table, Go column (writer-path preflight conformance).
   go test ./pkg/marshal/ -run 'TestSharedConformanceTableGoColumn' -count=1
+  # Lifecycle-clock table, Go column (lifecycle stamping on both writer paths).
+  go test ./pkg/marshal/ -run 'TestSharedLifecycleClockTableGoColumn' -count=1
   if [[ -f "contract-tests/runners/go/go.mod" ]]; then
     # Transaction-cancellation fixture, Go column.
     (cd contract-tests/runners/go && go test . -run 'TestContract_TransactionCancellation' -count=1)
@@ -61,6 +63,8 @@ if [[ "${have_node}" -eq 1 ]]; then
   fi
   # Serialization table, TypeScript column.
   (cd ts && npm exec -- tsx test/unit/preflight-conformance.test.ts)
+  # Lifecycle-clock table, TypeScript column.
+  (cd ts && npm exec -- tsx test/unit/lifecycle-clock-conformance.test.ts)
   if [[ -f "contract-tests/runners/ts/package.json" ]]; then
     if [[ ! -d "contract-tests/runners/ts/node_modules" ]]; then
       npm --prefix contract-tests/runners/ts ci --ignore-scripts
@@ -76,6 +80,8 @@ if [[ "${have_py}" -eq 1 ]]; then
   echo "cross-runtime-contracts: python"
   # Serialization table, Python column.
   uv --directory py run pytest -q tests/unit/test_preflight_conformance.py
+  # Lifecycle-clock table, Python column.
+  uv --directory py run pytest -q tests/unit/test_lifecycle_clock_conformance.py
   # Transaction-cancellation fixture, Python column.
   uv --directory py run pytest -q ../contract-tests/runners/py/test_contract_cancellation.py
 fi
