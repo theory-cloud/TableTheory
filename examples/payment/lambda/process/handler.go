@@ -31,18 +31,15 @@ var (
 
 // paymentLimitError carries the transient rate-limit refusal. The idempotency
 // middleware records HTTPStatus so a replay returns the same 429 instead of a
-// generic server error.
-type paymentLimitError struct {
-	cause error
-}
+// generic server error. The stored message stays generic; transaction internals
+// are not exposed to the caller.
+type paymentLimitError struct{}
 
-func (e *paymentLimitError) Error() string {
-	return fmt.Sprintf("%s: %v", errPaymentLimitExceeded, e.cause)
-}
+func (*paymentLimitError) Error() string { return errPaymentLimitExceeded.Error() }
 
-func (e *paymentLimitError) Unwrap() error { return errPaymentLimitExceeded }
+func (*paymentLimitError) Unwrap() error { return errPaymentLimitExceeded }
 
-func (e *paymentLimitError) HTTPStatus() int { return http.StatusTooManyRequests }
+func (*paymentLimitError) HTTPStatus() int { return http.StatusTooManyRequests }
 
 // ProcessPaymentRequest represents the payment request payload
 type ProcessPaymentRequest struct {
@@ -270,7 +267,7 @@ func (h *Handler) processPayment(ctx context.Context, merchant *payment.Merchant
 
 	if err != nil {
 		if errors.Is(err, customerrors.ErrConditionFailed) {
-			return nil, &paymentLimitError{cause: err}
+			return nil, &paymentLimitError{}
 		}
 		return nil, fmt.Errorf("failed to process payment: %w", err)
 	}
