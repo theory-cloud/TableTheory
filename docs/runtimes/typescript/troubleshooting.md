@@ -190,14 +190,17 @@ mutated. Until you enable it, dumping the whole error with the default settings 
 still reach the item images; changing that default would change `cause` for every
 consumer, so it belongs to a future major release rather than a change made here.
 
-**Coverage boundary.** The option plumbs through `TheorydbClient`: every error a
-client maps is redacted. Two paths map errors directly and cannot inherit it — the
-three `mapDynamoError` call sites in `lease.ts` and `update-builder`'s `execute()`
-— and there is no standalone TypeScript wrapper equivalent to Python's
-`redacting_client`. That is safe today because no TypeScript or Python code sets
-`ReturnValuesOnConditionCheckFailure`, so those paths cannot carry item images.
-Revisit this boundary if `ALL_OLD` (`ReturnValuesOnConditionCheckFailure`) support
-is ever added.
+**Coverage boundary.** The option is client configuration: the configured
+`TheorydbClient` redacts every error it maps, and every derived client inherits
+the setting — `withSendOptions`, `withDynamoDBClient`, `fork`, and
+`withLambdaTimeout` (which derives through `withSendOptions`). Two paths map
+errors directly and cannot inherit it — the three `mapDynamoError` call sites in
+`lease.ts` and `update-builder`'s `execute()` — and there is no standalone
+TypeScript wrapper equivalent to Python's `redacting_client`. That is safe today
+because no TypeScript or Python code sets
+`ReturnValuesOnConditionCheckFailure`, so those paths cannot carry item images;
+a custom client or middleware, or future `ALL_OLD` support, would change that.
+Revisit this boundary if failure item images are ever requested.
 
 **Compatibility note:** TypeScript previously reported EVERY transaction cancellation as `ErrConditionFailed`.
 Throttling and conflict cancellations now report `ErrThrottled` / `ErrTransactionConflict`, and a cancellation with no
