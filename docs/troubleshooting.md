@@ -193,6 +193,8 @@ uses. A component you hand a raw client to does not inherit the option — a
 `redacting_client` from `tabletheory_py.aws_errors` (it is not a root export):
 
 ```python
+import boto3
+
 from tabletheory_py import LeaseManager
 from tabletheory_py.aws_errors import redacting_client
 
