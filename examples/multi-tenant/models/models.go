@@ -263,6 +263,12 @@ const (
 	RoleMember = "member"
 	RoleViewer = "viewer"
 
+	// User statuses. Only UserStatusActive may act on an organization route.
+	UserStatusActive    = "active"
+	UserStatusInvited   = "invited"
+	UserStatusSuspended = "suspended"
+	UserStatusDeleted   = "deleted"
+
 	// Project roles
 	ProjectRoleLead      = "lead"
 	ProjectRoleDeveloper = "developer"

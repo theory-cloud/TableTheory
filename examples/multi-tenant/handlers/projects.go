@@ -132,24 +132,22 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(project)
 }
 
-// ListProjects lists all projects in an organization
+// ListProjects lists all projects in an organization. It resolves the caller
+// through the same active-user check every user route uses, so a suspended,
+// invited, deleted, or missing user is refused before the project query runs.
 func (h *ProjectHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
+	user, _, ok := callerOrgUser(h.db, r.Context())
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
-	userID := r.Context().Value("user_id").(string)
 
 	// Ensure proper org ID format
 	if !strings.HasPrefix(orgID, "org#") {
 		orgID = fmt.Sprintf("org#%s", orgID)
-	}
-
-	// Get user to check their role and project access
-	var user models.User
-	if err := h.db.Model(&models.User{}).
-		Where("ID", "=", fmt.Sprintf("%s#%s", orgID, userID)).
-		First(&user); err != nil {
-		http.Error(w, "user not found", http.StatusNotFound)
-		return
 	}
 
 	// Build query

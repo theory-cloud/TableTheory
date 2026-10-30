@@ -219,6 +219,10 @@ func (h *OrganizationHandler) GetOrganization(w http.ResponseWriter, r *http.Req
 		http.Error(w, "organization not found", http.StatusNotFound)
 		return
 	}
+	if _, _, ok := callerOrgUser(h.db, r.Context()); !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	var org models.Organization
 	if err := h.db.Model(&models.Organization{}).
@@ -301,8 +305,15 @@ func (h *OrganizationHandler) UpdateOrganizationSettings(w http.ResponseWriter, 
 	json.NewEncoder(w).Encode(redactOrganization(&org))
 }
 
-// ListOrganizations lists organizations (admin only)
+// ListOrganizations lists organizations. The route is not bound to one
+// organization URL, but it still requires an active stored user principal so a
+// suspended, invited, deleted, or missing user cannot enumerate tenants.
 func (h *OrganizationHandler) ListOrganizations(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := callerOrgUser(h.db, r.Context()); !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	// This would typically be admin-only and include pagination
 	var orgs []models.Organization
 

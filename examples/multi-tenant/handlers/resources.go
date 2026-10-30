@@ -30,8 +30,14 @@ func (h *ResourceHandler) RecordUsage(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 
-	// API key validation should be done in middleware
-	apiKeyID := r.Context().Value("api_key_id").(string)
+	// Usage recording is an API-key route. The identity is attached only by a
+	// trusted entrypoint after verification; a request without it is refused
+	// with a controlled error instead of a type-assertion panic.
+	apiKeyID, ok := apiKeyIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "api key identity required", http.StatusForbidden)
+		return
+	}
 
 	// Ensure proper org ID format
 	if !strings.HasPrefix(orgID, "org#") {
@@ -60,7 +66,15 @@ func (h *ResourceHandler) RecordUsage(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(req.ProjectID, "project#") {
 		req.ProjectID = fmt.Sprintf("project#%s", req.ProjectID)
 	}
-	if !apiKeyAllowsProject(h.db, r.Context(), req.ProjectID) {
+
+	// The key must still be active and bound to this organization, and a
+	// project-scoped key may only record usage for the project it owns.
+	key, ok := callerAPIKey(h.db, r.Context())
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if key.ProjectID != "" && key.ProjectID != req.ProjectID {
 		http.Error(w, "project not found", http.StatusNotFound)
 		return
 	}
@@ -133,8 +147,14 @@ func (h *ResourceHandler) RecordUsage(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// GetUsageReport returns usage report for an organization
+// GetUsageReport returns usage report for an organization. Organization-wide
+// billing usage is restricted to the owner and admin authority that already
+// manages the organization.
 func (h *ResourceHandler) GetUsageReport(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin); !ok {
+		return
+	}
+
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 

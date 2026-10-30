@@ -148,7 +148,9 @@ func TestGetOrganization(t *testing.T) {
 	db := setupTestDB(t)
 	handler := handlers.NewOrganizationHandler(db)
 
-	// Create a test organization first
+	// Create a test organization and the active administrator its routes
+	// require. The non-existent-organization case still needs a stored principal
+	// bound to that organization so the handler reaches the organization lookup.
 	org := &models.Organization{
 		ID:     "org#test-123",
 		Name:   "Test Organization",
@@ -158,6 +160,17 @@ func TestGetOrganization(t *testing.T) {
 	}
 	err := db.Model(org).Create()
 	require.NoError(t, err)
+	for _, orgID := range []string{"org#test-123", "org#non-existent"} {
+		require.NoError(t, db.Model(&models.User{
+			ID:       orgID + "#user#admin",
+			OrgID:    orgID,
+			UserID:   "user#admin",
+			Email:    "admin-" + orgID + "@example.test",
+			OrgEmail: orgID + "#admin@example.test",
+			Role:     models.RoleAdmin,
+			Status:   models.UserStatusActive,
+		}).Create())
+	}
 
 	tests := []struct {
 		name           string
@@ -183,6 +196,7 @@ func TestGetOrganization(t *testing.T) {
 			// The caller's token is bound to the organization it is fetching;
 			// the handler refuses requests for any other organization.
 			ctx := context.WithValue(req.Context(), "org_id", "org#"+tt.orgID)
+			ctx = context.WithValue(ctx, "user_id", "user#admin")
 			req = req.WithContext(ctx)
 
 			rr := httptest.NewRecorder()
@@ -219,6 +233,15 @@ func TestUpdateOrganizationSettings(t *testing.T) {
 	}
 	err := db.Model(org).Create()
 	require.NoError(t, err)
+	require.NoError(t, db.Model(&models.User{
+		ID:       "org#test-456#user#admin",
+		OrgID:    "org#test-456",
+		UserID:   "user#admin",
+		Email:    "settings-admin@example.test",
+		OrgEmail: "org#test-456#settings-admin@example.test",
+		Role:     models.RoleAdmin,
+		Status:   models.UserStatusActive,
+	}).Create())
 
 	// Test updating settings
 	newSettings := models.OrgSettings{
