@@ -2,6 +2,7 @@ package releasestate
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"strings"
@@ -120,6 +121,9 @@ func resolveBindingSource(source string, input TransitionAppendEventInput, actua
 	case source == bindingSourceNextVersion:
 		if input.ExpectedVersion == nil {
 			return nil, fmt.Errorf("nextVersion requires ExpectedVersion")
+		}
+		if *input.ExpectedVersion == math.MaxInt64 {
+			return nil, fmt.Errorf("nextVersion overflows ExpectedVersion %d", *input.ExpectedVersion)
 		}
 		return *input.ExpectedVersion + 1, nil
 	case strings.HasPrefix(source, bindingSourceSetPrefix):
@@ -482,32 +486,51 @@ func bindingContainersEqual(left, right reflect.Value) bool {
 	}
 	switch left.Kind() {
 	case reflect.Map:
-		if left.IsNil() != right.IsNil() || left.Len() != right.Len() {
-			return false
-		}
-		for _, key := range left.MapKeys() {
-			rightValue := right.MapIndex(key)
-			if !rightValue.IsValid() {
-				return false
-			}
-			if !bindingValuesEqual(left.MapIndex(key).Interface(), rightValue.Interface()) {
-				return false
-			}
-		}
-		return true
+		return bindingMapsEqual(left, right)
 	case reflect.Slice, reflect.Array:
-		if left.Len() != right.Len() {
-			return false
-		}
-		for index := 0; index < left.Len(); index++ {
-			if !bindingValuesEqual(left.Index(index).Interface(), right.Index(index).Interface()) {
-				return false
-			}
-		}
-		return true
+		return bindingSequencesEqual(left, right)
 	default:
 		return false
 	}
+}
+
+func bindingMapsEqual(left, right reflect.Value) bool {
+	if left.IsNil() != right.IsNil() || left.Len() != right.Len() {
+		return false
+	}
+	// A map lookup requires the key value to be assignable to the destination
+	// key type. Maps with incompatible key types cannot describe the same
+	// DynamoDB map, so reject before reflect panics.
+	if !left.Type().Key().AssignableTo(right.Type().Key()) {
+		return false
+	}
+	for _, key := range left.MapKeys() {
+		rightValue := right.MapIndex(key)
+		if !rightValue.IsValid() {
+			return false
+		}
+		if !bindingValuesEqual(left.MapIndex(key).Interface(), rightValue.Interface()) {
+			return false
+		}
+	}
+	return true
+}
+
+func bindingSequencesEqual(left, right reflect.Value) bool {
+	// A nil list and an empty list are distinct DynamoDB values. Arrays have
+	// no nil state, so only slices carry that distinction.
+	if left.Kind() == reflect.Slice && left.IsNil() != right.IsNil() {
+		return false
+	}
+	if left.Len() != right.Len() {
+		return false
+	}
+	for index := 0; index < left.Len(); index++ {
+		if !bindingValuesEqual(left.Index(index).Interface(), right.Index(index).Interface()) {
+			return false
+		}
+	}
+	return true
 }
 
 func describeModel(instance any) string {
