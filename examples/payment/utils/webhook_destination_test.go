@@ -405,6 +405,8 @@ func TestIsPublicIP(t *testing.T) {
 		"2001:db8::1",
 		"ff02::1",
 		"::ffff:127.0.0.1",
+		"64:ff9b::10.0.0.1",
+		"64:ff9b:1::1",
 	}
 
 	for _, value := range public {

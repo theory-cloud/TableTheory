@@ -42,6 +42,10 @@ var nonPublicPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("224.0.0.0/4"),
 	netip.MustParsePrefix("240.0.0.0/4"),
 	netip.MustParsePrefix("2001:db8::/32"),
+	// NAT64 prefixes can embed an arbitrary IPv4 address, including a private
+	// one, so they are not accepted as public destinations.
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
 }
 
 // WebhookSender delivers webhooks synchronously inside the calling invocation.
