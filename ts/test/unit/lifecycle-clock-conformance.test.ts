@@ -160,6 +160,11 @@ void test('the shared lifecycle table pins the ts column on both writer paths', 
   assert.deepEqual(table.clock_modes, ['fixed', 'advancing', 'missing']);
   assert.equal(table.rows.length, table.clock_modes.length);
   assert.ok(table.expectations.includes('wall_clock'));
+  const fixedStamp = table.stamps.fixed;
+  assert.ok(
+    fixedStamp !== undefined,
+    'the fixture must declare the fixed stamp',
+  );
 
   for (const row of table.rows) {
     const clock = scenarioClock(row.mode, table.stamps);
@@ -195,21 +200,28 @@ void test('the shared lifecycle table pins the ts column on both writer paths', 
     // A preflight can only reproduce a stamped item when it is given the same
     // clock the writer read. Only the fixed row offers that.
     const supported = row.exact_equality_supported['ts'] === true;
-    const preflightPut = marshalItemForWriterPath(
-      LifecycleClocks,
-      { ...BASE_ITEM },
-      asWriterPath('put'),
-      supported ? { now: table.stamps.fixed } : {},
-    );
     if (supported) {
+      const preflightPut = marshalItemForWriterPath(
+        LifecycleClocks,
+        { ...BASE_ITEM },
+        asWriterPath('put'),
+        { now: fixedStamp },
+      );
       assert.deepEqual(preflightPut, put);
       const preflightTransact = marshalItemForWriterPath(
         LifecycleClocks,
         { ...BASE_ITEM },
         asWriterPath('transact_write'),
-        { now: table.stamps.fixed },
+        { now: fixedStamp },
       );
       assert.deepEqual(preflightTransact, transact);
+    } else {
+      // Unsupported: the preflight must refuse rather than invent a stamp.
+      for (const path of ['put', 'transact_write'] as const) {
+        assert.throws(() =>
+          marshalItemForWriterPath(LifecycleClocks, { ...BASE_ITEM }, path),
+        );
+      }
     }
   }
 });
