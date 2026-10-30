@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
 import yaml
 
 from tabletheory_py import (
@@ -12,6 +13,7 @@ from tabletheory_py import (
     StatefulDynamoDBClient,
     Table,
     TransactPut,
+    ValidationError,
     marshal_item_for_writer_path,
     theorydb_field,
 )
@@ -136,10 +138,14 @@ def test_shared_lifecycle_table_pins_the_py_column_on_both_writer_paths() -> Non
         # A preflight can only reproduce a stamped item when it reads the same
         # clock as the writer, which the shared table only allows for the fixed
         # row on a runtime whose two paths both stamp.
+        table = _table(StatefulDynamoDBClient(), clock)
+        item = LifecycleClocksItem(pk="p1", sk="s1")
         if row["exact_equality_supported"]["py"]:
-            table = _table(StatefulDynamoDBClient(), clock)
-            preflight = marshal_item_for_writer_path(
-                table, LifecycleClocksItem(pk="p1", sk="s1"), ItemWriterPath.PUT
-            )
+            preflight = marshal_item_for_writer_path(table, item, ItemWriterPath.PUT, now=stamps["fixed"])
             assert preflight["createdAt"] == put_item["createdAt"]
             assert preflight["updatedAt"] == put_item["updatedAt"]
+        else:
+            # Unsupported: the preflight must refuse rather than invent a stamp.
+            for path in (ItemWriterPath.PUT, ItemWriterPath.TRANSACT_WRITE):
+                with pytest.raises(ValidationError, match="lifecycle clock"):
+                    marshal_item_for_writer_path(table, item, path)
