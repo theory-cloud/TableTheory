@@ -208,6 +208,7 @@ type CustomConverter interface{ ... }
 
 ```go
 func MarshalItemForWriterPath(model any, metadata *model.Metadata, path ItemWriterPath) (map[string]types.AttributeValue, error)
+func MarshalItemForWriterPathWithOptions(model any, metadata *model.Metadata, path ItemWriterPath, ...) (map[string]types.AttributeValue, error)
 func SetGlobalConfig(config Config)
 func ValidateConfig(config Config) error
 type Config struct{ ... }
@@ -222,9 +223,11 @@ type MarshalerFactory struct{ ... }
 type MarshalerInterface interface{ ... }
 type MarshalerType string
     const SafeMarshalerType MarshalerType = "safe" ...
+type PreflightOptions struct{ ... }
 type SafeMarshaler struct{ ... }
     func NewSafeMarshaler() *SafeMarshaler
     func NewSafeMarshalerWithConverter(converter *pkgTypes.Converter) *SafeMarshaler
+    func NewSafeMarshalerWithConverterAndClock(converter *pkgTypes.Converter, clock func() time.Time) *SafeMarshaler
 type SecurityAcknowledgment struct{ ... }
     func CreateSecurityAcknowledgment(developerSignature string) *SecurityAcknowledgment
 type SecurityStats struct{ ... }
