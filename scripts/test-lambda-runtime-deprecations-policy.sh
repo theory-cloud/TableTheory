@@ -203,7 +203,7 @@ write_healthy_tree "${synthetic}"
 expect_success_contains "surfaces 5 (cdk 2, template 2, snippet 1)" node "${synthetic_checker}"
 expect_success_contains "declarations 5" node "${synthetic_checker}"
 expect_success_contains \
-  "self-test 80 synthetic surfaces + 6 scope cases + 1 entry-point probe" \
+  "self-test 88 synthetic surfaces + 6 scope cases + 1 entry-point probe" \
   node "${synthetic_checker}" --self-test
 
 # --- templates and snippets are judged, not merely walked -------------------

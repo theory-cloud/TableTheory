@@ -166,14 +166,21 @@
 // CDK `runtime:` line does, so they are modelled here as two further surface
 // classes.
 //
-// A template declaration is a `Runtime:` key whose value is a scalar, in YAML or
-// in CloudFormation JSON - the JSON form needs no separate rule, because a
-// quoted key also starts its own line. A snippet declaration is the value of a
-// `--runtime` flag, or a `Runtime:` scalar, inside a fenced Markdown code block.
-// Prose outside a fence is never read: a runtime named in a sentence is
-// documentation, not a deployable declaration. `--runtime-version` and
-// `--runtime-import` are different flags that share a prefix, so the flag rule
-// requires whitespace or `=` after `--runtime`.
+// A template declaration is the EFFECTIVE `Runtime` of a Lambda-bearing
+// resource, read structurally from YAML or CloudFormation JSON. A resource-level
+// Runtime overrides SAM's Globals.Function.Runtime; the global is judged only
+// when it reaches a resource. Flow YAML and compact JSON are the same documents
+// as their block forms, so formatting cannot hide a declaration. The parser
+// understands CloudFormation's intrinsic-function tags (`!Ref`, `!Sub`, ...)
+// explicitly, and every template under a scan root is opened independently of
+// whether another declaration parsed.
+//
+// A snippet declaration is the value of a `--runtime` flag, or a `Runtime:`
+// scalar, inside a fenced Markdown code block. Prose outside a fence is never
+// read: a runtime named in a sentence is documentation, not a deployable
+// declaration. `--runtime-version` and `--runtime-import` are different flags
+// that share a prefix, so the flag rule requires whitespace or `=` after
+// `--runtime`.
 //
 // Both classes resolve to the same identifiers as a CDK literal, so they share
 // DEPRECATED_LAMBDA_RUNTIMES and SUPPORTED_LAMBDA_RUNTIMES and the same three
@@ -181,26 +188,22 @@
 // are de-duplicated per surface by the runtime they resolve to, exactly as in a
 // CDK surface, so a template counts runtimes rather than occurrences.
 //
-// Three forms stay outside the model, measured as declaring nothing:
-//
-//   Runtime: !Ref RuntimeParameter   a tag resolves at deploy time
-//   Runtime: !Sub "${Stage}..."      an interpolation resolves at deploy time
-//   Runtime: {"Ref": "..."}          a collection is not a scalar
-//
-// A surface whose only runtime is one of those fails closed on the same
-// "declares no modelled Lambda runtime" rule a stack with only a dynamic
-// `fromString` fails, rather than being judged by a guess about the parameter.
-// Commented-out lines declare nothing in either class: a YAML comment cannot
-// match a key rule anchored at the start of the line, and a shell comment inside
-// a fence is skipped. A file is dispatched by extension - scripts and stacks by
-// .ts/.tsx/.js/.jsx/.mjs/.cjs/.mts/.cts, templates by .yaml/.yml/.json,
-// snippets by .md/.markdown - so an extension this gate does not model is a
-// known limit rather than a scanned surface.
+// An effective runtime that resolves only at deploy time - a CloudFormation tag,
+// an interpolation, a collection such as {"Ref": "..."}, or a non-string scalar
+// - fails closed on the "declares no modelled Lambda runtime" rule rather than
+// being judged by a guess. A template that cannot be parsed fails closed when it
+// is a declared surface or carries a CloudFormation marker; an unrelated
+// YAML/JSON document that mentions no runtime is not a template. Commented-out
+// declarations are trivia, not declarations. A file is dispatched by extension -
+// scripts and stacks by .ts/.tsx/.js/.jsx/.mjs/.cjs/.mts/.cts, templates by
+// .yaml/.yml/.json, snippets by .md/.markdown - so an extension this gate does
+// not model is a known limit rather than a scanned surface.
 //
 // Fail-closed cases: a surface that is missing, unreadable, or declares no
 // modelled runtime; a runtime literal in a modelled shape whose family or value
 // is not modelled, including a `fromString` argument that resolves to no runtime
-// at all and a template or snippet value that names no modelled runtime; a
+// at all and a template or snippet value that names no modelled runtime; an
+// effective runtime that is ambiguous or a template that cannot be parsed; a
 // declaration that names an unpinned moving alias rather than a pinned runtime;
 // and any file inside a scan root that declares a Lambda runtime without being a
 // declared surface.
@@ -737,9 +740,10 @@ const CDK_SURFACE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".
 const TEMPLATE_SURFACE_EXTENSIONS = new Set([".yaml", ".yml", ".json"]);
 const SNIPPET_SURFACE_EXTENSIONS = new Set([".md", ".markdown"]);
 
-// A `Runtime:` key at the start of its line. The key may be quoted because
-// CloudFormation JSON writes it that way, and requiring the key to start the
-// line is what keeps a commented-out `# Runtime: ...` from being a declaration.
+// A `Runtime:` key at the start of a snippet line. The key may be quoted because
+// a fenced YAML block inside a doc writes it that way, and requiring the key to
+// start the line is what keeps a commented-out `# Runtime: ...` from being a
+// declaration. Templates are read structurally, not with this rule.
 const TEMPLATE_RUNTIME_KEY_RE = /^[ \t]*["']?(?:Runtime|runtime)["']?[ \t]*:[ \t]*(.*)$/;
 
 // The `--runtime` flag and the rest of its line. The delimiter is whitespace or
@@ -751,11 +755,12 @@ const CLI_RUNTIME_FLAG_RE = /--runtime(?:[ \t]+|=)(.*)$/;
 // runtime named in prose is documentation rather than a declaration.
 const FENCE_RE = /^[ \t]*(?:`{3,}|~{3,})/;
 
-// The literal a template or snippet value names, or null when the value is not a
+// The literal a fenced snippet value names, or null when the value is not a
 // readable literal. Quotes are honoured so a quoted scalar keeps its content; an
 // unquoted scalar loses a trailing inline comment, separator, or line
 // continuation. A tag (`!Ref`, `!Sub`), an interpolation, or a collection
-// resolves at deploy time rather than here, so it declares nothing.
+// resolves at deploy time rather than here, so it declares nothing. Templates
+// use the structural parser above instead.
 function templateScalar(value) {
   const text = value.trim();
   if (text === "") return null;
@@ -810,19 +815,209 @@ function templateDeclarationCollector(text) {
   };
 }
 
-// Walks a template line by line. The line index is a real source position, so a
-// violation reports the line the key is on.
-function collectTemplateDeclarations(text) {
-  const collector = templateDeclarationCollector(text);
-  let offset = 0;
-  for (const lineText of text.split("\n")) {
-    const match = TEMPLATE_RUNTIME_KEY_RE.exec(lineText);
-    if (match !== null) {
-      const literal = templateScalar(match[1]);
-      if (literal !== null) collector.record(offset + lineText.indexOf(":"), literal);
-    }
-    offset += lineText.length + 1;
+// CloudFormation's YAML shorthand tags. They are syntax, not scalar values: a
+// runtime of `!Ref` or `!Sub` resolves at deploy time. The list is explicit, so
+// an unknown tag is a parse error rather than an invisible value.
+const CLOUDFORMATION_TAG_NAMES = [
+  "And",
+  "Base64",
+  "Cidr",
+  "Condition",
+  "Equals",
+  "FindInMap",
+  "ForEach",
+  "GetAtt",
+  "GetAZs",
+  "If",
+  "ImportValue",
+  "Join",
+  "Not",
+  "Or",
+  "Ref",
+  "Select",
+  "Split",
+  "Sub",
+  "ToJsonString",
+  "Transform",
+];
+
+let cachedCloudFormationTags = null;
+
+function cloudFormationTags() {
+  if (cachedCloudFormationTags === null) {
+    cachedCloudFormationTags = CLOUDFORMATION_TAG_NAMES.map((name) => ({
+      tag: `!${name}`,
+      resolve: (value) => ({ cloudFormationTag: name, value }),
+    }));
   }
+  return cachedCloudFormationTags;
+}
+
+// A file that fails to parse is only ignored when it is not a template at all.
+// A declared surface, a CloudFormation marker, or a Runtime key means the parse
+// failure is ambiguity this gate must not read as "nothing declared".
+function looksLikeCloudFormationTemplate(text) {
+  return (
+    /(^|\n)\s*(?:AWSTemplateFormatVersion|Transform)\s*:/.test(text) ||
+    /(^|\n)\s*["']?Resources["']?\s*:/.test(text) ||
+    /(^|\n)\s*["']?Runtime["']?\s*:/.test(text)
+  );
+}
+
+function parseTemplateDocument(label, text) {
+  const isJson = path.extname(label).toLowerCase() === ".json";
+  const declared = SCANNED_TEMPLATE_SURFACES.includes(label);
+
+  if (isJson) {
+    // Strict JSON first: the YAML parser is a superset and would otherwise
+    // accept JSON that is not JSON, hiding a malformed template.
+    try {
+      JSON.parse(text);
+    } catch (err) {
+      if (declared || looksLikeCloudFormationTemplate(text)) {
+        throw new GateFailure(`${label} could not be parsed as JSON: ${err.message}`);
+      }
+      return null;
+    }
+  }
+
+  const YAML = yamlParser();
+  let document;
+  try {
+    document = YAML.parseDocument(text, {
+      customTags: cloudFormationTags(),
+      prettyErrors: false,
+      strict: true,
+    });
+  } catch (err) {
+    if (declared || looksLikeCloudFormationTemplate(text)) {
+      throw new GateFailure(
+        `${label} could not be parsed as ${isJson ? "JSON" : "YAML"}: ${err.message}`,
+      );
+    }
+    return null;
+  }
+
+  if (document.errors.length > 0) {
+    if (declared || looksLikeCloudFormationTemplate(text)) {
+      throw new GateFailure(
+        `${label} could not be parsed as ${isJson ? "JSON" : "YAML"}: ${document.errors[0].message}`,
+      );
+    }
+    return null;
+  }
+
+  return document;
+}
+
+function yamlMapGet(node, key) {
+  const YAML = yamlParser();
+  if (!YAML.isMap(node)) return undefined;
+  for (const pair of node.items) {
+    if (YAML.isScalar(pair.key) && pair.key.value === key) return pair.value;
+  }
+  return undefined;
+}
+
+function yamlScalarValue(node) {
+  const YAML = yamlParser();
+  if (node === undefined || !YAML.isScalar(node)) return null;
+  if (node.tag !== undefined && !node.tag.startsWith("tag:yaml.org,2002:")) return null;
+  return typeof node.value === "string" ? node.value : null;
+}
+
+function yamlNodeOffset(node) {
+  return node !== undefined && Array.isArray(node.range) ? node.range[0] : 0;
+}
+
+// The value a Runtime node names, or the reason it cannot be read here. A
+// CloudFormation tag, an interpolation, a collection, and a non-string scalar
+// all resolve only at deploy time, so an effective runtime in one of those forms
+// fails closed rather than being skipped.
+function templateRuntimeValue(node) {
+  const YAML = yamlParser();
+  if (node === undefined) return { kind: "missing" };
+  if (!YAML.isScalar(node)) return { kind: "dynamic", detail: "a collection" };
+  if (node.tag !== undefined && !node.tag.startsWith("tag:yaml.org,2002:")) {
+    return { kind: "dynamic", detail: `the CloudFormation tag ${node.tag}` };
+  }
+  if (typeof node.value !== "string") {
+    return {
+      kind: "dynamic",
+      detail: node.value === null ? "a null value" : `a ${typeof node.value} value`,
+    };
+  }
+  const text = node.value.trim();
+  if (text === "") return { kind: "dynamic", detail: "an empty scalar" };
+  if (text.includes("${")) return { kind: "dynamic", detail: "an interpolation" };
+  return { kind: "literal", literal: text };
+}
+
+// Parses a template structurally and records the EFFECTIVE runtime of each
+// Lambda-bearing resource: a resource-level Runtime overrides the SAM
+// Globals.Function.Runtime that would otherwise apply. A global runtime is only
+// judged when it reaches at least one resource (or when the template has no
+// runtime-bearing resources, which keeps a Globals-only fixture meaningful).
+// Every resource is inspected independently of whether another declaration
+// parsed, so one bad resource cannot hide behind a good one.
+function collectTemplateDeclarations(text, label) {
+  const document = parseTemplateDocument(label, text);
+  if (document === null) return [];
+
+  const YAML = yamlParser();
+  const root = document.contents;
+  if (!YAML.isMap(root)) return [];
+
+  const collector = templateDeclarationCollector(text);
+  const recordEffective = (node, pathLabel) => {
+    const value = templateRuntimeValue(node);
+    if (value.kind === "literal") {
+      collector.record(yamlNodeOffset(node), value.literal);
+      return;
+    }
+    if (value.kind === "dynamic") {
+      const line = lineOf(text, yamlNodeOffset(node));
+      throw new GateFailure(
+        `${label}:${line} ${pathLabel} declares no modelled Lambda runtime: it is ${value.detail}, ` +
+          "which resolves only at deploy time",
+      );
+    }
+  };
+
+  const globals = yamlMapGet(root, "Globals");
+  const globalRuntime = yamlMapGet(yamlMapGet(globals, "Function"), "Runtime");
+  const resources = yamlMapGet(root, "Resources");
+
+  let runtimeBearingResources = 0;
+  let reliesOnGlobal = false;
+  if (YAML.isMap(resources)) {
+    for (const pair of resources.items) {
+      const resource = pair.value;
+      if (!YAML.isMap(resource)) continue;
+      const resourceType = yamlScalarValue(yamlMapGet(resource, "Type"));
+      const properties = yamlMapGet(resource, "Properties");
+      const explicitRuntime = yamlMapGet(properties, "Runtime");
+      const packageType = yamlScalarValue(yamlMapGet(properties, "PackageType"));
+      const isFunction =
+        resourceType === "AWS::Serverless::Function" || resourceType === "AWS::Lambda::Function";
+      if (explicitRuntime === undefined && !isFunction) continue;
+
+      runtimeBearingResources += 1;
+      if (explicitRuntime !== undefined) {
+        const resourceName = YAML.isScalar(pair.key) ? pair.key.value : "?";
+        recordEffective(explicitRuntime, `Resources.${resourceName}.Properties.Runtime`);
+      } else if (packageType === "Image") {
+        // An image-packaged function carries no Lambda runtime.
+      } else {
+        reliesOnGlobal = true;
+      }
+    }
+  }
+
+  if (globalRuntime !== undefined && (runtimeBearingResources === 0 || reliesOnGlobal)) {
+    recordEffective(globalRuntime, "Globals.Function.Runtime");
+  }
+
   return collector.declarations();
 }
 
@@ -875,7 +1070,7 @@ function surfaceKind(label) {
 function collectDeclarationsFor(label, text) {
   switch (surfaceKind(label)) {
     case "template":
-      return collectTemplateDeclarations(text);
+      return collectTemplateDeclarations(text, label);
     case "snippet":
       return collectSnippetDeclarations(text);
     default:
@@ -1366,19 +1561,19 @@ const CLASSIFIER_CASES = [
   {
     name: "quoted-deprecated-runtime-in-a-template",
     file: "template.yaml",
-    text: "    Runtime: \"provided.al2\"\n",
+    text: "Globals:\n  Function:\n    Runtime: \"provided.al2\"\n",
     expected: ["deprecated"],
   },
   {
     name: "deprecated-runtime-with-an-inline-comment",
     file: "template.yaml",
-    text: "    Runtime: provided.al2  # pinned for the legacy lane\n",
+    text: "Globals:\n  Function:\n    Runtime: provided.al2  # pinned for the legacy lane\n",
     expected: ["deprecated"],
   },
   {
     name: "unmodelled-runtime-in-a-template",
     file: "template.yaml",
-    text: "    Runtime: ruby3.2\n",
+    text: "Globals:\n  Function:\n    Runtime: ruby3.2\n",
     expected: ["unmodelled-runtime"],
   },
   // A commented-out key is not a declaration, and the live key beside it is.
@@ -1398,7 +1593,48 @@ const CLASSIFIER_CASES = [
   {
     name: "supported-runtime-in-cloudformation-json",
     file: "template.json",
-    text: '{\n  "Properties": {\n    "Runtime": "provided.al2023",\n  }\n}\n',
+    text:
+      '{\n  "Resources": {\n    "Function": {\n      "Properties": {\n' +
+      '        "Runtime": "provided.al2023"\n      }\n    }\n  }\n}\n',
+    expected: [],
+  },
+  // Structural parsing sees flow YAML and compact JSON that never put the key
+  // at the start of a line.
+  {
+    name: "flow-yaml-deprecated-runtime",
+    file: "template.yaml",
+    text: "{Globals: {Function: {Runtime: provided.al2}}}\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "compact-json-deprecated-runtime",
+    file: "template.json",
+    text: '{"Resources":{"Function":{"Properties":{"Runtime":"provided.al2"}}}}\n',
+    expected: ["deprecated"],
+  },
+  {
+    name: "compact-json-supported-runtime",
+    file: "template.json",
+    text: '{"Resources":{"Function":{"Properties":{"Runtime":"provided.al2023"}}}}\n',
+    expected: [],
+  },
+  // The resource runtime is effective over the global. A supported global does
+  // not hide a deprecated resource override, and a deprecated global that every
+  // resource overrides is not itself deployed.
+  {
+    name: "supported-global-with-deprecated-resource-override",
+    file: "template.yaml",
+    text:
+      "Globals:\n  Function:\n    Runtime: provided.al2023\n" +
+      "Resources:\n  Fn:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: provided.al2\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "deprecated-global-overridden-by-supported-resource",
+    file: "template.yaml",
+    text:
+      "Globals:\n  Function:\n    Runtime: provided.al2\n" +
+      "Resources:\n  Fn:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: provided.al2023\n",
     expected: [],
   },
   // A template that declares the same runtime twice counts one runtime, the same
@@ -1542,8 +1778,33 @@ const FAIL_CLOSED_CASES = [
   {
     name: "template-with-only-an-interpolated-runtime",
     file: "template.yaml",
-    text: "    Runtime: !Sub \"${RuntimeFamily}.al2023\"\n",
+    text: "Globals:\n  Function:\n    Runtime: !Sub \"${RuntimeFamily}.al2023\"\n",
     expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  // A supported global does not rescue a resource whose effective runtime is
+  // ambiguous. The override is what deploys, so it fails closed.
+  {
+    name: "supported-global-with-dynamic-resource-override",
+    file: "template.yaml",
+    text:
+      "Globals:\n  Function:\n    Runtime: provided.al2023\n" +
+      "Resources:\n  Fn:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: !Ref RuntimeParameter\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  {
+    name: "supported-global-with-json-ref-resource-override",
+    file: "template.json",
+    text:
+      '{"Globals":{"Function":{"Runtime":"provided.al2023"}},' +
+      '"Resources":{"Fn":{"Type":"AWS::Serverless::Function","Properties":{"Runtime":{"Ref":"RuntimeParameter"}}}}}\n',
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  // A malformed declared template is parse ambiguity, not an empty template.
+  {
+    name: "malformed-template-fails-closed",
+    file: "template.yaml",
+    text: "Globals:\n  Function:\n    Runtime: provided.al2023\nResources: [\n",
+    expectFailureReason: "could not be parsed as YAML",
   },
   // A snippet that only names a different flag declares no runtime at all.
   {
