@@ -38,25 +38,37 @@ class ReleaseStateEvent:
     version_text: str = theorydb_field(name="versionText", default="")
 
 
-def _actual_table(client: FakeDynamoDBClient) -> Table[ReleaseStateActual]:
+def _actual_table(
+    client: FakeDynamoDBClient,
+    *,
+    redact_item_images: bool = False,
+    table_name: str = "release_state_contract",
+) -> Table[ReleaseStateActual]:
     return Table(
         ModelDefinition.from_dataclass(
             ReleaseStateActual,
-            table_name="release_state_contract",
+            table_name=table_name,
             write_policy=WritePolicy(mode="mutable", protected_attributes=["pinnedReleaseId"]),
         ),
         client=client,
+        redact_item_images=redact_item_images,
     )
 
 
-def _event_table(client: FakeDynamoDBClient) -> Table[ReleaseStateEvent]:
+def _event_table(
+    client: FakeDynamoDBClient,
+    *,
+    redact_item_images: bool = False,
+    table_name: str = "release_state_contract",
+) -> Table[ReleaseStateEvent]:
     return Table(
         ModelDefinition.from_dataclass(
             ReleaseStateEvent,
-            table_name="release_state_contract",
+            table_name=table_name,
             write_policy=WritePolicy(mode="write_once"),
         ),
         client=client,
+        redact_item_images=redact_item_images,
     )
 
 
@@ -211,7 +223,11 @@ class ReleaseStateScopedOutbox:
     status: str = theorydb_field(default="")
 
 
-def _outbox_table(client: FakeDynamoDBClient) -> Table[ReleaseStateOutbox]:
+def _outbox_table(
+    client: FakeDynamoDBClient,
+    *,
+    redact_item_images: bool = False,
+) -> Table[ReleaseStateOutbox]:
     return Table(
         ModelDefinition.from_dataclass(
             ReleaseStateOutbox,
@@ -219,6 +235,7 @@ def _outbox_table(client: FakeDynamoDBClient) -> Table[ReleaseStateOutbox]:
             write_policy=WritePolicy(mode="write_once"),
         ),
         client=client,
+        redact_item_images=redact_item_images,
     )
 
 
@@ -761,3 +778,116 @@ def test_validate_deploy_authority_metadata_aligns_top_level_digest() -> None:
     item["provenance"]["digest"] = "sha256:eeeeeeee"
     with pytest.raises(RejectedDeployAuthorityEvidenceError):
         validate_deploy_authority_metadata(item)
+
+
+def test_redacted_tables_sharing_one_raw_client_issue_one_transaction() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client, redact_item_images=True)
+    event_table = _event_table(client, redact_item_images=True)
+
+    # Each redaction-enabled Table owns a distinct proxy; the transaction check
+    # must compare the canonical raw client behind them, not the proxy identity.
+    assert actual_table._client is not event_table._client
+
+    client.expect("transact_write_items", None, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_three_redacted_tables_sharing_one_raw_client_issue_one_transaction() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client, redact_item_images=True)
+    event_table = _event_table(client, redact_item_images=True)
+    outbox_table = _outbox_table(client, redact_item_images=True)
+
+    def validate(req: dict[str, Any]) -> None:
+        assert len(req["TransactItems"]) == 3
+
+    client.expect("transact_write_items", validate, response={})
+
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+        outbox_item=ReleaseStateOutbox(pk="RELEASE#service-a", sk="OUTBOX#1", status="active"),
+        outbox_table=outbox_table,
+        outbox_binding={"status": "set:status"},
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
+def test_redacted_tables_with_different_raw_clients_fail_before_submission() -> None:
+    first = FakeDynamoDBClient()
+    second = FakeDynamoDBClient()
+    actual_table = _actual_table(first, redact_item_images=True)
+    event_table = _event_table(second, redact_item_images=True)
+
+    with pytest.raises(ValidationError, match="share one DynamoDB client"):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+        )
+
+    assert first.calls == []
+    assert second.calls == []
+
+
+def test_redacted_tables_with_different_table_names_fail_before_submission() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client, redact_item_images=True)
+    event_table = _event_table(client, redact_item_images=True, table_name="release_state_other")
+
+    with pytest.raises(ValidationError, match="share one DynamoDB table"):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+        )
+
+    assert client.calls == []
+
+
+def test_redacted_derived_table_keeps_canonical_client_and_redaction() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client, redact_item_images=True)
+    derived = actual_table.with_lambda_timeout(
+        type("Ctx", (), {"get_remaining_time_in_millis": lambda self: 60_000})(),
+        buffer_seconds=1.0,
+    )
+    event_table = _event_table(client, redact_item_images=True)
+
+    # The derived Table wraps the timeout client, but its canonical client is
+    # still the caller's raw client, so a shared-client transition is allowed.
+    assert derived is not actual_table
+    assert derived._raw_client is client
+
+    client.expect("transact_write_items", None, response={})
+
+    transition_release_state(
+        derived,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(pk="RELEASE#service-a", sk="EVENT#1"),
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()

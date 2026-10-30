@@ -484,7 +484,11 @@ def _validate_provenance_evidence_alignment(
 
 
 def _assert_same_transaction_context(actual_table: Table[Any], event_table: Table[Any]) -> None:
-    if actual_table._client is not event_table._client:
+    # Compare the canonical raw client, not the per-Table redaction proxy: two
+    # independently constructed redaction-enabled Tables over one raw client must
+    # join the same transaction, while genuinely different clients must fail
+    # before any SDK submission.
+    if actual_table._raw_client is not event_table._raw_client:
         raise ValidationError("release-state transaction requires both tables to share one DynamoDB client")
     if actual_table._table_name != event_table._table_name:
         raise ValidationError("release-state transaction requires both rows to share one DynamoDB table")

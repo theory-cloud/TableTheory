@@ -139,6 +139,11 @@ class Table[T]:
         self._model = model
         self._table_name = table_name
         raw_client = client or cast(DynamoDBClientProtocol, boto3.client("dynamodb"))
+        # Keep the caller's client as the canonical transaction identity. The
+        # redaction proxy is a per-Table wrapper, so comparing wrappers would
+        # reject independently constructed Tables that share one raw client.
+        self._raw_client: DynamoDBClientProtocol = raw_client
+        self._redact_item_images = redact_item_images
         self._client: DynamoDBClientProtocol = _aws_errors.redacting_client(raw_client, redact_item_images)
         self._kms_key_arn = (kms_key_arn or "").strip() or None
         self._kms_client: Any | None = kms_client
@@ -160,18 +165,23 @@ class Table[T]:
         *,
         buffer_seconds: float = DEFAULT_LAMBDA_TIMEOUT_BUFFER_SECONDS,
     ) -> Table[T]:
-        client = with_lambda_timeout_client(self._client, context, buffer_seconds=buffer_seconds)
-        if client is self._client:
+        client = with_lambda_timeout_client(self._raw_client, context, buffer_seconds=buffer_seconds)
+        if client is self._raw_client:
             return self
-        return Table(
+        derived: Table[T] = Table(
             self._model,
-            client=cast(DynamoDBClientProtocol, client),
+            client=self._raw_client,
             table_name=self._table_name,
             kms_key_arn=self._kms_key_arn,
             kms_client=self._kms_client,
             rand_bytes=self._rand_bytes,
             now=self._now,
+            redact_item_images=self._redact_item_images,
         )
+        # Wrap the timeout client, not the raw client, so timeout checks run
+        # before each call while redaction still sits closest to the caller.
+        derived._client = _aws_errors.redacting_client(client, self._redact_item_images)
+        return derived
 
     def _attribute_storage_type(self, attr_def: AttributeDefinition) -> str:
         return resolve_attribute_storage_type(attr_def)
@@ -664,11 +674,12 @@ class Table[T]:
         def scan_segment(segment: int) -> list[T]:
             table: Table[T] = Table(
                 self._model,
-                client=self._client,
+                client=self._raw_client,
                 table_name=self._table_name,
                 kms_key_arn=self._kms_key_arn,
                 kms_client=self._kms_client,
                 rand_bytes=self._rand_bytes,
+                redact_item_images=self._redact_item_images,
             )
             cursor: str | None = None
             out: list[T] = []
