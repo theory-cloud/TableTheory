@@ -1,0 +1,121 @@
+name: "p0.encryption.migration_rebinding"
+dms_version: "0.2"
+requires_capabilities: ["encryption.migration_rebinding"]
+model: "EncryptedRecord"
+table:
+  name: "encrypted_records_contract"
+encryption:
+  provider: "deterministic"
+  seed: "contract-migration-rebinding"
+steps:
+  # A v2 envelope bound to the source record must be rebound to the target
+  # record, not copied verbatim: the target read decrypts only when the copied
+  # envelope authenticates the target table and key.
+  - op: seed_encrypted
+    table: "encrypted_records_migration_source"
+    envelope_version: 2
+    reset: true
+    item:
+      PK: "MIG#V2"
+      SK: "PROFILE"
+      secret: "v2-secret"
+    expect:
+      ok: true
+
+  # A legacy v1 envelope is upgraded to a target-bound v2 envelope.
+  - op: seed_encrypted
+    table: "encrypted_records_migration_source"
+    envelope_version: 1
+    item:
+      PK: "MIG#V1"
+      SK: "PROFILE"
+      secret: "v1-secret"
+    expect:
+      ok: true
+
+  - op: migrate
+    migrate:
+      source_table: "encrypted_records_migration_source"
+      batch_size: 1
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "MIG#V2"
+      SK: "PROFILE"
+    expect:
+      ok: true
+      item_contains:
+        PK: "MIG#V2"
+        SK: "PROFILE"
+        secret: "v2-secret"
+      raw_envelope_versions:
+        secret: "2"
+
+  - op: get
+    key:
+      PK: "MIG#V1"
+      SK: "PROFILE"
+    expect:
+      ok: true
+      item_contains:
+        PK: "MIG#V1"
+        SK: "PROFILE"
+        secret: "v1-secret"
+      raw_envelope_versions:
+        secret: "2"
+
+  # A source envelope that fails authentication must fail the copy before the
+  # failing page is written: the item never appears at the target.
+  - op: seed_encrypted
+    table: "encrypted_records_migration_source"
+    envelope_version: 2
+    corrupt: "ciphertext"
+    item:
+      PK: "MIG#CORRUPT"
+      SK: "PROFILE"
+      secret: "corrupt-secret"
+    expect:
+      ok: true
+
+  - op: migrate
+    migrate:
+      source_table: "encrypted_records_migration_source"
+      batch_size: 1
+    expect:
+      error: "ErrInvalidEncryptedEnvelope"
+
+  - op: get_optional
+    key:
+      PK: "MIG#CORRUPT"
+      SK: "PROFILE"
+    expect:
+      item_absent: true
+
+  # Without a provider a same-name encrypted attribute cannot be rebound, so
+  # the migration is refused before any target page is written.
+  - op: seed_encrypted
+    table: "encrypted_records_migration_source"
+    envelope_version: 2
+    item:
+      PK: "MIG#NOKMS"
+      SK: "PROFILE"
+      secret: "nokms-secret"
+    expect:
+      ok: true
+
+  - op: migrate
+    migrate:
+      source_table: "encrypted_records_migration_source"
+      batch_size: 1
+      encryption: "none"
+    expect:
+      error: "ErrMigrationEncryptionRequired"
+
+  - op: get_optional
+    key:
+      PK: "MIG#NOKMS"
+      SK: "PROFILE"
+    expect:
+      item_absent: true

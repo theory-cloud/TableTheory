@@ -77,11 +77,24 @@ export interface Step {
     | "sleep"
     | "save"
     | "transition_append_event"
-    | "validate_provenance";
+    | "validate_provenance"
+    | "raw_put"
+    | "seed_encrypted"
+    | "migrate"
+    | "dms_parse"
+    | "dms_get";
   model?: string;
   if_not_exists?: boolean;
   fields?: string[];
   protected_attributes?: string[];
+  encryption?: "none" | "deterministic" | string;
+  table?: string;
+  raw_item?: Record<string, unknown>;
+  envelope_version?: number;
+  corrupt?: string;
+  reset?: boolean;
+  migrate?: MigrateRequest;
+  dms?: DmsRequest;
   item?: Record<string, unknown>;
   key?: Record<string, unknown>;
   query?: ReadRequest;
@@ -169,6 +182,18 @@ export interface TransitionEvent {
   item: Record<string, unknown>;
 }
 
+export interface MigrateRequest {
+  source_table: string;
+  batch_size?: number;
+  encryption?: "deterministic" | "none" | "failing" | string;
+}
+
+export interface DmsRequest {
+  model: string;
+  document?: string;
+  schema?: string;
+}
+
 export interface Expectation {
   ok?: boolean;
   error?: string;
@@ -185,6 +210,7 @@ export interface Expectation {
   item_has_fields?: string[];
   item_missing_fields?: string[];
   raw_attribute_types?: Record<string, string>;
+  raw_envelope_versions?: Record<string, string>;
   item_field_equals_var?: Record<string, string>;
   item_field_not_equals_var?: Record<string, string>;
 }

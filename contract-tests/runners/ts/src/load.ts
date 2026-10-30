@@ -183,6 +183,53 @@ function validateStep(
     case "validate_provenance":
       requirePlainObject(step.item, `${prefix}: item is required`);
       break;
+    case "raw_put":
+      requirePlainObject(step.raw_item, `${prefix}: raw_item is required`);
+      break;
+    case "seed_encrypted":
+      requirePlainObject(step.item, `${prefix}: item is required`);
+      if (step.envelope_version !== 1 && step.envelope_version !== 2) {
+        throw new Error(
+          `${prefix}: seed_encrypted envelope_version must be 1 or 2`,
+        );
+      }
+      if (step.reset !== undefined && typeof step.reset !== "boolean") {
+        throw new Error(`${prefix}: seed_encrypted reset must be a boolean`);
+      }
+      if (
+        step.corrupt !== undefined &&
+        step.corrupt !== "ciphertext" &&
+        step.corrupt !== "nonce"
+      ) {
+        throw new Error(
+          `${prefix}: seed_encrypted corrupt must be ciphertext or nonce`,
+        );
+      }
+      break;
+    case "migrate":
+      requirePlainObject(step.migrate, `${prefix}: migrate is required`);
+      if (!step.migrate?.source_table) {
+        throw new Error(`${prefix}: migrate.source_table is required`);
+      }
+      break;
+    case "dms_parse":
+    case "dms_get":
+      requirePlainObject(step.dms, `${prefix}: dms is required`);
+      if (!step.dms?.model) {
+        throw new Error(`${prefix}: dms.model is required`);
+      }
+      if (
+        (step.dms.document === undefined) ===
+        (step.dms.schema === undefined)
+      ) {
+        throw new Error(
+          `${prefix}: exactly one of dms.document or dms.schema is required`,
+        );
+      }
+      if (step.op === "dms_get") {
+        requirePlainObject(step.key, `${prefix}: key is required`);
+      }
+      break;
     default:
       throw new Error(
         `${filePath} ${label}[${index}]: unsupported op ${String(step.op)}`,
@@ -196,6 +243,7 @@ const expectationMapKeys = [
   "item_equals",
   "raw_item_contains",
   "raw_attribute_types",
+  "raw_envelope_versions",
   "item_field_equals_var",
   "item_field_not_equals_var",
 ] as const;
@@ -214,6 +262,7 @@ const itemAssertionKeys = [
   "item_missing_fields",
   "raw_attribute_types",
   "raw_item_contains",
+  "raw_envelope_versions",
   "item_field_equals_var",
   "item_field_not_equals_var",
 ] as const;

@@ -2,10 +2,13 @@ package driver
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -13,13 +16,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+	kmsTypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 
 	"github.com/theory-cloud/tabletheory/v6"
 	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v6/pkg/releasestate"
+	"github.com/theory-cloud/tabletheory/v6/pkg/schema"
 	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 	"github.com/theory-cloud/tabletheory/v6/pkg/testing/fakedb"
 )
@@ -47,9 +56,10 @@ const (
 	ErrMissingPrimaryKey ErrorCode = "ErrMissingPrimaryKey"
 	ErrInvalidOperator   ErrorCode = "ErrInvalidOperator"
 
-	ErrEncryptionNotConfigured    ErrorCode = "ErrEncryptionNotConfigured"
-	ErrEncryptedFieldNotQueryable ErrorCode = "ErrEncryptedFieldNotQueryable"
-	ErrInvalidEncryptedEnvelope   ErrorCode = "ErrInvalidEncryptedEnvelope"
+	ErrEncryptionNotConfigured     ErrorCode = "ErrEncryptionNotConfigured"
+	ErrEncryptedFieldNotQueryable  ErrorCode = "ErrEncryptedFieldNotQueryable"
+	ErrInvalidEncryptedEnvelope    ErrorCode = "ErrInvalidEncryptedEnvelope"
+	ErrMigrationEncryptionRequired ErrorCode = "ErrMigrationEncryptionRequired"
 
 	ErrImmutableModelMutation          ErrorCode = "ErrImmutableModelMutation"
 	ErrProtectedFieldMutation          ErrorCode = "ErrProtectedFieldMutation"
@@ -74,6 +84,16 @@ type Driver interface {
 	TransactWrite(ctx context.Context, model string, actions []TransactWriteAction) error
 	TransitionAppendEvent(ctx context.Context, actual TransitionActual, event TransitionEvent) error
 	ValidateProvenance(ctx context.Context, model string, item map[string]any) error
+	SetStepEncryption(mode string) error
+	RawPut(ctx context.Context, table string, rawItem map[string]any) error
+	SeedEncrypted(ctx context.Context, table string, item map[string]any, envelopeVersion int, corrupt string, reset bool) error
+	Migrate(ctx context.Context, req MigrateRequest, targetTable string) error
+}
+
+type MigrateRequest struct {
+	SourceTable string
+	BatchSize   int
+	Encryption  string
 }
 
 type ReadRequest struct {
@@ -159,6 +179,8 @@ func MapErrors(err error) []ErrorCode {
 		return []ErrorCode{ErrEncryptedFieldNotQueryable}
 	case errors.Is(err, theorydbErrors.ErrInvalidEncryptedEnvelope):
 		return []ErrorCode{ErrInvalidEncryptedEnvelope}
+	case errors.Is(err, schema.ErrMigrationEncryptionRequired):
+		return []ErrorCode{ErrMigrationEncryptionRequired}
 	case errors.Is(err, theorydbErrors.ErrImmutableModelMutation):
 		return []ErrorCode{ErrImmutableModelMutation}
 	case errors.Is(err, theorydbErrors.ErrProtectedFieldMutation):
@@ -170,9 +192,34 @@ func MapErrors(err error) []ErrorCode {
 	}
 }
 
+type rawClient interface {
+	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	DescribeTable(ctx context.Context, params *dynamodb.DescribeTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
+	CreateTable(ctx context.Context, params *dynamodb.CreateTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error)
+	DeleteTable(ctx context.Context, params *dynamodb.DeleteTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteTableOutput, error)
+}
+
 type TheorydbDriver struct {
 	db                      core.ExtendedDB
 	deterministicEncryption bool
+
+	// stepEncryption selects a database instance without KMS for steps that
+	// prove fail-closed behavior; "" uses the scenario-configured instance.
+	stepEncryption string
+	noEncryptionDB core.ExtendedDB
+	failingDB      core.ExtendedDB
+
+	ddb  *dynamodb.Client
+	raw  rawClient
+	fake *fakedb.Fake
+
+	kmsClient *deterministicKMSClient
+	kmsRand   io.Reader
+
+	endpoint    string
+	region      string
+	loadOptions []func(*config.LoadOptions) error
 }
 
 func (d *TheorydbDriver) Capabilities() []string {
@@ -197,6 +244,7 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"release_state.transactional_transition",
 		"release_state.provenance_confidence",
 		"encryption.fail_closed",
+		"encryption.migration_rebinding",
 	}
 	if d.deterministicEncryption {
 		capabilities = append(capabilities, "encryption.deterministic_interop")
@@ -226,15 +274,20 @@ func NewTheorydbDriver(options ...Options) (*TheorydbDriver, error) {
 		region = "us-east-1"
 	}
 
-	cfg := session.Config{
-		Region:   region,
-		Endpoint: endpoint,
-		AWSConfigOptions: []func(*config.LoadOptions) error{
-			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
-			config.WithRegion(region),
-		},
+	loadOptions := []func(*config.LoadOptions) error{
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
+		config.WithRegion(region),
 	}
-	deterministicEncryption := false
+	cfg := session.Config{
+		Region:           region,
+		Endpoint:         endpoint,
+		AWSConfigOptions: loadOptions,
+	}
+	driver := &TheorydbDriver{
+		endpoint:    endpoint,
+		region:      region,
+		loadOptions: loadOptions,
+	}
 	if len(options) > 0 && options[0].Encryption.Provider != "" {
 		kmsClient, rng, err := deterministicEncryptionForOptions(options[0].Encryption)
 		if err != nil {
@@ -243,15 +296,30 @@ func NewTheorydbDriver(options ...Options) (*TheorydbDriver, error) {
 		cfg.KMSKeyARN = "arn:aws:kms:us-east-1:111111111111:key/contract-deterministic"
 		cfg.KMSClient = kmsClient
 		cfg.EncryptionRand = rng
-		deterministicEncryption = true
+		driver.deterministicEncryption = true
+		driver.kmsClient = kmsClient
+		driver.kmsRand = rng
 	}
 
 	db, err := tabletheory.New(cfg)
 	if err != nil {
 		return nil, err
 	}
+	driver.db = db
+	if !driver.deterministicEncryption {
+		driver.noEncryptionDB = db
+	}
 
-	return &TheorydbDriver{db: db, deterministicEncryption: deterministicEncryption}, nil
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), loadOptions...)
+	if err != nil {
+		return nil, err
+	}
+	driver.ddb = dynamodb.NewFromConfig(awsCfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+	driver.raw = driver.ddb
+
+	return driver, nil
 }
 
 func NewFakeTheorydbDriver(options ...Options) (*TheorydbDriver, *fakedb.Fake, error) {
@@ -259,8 +327,11 @@ func NewFakeTheorydbDriver(options ...Options) (*TheorydbDriver, *fakedb.Fake, e
 		Region: "us-east-1",
 	}
 	deterministicEncryption := false
+	var kmsClient *deterministicKMSClient
+	var rng io.Reader
 	if len(options) > 0 && options[0].Encryption.Provider != "" {
-		kmsClient, rng, err := deterministicEncryptionForOptions(options[0].Encryption)
+		var err error
+		kmsClient, rng, err = deterministicEncryptionForOptions(options[0].Encryption)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -276,7 +347,14 @@ func NewFakeTheorydbDriver(options ...Options) (*TheorydbDriver, *fakedb.Fake, e
 		return nil, nil, err
 	}
 
-	return &TheorydbDriver{db: db, deterministicEncryption: deterministicEncryption}, fake, nil
+	return &TheorydbDriver{
+		db:                      db,
+		deterministicEncryption: deterministicEncryption,
+		kmsClient:               kmsClient,
+		kmsRand:                 rng,
+		fake:                    fake,
+		raw:                     fake,
+	}, fake, nil
 }
 
 func (d *TheorydbDriver) Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error {
@@ -288,7 +366,7 @@ func (d *TheorydbDriver) Create(ctx context.Context, model string, item map[stri
 		return err
 	}
 
-	q := d.db.WithContext(ctx).Model(instance)
+	q := d.activeDB().WithContext(ctx).Model(instance)
 	if ifNotExists {
 		q = q.IfNotExists()
 	}
@@ -304,14 +382,14 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 	switch model {
 	case "User":
 		var out User
-		err := d.db.WithContext(ctx).Model(&User{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		err := d.activeDB().WithContext(ctx).Model(&User{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
 		if err != nil {
 			return nil, err
 		}
 		return normalizeUser(out), nil
 	case "StructuredProfileUser":
 		var out structuredProfileUserRecordCarrier
-		err := d.db.WithContext(ctx).Model(&structuredProfileUserRecordCarrier{}).
+		err := d.activeDB().WithContext(ctx).Model(&structuredProfileUserRecordCarrier{}).
 			Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
 		if err != nil {
 			return nil, err
@@ -319,49 +397,49 @@ func (d *TheorydbDriver) Get(ctx context.Context, model string, key map[string]a
 		return normalizeStructuredProfileUser(out), nil
 	case "Order":
 		var out Order
-		err := d.db.WithContext(ctx).Model(&Order{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		err := d.activeDB().WithContext(ctx).Model(&Order{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
 		if err != nil {
 			return nil, err
 		}
 		return normalizeOrder(out), nil
 	case "NumberPrecision":
 		var out NumberPrecision
-		err := d.db.WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		err := d.activeDB().WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
 		if err != nil {
 			return nil, err
 		}
 		return normalizeNumberPrecision(out), nil
 	case "TypeMatrix":
 		var out TypeMatrix
-		err := d.db.WithContext(ctx).Model(&TypeMatrix{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		err := d.activeDB().WithContext(ctx).Model(&TypeMatrix{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
 		if err != nil {
 			return nil, err
 		}
 		return normalizeTypeMatrix(out), nil
 	case "SnakeCaseRecord":
 		var out SnakeCaseRecord
-		err := d.db.WithContext(ctx).Model(&SnakeCaseRecord{}).Where("pk", "=", pk).Where("sk", "=", sk).First(&out)
+		err := d.activeDB().WithContext(ctx).Model(&SnakeCaseRecord{}).Where("pk", "=", pk).Where("sk", "=", sk).First(&out)
 		if err != nil {
 			return nil, err
 		}
 		return normalizeSnakeCaseRecord(out), nil
 	case "EncryptedRecord":
 		var out EncryptedRecord
-		err := d.db.WithContext(ctx).Model(&EncryptedRecord{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		err := d.activeDB().WithContext(ctx).Model(&EncryptedRecord{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
 		if err != nil {
 			return nil, err
 		}
 		return normalizeEncryptedRecord(out), nil
 	case "ReleaseStateActual":
 		var out ReleaseStateActual
-		err := d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		err := d.activeDB().WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
 		if err != nil {
 			return nil, err
 		}
 		return normalizeReleaseStateActual(out), nil
 	case "ReleaseStateEvent":
 		var out ReleaseStateEvent
-		err := d.db.WithContext(ctx).Model(&ReleaseStateEvent{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
+		err := d.activeDB().WithContext(ctx).Model(&ReleaseStateEvent{}).Where("PK", "=", pk).Where("SK", "=", sk).First(&out)
 		if err != nil {
 			return nil, err
 		}
@@ -390,7 +468,7 @@ func (d *TheorydbDriver) Update(ctx context.Context, model string, item map[stri
 	if mutatesProtectedAttribute(fields, protectedAttributes) {
 		return fmt.Errorf("%w: per-call protected attribute", theorydbErrors.ErrProtectedFieldMutation)
 	}
-	return d.db.WithContext(ctx).Model(instance).Update(fields...)
+	return d.activeDB().WithContext(ctx).Model(instance).Update(fields...)
 }
 
 func (d *TheorydbDriver) Save(ctx context.Context, model string, item map[string]any) error {
@@ -401,7 +479,7 @@ func (d *TheorydbDriver) Save(ctx context.Context, model string, item map[string
 	if err != nil {
 		return err
 	}
-	return d.db.WithContext(ctx).Model(instance).CreateOrUpdate()
+	return d.activeDB().WithContext(ctx).Model(instance).CreateOrUpdate()
 }
 
 func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[string]any) error {
@@ -412,21 +490,21 @@ func (d *TheorydbDriver) Delete(ctx context.Context, model string, key map[strin
 
 	switch model {
 	case "User":
-		return d.db.WithContext(ctx).Model(&User{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+		return d.activeDB().WithContext(ctx).Model(&User{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "Order":
-		return d.db.WithContext(ctx).Model(&Order{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+		return d.activeDB().WithContext(ctx).Model(&Order{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "NumberPrecision":
-		return d.db.WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+		return d.activeDB().WithContext(ctx).Model(&NumberPrecision{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "TypeMatrix":
-		return d.db.WithContext(ctx).Model(&TypeMatrix{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+		return d.activeDB().WithContext(ctx).Model(&TypeMatrix{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "SnakeCaseRecord":
-		return d.db.WithContext(ctx).Model(&SnakeCaseRecord{}).Where("pk", "=", pk).Where("sk", "=", sk).Delete()
+		return d.activeDB().WithContext(ctx).Model(&SnakeCaseRecord{}).Where("pk", "=", pk).Where("sk", "=", sk).Delete()
 	case "EncryptedRecord":
-		return d.db.WithContext(ctx).Model(&EncryptedRecord{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+		return d.activeDB().WithContext(ctx).Model(&EncryptedRecord{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateActual":
-		return d.db.WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+		return d.activeDB().WithContext(ctx).Model(&ReleaseStateActual{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	case "ReleaseStateEvent":
-		return d.db.WithContext(ctx).Model(&ReleaseStateEvent{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
+		return d.activeDB().WithContext(ctx).Model(&ReleaseStateEvent{}).Where("PK", "=", pk).Where("SK", "=", sk).Delete()
 	default:
 		return fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
 	}
@@ -460,7 +538,7 @@ func (d *TheorydbDriver) buildReadQuery(ctx context.Context, modelName string, r
 	if err != nil {
 		return nil, err
 	}
-	q := d.db.WithContext(ctx).Model(instance)
+	q := d.activeDB().WithContext(ctx).Model(instance)
 	if req.Index != "" {
 		q = q.Index(req.Index)
 	}
@@ -591,7 +669,7 @@ func countResult(q core.Query) (ReadResult, error) {
 }
 
 func (d *TheorydbDriver) TransactGet(ctx context.Context, model string, items []KeyedItem) (ReadResult, error) {
-	getter, ok := d.db.(core.TransactGetter)
+	getter, ok := d.activeDB().(core.TransactGetter)
 	if !ok {
 		return ReadResult{}, fmt.Errorf("%w: transact get extension unavailable", theorydbErrors.ErrInvalidOperator)
 	}
@@ -656,35 +734,35 @@ func (d *TheorydbDriver) BatchGet(ctx context.Context, model string, keys []map[
 	switch model {
 	case "User":
 		var out []User
-		err := d.db.WithContext(ctx).Model(&User{}).BatchGet(keyPairs, &out)
+		err := d.activeDB().WithContext(ctx).Model(&User{}).BatchGet(keyPairs, &out)
 		return ReadResult{Items: normalizeUsers(out)}, err
 	case "Order":
 		var out []Order
-		err := d.db.WithContext(ctx).Model(&Order{}).BatchGet(keyPairs, &out)
+		err := d.activeDB().WithContext(ctx).Model(&Order{}).BatchGet(keyPairs, &out)
 		return ReadResult{Items: normalizeOrders(out)}, err
 	case "NumberPrecision":
 		var out []NumberPrecision
-		err := d.db.WithContext(ctx).Model(&NumberPrecision{}).BatchGet(keyPairs, &out)
+		err := d.activeDB().WithContext(ctx).Model(&NumberPrecision{}).BatchGet(keyPairs, &out)
 		return ReadResult{Items: normalizeNumberPrecisions(out)}, err
 	case "TypeMatrix":
 		var out []TypeMatrix
-		err := d.db.WithContext(ctx).Model(&TypeMatrix{}).BatchGet(keyPairs, &out)
+		err := d.activeDB().WithContext(ctx).Model(&TypeMatrix{}).BatchGet(keyPairs, &out)
 		return ReadResult{Items: normalizeTypeMatrices(out)}, err
 	case "SnakeCaseRecord":
 		var out []SnakeCaseRecord
-		err := d.db.WithContext(ctx).Model(&SnakeCaseRecord{}).BatchGet(keyPairs, &out)
+		err := d.activeDB().WithContext(ctx).Model(&SnakeCaseRecord{}).BatchGet(keyPairs, &out)
 		return ReadResult{Items: normalizeSnakeCaseRecords(out)}, err
 	case "EncryptedRecord":
 		var out []EncryptedRecord
-		err := d.db.WithContext(ctx).Model(&EncryptedRecord{}).BatchGet(keyPairs, &out)
+		err := d.activeDB().WithContext(ctx).Model(&EncryptedRecord{}).BatchGet(keyPairs, &out)
 		return ReadResult{Items: normalizeEncryptedRecords(out)}, err
 	case "ReleaseStateActual":
 		var out []ReleaseStateActual
-		err := d.db.WithContext(ctx).Model(&ReleaseStateActual{}).BatchGet(keyPairs, &out)
+		err := d.activeDB().WithContext(ctx).Model(&ReleaseStateActual{}).BatchGet(keyPairs, &out)
 		return ReadResult{Items: normalizeReleaseStateActuals(out)}, err
 	case "ReleaseStateEvent":
 		var out []ReleaseStateEvent
-		err := d.db.WithContext(ctx).Model(&ReleaseStateEvent{}).BatchGet(keyPairs, &out)
+		err := d.activeDB().WithContext(ctx).Model(&ReleaseStateEvent{}).BatchGet(keyPairs, &out)
 		return ReadResult{Items: normalizeReleaseStateEvents(out)}, err
 	default:
 		return ReadResult{}, fmt.Errorf("%w: unknown model %q", theorydbErrors.ErrInvalidModel, model)
@@ -714,11 +792,11 @@ func (d *TheorydbDriver) BatchWrite(ctx context.Context, model string, puts []ma
 	if err != nil {
 		return err
 	}
-	return d.db.WithContext(ctx).Model(empty).BatchWrite(putItems, deleteKeys)
+	return d.activeDB().WithContext(ctx).Model(empty).BatchWrite(putItems, deleteKeys)
 }
 
 func (d *TheorydbDriver) TransactWrite(ctx context.Context, model string, actions []TransactWriteAction) error {
-	return d.db.TransactWrite(ctx, func(tx core.TransactionBuilder) error {
+	return d.activeDB().TransactWrite(ctx, func(tx core.TransactionBuilder) error {
 		for _, action := range actions {
 			actionModel := action.Model
 			if actionModel == "" {
@@ -1706,4 +1784,404 @@ func normalizeOrders(items []Order) []map[string]any {
 		out = append(out, normalizeOrder(item))
 	}
 	return out
+}
+
+const (
+	migrationSourceTable    = "encrypted_records_migration_source"
+	migrationTargetTable    = "encrypted_records_contract"
+	migrationSourceSecret   = "secret"
+	legacyEnvelopeAttribute = "secret"
+)
+
+// migrationEncryptedSourceRecord is the migration source shape: the same
+// encrypted attribute name as the target model, on a different table.
+type migrationEncryptedSourceRecord struct {
+	PK     string `theorydb:"pk,attr:PK" json:"PK"`
+	SK     string `theorydb:"sk,attr:SK" json:"SK"`
+	Secret string `theorydb:"attr:secret,encrypted" json:"secret"`
+}
+
+func (migrationEncryptedSourceRecord) TableName() string { return migrationSourceTable }
+
+func (d *TheorydbDriver) activeDB() core.ExtendedDB {
+	if d.stepEncryption == "none" && d.noEncryptionDB != nil {
+		return d.noEncryptionDB
+	}
+	return d.db
+}
+
+// SetStepEncryption selects the database instance a scenario step uses. "none"
+// exercises fail-closed behavior with no KMS configuration.
+func (d *TheorydbDriver) SetStepEncryption(mode string) error {
+	switch mode {
+	case "", "deterministic":
+		d.stepEncryption = ""
+		return nil
+	case "none":
+		if d.noEncryptionDB == nil {
+			db, err := d.databaseWithoutEncryption()
+			if err != nil {
+				return err
+			}
+			d.noEncryptionDB = db
+		}
+		d.stepEncryption = "none"
+		return nil
+	default:
+		return fmt.Errorf("unsupported step encryption mode %q", mode)
+	}
+}
+
+func (d *TheorydbDriver) RawPut(ctx context.Context, table string, rawItem map[string]any) error {
+	item := make(map[string]types.AttributeValue, len(rawItem))
+	for name, raw := range rawItem {
+		av, err := decodeRawAttributeValue(raw)
+		if err != nil {
+			return fmt.Errorf("raw_put attribute %q: %w", name, err)
+		}
+		item[name] = av
+	}
+	_, err := d.raw.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(table),
+		Item:      item,
+	})
+	return err
+}
+
+func decodeRawAttributeValue(raw any) (types.AttributeValue, error) {
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("raw value must be a map, got %T", raw)
+	}
+	if value, ok := values["s"]; ok {
+		return &types.AttributeValueMemberS{Value: fmt.Sprint(value)}, nil
+	}
+	if value, ok := values["n"]; ok {
+		return &types.AttributeValueMemberN{Value: fmt.Sprint(value)}, nil
+	}
+	if value, ok := values["b64"]; ok {
+		decoded, err := base64.StdEncoding.DecodeString(fmt.Sprint(value))
+		if err != nil {
+			return nil, err
+		}
+		return &types.AttributeValueMemberB{Value: decoded}, nil
+	}
+	if value, ok := values["bool"]; ok {
+		flag, ok := value.(bool)
+		if !ok {
+			return nil, fmt.Errorf("bool raw value must be a boolean")
+		}
+		return &types.AttributeValueMemberBOOL{Value: flag}, nil
+	}
+	if value, ok := values["null"]; ok {
+		if flag, ok := value.(bool); ok && flag {
+			return &types.AttributeValueMemberNULL{Value: true}, nil
+		}
+	}
+	if rawEnvelope, ok := values["envelope"]; ok {
+		return decodeRawEnvelope(rawEnvelope)
+	}
+	return nil, fmt.Errorf("unsupported raw value shape")
+}
+
+func decodeRawEnvelope(raw any) (types.AttributeValue, error) {
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("envelope must be a map")
+	}
+	version := fmt.Sprint(values["version"])
+	edk, err := decodeRawBase64(values["edk_b64"])
+	if err != nil {
+		return nil, fmt.Errorf("envelope edk: %w", err)
+	}
+	nonce, err := decodeRawBase64(values["nonce_b64"])
+	if err != nil {
+		return nil, fmt.Errorf("envelope nonce: %w", err)
+	}
+	ct, err := decodeRawBase64(values["ct_b64"])
+	if err != nil {
+		return nil, fmt.Errorf("envelope ct: %w", err)
+	}
+	return &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+		"v":     &types.AttributeValueMemberN{Value: version},
+		"edk":   &types.AttributeValueMemberB{Value: edk},
+		"nonce": &types.AttributeValueMemberB{Value: nonce},
+		"ct":    &types.AttributeValueMemberB{Value: ct},
+	}}, nil
+}
+
+func decodeRawBase64(raw any) ([]byte, error) {
+	text := fmt.Sprint(raw)
+	if text == "" {
+		return nil, nil
+	}
+	return base64.StdEncoding.DecodeString(text)
+}
+
+// SeedEncrypted writes one migration source row. v2 rows go through the normal
+// bound write path; v1 rows are written as legacy envelopes so the migration
+// path can prove it upgrades the binding.
+func (d *TheorydbDriver) SeedEncrypted(ctx context.Context, table string, item map[string]any, envelopeVersion int, corrupt string, reset bool) error {
+	if table != migrationSourceTable {
+		return fmt.Errorf("seed_encrypted supports table %q only", migrationSourceTable)
+	}
+	if reset {
+		if err := d.resetMigrationSourceTable(ctx); err != nil {
+			return err
+		}
+	}
+	if err := d.ensureMigrationSourceTable(ctx); err != nil {
+		return err
+	}
+	pk := fmt.Sprint(item["PK"])
+	sk := fmt.Sprint(item["SK"])
+	secret := fmt.Sprint(item[migrationSourceSecret])
+
+	if envelopeVersion == 2 {
+		record := &migrationEncryptedSourceRecord{PK: pk, SK: sk, Secret: secret}
+		if err := d.activeDB().WithContext(ctx).Model(record).CreateOrUpdate(); err != nil {
+			return err
+		}
+	} else {
+		envelope, err := d.legacyV1Envelope(ctx, secret)
+		if err != nil {
+			return err
+		}
+		if _, err := d.raw.PutItem(ctx, &dynamodb.PutItemInput{
+			TableName: aws.String(table),
+			Item: map[string]types.AttributeValue{
+				"PK":     &types.AttributeValueMemberS{Value: pk},
+				"SK":     &types.AttributeValueMemberS{Value: sk},
+				"secret": envelope,
+			},
+		}); err != nil {
+			return err
+		}
+	}
+
+	if corrupt == "" {
+		return nil
+	}
+	return d.corruptStoredEnvelope(ctx, table, pk, sk, corrupt)
+}
+
+func (d *TheorydbDriver) resetMigrationSourceTable(ctx context.Context) error {
+	_, err := d.raw.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(migrationSourceTable)})
+	if err != nil {
+		var notFound *types.ResourceNotFoundException
+		if !errors.As(err, &notFound) {
+			return err
+		}
+	}
+	if d.ddb == nil {
+		return nil
+	}
+	return dynamodb.NewTableNotExistsWaiter(d.ddb).Wait(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(migrationSourceTable)}, 2*time.Minute)
+}
+
+func (d *TheorydbDriver) ensureMigrationSourceTable(ctx context.Context) error {
+	_, err := d.raw.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(migrationSourceTable)})
+	if err == nil {
+		return nil
+	}
+	var notFound *types.ResourceNotFoundException
+	if !errors.As(err, &notFound) {
+		return err
+	}
+	_, err = d.raw.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: aws.String(migrationSourceTable),
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("PK"), AttributeType: types.ScalarAttributeTypeS},
+			{AttributeName: aws.String("SK"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("PK"), KeyType: types.KeyTypeHash},
+			{AttributeName: aws.String("SK"), KeyType: types.KeyTypeRange},
+		},
+		BillingMode: types.BillingModePayPerRequest,
+	})
+	if err != nil {
+		var exists *types.ResourceInUseException
+		if errors.As(err, &exists) {
+			return nil
+		}
+		return err
+	}
+	if d.ddb == nil {
+		return nil
+	}
+	return dynamodb.NewTableExistsWaiter(d.ddb).Wait(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(migrationSourceTable)}, 2*time.Minute)
+}
+
+func (d *TheorydbDriver) legacyV1Envelope(ctx context.Context, secret string) (types.AttributeValue, error) {
+	if d.kmsClient == nil || d.kmsRand == nil {
+		return nil, fmt.Errorf("seed_encrypted v1 requires the deterministic scenario encryption provider")
+	}
+	dataKey, err := d.kmsClient.GenerateDataKey(ctx, &kms.GenerateDataKeyInput{
+		KeyId:   aws.String("arn:aws:kms:us-east-1:111111111111:key/contract-deterministic"),
+		KeySpec: kmsTypes.DataKeySpecAes256,
+	})
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(dataKey.Plaintext)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(d.kmsRand, nonce); err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(map[string]any{"t": "S", "s": secret})
+	if err != nil {
+		return nil, err
+	}
+	aad := []byte(fmt.Sprintf("theorydb:encrypted:v1|attr=%s", legacyEnvelopeAttribute))
+	ct := gcm.Seal(nil, nonce, payload, aad)
+	return &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+		"v":     &types.AttributeValueMemberN{Value: "1"},
+		"edk":   &types.AttributeValueMemberB{Value: dataKey.CiphertextBlob},
+		"nonce": &types.AttributeValueMemberB{Value: nonce},
+		"ct":    &types.AttributeValueMemberB{Value: ct},
+	}}, nil
+}
+
+func (d *TheorydbDriver) corruptStoredEnvelope(ctx context.Context, table, pk, sk, mode string) error {
+	out, err := d.raw.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(table),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: pk},
+			"SK": &types.AttributeValueMemberS{Value: sk},
+		},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return err
+	}
+	envelope, ok := out.Item["secret"].(*types.AttributeValueMemberM)
+	if !ok {
+		return fmt.Errorf("stored migration row has no encrypted envelope")
+	}
+	switch mode {
+	case "nonce":
+		envelope.Value["nonce"] = &types.AttributeValueMemberB{Value: []byte("badnonce")}
+	case "ciphertext":
+		ciphertext, ok := envelope.Value["ct"].(*types.AttributeValueMemberB)
+		if !ok || len(ciphertext.Value) == 0 {
+			return fmt.Errorf("stored envelope has no ciphertext")
+		}
+		tampered := append([]byte(nil), ciphertext.Value...)
+		tampered[len(tampered)-1] ^= 0xff
+		envelope.Value["ct"] = &types.AttributeValueMemberB{Value: tampered}
+	default:
+		return fmt.Errorf("unsupported corrupt mode %q", mode)
+	}
+	_, err = d.raw.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(table),
+		Item:      out.Item,
+	})
+	return err
+}
+
+// Migrate runs the runtime's schema migration from the fixed migration source
+// shape into the scenario model. The encryption mode selects the provider
+// available to the copy: scenario-configured, none, or a failing provider.
+func (d *TheorydbDriver) Migrate(ctx context.Context, req MigrateRequest, targetTable string) error {
+	if targetTable != migrationTargetTable {
+		return fmt.Errorf("migrate supports target table %q only", migrationTargetTable)
+	}
+	var db core.ExtendedDB
+	switch req.Encryption {
+	case "", "deterministic":
+		db = d.db
+	case "none":
+		without, err := d.databaseWithoutEncryption()
+		if err != nil {
+			return err
+		}
+		db = without
+	case "failing":
+		failing, err := d.failingDatabase()
+		if err != nil {
+			return err
+		}
+		db = failing
+	default:
+		return fmt.Errorf("unsupported migrate encryption mode %q", req.Encryption)
+	}
+	options := []schema.AutoMigrateOption{
+		schema.WithTargetModel(&EncryptedRecord{}),
+		schema.WithDataCopy(true),
+		schema.WithContext(ctx),
+	}
+	if req.BatchSize > 0 {
+		options = append(options, schema.WithBatchSize(req.BatchSize))
+	}
+	return db.AutoMigrateWithOptions(&migrationEncryptedSourceRecord{}, options...)
+}
+
+func (d *TheorydbDriver) databaseWithoutEncryption() (core.ExtendedDB, error) {
+	if d.noEncryptionDB != nil {
+		return d.noEncryptionDB, nil
+	}
+	cfg := session.Config{
+		Region:           d.region,
+		Endpoint:         d.endpoint,
+		AWSConfigOptions: d.loadOptions,
+	}
+	var (
+		db  core.ExtendedDB
+		err error
+	)
+	if d.fake != nil {
+		db, err = tabletheory.NewWithClient(cfg, d.fake)
+	} else {
+		db, err = tabletheory.New(cfg)
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.noEncryptionDB = db
+	return db, nil
+}
+
+func (d *TheorydbDriver) failingDatabase() (core.ExtendedDB, error) {
+	if d.failingDB != nil {
+		return d.failingDB, nil
+	}
+	cfg := session.Config{
+		Region:           d.region,
+		Endpoint:         d.endpoint,
+		KMSKeyARN:        "arn:aws:kms:us-east-1:111111111111:key/contract-failing",
+		KMSClient:        failingKMS{},
+		AWSConfigOptions: d.loadOptions,
+	}
+	var (
+		db  core.ExtendedDB
+		err error
+	)
+	if d.fake != nil {
+		db, err = tabletheory.NewWithClient(cfg, d.fake)
+	} else {
+		db, err = tabletheory.New(cfg)
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.failingDB = db
+	return db, nil
+}
+
+type failingKMS struct{}
+
+func (failingKMS) GenerateDataKey(context.Context, *kms.GenerateDataKeyInput, ...func(*kms.Options)) (*kms.GenerateDataKeyOutput, error) {
+	return nil, fmt.Errorf("contract failing KMS provider")
+}
+
+func (failingKMS) Decrypt(context.Context, *kms.DecryptInput, ...func(*kms.Options)) (*kms.DecryptOutput, error) {
+	return nil, fmt.Errorf("contract failing KMS provider")
 }
