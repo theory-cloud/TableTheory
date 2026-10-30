@@ -218,11 +218,47 @@
 // the real scan. The checker reads no environment variable.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// The scanner's dependencies are the repository's own pinned packages:
+// ts/package.json and ts/package-lock.json carry the TypeScript compiler and
+// the YAML parser. Resolving from ts/package.json keeps the checker on those
+// exact versions whether it runs from the repository root or from a policy
+// test's synthetic copy that links ts/.
+const requireFromTypeScriptPackage = createRequire(path.join(repositoryRoot, "ts", "package.json"));
+
+let cachedTypeScript = null;
+let cachedYaml = null;
+
+function loadPinnedDependency(specifier, description) {
+  try {
+    return requireFromTypeScriptPackage(specifier);
+  } catch (err) {
+    throw new GateFailure(
+      `pinned ${description} is unavailable from ts/node_modules (${specifier}): ${err.message}; ` +
+        "run `npm --prefix ts ci --ignore-scripts` before scanning",
+    );
+  }
+}
+
+function typescript() {
+  if (cachedTypeScript === null) {
+    cachedTypeScript = loadPinnedDependency("typescript", "TypeScript compiler");
+  }
+  return cachedTypeScript;
+}
+
+function yamlParser() {
+  if (cachedYaml === null) {
+    cachedYaml = loadPinnedDependency("yaml", "YAML parser");
+  }
+  return cachedYaml;
+}
 
 // === the deprecated set, explicit in one place =============================
 // Sourced from the "Deprecated runtimes" table at
@@ -434,131 +470,22 @@ function fail(message) {
 //
 // A new undeclared surface written in any of those idioms was invisible to the
 // classifier and to the coverage walk alike, so it passed the gate without ever
-// being judged. The receiver list is therefore built per surface: the fixed
-// receivers plus whatever names that surface binds.
+// being judged. The receiver model is therefore built per surface from the AST:
+// the fixed receivers plus whatever names that surface binds.
 //
-// What stays outside the model, deliberately and now by measurement rather than
-// by omission: a member read through a computed key (`R[process.env.NAME]`), a
-// runtime hidden behind a lookup table or a helper, a `['Runtime']` read bound
-// to a local name and used later, an enum member read as `R['NODEJS_20_X']`, and
-// a bare `fromString('nodejs20.x')` on no receiver. None of them yields a
-// declaration, so a surface written that way fails closed on the "declares no
-// modelled Lambda runtime" rule instead of passing unjudged.
-const RUNTIME_NAMESPACE_RECEIVERS = ["lambda\\.Runtime", "Runtime"];
-
-// Names a surface binds to the Runtime enum (`R` beside `R.NODEJS_20_X`) or to
-// the aws-lambda namespace itself (`L` beside `L['Runtime'].NODEJS_20_X`). A
-// binding is never a declaration: an enum member still has to follow it. A
-// surface that binds the namespace and then hides the member ends up with no
-// readable declaration, which is the fail-closed outcome this gate wants rather
-// than a reason to widen further.
+// What stays outside the model, deliberately: a member read through a computed
+// key (`R[process.env.NAME]`), a runtime hidden behind a lookup table or a
+// helper, a `['Runtime']` read bound to a local name and used later, an enum
+// member read as `R['NODEJS_20_X']`, and a bare `fromString('nodejs20.x')` on no
+// receiver. None of them yields a declaration, so a surface written that way
+// fails closed on the "declares no modelled Lambda runtime" rule instead of
+// passing unjudged.
 //
-// Each form carries the same lookahead, and that lookahead is what keeps a hop a
-// hop: `const R2 = R` is an alias of the receiver, while `const V = R.NODEJS_20_X`
-// and `const R = lambda.Runtime['NODEJS_20_X']` bind a runtime value and must not
-// be chased into a receiver.
-const BINDING_NOT_FOLLOWED_BY_A_MEMBER = String.raw`(?![\s]*[.[])`;
-const RUNTIME_RECEIVER_BINDING_RES = [
-  // const R = lambda.Runtime   /   let R = Runtime
-  new RegExp(
-    String.raw`\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:lambda\.Runtime|Runtime)\b${BINDING_NOT_FOLLOWED_BY_A_MEMBER}`,
-    "g",
-  ),
-  // import { Runtime as R } from 'aws-cdk-lib/aws-lambda'
-  /\bimport\s*\{[^}]*?\bRuntime\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)[^}]*?\}\s*from\s*["'][^"']*aws-lambda["']/g,
-  // const { Runtime: R } = lambda
-  /\b(?:const|let|var)\s*\{[^}]*?\bRuntime\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*)[^}]*?\}\s*=/g,
-];
-
-const RUNTIME_NAMESPACE_BINDING_RES = [
-  // import * as lambda from 'aws-cdk-lib/aws-lambda'
-  /\bimport\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s*["'][^"']*aws-lambda["']/g,
-];
-
-// `const R2 = R`: one binding of another. Chased to a fixed point, so an alias of
-// an alias is still a receiver. The chase is monotone - a name is only ever added
-// to a set that already had its source, and the loop stops as soon as a pass adds
-// nothing - so a cyclic pair such as `const R = S; const S = R` terminates
-// instead of growing forever.
-const RUNTIME_BINDING_HOP_RE = new RegExp(
-  String.raw`\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_$][A-Za-z0-9_$]*)\b${BINDING_NOT_FOLLOWED_BY_A_MEMBER}`,
-  "g",
-);
-
-// The receiver alternation for one surface: every `['Runtime']` index form of a
-// namespace binding, the two fixed receivers, then every local name bound to the
-// enum. `lambda` is in the namespace set unconditionally, because the fixed
-// receiver list already reads its `lambda.Runtime` member as text rather than as
-// something to resolve through an import.
-function runtimeReceiverAlternation(text) {
-  const receivers = new Set();
-  for (const pattern of RUNTIME_RECEIVER_BINDING_RES) {
-    for (const match of text.matchAll(pattern)) receivers.add(match[1]);
-  }
-  const namespaces = new Set(["lambda"]);
-  for (const pattern of RUNTIME_NAMESPACE_BINDING_RES) {
-    for (const match of text.matchAll(pattern)) namespaces.add(match[1]);
-  }
-  for (;;) {
-    let changed = false;
-    for (const match of text.matchAll(RUNTIME_BINDING_HOP_RE)) {
-      const [target, source] = [match[1], match[2]];
-      if (receivers.has(source) && !receivers.has(target)) {
-        receivers.add(target);
-        changed = true;
-      } else if (namespaces.has(source) && !namespaces.has(target)) {
-        namespaces.add(target);
-        changed = true;
-      }
-    }
-    if (!changed) break;
-  }
-  const indexForms = [...namespaces]
-    .sort()
-    .map((name) => `${escapeRegExp(name)}\\s*\\[\\s*["']Runtime["']\\s*\\]`);
-  return [
-    ...indexForms,
-    ...RUNTIME_NAMESPACE_RECEIVERS,
-    ...[...receivers].sort().map(escapeRegExp),
-  ].join("|");
-}
-
 // Every runtime enum this gate models is SCREAMING_CASE, and that is what keeps
-// the widened receiver list from swallowing unrelated `Runtime.` namespaces
-// and from reading a method or property name as a runtime: `Runtime.fromString`
-// and `Runtime.PROVIDED_AL2023.bundlingImage` name methods and properties in
-// lowerCamelCase, so neither matches. Node's inspector domain spells its
-// members `Runtime.ScriptId` and `Runtime.StackTrace`, which do not match
-// either, and the quoted-index form is equally narrow: it matches only a literal
-// `'Runtime'` key, and `inspector` is not a namespace binding, so
-// `inspector['Runtime']` stays outside the model.
-const ENUM_MEMBER_NAME = "([A-Z][A-Z0-9_]*)";
-
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// The enum-member pattern for one surface: every receiver form that surface
-// uses, so `lambda.Runtime.NODEJS_20_X` is consumed whole rather than
-// re-matching as the bare `Runtime.NODEJS_20_X` inside it.
-function enumDeclarationPattern(text) {
-  return new RegExp(`\\b(${runtimeReceiverAlternation(text)})\\.${ENUM_MEMBER_NAME}\\b`, "g");
-}
-
-// The runtime-literal pattern for one surface: the argument of `fromString` on a
-// receiver that surface binds, so both this rule and the enum rule above are
-// built from the same alternation. The value pattern is deliberately loose - the
-// predicate below decides - so an unfamiliar runtime family still reaches the
-// classifier instead of being invisible. The receiver is what keeps the rule
-// scoped: without it a quoted literal on any other receiver, such as an S3
-// deployment's `CacheControl.fromString('public,max-age=0')`, could be read as a
-// Lambda declaration.
-function literalDeclarationPattern(text) {
-  return new RegExp(
-    `\\b(${runtimeReceiverAlternation(text)})\\.fromString\\s*\\(\\s*["'\`]([^"'\`]+)["'\`]`,
-    "g",
-  );
-}
+// the receiver model from swallowing unrelated `Runtime.` namespaces and from
+// reading a method or property name as a runtime: `Runtime.fromString` and
+// `Runtime.PROVIDED_AL2023.bundlingImage` name methods and properties in
+// lowerCamelCase, so neither matches.
 
 // The identifier a `fromString` argument names, or null when the argument is not
 // runtime-shaped. A runtime identifier is a known family followed by a version
@@ -574,80 +501,132 @@ function runtimeIdentifierFromLiteral(value) {
   return LAMBDA_RUNTIME_FAMILIES.includes(match[1]) ? value : null;
 }
 
-// Blanks out `//` line comments and `/* ... */` block comments in code position,
-// while leaving string and template literals untouched. A runtime declaration can
-// hide a comment between `fromString(` and its quoted argument, so the literal
-// rule must see through it; and a declaration that is entirely commented out must
-// not count, so the enum rule must not. The blanking is character-for-character
-// and preserves newlines, so every match index and every `lineOf` line still point
-// at the same place in the original source. String and template literals are
-// skipped rather than blanked: `'cp -R /asset-input/* /asset-output/'` and
-// `"https://example.com"` keep their content, so a `//` or `/*` inside a literal
-// is never mistaken for a comment.
-function stripComments(text) {
-  const out = text.split("");
-  const length = text.length;
-  const blank = (from, to) => {
-    for (let k = from; k < to; k += 1) {
-      if (out[k] !== "\n") out[k] = " ";
-    }
-  };
-  let i = 0;
-  while (i < length) {
-    const ch = text[i];
-    const next = i + 1 < length ? text[i + 1] : "";
-    if (ch === "'" || ch === "\"") {
-      let j = i + 1;
-      while (j < length) {
-        if (text[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        j += 1;
-        if (text[j - 1] === ch || text[j - 1] === "\n") break;
-      }
-      i = j;
-      continue;
-    }
-    if (ch === "`") {
-      let j = i + 1;
-      while (j < length) {
-        if (text[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        j += 1;
-        if (text[j - 1] === "`") break;
-      }
-      i = j;
-      continue;
-    }
-    if (ch === "/" && next === "/") {
-      let j = i + 2;
-      while (j < length && text[j] !== "\n") j += 1;
-      blank(i, j);
-      i = j;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      let j = i + 2;
-      while (j < length && !(text[j] === "*" && text[j + 1] === "/")) j += 1;
-      j = j < length ? j + 2 : length;
-      blank(i, j);
-      i = j;
-      continue;
-    }
-    i += 1;
-  }
-  return out.join("");
-}
-
 function lineOf(text, index) {
   let line = 1;
   for (let cursor = 0; cursor < index; cursor += 1) {
     if (text[cursor] === "\n") line += 1;
   }
   return line;
+}
+
+function scriptKindFor(label, ts) {
+  switch (path.extname(label).toLowerCase()) {
+    case ".tsx":
+      return ts.ScriptKind.TSX;
+    case ".jsx":
+      return ts.ScriptKind.JSX;
+    case ".js":
+    case ".mjs":
+    case ".cjs":
+      return ts.ScriptKind.JS;
+    default:
+      return ts.ScriptKind.TS;
+  }
+}
+
+function stringLiteralValue(node, ts) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  return null;
+}
+
+// The receiver names a surface binds. Imports, destructures, and simple alias
+// hops are collected first; `Runtime` and `lambda` are fixed forms because the
+// classifier has always accepted them without an import. A name is only ever
+// added to a set that already held its source, so cyclic aliases terminate.
+function collectRuntimeReceiverModel(sourceFile, ts) {
+  const enumAliases = new Set();
+  const namespaces = new Set(["lambda"]);
+  const enumPairs = [];
+  const namespacePairs = [];
+
+  const isNamespaceName = (name) => name === "lambda" || namespaces.has(name);
+  const isEnumName = (name) => name === "Runtime" || enumAliases.has(name);
+  const isNamespaceExpr = (expr) => ts.isIdentifier(expr) && isNamespaceName(expr.text);
+  const isBindableEnumExpr = (expr) => {
+    if (ts.isIdentifier(expr)) return isEnumName(expr.text);
+    if (ts.isPropertyAccessExpression(expr) && expr.name.text === "Runtime") {
+      return ts.isIdentifier(expr.expression) && isNamespaceExpr(expr.expression);
+    }
+    return false;
+  };
+
+  const visit = (node) => {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text.includes("aws-lambda")
+    ) {
+      const bindings = node.importClause?.namedBindings;
+      if (bindings !== undefined) {
+        if (ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
+        if (ts.isNamedImports(bindings)) {
+          for (const element of bindings.elements) {
+            const imported = (element.propertyName ?? element.name).text;
+            if (imported === "Runtime") enumAliases.add(element.name.text);
+          }
+        }
+      }
+    }
+
+    if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
+      if (ts.isIdentifier(node.name)) {
+        if (isBindableEnumExpr(node.initializer)) {
+          enumAliases.add(node.name.text);
+        } else if (isNamespaceExpr(node.initializer)) {
+          namespaces.add(node.name.text);
+        } else if (ts.isIdentifier(node.initializer)) {
+          enumPairs.push([node.name.text, node.initializer.text]);
+          namespacePairs.push([node.name.text, node.initializer.text]);
+        }
+      } else if (ts.isObjectBindingPattern(node.name)) {
+        // `const { Runtime: RT } = lambda` binds the enum under a new name. The
+        // original text model accepts this regardless of the right-hand side,
+        // so the AST model does too.
+        for (const element of node.name.elements) {
+          const key = element.propertyName ?? element.name;
+          if (ts.isIdentifier(key) && key.text === "Runtime" && ts.isIdentifier(element.name)) {
+            enumAliases.add(element.name.text);
+          }
+        }
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  for (;;) {
+    let changed = false;
+    for (const [target, source] of namespacePairs) {
+      if (!namespaces.has(target) && isNamespaceName(source)) {
+        namespaces.add(target);
+        changed = true;
+      }
+    }
+    for (const [target, source] of enumPairs) {
+      if (!enumAliases.has(target) && isEnumName(source)) {
+        enumAliases.add(target);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  return { enumAliases, namespaces };
+}
+
+function isRuntimeMemberReceiver(expr, ts, model) {
+  if (ts.isIdentifier(expr)) return expr.text === "Runtime" || model.enumAliases.has(expr.text);
+  if (ts.isPropertyAccessExpression(expr) && expr.name.text === "Runtime") {
+    // The original text model reads any `X.Runtime` receiver; keeping that
+    // shape means an unrelated identifier cannot hide a declaration by
+    // receiving it through a different namespace.
+    return true;
+  }
+  if (ts.isElementAccessExpression(expr) && stringLiteralValue(expr.argumentExpression, ts) === "Runtime") {
+    return ts.isIdentifier(expr.expression) && model.namespaces.has(expr.expression.text);
+  }
+  return false;
 }
 
 // Collects every runtime declaration in a surface's text, in source order, as
@@ -659,6 +638,13 @@ function lineOf(text, index) {
 // so a violation reports the idiom the surface actually used rather than the one
 // the gate prefers.
 //
+// The source is parsed with the repository's pinned TypeScript compiler API, not
+// with a comment stripper. Comments are trivia, so a commented-out declaration
+// is invisible while a comment between `fromString(` and its argument is not;
+// regex literals and template expressions are scanned as syntax, so a `//` or
+// `/*` inside a character class cannot blank the rest of the file. A source the
+// parser rejects fails closed instead of being scanned as a recovered tree.
+//
 // Declarations are de-duplicated by the runtime they resolve to, falling back
 // to the member access as written when there is no runtime to resolve. That is
 // what keeps `lambda.Runtime.PROVIDED_AL2023.bundlingImage` from being counted
@@ -666,40 +652,79 @@ function lineOf(text, index) {
 // provided.al2023. Two genuinely different declarations are never merged,
 // because two different runtimes, two different unreadable members, or two
 // different unmodelled literals resolve to two different keys.
-function collectDeclarations(text) {
-  // Comments are invisible to both declaration rules: a `fromString` argument can
-  // be preceded by a comment, and a declaration can be commented out.
-  text = stripComments(text);
+function collectDeclarations(label, text) {
+  const ts = typescript();
+  const sourceFile = ts.createSourceFile(
+    label,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindFor(label, ts),
+  );
+  const diagnostics = sourceFile.parseDiagnostics ?? [];
+  if (diagnostics.length > 0) {
+    const first = diagnostics[0];
+    const position = sourceFile.getLineAndCharacterOfPosition(first.start ?? 0);
+    const message = ts.flattenDiagnosticMessageText(first.messageText, " ");
+    throw new GateFailure(
+      `${label}:${position.line + 1} could not be parsed as TypeScript (${message}); ` +
+        "a recovered tree is not a scanned surface",
+    );
+  }
+
+  const model = collectRuntimeReceiverModel(sourceFile, ts);
   const byKey = new Map();
 
-  const record = (index, form, enumName, literal, identifier) => {
+  const record = (node, form, enumName, literal, identifier) => {
     const key = identifier === null ? `form:${form}` : `runtime:${identifier}`;
     if (byKey.has(key)) return;
-    byKey.set(key, { index, line: lineOf(text, index), form, enumName, literal, identifier });
+    const index = node.getStart(sourceFile);
+    byKey.set(key, {
+      index,
+      line: sourceFile.getLineAndCharacterOfPosition(index).line + 1,
+      form,
+      enumName,
+      literal,
+      identifier,
+    });
   };
 
-  for (const match of text.matchAll(enumDeclarationPattern(text))) {
-    const receiver = match[1];
-    const enumName = match[2];
-    record(
-      match.index,
-      `${receiver}.${enumName}`,
-      enumName,
-      null,
-      LAMBDA_RUNTIME_ENUMS.get(enumName) ?? null,
-    );
-  }
-  for (const match of text.matchAll(literalDeclarationPattern(text))) {
-    const receiver = match[1];
-    const literal = match[2];
-    record(
-      match.index,
-      `${receiver}.fromString("${literal}")`,
-      null,
-      literal,
-      runtimeIdentifierFromLiteral(literal),
-    );
-  }
+  const visit = (node) => {
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      /^[A-Z][A-Z0-9_]*$/.test(node.name.text) &&
+      isRuntimeMemberReceiver(node.expression, ts, model)
+    ) {
+      record(
+        node,
+        `${node.expression.getText(sourceFile)}.${node.name.text}`,
+        node.name.text,
+        null,
+        LAMBDA_RUNTIME_ENUMS.get(node.name.text) ?? null,
+      );
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "fromString" &&
+      isRuntimeMemberReceiver(node.expression.expression, ts, model)
+    ) {
+      const literal = node.arguments.length > 0 ? stringLiteralValue(node.arguments[0], ts) : null;
+      if (literal !== null) {
+        record(
+          node,
+          `${node.expression.expression.getText(sourceFile)}.fromString("${literal}")`,
+          null,
+          literal,
+          runtimeIdentifierFromLiteral(literal),
+        );
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
 
   return [...byKey.values()].sort((left, right) => left.index - right.index);
 }
@@ -854,7 +879,7 @@ function collectDeclarationsFor(label, text) {
     case "snippet":
       return collectSnippetDeclarations(text);
     default:
-      return collectDeclarations(text);
+      return collectDeclarations(label, text);
   }
 }
 
@@ -1146,9 +1171,9 @@ const CLASSIFIER_CASES = [
   {
     name: "stray-runtime-literal-is-not-a-declaration",
     text:
-      "runtime: lambda.Runtime.fromString(config.runtime),\n" +
+      "const first = { runtime: lambda.Runtime.fromString(config.runtime) };\n" +
       "const releaseNote = 'nodejs18.x';\n" +
-      "runtime: lambda.Runtime.NODEJS_24_X,\n",
+      "const second = { runtime: lambda.Runtime.NODEJS_24_X };\n",
     expected: [],
   },
   {
@@ -1188,7 +1213,7 @@ const CLASSIFIER_CASES = [
   },
   {
     name: "quoted-strings-that-are-not-runtimes",
-    text: 'runtime: lambda.Runtime.NODEJS_24_X,\nconst a = "node_modules";\nconst b = "assets";\nconst c = "go.mod";\nconst d = "vite";\nconst e = "1.2.3";\nconst f = "node24";\n',
+    text: 'const first = { runtime: lambda.Runtime.NODEJS_24_X };\nconst a = "node_modules";\nconst b = "assets";\nconst c = "go.mod";\nconst d = "vite";\nconst e = "1.2.3";\nconst f = "node24";\n',
     expected: [],
   },
   {
@@ -1290,6 +1315,32 @@ const CLASSIFIER_CASES = [
     name: "url-string-before-a-supported-runtime",
     text: 'const endpoint = "https://runtime.example.com/path";\nruntime: lambda.Runtime.NODEJS_24_X,\n',
     expected: [],
+  },
+  // --- regex, division, and template expressions are syntax -----------------
+  // A character class can contain the two characters a comment stripper treats
+  // as a comment opener. Scanning syntax, not slices of text, keeps the
+  // declaration beside the regex visible.
+  {
+    name: "regex-character-class-markers-do-not-hide-a-declaration",
+    text: "const marker = /[//]/; const re = /[/*]/; const fn = { runtime: lambda.Runtime.NODEJS_18_X };\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "regex-character-class-markers-preserve-a-supported-runtime",
+    text: "const marker = /[//]/; const re = /[/*]/; const fn = { runtime: lambda.Runtime.NODEJS_24_X };\n",
+    expected: [],
+  },
+  // Ordinary division is not a comment opener and declares nothing by itself.
+  {
+    name: "division-before-a-declaration",
+    text: "const ratio = total / count; const fn = { runtime: lambda.Runtime.NODEJS_20_X };\n",
+    expected: ["deprecated"],
+  },
+  // A runtime expression inside a template interpolation is executable code.
+  {
+    name: "template-expression-is-scanned-as-syntax",
+    text: "const note = `${lambda.Runtime.NODEJS_18_X}`; const fn = { runtime: lambda.Runtime.NODEJS_24_X };\n",
+    expected: ["deprecated"],
   },
   // --- templates: SAM / CloudFormation runtime scalars ----------------------
   // The class the first version of this gate could not see: a SAM Globals runtime
@@ -1422,6 +1473,14 @@ const FAIL_CLOSED_CASES = [
     text: 'const a = "node_modules";\nconst b = "1.2.3";\n',
     expectFailureReason: "declares no modelled Lambda runtime",
   },
+  // A source the parser rejects is not scanned as a recovered tree, even when
+  // the recovered text still contains a supported runtime token.
+  {
+    name: "parse-error-fails-closed",
+    text: "function ( {\nconst fn = { runtime: lambda.Runtime.NODEJS_24_X };\n",
+    raw: true,
+    expectFailureReason: "could not be parsed as TypeScript",
+  },
   // Binding the namespace and then hiding the member is not a way to declare
   // nothing and still pass: the surface has no readable declaration, so it fails
   // closed on the same rule that catches an obfuscated surface.
@@ -1455,7 +1514,9 @@ const FAIL_CLOSED_CASES = [
   // and passed.
   {
     name: "dynamic-fromString-rescued-by-a-stray-runtime-literal",
-    text: "runtime: lambda.Runtime.fromString(config.runtime),\nconst releaseNote = 'nodejs22.x';\n",
+    text:
+      "const first = { runtime: lambda.Runtime.fromString(config.runtime) };\n" +
+      "const releaseNote = 'nodejs22.x';\n",
     expectFailureReason: "declares no modelled Lambda runtime",
   },
   // A declaration that is entirely commented out is not a declaration, in either
@@ -1511,10 +1572,50 @@ function selfTestViolationKinds(outcome) {
   return outcome.violations.map((violation) => violation.kind);
 }
 
+function parsesAsTypeScript(text) {
+  const ts = typescript();
+  const sourceFile = ts.createSourceFile("probe.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return (sourceFile.parseDiagnostics ?? []).length === 0;
+}
+
+// Most classifier cases are object-property fragments (`runtime: ...`) rather
+// than complete modules. They were always fed to a text scanner, so they were
+// never required to parse. The AST scanner requires real syntax, so a fragment
+// is wrapped as object-literal properties before it is written; a case that is
+// already a complete module is left untouched. Mixed statement/property cases
+// are written as complete modules instead.
+function syntheticCaseSource(scenario) {
+  if (scenario.raw) return scenario.text;
+  if (parsesAsTypeScript(scenario.text)) return scenario.text;
+
+  const lines = scenario.text.split("\n");
+  const firstProperty = lines.findIndex((line) =>
+    /^\s*(?:runtime|code|bundling|environment|timeout|memorySize)\s*:/.test(line),
+  );
+  if (firstProperty > 0) {
+    const prelude = lines.slice(0, firstProperty).join("\n");
+    const tail = lines.slice(firstProperty).join("\n");
+    const wrapped = `${prelude}\nconst __probe = ({\n${tail}\n});\n`;
+    if (parsesAsTypeScript(wrapped)) return wrapped;
+  }
+
+  const wrappedAll = `const __probe = ({\n${scenario.text}\n});\n`;
+  if (parsesAsTypeScript(wrappedAll)) return wrappedAll;
+
+  throw new GateFailure(
+    `self-test case ${scenario.name} is not valid TypeScript after fragment normalization`,
+  );
+}
+
 function writeSyntheticSurface(tempDir, scenario) {
   const file = path.join(tempDir, scenario.name, scenario.file ?? "surface.ts");
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, scenario.text);
+  const extension = path.extname(file).toLowerCase();
+  const text =
+    scenario.file === undefined || CDK_SURFACE_EXTENSIONS.has(extension)
+      ? syntheticCaseSource(scenario)
+      : scenario.text;
+  fs.writeFileSync(file, text);
   return file;
 }
 
