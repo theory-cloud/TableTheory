@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 
 import pytest
@@ -284,3 +285,76 @@ def test_with_lambda_timeout_preserves_redaction_and_canonical_client() -> None:
     assert "Item" not in cause.response
     assert _SECRET not in json.dumps(cause.response)
     assert original.response["Item"]["name"]["S"] == _SECRET
+
+
+class _SegmentImageErrorClient:
+    """Thread-safe scan double whose segment 0 fails with an item-image error."""
+
+    def __init__(self, err: ClientError) -> None:
+        self._err = err
+        self._lock = threading.Lock()
+        self.calls: list[dict[str, object]] = []
+
+    def scan(self, **req: object) -> dict[str, object]:
+        with self._lock:
+            self.calls.append(dict(req))
+        if req.get("Segment") == 0:
+            raise self._err
+        return {"Items": []}
+
+
+def _scan_with_images() -> ClientError:
+    item = {"PK": {"S": "USER#1"}, "name": {"S": _SECRET}}
+    return ClientError(
+        {
+            "Error": {"Code": "ProvisionedThroughputExceededException", "Message": "slow down"},
+            "CancellationReasons": [{"Code": "ConditionalCheckFailed", "Item": item}],
+            "Item": item,
+        },
+        "Scan",
+    )
+
+
+def test_segment_error_from_timeout_derived_table_stays_redacted() -> None:
+    class _Context:
+        def get_remaining_time_in_millis(self) -> int:
+            return 60_000
+
+    original = _scan_with_images()
+    client = _SegmentImageErrorClient(original)
+    derived = _table(client, redact_item_images=True).with_lambda_timeout(_Context(), buffer_seconds=1.0)
+
+    with pytest.raises(AwsError) as info:
+        derived.scan_all_segments(total_segments=2, max_workers=2)
+
+    mapped = info.value
+    assert mapped.code == "ProvisionedThroughputExceededException"
+    assert _SECRET not in str(mapped)
+    cause = mapped.__cause__
+    assert isinstance(cause, ClientError)
+    assert "Item" not in cause.response
+    assert "Item" not in cause.response["CancellationReasons"][0]
+    assert _SECRET not in json.dumps(cause.response)
+    # The worker clone leads back to the caller's raw client, and the original
+    # error object is untouched.
+    assert derived._raw_client is client
+    assert original.response["Item"]["name"]["S"] == _SECRET
+
+
+def test_segment_error_keeps_the_non_redaction_default() -> None:
+    class _Context:
+        def get_remaining_time_in_millis(self) -> int:
+            return 60_000
+
+    original = _scan_with_images()
+    client = _SegmentImageErrorClient(original)
+    derived = _table(client).with_lambda_timeout(_Context(), buffer_seconds=1.0)
+
+    with pytest.raises(AwsError) as info:
+        derived.scan_all_segments(total_segments=2, max_workers=2)
+
+    # With redaction off, no extra wrapper is inserted between the caller and
+    # the client, so the retained cause still carries the item image.
+    cause = info.value.__cause__
+    assert isinstance(cause, ClientError)
+    assert cause is original
