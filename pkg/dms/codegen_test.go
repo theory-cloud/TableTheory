@@ -369,3 +369,37 @@ func readRepoFile(t *testing.T, parts ...string) []byte {
 	require.NoError(t, err)
 	return data
 }
+
+func TestGenerateTypeScriptPreservesJsonStringMode(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`
+dms_version: "0.2"
+models:
+  - name: "JsonMode"
+    table: { name: "json_mode" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        roles: ["pk"]
+      - attribute: "roles"
+        type: "S"
+        json: true
+        json_string_mode: "parse"
+`)
+	doc, err := ParseDocument(raw)
+	require.NoError(t, err)
+
+	out, err := Generate(doc, GenerateOptions{Lang: "ts", RuntimeImport: "./runtime.js"})
+	require.NoError(t, err)
+	rendered := string(out)
+	require.Contains(t, rendered, `jsonStringMode: 'parse'`)
+	require.Contains(t, rendered, `json: true`)
+	require.NotContains(t, rendered, "json_string_mode")
+
+	second, err := Generate(doc, GenerateOptions{Lang: "ts", RuntimeImport: "./runtime.js"})
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(out, second), "generation must be deterministic")
+}

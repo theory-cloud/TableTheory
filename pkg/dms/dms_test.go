@@ -621,3 +621,87 @@ func TestScalarKeyTypeFromField(t *testing.T) {
 	require.Equal(t, "B", scalarKeyTypeFromField(reflect.TypeOf([]byte{})))
 	require.Equal(t, "S", scalarKeyTypeFromField(reflect.TypeOf(struct{}{})))
 }
+
+func TestParseDocumentJsonStringMode(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`
+dms_version: "0.2"
+models:
+  - name: "JsonMode"
+    table: { name: "json_mode" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        roles: ["pk"]
+      - attribute: "roles"
+        type: "S"
+        json: true
+        json_string_mode: "parse"
+`)
+
+	doc, err := ParseDocument(raw)
+	require.NoError(t, err)
+	model, ok := FindModel(doc, "JsonMode")
+	require.True(t, ok)
+
+	var roles Attribute
+	for _, attr := range model.Attributes {
+		if attr.Attribute == "roles" {
+			roles = attr
+		}
+	}
+	require.Equal(t, "parse", roles.JsonStringMode)
+	require.True(t, roles.JSON)
+
+	drifted := *model
+	drifted.Attributes = append([]Attribute(nil), model.Attributes...)
+	for i := range drifted.Attributes {
+		if drifted.Attributes[i].Attribute == "roles" {
+			drifted.Attributes[i].JsonStringMode = "carrier"
+		}
+	}
+	require.Error(t, AssertModelsEquivalent(drifted, *model, CompareOptions{}))
+}
+
+func TestParseDocumentRejectsInvalidJsonStringMode(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"non_string_type": `
+      - attribute: "roles"
+        type: "M"
+        json: true
+        json_string_mode: "parse"`,
+		"without_json": `
+      - attribute: "roles"
+        type: "S"
+        json_string_mode: "parse"`,
+		"unsupported_mode": `
+      - attribute: "roles"
+        type: "S"
+        json: true
+        json_string_mode: "number"`,
+	}
+
+	for name, attribute := range cases {
+		t.Run(name, func(t *testing.T) {
+			raw := []byte(`
+dms_version: "0.2"
+models:
+  - name: "JsonMode"
+    table: { name: "json_mode" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        roles: ["pk"]` + attribute + "\n")
+			_, err := ParseDocument(raw)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "json_string_mode")
+		})
+	}
+}

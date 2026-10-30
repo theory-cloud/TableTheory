@@ -63,19 +63,17 @@ type WritePolicy struct {
 }
 
 type Attribute struct {
-	Attribute string `yaml:"attribute" json:"attribute"`
-	Type      string `yaml:"type" json:"type"`
-	Format    string `yaml:"format" json:"format"`
-
-	Encryption any      `yaml:"encryption" json:"encryption"`
-	Roles      []string `yaml:"roles" json:"roles"`
-
-	Required  bool `yaml:"required" json:"required"`
-	Optional  bool `yaml:"optional" json:"optional"`
-	OmitEmpty bool `yaml:"omit_empty" json:"omit_empty"`
-
-	JSON   bool `yaml:"json" json:"json"`
-	Binary bool `yaml:"binary" json:"binary"`
+	Encryption     any      `yaml:"encryption" json:"encryption"`
+	Attribute      string   `yaml:"attribute" json:"attribute"`
+	Type           string   `yaml:"type" json:"type"`
+	Format         string   `yaml:"format" json:"format"`
+	JsonStringMode string   `yaml:"json_string_mode" json:"json_string_mode,omitempty"`
+	Roles          []string `yaml:"roles" json:"roles"`
+	Required       bool     `yaml:"required" json:"required"`
+	Optional       bool     `yaml:"optional" json:"optional"`
+	OmitEmpty      bool     `yaml:"omit_empty" json:"omit_empty"`
+	JSON           bool     `yaml:"json" json:"json"`
+	Binary         bool     `yaml:"binary" json:"binary"`
 }
 
 type Index struct {
@@ -317,15 +315,16 @@ type normalizedModel struct {
 }
 
 type normalizedAttr struct {
-	Attribute string   `json:"attribute"`
-	Type      string   `json:"type"`
-	Roles     []string `json:"roles,omitempty"`
-	OmitEmpty bool     `json:"omit_empty,omitempty"`
-	Required  bool     `json:"required,omitempty"`
-	Optional  bool     `json:"optional,omitempty"`
-	Encrypted bool     `json:"encrypted,omitempty"`
-	JSON      bool     `json:"json,omitempty"`
-	Binary    bool     `json:"binary,omitempty"`
+	Attribute      string   `json:"attribute"`
+	Type           string   `json:"type"`
+	JsonStringMode string   `json:"json_string_mode,omitempty"`
+	Roles          []string `json:"roles,omitempty"`
+	OmitEmpty      bool     `json:"omit_empty,omitempty"`
+	Required       bool     `json:"required,omitempty"`
+	Optional       bool     `json:"optional,omitempty"`
+	Encrypted      bool     `json:"encrypted,omitempty"`
+	JSON           bool     `json:"json,omitempty"`
+	Binary         bool     `json:"binary,omitempty"`
 }
 
 type normalizedIndex struct {
@@ -356,15 +355,16 @@ func normalizeForCompare(m Model, opts CompareOptions) normalizedModel {
 		roles := append([]string(nil), a.Roles...)
 		sort.Strings(roles)
 		out.Attributes = append(out.Attributes, normalizedAttr{
-			Attribute: a.Attribute,
-			Type:      a.Type,
-			Roles:     roles,
-			OmitEmpty: a.OmitEmpty,
-			Required:  a.Required,
-			Optional:  a.Optional,
-			Encrypted: a.Encryption != nil,
-			JSON:      a.JSON,
-			Binary:    a.Binary,
+			Attribute:      a.Attribute,
+			Type:           a.Type,
+			Roles:          roles,
+			OmitEmpty:      a.OmitEmpty,
+			Required:       a.Required,
+			Optional:       a.Optional,
+			Encrypted:      a.Encryption != nil,
+			JSON:           a.JSON,
+			Binary:         a.Binary,
+			JsonStringMode: a.JsonStringMode,
 		})
 	}
 	sort.Slice(out.Attributes, func(i, j int) bool { return out.Attributes[i].Attribute < out.Attributes[j].Attribute })
@@ -669,9 +669,35 @@ func validateModelAttributes(m Model) (map[string]struct{}, error) {
 				a.Type,
 			)
 		}
+		if err := validateJsonStringMode(m, a); err != nil {
+			return nil, err
+		}
 		seen[a.Attribute] = struct{}{}
 	}
 	return seen, nil
+}
+
+func validateJsonStringMode(m Model, a Attribute) error {
+	if a.JsonStringMode == "" {
+		return nil
+	}
+	if !a.JSON || a.Type != "S" {
+		return fmt.Errorf(
+			"DMS model %s: attribute %s json_string_mode requires a json attribute with type S (got %s)",
+			m.Name,
+			a.Attribute,
+			a.Type,
+		)
+	}
+	if a.JsonStringMode != "carrier" && a.JsonStringMode != "parse" {
+		return fmt.Errorf(
+			"DMS model %s: attribute %s unsupported json_string_mode %q",
+			m.Name,
+			a.Attribute,
+			a.JsonStringMode,
+		)
+	}
+	return nil
 }
 
 func isSupportedJSONAttributeType(attrType string) bool {
