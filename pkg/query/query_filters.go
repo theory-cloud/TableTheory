@@ -132,6 +132,7 @@ func NewWithConditions(model any, metadata core.ModelMetadata, executor QueryExe
 		executor:                executor,
 		conditions:              conditions,
 		ctx:                     ctx,
+		baseCtx:                 ctx,
 		filters:                 make([]Filter, 0),
 		writeConditions:         make([]Condition, 0),
 		rawConditionExpressions: make([]conditionExpression, 0),

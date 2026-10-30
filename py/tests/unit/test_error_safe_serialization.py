@@ -259,3 +259,28 @@ def test_redacting_client_strips_item_images_and_leaves_the_original_alone() -> 
     assert raised.__context__ is None
     # The original object is untouched.
     assert original.response["Item"]["name"]["S"] == _SECRET
+
+
+def test_with_lambda_timeout_preserves_redaction_and_canonical_client() -> None:
+    class _Context:
+        def get_remaining_time_in_millis(self) -> int:
+            return 60_000
+
+    client = StatefulDynamoDBClient()
+    table = _table(client, redact_item_images=True)
+    derived = table.with_lambda_timeout(_Context(), buffer_seconds=1.0)
+
+    assert derived is not table
+    assert derived._raw_client is client
+
+    original = _cancel_with_images()
+    client.queue_transaction_error(original)
+
+    mapped = _run_transact(derived)
+
+    cause = mapped.__cause__
+    assert cause is not original
+    assert isinstance(cause, ClientError)
+    assert "Item" not in cause.response
+    assert _SECRET not in json.dumps(cause.response)
+    assert original.response["Item"]["name"]["S"] == _SECRET

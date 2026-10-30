@@ -218,6 +218,7 @@ export class TheorydbClient<
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(sendOptions ? { sendOptions } : {}),
       numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+      redactItemImages: this.redactItemImages,
     });
     next.register(...this.models.values());
     return next;
@@ -229,6 +230,7 @@ export class TheorydbClient<
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
       numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+      redactItemImages: this.redactItemImages,
     });
     next.register(...this.models.values());
     return next;
@@ -249,8 +251,9 @@ export class TheorydbClient<
    * registers fixed model names into a caller-owned client therefore rebinds
    * any earlier component that registered the same names against a different
    * table. `fork()` lets such a component hold a private binding while still
-   * inheriting the caller's encryption provider, clock, send options, and
-   * number-unmarshal mode instead of mutating the shared registry.
+   * inheriting the caller's encryption provider, clock, send options,
+   * number-unmarshal mode, and item-image redaction instead of mutating the
+   * shared registry.
    */
   fork(): TheorydbClient<TNumberMode> {
     return new TheorydbClient<TNumberMode>(this.ddb, {
@@ -258,6 +261,7 @@ export class TheorydbClient<
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
       numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+      redactItemImages: this.redactItemImages,
     });
   }
 

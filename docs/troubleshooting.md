@@ -207,13 +207,17 @@ does not list `redact_item_images`; the
 [Python troubleshooting guide](runtimes/python/troubleshooting.md) documents the
 option and `redacting_client`.
 
-**TypeScript coverage boundary.** `redactItemImages` plumbs through
-`TheorydbClient`, so every error a client maps is redacted. `lease.ts`'s three
-`mapDynamoError` call sites and `update-builder`'s `execute()` map errors directly
-and cannot inherit it, and there is no standalone TypeScript wrapper. Neither
-runtime sets `ReturnValuesOnConditionCheckFailure`, so those paths cannot carry
-item images today; revisit if `ALL_OLD` support is ever added. See the
-[TypeScript troubleshooting guide](runtimes/typescript/troubleshooting.md).
+**TypeScript coverage boundary.** `redactItemImages` is client configuration and
+is inherited by every client the SDK error is mapped through: the configured
+`TheorydbClient`, clients derived with `withSendOptions`, `withDynamoDBClient`,
+and `fork`, and `withLambdaTimeout`, which derives through `withSendOptions`.
+`lease.ts`'s three `mapDynamoError` call sites and `update-builder`'s `execute()`
+map errors directly and cannot inherit it, and there is no standalone TypeScript
+wrapper. Stock TypeScript commands do not set
+`ReturnValuesOnConditionCheckFailure`, so those direct paths cannot carry item
+images today; a custom client or middleware, or future `ALL_OLD` support, could
+change that. Revisit this boundary if failure item images are ever requested. See
+the [TypeScript troubleshooting guide](runtimes/typescript/troubleshooting.md).
 
 The redaction option is **off by default**, so default behavior is unchanged: the
 retained `cause`/`__cause__` is the same object it always was. When it is enabled,
