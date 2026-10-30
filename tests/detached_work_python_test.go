@@ -139,6 +139,11 @@ var pythonDetectorFlagged = []struct{ name, src, rule string }{
 	{"thread held on self, started in a sibling method", "class W:\n    def __init__(self):\n        self.worker = threading.Thread(target=work)\n    def go(self):\n        self.worker.start()\n", "thread-start"},
 	{"container element started in a sibling method", "class W:\n    def __init__(self):\n        self.pool = {}\n        self.pool[\"a\"] = threading.Thread(target=work)\n    def go(self):\n        self.pool[\"a\"].start()\n", "thread-start"},
 	{"attribute bound in one function and started in another", "mod = object()\n\ndef setup():\n    mod.worker = threading.Thread(target=work)\n\ndef go():\n    mod.worker.start()\n", "thread-start"},
+	// Sibling-method bindings are unordered. A later lexical task assignment in
+	// another method must not erase an earlier thread candidate and hide the
+	// start: at runtime the instance could hold the thread when go() runs.
+	{"sibling thread candidate before a joined task rebind", "class W:\n    def first(self):\n        self.job = threading.Thread(target=work)\n    async def reset(self):\n        self.job = asyncio.ensure_future(work())\n        await self.job\n    def go(self):\n        self.job.start()\n", "thread-start"},
+	{"sibling container thread candidate before a joined task rebind", "class W:\n    def first(self):\n        self.pool[\"a\"] = threading.Thread(target=work)\n    async def reset(self):\n        self.pool[\"a\"] = asyncio.ensure_future(work())\n        await self.pool[\"a\"]\n    def go(self):\n        self.pool[\"a\"].start()\n", "thread-start"},
 	// A same-scope rebind after the start must not rewrite an earlier start: at
 	// the start statement the target is still the thread, not the task the later
 	// line rebinds it to.

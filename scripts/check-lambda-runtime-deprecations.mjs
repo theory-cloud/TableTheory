@@ -166,14 +166,21 @@
 // CDK `runtime:` line does, so they are modelled here as two further surface
 // classes.
 //
-// A template declaration is a `Runtime:` key whose value is a scalar, in YAML or
-// in CloudFormation JSON - the JSON form needs no separate rule, because a
-// quoted key also starts its own line. A snippet declaration is the value of a
-// `--runtime` flag, or a `Runtime:` scalar, inside a fenced Markdown code block.
-// Prose outside a fence is never read: a runtime named in a sentence is
-// documentation, not a deployable declaration. `--runtime-version` and
-// `--runtime-import` are different flags that share a prefix, so the flag rule
-// requires whitespace or `=` after `--runtime`.
+// A template declaration is the EFFECTIVE `Runtime` of a Lambda-bearing
+// resource, read structurally from YAML or CloudFormation JSON. A resource-level
+// Runtime overrides SAM's Globals.Function.Runtime; the global is judged only
+// when it reaches a resource. Flow YAML and compact JSON are the same documents
+// as their block forms, so formatting cannot hide a declaration. The parser
+// understands CloudFormation's intrinsic-function tags (`!Ref`, `!Sub`, ...)
+// explicitly, and every template under a scan root is opened independently of
+// whether another declaration parsed.
+//
+// A snippet declaration is the value of a `--runtime` flag, or a `Runtime:`
+// scalar, inside a fenced Markdown code block. Prose outside a fence is never
+// read: a runtime named in a sentence is documentation, not a deployable
+// declaration. `--runtime-version` and `--runtime-import` are different flags
+// that share a prefix, so the flag rule requires whitespace or `=` after
+// `--runtime`.
 //
 // Both classes resolve to the same identifiers as a CDK literal, so they share
 // DEPRECATED_LAMBDA_RUNTIMES and SUPPORTED_LAMBDA_RUNTIMES and the same three
@@ -181,26 +188,22 @@
 // are de-duplicated per surface by the runtime they resolve to, exactly as in a
 // CDK surface, so a template counts runtimes rather than occurrences.
 //
-// Three forms stay outside the model, measured as declaring nothing:
-//
-//   Runtime: !Ref RuntimeParameter   a tag resolves at deploy time
-//   Runtime: !Sub "${Stage}..."      an interpolation resolves at deploy time
-//   Runtime: {"Ref": "..."}          a collection is not a scalar
-//
-// A surface whose only runtime is one of those fails closed on the same
-// "declares no modelled Lambda runtime" rule a stack with only a dynamic
-// `fromString` fails, rather than being judged by a guess about the parameter.
-// Commented-out lines declare nothing in either class: a YAML comment cannot
-// match a key rule anchored at the start of the line, and a shell comment inside
-// a fence is skipped. A file is dispatched by extension - scripts and stacks by
-// .ts/.tsx/.js/.jsx/.mjs/.cjs/.mts/.cts, templates by .yaml/.yml/.json,
-// snippets by .md/.markdown - so an extension this gate does not model is a
-// known limit rather than a scanned surface.
+// An effective runtime that resolves only at deploy time - a CloudFormation tag,
+// an interpolation, a collection such as {"Ref": "..."}, or a non-string scalar
+// - fails closed on the "declares no modelled Lambda runtime" rule rather than
+// being judged by a guess. A template that cannot be parsed fails closed when it
+// is a declared surface or carries a CloudFormation marker; an unrelated
+// YAML/JSON document that mentions no runtime is not a template. Commented-out
+// declarations are trivia, not declarations. A file is dispatched by extension -
+// scripts and stacks by .ts/.tsx/.js/.jsx/.mjs/.cjs/.mts/.cts, templates by
+// .yaml/.yml/.json, snippets by .md/.markdown - so an extension this gate does
+// not model is a known limit rather than a scanned surface.
 //
 // Fail-closed cases: a surface that is missing, unreadable, or declares no
 // modelled runtime; a runtime literal in a modelled shape whose family or value
 // is not modelled, including a `fromString` argument that resolves to no runtime
-// at all and a template or snippet value that names no modelled runtime; a
+// at all and a template or snippet value that names no modelled runtime; an
+// effective runtime that is ambiguous or a template that cannot be parsed; a
 // declaration that names an unpinned moving alias rather than a pinned runtime;
 // and any file inside a scan root that declares a Lambda runtime without being a
 // declared surface.
@@ -218,11 +221,47 @@
 // the real scan. The checker reads no environment variable.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// The scanner's dependencies are the repository's own pinned packages:
+// ts/package.json and ts/package-lock.json carry the TypeScript compiler and
+// the YAML parser. Resolving from ts/package.json keeps the checker on those
+// exact versions whether it runs from the repository root or from a policy
+// test's synthetic copy that links ts/.
+const requireFromTypeScriptPackage = createRequire(path.join(repositoryRoot, "ts", "package.json"));
+
+let cachedTypeScript = null;
+let cachedYaml = null;
+
+function loadPinnedDependency(specifier, description) {
+  try {
+    return requireFromTypeScriptPackage(specifier);
+  } catch (err) {
+    throw new GateFailure(
+      `pinned ${description} is unavailable from ts/node_modules (${specifier}): ${err.message}; ` +
+        "run `npm --prefix ts ci --ignore-scripts` before scanning",
+    );
+  }
+}
+
+function typescript() {
+  if (cachedTypeScript === null) {
+    cachedTypeScript = loadPinnedDependency("typescript", "TypeScript compiler");
+  }
+  return cachedTypeScript;
+}
+
+function yamlParser() {
+  if (cachedYaml === null) {
+    cachedYaml = loadPinnedDependency("yaml", "YAML parser");
+  }
+  return cachedYaml;
+}
 
 // === the deprecated set, explicit in one place =============================
 // Sourced from the "Deprecated runtimes" table at
@@ -434,131 +473,22 @@ function fail(message) {
 //
 // A new undeclared surface written in any of those idioms was invisible to the
 // classifier and to the coverage walk alike, so it passed the gate without ever
-// being judged. The receiver list is therefore built per surface: the fixed
-// receivers plus whatever names that surface binds.
+// being judged. The receiver model is therefore built per surface from the AST:
+// the fixed receivers plus whatever names that surface binds.
 //
-// What stays outside the model, deliberately and now by measurement rather than
-// by omission: a member read through a computed key (`R[process.env.NAME]`), a
-// runtime hidden behind a lookup table or a helper, a `['Runtime']` read bound
-// to a local name and used later, an enum member read as `R['NODEJS_20_X']`, and
-// a bare `fromString('nodejs20.x')` on no receiver. None of them yields a
-// declaration, so a surface written that way fails closed on the "declares no
-// modelled Lambda runtime" rule instead of passing unjudged.
-const RUNTIME_NAMESPACE_RECEIVERS = ["lambda\\.Runtime", "Runtime"];
-
-// Names a surface binds to the Runtime enum (`R` beside `R.NODEJS_20_X`) or to
-// the aws-lambda namespace itself (`L` beside `L['Runtime'].NODEJS_20_X`). A
-// binding is never a declaration: an enum member still has to follow it. A
-// surface that binds the namespace and then hides the member ends up with no
-// readable declaration, which is the fail-closed outcome this gate wants rather
-// than a reason to widen further.
+// What stays outside the model, deliberately: a member read through a computed
+// key (`R[process.env.NAME]`), a runtime hidden behind a lookup table or a
+// helper, a `['Runtime']` read bound to a local name and used later, an enum
+// member read as `R['NODEJS_20_X']`, and a bare `fromString('nodejs20.x')` on no
+// receiver. None of them yields a declaration, so a surface written that way
+// fails closed on the "declares no modelled Lambda runtime" rule instead of
+// passing unjudged.
 //
-// Each form carries the same lookahead, and that lookahead is what keeps a hop a
-// hop: `const R2 = R` is an alias of the receiver, while `const V = R.NODEJS_20_X`
-// and `const R = lambda.Runtime['NODEJS_20_X']` bind a runtime value and must not
-// be chased into a receiver.
-const BINDING_NOT_FOLLOWED_BY_A_MEMBER = String.raw`(?![\s]*[.[])`;
-const RUNTIME_RECEIVER_BINDING_RES = [
-  // const R = lambda.Runtime   /   let R = Runtime
-  new RegExp(
-    String.raw`\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:lambda\.Runtime|Runtime)\b${BINDING_NOT_FOLLOWED_BY_A_MEMBER}`,
-    "g",
-  ),
-  // import { Runtime as R } from 'aws-cdk-lib/aws-lambda'
-  /\bimport\s*\{[^}]*?\bRuntime\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)[^}]*?\}\s*from\s*["'][^"']*aws-lambda["']/g,
-  // const { Runtime: R } = lambda
-  /\b(?:const|let|var)\s*\{[^}]*?\bRuntime\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*)[^}]*?\}\s*=/g,
-];
-
-const RUNTIME_NAMESPACE_BINDING_RES = [
-  // import * as lambda from 'aws-cdk-lib/aws-lambda'
-  /\bimport\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s*["'][^"']*aws-lambda["']/g,
-];
-
-// `const R2 = R`: one binding of another. Chased to a fixed point, so an alias of
-// an alias is still a receiver. The chase is monotone - a name is only ever added
-// to a set that already had its source, and the loop stops as soon as a pass adds
-// nothing - so a cyclic pair such as `const R = S; const S = R` terminates
-// instead of growing forever.
-const RUNTIME_BINDING_HOP_RE = new RegExp(
-  String.raw`\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_$][A-Za-z0-9_$]*)\b${BINDING_NOT_FOLLOWED_BY_A_MEMBER}`,
-  "g",
-);
-
-// The receiver alternation for one surface: every `['Runtime']` index form of a
-// namespace binding, the two fixed receivers, then every local name bound to the
-// enum. `lambda` is in the namespace set unconditionally, because the fixed
-// receiver list already reads its `lambda.Runtime` member as text rather than as
-// something to resolve through an import.
-function runtimeReceiverAlternation(text) {
-  const receivers = new Set();
-  for (const pattern of RUNTIME_RECEIVER_BINDING_RES) {
-    for (const match of text.matchAll(pattern)) receivers.add(match[1]);
-  }
-  const namespaces = new Set(["lambda"]);
-  for (const pattern of RUNTIME_NAMESPACE_BINDING_RES) {
-    for (const match of text.matchAll(pattern)) namespaces.add(match[1]);
-  }
-  for (;;) {
-    let changed = false;
-    for (const match of text.matchAll(RUNTIME_BINDING_HOP_RE)) {
-      const [target, source] = [match[1], match[2]];
-      if (receivers.has(source) && !receivers.has(target)) {
-        receivers.add(target);
-        changed = true;
-      } else if (namespaces.has(source) && !namespaces.has(target)) {
-        namespaces.add(target);
-        changed = true;
-      }
-    }
-    if (!changed) break;
-  }
-  const indexForms = [...namespaces]
-    .sort()
-    .map((name) => `${escapeRegExp(name)}\\s*\\[\\s*["']Runtime["']\\s*\\]`);
-  return [
-    ...indexForms,
-    ...RUNTIME_NAMESPACE_RECEIVERS,
-    ...[...receivers].sort().map(escapeRegExp),
-  ].join("|");
-}
-
 // Every runtime enum this gate models is SCREAMING_CASE, and that is what keeps
-// the widened receiver list from swallowing unrelated `Runtime.` namespaces
-// and from reading a method or property name as a runtime: `Runtime.fromString`
-// and `Runtime.PROVIDED_AL2023.bundlingImage` name methods and properties in
-// lowerCamelCase, so neither matches. Node's inspector domain spells its
-// members `Runtime.ScriptId` and `Runtime.StackTrace`, which do not match
-// either, and the quoted-index form is equally narrow: it matches only a literal
-// `'Runtime'` key, and `inspector` is not a namespace binding, so
-// `inspector['Runtime']` stays outside the model.
-const ENUM_MEMBER_NAME = "([A-Z][A-Z0-9_]*)";
-
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// The enum-member pattern for one surface: every receiver form that surface
-// uses, so `lambda.Runtime.NODEJS_20_X` is consumed whole rather than
-// re-matching as the bare `Runtime.NODEJS_20_X` inside it.
-function enumDeclarationPattern(text) {
-  return new RegExp(`\\b(${runtimeReceiverAlternation(text)})\\.${ENUM_MEMBER_NAME}\\b`, "g");
-}
-
-// The runtime-literal pattern for one surface: the argument of `fromString` on a
-// receiver that surface binds, so both this rule and the enum rule above are
-// built from the same alternation. The value pattern is deliberately loose - the
-// predicate below decides - so an unfamiliar runtime family still reaches the
-// classifier instead of being invisible. The receiver is what keeps the rule
-// scoped: without it a quoted literal on any other receiver, such as an S3
-// deployment's `CacheControl.fromString('public,max-age=0')`, could be read as a
-// Lambda declaration.
-function literalDeclarationPattern(text) {
-  return new RegExp(
-    `\\b(${runtimeReceiverAlternation(text)})\\.fromString\\s*\\(\\s*["'\`]([^"'\`]+)["'\`]`,
-    "g",
-  );
-}
+// the receiver model from swallowing unrelated `Runtime.` namespaces and from
+// reading a method or property name as a runtime: `Runtime.fromString` and
+// `Runtime.PROVIDED_AL2023.bundlingImage` name methods and properties in
+// lowerCamelCase, so neither matches.
 
 // The identifier a `fromString` argument names, or null when the argument is not
 // runtime-shaped. A runtime identifier is a known family followed by a version
@@ -574,80 +504,132 @@ function runtimeIdentifierFromLiteral(value) {
   return LAMBDA_RUNTIME_FAMILIES.includes(match[1]) ? value : null;
 }
 
-// Blanks out `//` line comments and `/* ... */` block comments in code position,
-// while leaving string and template literals untouched. A runtime declaration can
-// hide a comment between `fromString(` and its quoted argument, so the literal
-// rule must see through it; and a declaration that is entirely commented out must
-// not count, so the enum rule must not. The blanking is character-for-character
-// and preserves newlines, so every match index and every `lineOf` line still point
-// at the same place in the original source. String and template literals are
-// skipped rather than blanked: `'cp -R /asset-input/* /asset-output/'` and
-// `"https://example.com"` keep their content, so a `//` or `/*` inside a literal
-// is never mistaken for a comment.
-function stripComments(text) {
-  const out = text.split("");
-  const length = text.length;
-  const blank = (from, to) => {
-    for (let k = from; k < to; k += 1) {
-      if (out[k] !== "\n") out[k] = " ";
-    }
-  };
-  let i = 0;
-  while (i < length) {
-    const ch = text[i];
-    const next = i + 1 < length ? text[i + 1] : "";
-    if (ch === "'" || ch === "\"") {
-      let j = i + 1;
-      while (j < length) {
-        if (text[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        j += 1;
-        if (text[j - 1] === ch || text[j - 1] === "\n") break;
-      }
-      i = j;
-      continue;
-    }
-    if (ch === "`") {
-      let j = i + 1;
-      while (j < length) {
-        if (text[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        j += 1;
-        if (text[j - 1] === "`") break;
-      }
-      i = j;
-      continue;
-    }
-    if (ch === "/" && next === "/") {
-      let j = i + 2;
-      while (j < length && text[j] !== "\n") j += 1;
-      blank(i, j);
-      i = j;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      let j = i + 2;
-      while (j < length && !(text[j] === "*" && text[j + 1] === "/")) j += 1;
-      j = j < length ? j + 2 : length;
-      blank(i, j);
-      i = j;
-      continue;
-    }
-    i += 1;
-  }
-  return out.join("");
-}
-
 function lineOf(text, index) {
   let line = 1;
   for (let cursor = 0; cursor < index; cursor += 1) {
     if (text[cursor] === "\n") line += 1;
   }
   return line;
+}
+
+function scriptKindFor(label, ts) {
+  switch (path.extname(label).toLowerCase()) {
+    case ".tsx":
+      return ts.ScriptKind.TSX;
+    case ".jsx":
+      return ts.ScriptKind.JSX;
+    case ".js":
+    case ".mjs":
+    case ".cjs":
+      return ts.ScriptKind.JS;
+    default:
+      return ts.ScriptKind.TS;
+  }
+}
+
+function stringLiteralValue(node, ts) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  return null;
+}
+
+// The receiver names a surface binds. Imports, destructures, and simple alias
+// hops are collected first; `Runtime` and `lambda` are fixed forms because the
+// classifier has always accepted them without an import. A name is only ever
+// added to a set that already held its source, so cyclic aliases terminate.
+function collectRuntimeReceiverModel(sourceFile, ts) {
+  const enumAliases = new Set();
+  const namespaces = new Set(["lambda"]);
+  const enumPairs = [];
+  const namespacePairs = [];
+
+  const isNamespaceName = (name) => name === "lambda" || namespaces.has(name);
+  const isEnumName = (name) => name === "Runtime" || enumAliases.has(name);
+  const isNamespaceExpr = (expr) => ts.isIdentifier(expr) && isNamespaceName(expr.text);
+  const isBindableEnumExpr = (expr) => {
+    if (ts.isIdentifier(expr)) return isEnumName(expr.text);
+    if (ts.isPropertyAccessExpression(expr) && expr.name.text === "Runtime") {
+      return ts.isIdentifier(expr.expression) && isNamespaceExpr(expr.expression);
+    }
+    return false;
+  };
+
+  const visit = (node) => {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text.includes("aws-lambda")
+    ) {
+      const bindings = node.importClause?.namedBindings;
+      if (bindings !== undefined) {
+        if (ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
+        if (ts.isNamedImports(bindings)) {
+          for (const element of bindings.elements) {
+            const imported = (element.propertyName ?? element.name).text;
+            if (imported === "Runtime") enumAliases.add(element.name.text);
+          }
+        }
+      }
+    }
+
+    if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
+      if (ts.isIdentifier(node.name)) {
+        if (isBindableEnumExpr(node.initializer)) {
+          enumAliases.add(node.name.text);
+        } else if (isNamespaceExpr(node.initializer)) {
+          namespaces.add(node.name.text);
+        } else if (ts.isIdentifier(node.initializer)) {
+          enumPairs.push([node.name.text, node.initializer.text]);
+          namespacePairs.push([node.name.text, node.initializer.text]);
+        }
+      } else if (ts.isObjectBindingPattern(node.name)) {
+        // `const { Runtime: RT } = lambda` binds the enum under a new name. The
+        // original text model accepts this regardless of the right-hand side,
+        // so the AST model does too.
+        for (const element of node.name.elements) {
+          const key = element.propertyName ?? element.name;
+          if (ts.isIdentifier(key) && key.text === "Runtime" && ts.isIdentifier(element.name)) {
+            enumAliases.add(element.name.text);
+          }
+        }
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  for (;;) {
+    let changed = false;
+    for (const [target, source] of namespacePairs) {
+      if (!namespaces.has(target) && isNamespaceName(source)) {
+        namespaces.add(target);
+        changed = true;
+      }
+    }
+    for (const [target, source] of enumPairs) {
+      if (!enumAliases.has(target) && isEnumName(source)) {
+        enumAliases.add(target);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  return { enumAliases, namespaces };
+}
+
+function isRuntimeMemberReceiver(expr, ts, model) {
+  if (ts.isIdentifier(expr)) return expr.text === "Runtime" || model.enumAliases.has(expr.text);
+  if (ts.isPropertyAccessExpression(expr) && expr.name.text === "Runtime") {
+    // The original text model reads any `X.Runtime` receiver; keeping that
+    // shape means an unrelated identifier cannot hide a declaration by
+    // receiving it through a different namespace.
+    return true;
+  }
+  if (ts.isElementAccessExpression(expr) && stringLiteralValue(expr.argumentExpression, ts) === "Runtime") {
+    return ts.isIdentifier(expr.expression) && model.namespaces.has(expr.expression.text);
+  }
+  return false;
 }
 
 // Collects every runtime declaration in a surface's text, in source order, as
@@ -659,6 +641,13 @@ function lineOf(text, index) {
 // so a violation reports the idiom the surface actually used rather than the one
 // the gate prefers.
 //
+// The source is parsed with the repository's pinned TypeScript compiler API, not
+// with a comment stripper. Comments are trivia, so a commented-out declaration
+// is invisible while a comment between `fromString(` and its argument is not;
+// regex literals and template expressions are scanned as syntax, so a `//` or
+// `/*` inside a character class cannot blank the rest of the file. A source the
+// parser rejects fails closed instead of being scanned as a recovered tree.
+//
 // Declarations are de-duplicated by the runtime they resolve to, falling back
 // to the member access as written when there is no runtime to resolve. That is
 // what keeps `lambda.Runtime.PROVIDED_AL2023.bundlingImage` from being counted
@@ -666,40 +655,79 @@ function lineOf(text, index) {
 // provided.al2023. Two genuinely different declarations are never merged,
 // because two different runtimes, two different unreadable members, or two
 // different unmodelled literals resolve to two different keys.
-function collectDeclarations(text) {
-  // Comments are invisible to both declaration rules: a `fromString` argument can
-  // be preceded by a comment, and a declaration can be commented out.
-  text = stripComments(text);
+function collectDeclarations(label, text) {
+  const ts = typescript();
+  const sourceFile = ts.createSourceFile(
+    label,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindFor(label, ts),
+  );
+  const diagnostics = sourceFile.parseDiagnostics ?? [];
+  if (diagnostics.length > 0) {
+    const first = diagnostics[0];
+    const position = sourceFile.getLineAndCharacterOfPosition(first.start ?? 0);
+    const message = ts.flattenDiagnosticMessageText(first.messageText, " ");
+    throw new GateFailure(
+      `${label}:${position.line + 1} could not be parsed as TypeScript (${message}); ` +
+        "a recovered tree is not a scanned surface",
+    );
+  }
+
+  const model = collectRuntimeReceiverModel(sourceFile, ts);
   const byKey = new Map();
 
-  const record = (index, form, enumName, literal, identifier) => {
+  const record = (node, form, enumName, literal, identifier) => {
     const key = identifier === null ? `form:${form}` : `runtime:${identifier}`;
     if (byKey.has(key)) return;
-    byKey.set(key, { index, line: lineOf(text, index), form, enumName, literal, identifier });
+    const index = node.getStart(sourceFile);
+    byKey.set(key, {
+      index,
+      line: sourceFile.getLineAndCharacterOfPosition(index).line + 1,
+      form,
+      enumName,
+      literal,
+      identifier,
+    });
   };
 
-  for (const match of text.matchAll(enumDeclarationPattern(text))) {
-    const receiver = match[1];
-    const enumName = match[2];
-    record(
-      match.index,
-      `${receiver}.${enumName}`,
-      enumName,
-      null,
-      LAMBDA_RUNTIME_ENUMS.get(enumName) ?? null,
-    );
-  }
-  for (const match of text.matchAll(literalDeclarationPattern(text))) {
-    const receiver = match[1];
-    const literal = match[2];
-    record(
-      match.index,
-      `${receiver}.fromString("${literal}")`,
-      null,
-      literal,
-      runtimeIdentifierFromLiteral(literal),
-    );
-  }
+  const visit = (node) => {
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      /^[A-Z][A-Z0-9_]*$/.test(node.name.text) &&
+      isRuntimeMemberReceiver(node.expression, ts, model)
+    ) {
+      record(
+        node,
+        `${node.expression.getText(sourceFile)}.${node.name.text}`,
+        node.name.text,
+        null,
+        LAMBDA_RUNTIME_ENUMS.get(node.name.text) ?? null,
+      );
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "fromString" &&
+      isRuntimeMemberReceiver(node.expression.expression, ts, model)
+    ) {
+      const literal = node.arguments.length > 0 ? stringLiteralValue(node.arguments[0], ts) : null;
+      if (literal !== null) {
+        record(
+          node,
+          `${node.expression.expression.getText(sourceFile)}.fromString("${literal}")`,
+          null,
+          literal,
+          runtimeIdentifierFromLiteral(literal),
+        );
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
 
   return [...byKey.values()].sort((left, right) => left.index - right.index);
 }
@@ -712,9 +740,10 @@ const CDK_SURFACE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".
 const TEMPLATE_SURFACE_EXTENSIONS = new Set([".yaml", ".yml", ".json"]);
 const SNIPPET_SURFACE_EXTENSIONS = new Set([".md", ".markdown"]);
 
-// A `Runtime:` key at the start of its line. The key may be quoted because
-// CloudFormation JSON writes it that way, and requiring the key to start the
-// line is what keeps a commented-out `# Runtime: ...` from being a declaration.
+// A `Runtime:` key at the start of a snippet line. The key may be quoted because
+// a fenced YAML block inside a doc writes it that way, and requiring the key to
+// start the line is what keeps a commented-out `# Runtime: ...` from being a
+// declaration. Templates are read structurally, not with this rule.
 const TEMPLATE_RUNTIME_KEY_RE = /^[ \t]*["']?(?:Runtime|runtime)["']?[ \t]*:[ \t]*(.*)$/;
 
 // The `--runtime` flag and the rest of its line. The delimiter is whitespace or
@@ -726,11 +755,12 @@ const CLI_RUNTIME_FLAG_RE = /--runtime(?:[ \t]+|=)(.*)$/;
 // runtime named in prose is documentation rather than a declaration.
 const FENCE_RE = /^[ \t]*(?:`{3,}|~{3,})/;
 
-// The literal a template or snippet value names, or null when the value is not a
+// The literal a fenced snippet value names, or null when the value is not a
 // readable literal. Quotes are honoured so a quoted scalar keeps its content; an
 // unquoted scalar loses a trailing inline comment, separator, or line
 // continuation. A tag (`!Ref`, `!Sub`), an interpolation, or a collection
-// resolves at deploy time rather than here, so it declares nothing.
+// resolves at deploy time rather than here, so it declares nothing. Templates
+// use the structural parser above instead.
 function templateScalar(value) {
   const text = value.trim();
   if (text === "") return null;
@@ -785,19 +815,209 @@ function templateDeclarationCollector(text) {
   };
 }
 
-// Walks a template line by line. The line index is a real source position, so a
-// violation reports the line the key is on.
-function collectTemplateDeclarations(text) {
-  const collector = templateDeclarationCollector(text);
-  let offset = 0;
-  for (const lineText of text.split("\n")) {
-    const match = TEMPLATE_RUNTIME_KEY_RE.exec(lineText);
-    if (match !== null) {
-      const literal = templateScalar(match[1]);
-      if (literal !== null) collector.record(offset + lineText.indexOf(":"), literal);
-    }
-    offset += lineText.length + 1;
+// CloudFormation's YAML shorthand tags. They are syntax, not scalar values: a
+// runtime of `!Ref` or `!Sub` resolves at deploy time. The list is explicit, so
+// an unknown tag is a parse error rather than an invisible value.
+const CLOUDFORMATION_TAG_NAMES = [
+  "And",
+  "Base64",
+  "Cidr",
+  "Condition",
+  "Equals",
+  "FindInMap",
+  "ForEach",
+  "GetAtt",
+  "GetAZs",
+  "If",
+  "ImportValue",
+  "Join",
+  "Not",
+  "Or",
+  "Ref",
+  "Select",
+  "Split",
+  "Sub",
+  "ToJsonString",
+  "Transform",
+];
+
+let cachedCloudFormationTags = null;
+
+function cloudFormationTags() {
+  if (cachedCloudFormationTags === null) {
+    cachedCloudFormationTags = CLOUDFORMATION_TAG_NAMES.map((name) => ({
+      tag: `!${name}`,
+      resolve: (value) => ({ cloudFormationTag: name, value }),
+    }));
   }
+  return cachedCloudFormationTags;
+}
+
+// A file that fails to parse is only ignored when it is not a template at all.
+// A declared surface, a CloudFormation marker, or a Runtime key means the parse
+// failure is ambiguity this gate must not read as "nothing declared".
+function looksLikeCloudFormationTemplate(text) {
+  return (
+    /(^|\n)\s*(?:AWSTemplateFormatVersion|Transform)\s*:/.test(text) ||
+    /(^|\n)\s*["']?Resources["']?\s*:/.test(text) ||
+    /(^|\n)\s*["']?Runtime["']?\s*:/.test(text)
+  );
+}
+
+function parseTemplateDocument(label, text) {
+  const isJson = path.extname(label).toLowerCase() === ".json";
+  const declared = SCANNED_TEMPLATE_SURFACES.includes(label);
+
+  if (isJson) {
+    // Strict JSON first: the YAML parser is a superset and would otherwise
+    // accept JSON that is not JSON, hiding a malformed template.
+    try {
+      JSON.parse(text);
+    } catch (err) {
+      if (declared || looksLikeCloudFormationTemplate(text)) {
+        throw new GateFailure(`${label} could not be parsed as JSON: ${err.message}`);
+      }
+      return null;
+    }
+  }
+
+  const YAML = yamlParser();
+  let document;
+  try {
+    document = YAML.parseDocument(text, {
+      customTags: cloudFormationTags(),
+      prettyErrors: false,
+      strict: true,
+    });
+  } catch (err) {
+    if (declared || looksLikeCloudFormationTemplate(text)) {
+      throw new GateFailure(
+        `${label} could not be parsed as ${isJson ? "JSON" : "YAML"}: ${err.message}`,
+      );
+    }
+    return null;
+  }
+
+  if (document.errors.length > 0) {
+    if (declared || looksLikeCloudFormationTemplate(text)) {
+      throw new GateFailure(
+        `${label} could not be parsed as ${isJson ? "JSON" : "YAML"}: ${document.errors[0].message}`,
+      );
+    }
+    return null;
+  }
+
+  return document;
+}
+
+function yamlMapGet(node, key) {
+  const YAML = yamlParser();
+  if (!YAML.isMap(node)) return undefined;
+  for (const pair of node.items) {
+    if (YAML.isScalar(pair.key) && pair.key.value === key) return pair.value;
+  }
+  return undefined;
+}
+
+function yamlScalarValue(node) {
+  const YAML = yamlParser();
+  if (node === undefined || !YAML.isScalar(node)) return null;
+  if (node.tag !== undefined && !node.tag.startsWith("tag:yaml.org,2002:")) return null;
+  return typeof node.value === "string" ? node.value : null;
+}
+
+function yamlNodeOffset(node) {
+  return node !== undefined && Array.isArray(node.range) ? node.range[0] : 0;
+}
+
+// The value a Runtime node names, or the reason it cannot be read here. A
+// CloudFormation tag, an interpolation, a collection, and a non-string scalar
+// all resolve only at deploy time, so an effective runtime in one of those forms
+// fails closed rather than being skipped.
+function templateRuntimeValue(node) {
+  const YAML = yamlParser();
+  if (node === undefined) return { kind: "missing" };
+  if (!YAML.isScalar(node)) return { kind: "dynamic", detail: "a collection" };
+  if (node.tag !== undefined && !node.tag.startsWith("tag:yaml.org,2002:")) {
+    return { kind: "dynamic", detail: `the CloudFormation tag ${node.tag}` };
+  }
+  if (typeof node.value !== "string") {
+    return {
+      kind: "dynamic",
+      detail: node.value === null ? "a null value" : `a ${typeof node.value} value`,
+    };
+  }
+  const text = node.value.trim();
+  if (text === "") return { kind: "dynamic", detail: "an empty scalar" };
+  if (text.includes("${")) return { kind: "dynamic", detail: "an interpolation" };
+  return { kind: "literal", literal: text };
+}
+
+// Parses a template structurally and records the EFFECTIVE runtime of each
+// Lambda-bearing resource: a resource-level Runtime overrides the SAM
+// Globals.Function.Runtime that would otherwise apply. A global runtime is only
+// judged when it reaches at least one resource (or when the template has no
+// runtime-bearing resources, which keeps a Globals-only fixture meaningful).
+// Every resource is inspected independently of whether another declaration
+// parsed, so one bad resource cannot hide behind a good one.
+function collectTemplateDeclarations(text, label) {
+  const document = parseTemplateDocument(label, text);
+  if (document === null) return [];
+
+  const YAML = yamlParser();
+  const root = document.contents;
+  if (!YAML.isMap(root)) return [];
+
+  const collector = templateDeclarationCollector(text);
+  const recordEffective = (node, pathLabel) => {
+    const value = templateRuntimeValue(node);
+    if (value.kind === "literal") {
+      collector.record(yamlNodeOffset(node), value.literal);
+      return;
+    }
+    if (value.kind === "dynamic") {
+      const line = lineOf(text, yamlNodeOffset(node));
+      throw new GateFailure(
+        `${label}:${line} ${pathLabel} declares no modelled Lambda runtime: it is ${value.detail}, ` +
+          "which resolves only at deploy time",
+      );
+    }
+  };
+
+  const globals = yamlMapGet(root, "Globals");
+  const globalRuntime = yamlMapGet(yamlMapGet(globals, "Function"), "Runtime");
+  const resources = yamlMapGet(root, "Resources");
+
+  let runtimeBearingResources = 0;
+  let reliesOnGlobal = false;
+  if (YAML.isMap(resources)) {
+    for (const pair of resources.items) {
+      const resource = pair.value;
+      if (!YAML.isMap(resource)) continue;
+      const resourceType = yamlScalarValue(yamlMapGet(resource, "Type"));
+      const properties = yamlMapGet(resource, "Properties");
+      const explicitRuntime = yamlMapGet(properties, "Runtime");
+      const packageType = yamlScalarValue(yamlMapGet(properties, "PackageType"));
+      const isFunction =
+        resourceType === "AWS::Serverless::Function" || resourceType === "AWS::Lambda::Function";
+      if (explicitRuntime === undefined && !isFunction) continue;
+
+      runtimeBearingResources += 1;
+      if (explicitRuntime !== undefined) {
+        const resourceName = YAML.isScalar(pair.key) ? pair.key.value : "?";
+        recordEffective(explicitRuntime, `Resources.${resourceName}.Properties.Runtime`);
+      } else if (packageType === "Image") {
+        // An image-packaged function carries no Lambda runtime.
+      } else {
+        reliesOnGlobal = true;
+      }
+    }
+  }
+
+  if (globalRuntime !== undefined && (runtimeBearingResources === 0 || reliesOnGlobal)) {
+    recordEffective(globalRuntime, "Globals.Function.Runtime");
+  }
+
   return collector.declarations();
 }
 
@@ -850,11 +1070,11 @@ function surfaceKind(label) {
 function collectDeclarationsFor(label, text) {
   switch (surfaceKind(label)) {
     case "template":
-      return collectTemplateDeclarations(text);
+      return collectTemplateDeclarations(text, label);
     case "snippet":
       return collectSnippetDeclarations(text);
     default:
-      return collectDeclarations(text);
+      return collectDeclarations(label, text);
   }
 }
 
@@ -1146,9 +1366,9 @@ const CLASSIFIER_CASES = [
   {
     name: "stray-runtime-literal-is-not-a-declaration",
     text:
-      "runtime: lambda.Runtime.fromString(config.runtime),\n" +
+      "const first = { runtime: lambda.Runtime.fromString(config.runtime) };\n" +
       "const releaseNote = 'nodejs18.x';\n" +
-      "runtime: lambda.Runtime.NODEJS_24_X,\n",
+      "const second = { runtime: lambda.Runtime.NODEJS_24_X };\n",
     expected: [],
   },
   {
@@ -1188,7 +1408,7 @@ const CLASSIFIER_CASES = [
   },
   {
     name: "quoted-strings-that-are-not-runtimes",
-    text: 'runtime: lambda.Runtime.NODEJS_24_X,\nconst a = "node_modules";\nconst b = "assets";\nconst c = "go.mod";\nconst d = "vite";\nconst e = "1.2.3";\nconst f = "node24";\n',
+    text: 'const first = { runtime: lambda.Runtime.NODEJS_24_X };\nconst a = "node_modules";\nconst b = "assets";\nconst c = "go.mod";\nconst d = "vite";\nconst e = "1.2.3";\nconst f = "node24";\n',
     expected: [],
   },
   {
@@ -1291,6 +1511,32 @@ const CLASSIFIER_CASES = [
     text: 'const endpoint = "https://runtime.example.com/path";\nruntime: lambda.Runtime.NODEJS_24_X,\n',
     expected: [],
   },
+  // --- regex, division, and template expressions are syntax -----------------
+  // A character class can contain the two characters a comment stripper treats
+  // as a comment opener. Scanning syntax, not slices of text, keeps the
+  // declaration beside the regex visible.
+  {
+    name: "regex-character-class-markers-do-not-hide-a-declaration",
+    text: "const marker = /[//]/; const re = /[/*]/; const fn = { runtime: lambda.Runtime.NODEJS_18_X };\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "regex-character-class-markers-preserve-a-supported-runtime",
+    text: "const marker = /[//]/; const re = /[/*]/; const fn = { runtime: lambda.Runtime.NODEJS_24_X };\n",
+    expected: [],
+  },
+  // Ordinary division is not a comment opener and declares nothing by itself.
+  {
+    name: "division-before-a-declaration",
+    text: "const ratio = total / count; const fn = { runtime: lambda.Runtime.NODEJS_20_X };\n",
+    expected: ["deprecated"],
+  },
+  // A runtime expression inside a template interpolation is executable code.
+  {
+    name: "template-expression-is-scanned-as-syntax",
+    text: "const note = `${lambda.Runtime.NODEJS_18_X}`; const fn = { runtime: lambda.Runtime.NODEJS_24_X };\n",
+    expected: ["deprecated"],
+  },
   // --- templates: SAM / CloudFormation runtime scalars ----------------------
   // The class the first version of this gate could not see: a SAM Globals runtime
   // is a YAML scalar, not a CDK enum, so no `runtime:` line was ever judged.
@@ -1315,19 +1561,19 @@ const CLASSIFIER_CASES = [
   {
     name: "quoted-deprecated-runtime-in-a-template",
     file: "template.yaml",
-    text: "    Runtime: \"provided.al2\"\n",
+    text: "Globals:\n  Function:\n    Runtime: \"provided.al2\"\n",
     expected: ["deprecated"],
   },
   {
     name: "deprecated-runtime-with-an-inline-comment",
     file: "template.yaml",
-    text: "    Runtime: provided.al2  # pinned for the legacy lane\n",
+    text: "Globals:\n  Function:\n    Runtime: provided.al2  # pinned for the legacy lane\n",
     expected: ["deprecated"],
   },
   {
     name: "unmodelled-runtime-in-a-template",
     file: "template.yaml",
-    text: "    Runtime: ruby3.2\n",
+    text: "Globals:\n  Function:\n    Runtime: ruby3.2\n",
     expected: ["unmodelled-runtime"],
   },
   // A commented-out key is not a declaration, and the live key beside it is.
@@ -1347,7 +1593,48 @@ const CLASSIFIER_CASES = [
   {
     name: "supported-runtime-in-cloudformation-json",
     file: "template.json",
-    text: '{\n  "Properties": {\n    "Runtime": "provided.al2023",\n  }\n}\n',
+    text:
+      '{\n  "Resources": {\n    "Function": {\n      "Properties": {\n' +
+      '        "Runtime": "provided.al2023"\n      }\n    }\n  }\n}\n',
+    expected: [],
+  },
+  // Structural parsing sees flow YAML and compact JSON that never put the key
+  // at the start of a line.
+  {
+    name: "flow-yaml-deprecated-runtime",
+    file: "template.yaml",
+    text: "{Globals: {Function: {Runtime: provided.al2}}}\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "compact-json-deprecated-runtime",
+    file: "template.json",
+    text: '{"Resources":{"Function":{"Properties":{"Runtime":"provided.al2"}}}}\n',
+    expected: ["deprecated"],
+  },
+  {
+    name: "compact-json-supported-runtime",
+    file: "template.json",
+    text: '{"Resources":{"Function":{"Properties":{"Runtime":"provided.al2023"}}}}\n',
+    expected: [],
+  },
+  // The resource runtime is effective over the global. A supported global does
+  // not hide a deprecated resource override, and a deprecated global that every
+  // resource overrides is not itself deployed.
+  {
+    name: "supported-global-with-deprecated-resource-override",
+    file: "template.yaml",
+    text:
+      "Globals:\n  Function:\n    Runtime: provided.al2023\n" +
+      "Resources:\n  Fn:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: provided.al2\n",
+    expected: ["deprecated"],
+  },
+  {
+    name: "deprecated-global-overridden-by-supported-resource",
+    file: "template.yaml",
+    text:
+      "Globals:\n  Function:\n    Runtime: provided.al2\n" +
+      "Resources:\n  Fn:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: provided.al2023\n",
     expected: [],
   },
   // A template that declares the same runtime twice counts one runtime, the same
@@ -1422,6 +1709,14 @@ const FAIL_CLOSED_CASES = [
     text: 'const a = "node_modules";\nconst b = "1.2.3";\n',
     expectFailureReason: "declares no modelled Lambda runtime",
   },
+  // A source the parser rejects is not scanned as a recovered tree, even when
+  // the recovered text still contains a supported runtime token.
+  {
+    name: "parse-error-fails-closed",
+    text: "function ( {\nconst fn = { runtime: lambda.Runtime.NODEJS_24_X };\n",
+    raw: true,
+    expectFailureReason: "could not be parsed as TypeScript",
+  },
   // Binding the namespace and then hiding the member is not a way to declare
   // nothing and still pass: the surface has no readable declaration, so it fails
   // closed on the same rule that catches an obfuscated surface.
@@ -1455,7 +1750,9 @@ const FAIL_CLOSED_CASES = [
   // and passed.
   {
     name: "dynamic-fromString-rescued-by-a-stray-runtime-literal",
-    text: "runtime: lambda.Runtime.fromString(config.runtime),\nconst releaseNote = 'nodejs22.x';\n",
+    text:
+      "const first = { runtime: lambda.Runtime.fromString(config.runtime) };\n" +
+      "const releaseNote = 'nodejs22.x';\n",
     expectFailureReason: "declares no modelled Lambda runtime",
   },
   // A declaration that is entirely commented out is not a declaration, in either
@@ -1481,8 +1778,33 @@ const FAIL_CLOSED_CASES = [
   {
     name: "template-with-only-an-interpolated-runtime",
     file: "template.yaml",
-    text: "    Runtime: !Sub \"${RuntimeFamily}.al2023\"\n",
+    text: "Globals:\n  Function:\n    Runtime: !Sub \"${RuntimeFamily}.al2023\"\n",
     expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  // A supported global does not rescue a resource whose effective runtime is
+  // ambiguous. The override is what deploys, so it fails closed.
+  {
+    name: "supported-global-with-dynamic-resource-override",
+    file: "template.yaml",
+    text:
+      "Globals:\n  Function:\n    Runtime: provided.al2023\n" +
+      "Resources:\n  Fn:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: !Ref RuntimeParameter\n",
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  {
+    name: "supported-global-with-json-ref-resource-override",
+    file: "template.json",
+    text:
+      '{"Globals":{"Function":{"Runtime":"provided.al2023"}},' +
+      '"Resources":{"Fn":{"Type":"AWS::Serverless::Function","Properties":{"Runtime":{"Ref":"RuntimeParameter"}}}}}\n',
+    expectFailureReason: "declares no modelled Lambda runtime",
+  },
+  // A malformed declared template is parse ambiguity, not an empty template.
+  {
+    name: "malformed-template-fails-closed",
+    file: "template.yaml",
+    text: "Globals:\n  Function:\n    Runtime: provided.al2023\nResources: [\n",
+    expectFailureReason: "could not be parsed as YAML",
   },
   // A snippet that only names a different flag declares no runtime at all.
   {
@@ -1511,10 +1833,50 @@ function selfTestViolationKinds(outcome) {
   return outcome.violations.map((violation) => violation.kind);
 }
 
+function parsesAsTypeScript(text) {
+  const ts = typescript();
+  const sourceFile = ts.createSourceFile("probe.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return (sourceFile.parseDiagnostics ?? []).length === 0;
+}
+
+// Most classifier cases are object-property fragments (`runtime: ...`) rather
+// than complete modules. They were always fed to a text scanner, so they were
+// never required to parse. The AST scanner requires real syntax, so a fragment
+// is wrapped as object-literal properties before it is written; a case that is
+// already a complete module is left untouched. Mixed statement/property cases
+// are written as complete modules instead.
+function syntheticCaseSource(scenario) {
+  if (scenario.raw) return scenario.text;
+  if (parsesAsTypeScript(scenario.text)) return scenario.text;
+
+  const lines = scenario.text.split("\n");
+  const firstProperty = lines.findIndex((line) =>
+    /^\s*(?:runtime|code|bundling|environment|timeout|memorySize)\s*:/.test(line),
+  );
+  if (firstProperty > 0) {
+    const prelude = lines.slice(0, firstProperty).join("\n");
+    const tail = lines.slice(firstProperty).join("\n");
+    const wrapped = `${prelude}\nconst __probe = ({\n${tail}\n});\n`;
+    if (parsesAsTypeScript(wrapped)) return wrapped;
+  }
+
+  const wrappedAll = `const __probe = ({\n${scenario.text}\n});\n`;
+  if (parsesAsTypeScript(wrappedAll)) return wrappedAll;
+
+  throw new GateFailure(
+    `self-test case ${scenario.name} is not valid TypeScript after fragment normalization`,
+  );
+}
+
 function writeSyntheticSurface(tempDir, scenario) {
   const file = path.join(tempDir, scenario.name, scenario.file ?? "surface.ts");
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, scenario.text);
+  const extension = path.extname(file).toLowerCase();
+  const text =
+    scenario.file === undefined || CDK_SURFACE_EXTENSIONS.has(extension)
+      ? syntheticCaseSource(scenario)
+      : scenario.text;
+  fs.writeFileSync(file, text);
   return file;
 }
 
@@ -1886,4 +2248,15 @@ function main() {
   );
 }
 
-main();
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invokedDirectly) main();
+
+// The synthesized-template assertion reuses the same verdict sets, so a runtime
+// added to this gate is judged the same way after `cdk synth`.
+export {
+  DEPRECATED_LAMBDA_RUNTIMES,
+  SUPPORTED_LAMBDA_RUNTIMES,
+  runtimeIdentifierFromLiteral,
+};
