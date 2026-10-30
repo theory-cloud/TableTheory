@@ -448,7 +448,7 @@ void test('client.update writes v2 envelopes bound to the record key', async () 
   assert.deepEqual(decrypted.secret, { S: 'rotated' });
 });
 
-test('envelope parsing rejects a nonce length other than the AEAD size', () => {
+void test('envelope parsing rejects a nonce length other than the AEAD size', () => {
   assert.throws(
     () =>
       envelopeFromAttributeValue({
