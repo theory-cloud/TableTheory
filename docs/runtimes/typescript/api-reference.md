@@ -169,8 +169,9 @@ export declare class TheorydbClient<TNumberMode extends NumberUnmarshalMode = 's
      * registers fixed model names into a caller-owned client therefore rebinds
      * any earlier component that registered the same names against a different
      * table. `fork()` lets such a component hold a private binding while still
-     * inheriting the caller's encryption provider, clock, send options, and
-     * number-unmarshal mode instead of mutating the shared registry.
+     * inheriting the caller's encryption provider, clock, send options,
+     * number-unmarshal mode, and item-image redaction instead of mutating the
+     * shared registry.
      */
     fork(): TheorydbClient<TNumberMode>;
     model<M extends Model>(model: M): ModelRepository<InferModelItemForMode<M, TNumberMode>>;
