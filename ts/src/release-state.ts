@@ -331,7 +331,7 @@ function resolveBindingSource(
     if (input.expectedVersion === undefined) {
       return { ok: false, reason: 'nextVersion requires expectedVersion' };
     }
-    return { ok: true, value: input.expectedVersion + 1 };
+    return { ok: true, value: exactNextVersion(input.expectedVersion) };
   }
   if (trimmed.startsWith(BINDING_SET_PREFIX)) {
     const name = trimmed.slice(BINDING_SET_PREFIX.length).trim();
@@ -356,13 +356,32 @@ function resolveBindingSource(
   return { ok: false, reason: `unsupported binding source "${source}"` };
 }
 
+// exactNextVersion computes expectedVersion + 1 without binary64 rounding. At
+// 2^53 and above a JavaScript number steps by 2, so the next integer is
+// computed with bigint and only returned as a number when it is safe.
+function exactNextVersion(expectedVersion: number): ExactNumber {
+  const next = expectedVersion + 1;
+  if (Number.isSafeInteger(next)) return next;
+  if (Number.isInteger(expectedVersion)) return BigInt(expectedVersion) + 1n;
+  return next;
+}
+
+// bindingValuesEqual compares a bound row value with the value the authorizing
+// transition supplies. Equality is type-directed: strings compare lexically
+// and never satisfy numbers, while numbers and bigints compare as exact
+// integer values. No value is coerced through Number(), so adjacent integers
+// above 2^53 remain distinct.
 function bindingValuesEqual(left: unknown, right: unknown): boolean {
   if (left === right) return true;
 
-  const leftNumber = numericBindingValue(left);
-  const rightNumber = numericBindingValue(right);
-  if (leftNumber !== undefined && rightNumber !== undefined) {
-    return leftNumber === rightNumber;
+  const leftNumber = exactNumericBindingValue(left);
+  const rightNumber = exactNumericBindingValue(right);
+  if (leftNumber !== undefined || rightNumber !== undefined) {
+    return (
+      leftNumber !== undefined &&
+      rightNumber !== undefined &&
+      exactNumbersEqual(leftNumber, rightNumber)
+    );
   }
 
   if (Array.isArray(left) && Array.isArray(right)) {
@@ -384,14 +403,37 @@ function bindingValuesEqual(left: unknown, right: unknown): boolean {
   return false;
 }
 
-function numericBindingValue(value: unknown): number | undefined {
+type ExactNumber = number | bigint;
+
+function exactNumericBindingValue(value: unknown): ExactNumber | undefined {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : undefined;
   }
-  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'bigint') return value;
   // Numeric string coercion is deliberately not applied: "007" must not
   // satisfy nextVersion=7, or a string-typed version could erode the binding.
   return undefined;
+}
+
+function exactNumbersEqual(left: ExactNumber, right: ExactNumber): boolean {
+  if (typeof left === 'number' && typeof right === 'number') {
+    return left === right;
+  }
+  if (typeof left === 'bigint' && typeof right === 'bigint') {
+    return left === right;
+  }
+  if (typeof left === 'number') {
+    return (
+      typeof right === 'bigint' &&
+      Number.isInteger(left) &&
+      BigInt(left) === right
+    );
+  }
+  return (
+    typeof right === 'number' &&
+    Number.isInteger(right) &&
+    BigInt(right) === left
+  );
 }
 
 /**
