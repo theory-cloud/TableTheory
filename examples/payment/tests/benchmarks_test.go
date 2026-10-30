@@ -64,7 +64,7 @@ func BenchmarkIdempotencyCheck(b *testing.B) {
 	// Pre-populate some idempotency records
 	for i := 0; i < 1000; i++ {
 		key := fmt.Sprintf("bench-key-%d", i)
-		_, _ = idempotency.Process(context.TODO(), merchant.ID, key, func() (any, error) {
+		_, _ = idempotency.Process(context.TODO(), merchant.ID, key, "bench-request-hash", func() (any, error) {
 			return &payment.Payment{ID: fmt.Sprintf("payment-%d", i)}, nil
 		})
 	}
@@ -75,7 +75,7 @@ func BenchmarkIdempotencyCheck(b *testing.B) {
 		for pb.Next() {
 			// Mix of existing and new keys
 			key := fmt.Sprintf("bench-key-%d", i%1500)
-			_, _ = idempotency.Process(context.TODO(), merchant.ID, key, func() (any, error) {
+			_, _ = idempotency.Process(context.TODO(), merchant.ID, key, "bench-request-hash", func() (any, error) {
 				return &payment.Payment{ID: fmt.Sprintf("payment-new-%d", i)}, nil
 			})
 			i++

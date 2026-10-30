@@ -56,6 +56,9 @@ type EmailConfig struct {
 // EmailProvider implements NotificationProvider for email notifications
 type EmailProvider struct {
 	config EmailConfig
+	// testTLSConfig is set only by local tests that run a self-signed SMTP
+	// fixture. Production delivery always builds the strict TLS config below.
+	testTLSConfig *tls.Config
 }
 
 // NewEmailProvider creates a new email provider
@@ -63,6 +66,40 @@ func NewEmailProvider(config EmailConfig) *EmailProvider {
 	return &EmailProvider{
 		config: config,
 	}
+}
+
+// validateCredentials refuses a half-configured credential pair. A configured
+// username or password means AUTH is required after STARTTLS; silently sending
+// unauthenticated mail on a misconfiguration is not allowed.
+func (p *EmailProvider) validateCredentials() error {
+	if p.config.SMTPUsername == "" && p.config.SMTPPassword == "" {
+		return nil
+	}
+	if p.config.SMTPUsername == "" || p.config.SMTPPassword == "" {
+		return fmt.Errorf("SMTP username and password must both be configured")
+	}
+	return nil
+}
+
+func (p *EmailProvider) credentialsConfigured() bool {
+	return p.config.SMTPUsername != "" || p.config.SMTPPassword != ""
+}
+
+// startTLSConfig returns the TLS settings for the STARTTLS upgrade. Hostname
+// verification is always enabled, the minimum is TLS 1.2, and only a test
+// fixture may supply a private root pool.
+func (p *EmailProvider) startTLSConfig() *tls.Config {
+	var cfg *tls.Config
+	if p.testTLSConfig != nil {
+		cfg = p.testTLSConfig.Clone()
+	} else {
+		cfg = &tls.Config{}
+	}
+	cfg.ServerName = p.config.SMTPHost
+	if cfg.MinVersion < tls.VersionTLS12 {
+		cfg.MinVersion = tls.VersionTLS12
+	}
+	return cfg
 }
 
 // Send sends an email notification. The whole delivery - dial, greeting
@@ -96,6 +133,10 @@ func (p *EmailProvider) Send(ctx context.Context, notification *Notification) er
 			subject,
 			flattenToLine(notification.Content))
 		return nil
+	}
+
+	if err := p.validateCredentials(); err != nil {
+		return err
 	}
 
 	// Prepare email
@@ -168,19 +209,27 @@ func (p *EmailProvider) deliver(ctx context.Context, addr, from, to string, mess
 	}
 	defer func() { _ = client.Close() }()
 
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		if err := client.StartTLS(&tls.Config{
-			ServerName: p.config.SMTPHost,
-			MinVersion: tls.VersionTLS12,
-		}); err != nil {
-			return err
-		}
+	// Non-test delivery requires STARTTLS. A plaintext relay, or an on-path
+	// attacker that strips the extension, must fail before MAIL, RCPT, or DATA.
+	if ok, _ := client.Extension("STARTTLS"); !ok {
+		return fmt.Errorf("smtp server does not advertise STARTTLS; refusing plaintext delivery")
+	}
+	if err := client.StartTLS(p.startTLSConfig()); err != nil {
+		return fmt.Errorf("smtp STARTTLS failed: %w", err)
+	}
+	if state, ok := client.TLSConnectionState(); !ok || state.Version < tls.VersionTLS12 {
+		return fmt.Errorf("smtp STARTTLS did not establish TLS 1.2 or newer")
 	}
 
-	if ok, _ := client.Extension("AUTH"); ok {
+	// When credentials are configured, AUTH is mandatory and must happen after
+	// the TLS upgrade, before any envelope command.
+	if p.credentialsConfigured() {
+		if ok, _ := client.Extension("AUTH"); !ok {
+			return fmt.Errorf("smtp server does not advertise AUTH after STARTTLS; refusing unauthenticated delivery")
+		}
 		auth := smtp.PlainAuth("", p.config.SMTPUsername, p.config.SMTPPassword, p.config.SMTPHost)
 		if err := client.Auth(auth); err != nil {
-			return err
+			return fmt.Errorf("smtp authentication failed: %w", err)
 		}
 	}
 

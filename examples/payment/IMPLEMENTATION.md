@@ -2,8 +2,8 @@
 
 ## Overview
 This document describes the implementation of the Payment Example's three main features:
-1. **Webhook Notification System** - Synchronous webhook delivery with retry logic
-2. **JWT Authentication** - Token validation and merchant ID extraction  
+1. **Webhook Notification System** - Synchronous public-HTTPS delivery with retry logic and destination validation
+2. **JWT Authentication and Merchant Policy** - Token validation plus active-merchant, permission, amount, and rate-limit enforcement
 3. **Export Job Records** - Export requests are recorded as jobs; processing is out of scope for this example
 
 ## Feature 1: Webhook Notification System
@@ -22,11 +22,24 @@ This document describes the implementation of the Payment Example's three main f
    - Bounded by the caller's context and the sender's internal timeout
 
 2. **Webhook Delivery Features**:
-   - Exponential backoff retry (up to 5 attempts, all inside the invocation)
+   - Public HTTPS destinations only; `http://` and other schemes are refused
+   - DNS and dialed-IP validation before record creation, before every attempt,
+     and on every redirect
+   - Loopback, link-local, private, unspecified, site-local, 6bone, 6to4,
+     IPv6 benchmarking, CGNAT, documentation, multicast, and reserved address
+     ranges (including the deprecated 6to4 relay anycast prefix) are refused
+   - The validated address is dialed directly, with a second check at the
+     socket boundary, so DNS rebinding cannot swap in a private target
+   - Exponential backoff retry (up to 5 attempts, all inside the invocation) for
+     ordinary network and server failures; unsafe destinations fail permanently
    - HMAC-SHA256 signature generation
    - Webhook status tracking in DynamoDB
    - TTL-based expiration (24 hours)
    - Support for multiple webhook endpoints
+
+There is no environment variable or private-network override. A merchant with a
+private, loopback, or plaintext webhook URL receives no delivery attempt until
+the merchant's configuration is changed to a public HTTPS endpoint.
 
 Failed webhooks are re-driven from a queue or a scheduled invocation, never from
 anything left running inside the invocation: this example deploys only as Lambda
@@ -55,6 +68,9 @@ if err := webhookSender.SendSync(ctx, job); err != nil {
 }
 ```
 
+`SendSync` refuses a destination that is not public HTTPS before creating the
+webhook record. Keep every merchant `WebhookURL` on public HTTPS.
+
 ### Webhook Headers:
 - `X-Webhook-ID` - Unique webhook identifier
 - `X-Webhook-Timestamp` - Unix timestamp
@@ -65,7 +81,7 @@ if err := webhookSender.SendSync(ctx, job); err != nil {
 signature = HMAC-SHA256(secret, timestamp + "." + payload)
 ```
 
-## Feature 2: JWT Authentication
+## Feature 2: JWT Authentication and Merchant Policy
 
 ### Implementation Details
 
@@ -84,6 +100,19 @@ signature = HMAC-SHA256(secret, timestamp + "." + payload)
    - Issuer validation
    - Audience validation
    - Merchant ID extraction
+   - Exact permission extraction (`ValidateAndExtractClaims`)
+
+The process handler loads the stored merchant before the idempotency reservation
+or any payment write. It requires:
+
+- merchant `Status == "active"`
+- the exact JWT permission `payments:write` (no prefix, casing, or alias match)
+- a positive `MaxPaymentAmount`, and `amount <= MaxPaymentAmount`
+- positive `PaymentsPerMinute` and `PaymentsPerDay` values
+
+Zero or negative configured limits are fail-closed: they deny positive payments.
+They do **not** mean "unlimited". A refusal at this point writes no payment,
+transaction, usage counter, webhook record, or idempotency record.
 
 ### Usage Example:
 
@@ -95,8 +124,8 @@ jwtValidator := utils.NewSimpleJWTValidator(
     "payment-api",
 )
 
-// Extract merchant ID from request
-merchantID, err := utils.ValidateAndExtractMerchantID(
+// Extract and validate the claims used by the merchant policy.
+claims, err := utils.ValidateAndExtractClaims(
     request.Headers["Authorization"],
     jwtValidator,
 )
@@ -107,13 +136,33 @@ merchantID, err := utils.ValidateAndExtractMerchantID(
 {
   "merchant_id": "merchant-123",
   "email": "merchant@example.com",
-  "permissions": ["payments", "refunds"],
+  "permissions": ["payments:write"],
   "iss": "your-issuer",
   "aud": ["payment-api"],
   "exp": 1234567890,
   "iat": 1234567890
 }
 ```
+
+### Minute and Day Usage Accounting
+
+`UsageCounter` stores one row per merchant per fixed UTC minute and per fixed UTC
+day. The counter increment is an `ADD`, guarded by
+`attribute_not_exists(usageCount) OR usageCount < :limit`, and it shares the
+same DynamoDB transaction as the payment and transaction records. A conditional
+failure cancels the whole transaction, so concurrent requests cannot overshoot
+the limit and a refused request leaves no counter increment behind.
+
+Idempotent replay never executes the payment again: a successful replay returns
+the stored payment with HTTP 200 and no additional counter increment, while a
+rate-limit refusal replays as HTTP 429.
+
+Idempotency keys are bound to a deterministic SHA-256 of the full validated
+request payload; authentication is not part of the payload. A replay is
+returned only when the stored hash matches. Reusing a key with a different
+payload is refused with HTTP 409 before any payment, transaction, counter,
+webhook, or idempotency write. Rows written before request-hash binding have no
+stored hash and fail closed with HTTP 409 instead of guessing.
 
 ## Feature 3: Export Job Records
 
@@ -211,14 +260,16 @@ if err := h.db.Model(exportJob).Create(); err != nil {
 
 ### Run Tests:
 ```bash
-cd theorydb/examples/payment/tests
-go test -v webhook_test.go
+go test ./examples/payment/...
+go test -race ./examples/payment/...
 ```
 
 ### Test Coverage:
-- ✅ Webhook delivery with retry
-- ✅ JWT token validation
-- ✅ Token extraction from headers
+- ✅ Public HTTPS webhook delivery, signature, retry, and timeout behavior
+- ✅ Direct, redirect, mixed-DNS, and DNS-rebinding SSRF refusals before bytes
+- ✅ JWT token validation and exact `payments:write` enforcement
+- ✅ Active/missing/suspended merchant and zero/excess amount refusals
+- ✅ Atomic minute/day boundaries, concurrent overshoot attempts, and replay
 - ✅ Export job creation
 
 ## Environment Variables
@@ -240,15 +291,45 @@ AWS_REGION=us-east-1
    - Rotate keys regularly
    - Short token expiration (1 hour recommended)
 
-2. **Webhook Security**:
+2. **Merchant Policy**:
+   - Require active merchant status and exact `payments:write`
+   - Treat zero/negative limits as deny, never as unlimited
+   - Keep the counter increment in the payment transaction
+
+3. **Webhook Security**:
+   - Public HTTPS endpoints only; no private-network or environment override
+   - Resolve and validate the destination before record creation, every attempt,
+     and every redirect; dial the validated address
    - Verify webhook signatures
-   - Use HTTPS endpoints only
    - Implement request timeouts
 
-3. **Export Security** (guidance for the consumer that is not yet shipped):
+4. **Export Security** (guidance for the consumer that is not yet shipped):
    - Serve results only through pre-signed, expiring URLs
    - Scope every export to the requesting merchant
    - Keep an audit trail for export requests
+
+## Policy Migration and Rollback
+
+These checks are security corrections, not feature flags.
+
+- Merchants with zero or negative `MaxPaymentAmount`, `PaymentsPerMinute`, or
+  `PaymentsPerDay` now have positive payments denied. Set all three to positive
+  values before enabling a merchant; there is no legacy unlimited
+  interpretation.
+- Merchants with non-HTTPS or private-network webhook URLs stop receiving
+  deliveries. Update the stored URL to a public HTTPS endpoint. There is no
+  environment opt-out.
+- Create the `UsageCounters` table with partition key `id` and enable TTL on
+  `expiresAt` alongside the existing payment tables. The example registers the
+  model but deliberately does not provision tables.
+- The new `UsageCounters` rows are additive and harmless if unused. Reverting the
+  enforcement restores the original exposure; roll forward with corrected policy
+  instead of restoring the unsafe behavior.
+- Idempotency rows written before request-hash binding have no stored hash and
+  fail closed with HTTP 409. Retry with a new idempotency key or wait for the row
+  to expire; the stored outcome cannot be verified.
+- Payment, transaction, audit, idempotency, and webhook records are not migrated
+  or deleted. Retain them through any rollback.
 
 ## Performance Considerations
 
@@ -263,11 +344,12 @@ AWS_REGION=us-east-1
 
 ## Next Steps
 
-1. **Production Readiness**:
+1. **Operational Readiness**:
    - Add proper logging (structured logs)
    - Implement metrics/monitoring
    - Add circuit breakers for webhooks
-   - Rate limiting per merchant
+   - Add merchant provisioning and limit administration outside this example;
+     the example reads stored limits but does not create or edit merchants
 
 2. **Enhanced Features**:
    - Multiple webhook URLs per merchant
@@ -277,5 +359,5 @@ AWS_REGION=us-east-1
 
 3. **Testing**:
    - Load testing for webhooks
-   - Integration tests with real JWT tokens
-   - Export performance benchmarks 
+   - Hosted endpoint integration tests for webhook and SMTP delivery
+   - Export performance benchmarks
