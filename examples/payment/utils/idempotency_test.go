@@ -81,7 +81,10 @@ func TestIdempotencyReplaysTheSameMerchantRequest(t *testing.T) {
 	})
 	require.ErrorIs(t, err, ErrDuplicateRequest)
 	require.Equal(t, 1, calls)
-	require.Equal(t, "captured", second.(map[string]any)["status"])
+	replay, ok := second.(*Replay)
+	require.True(t, ok)
+	require.Equal(t, 200, replay.StatusCode)
+	require.Equal(t, "captured", replay.Body.(map[string]any)["status"])
 }
 
 func TestIdempotencyReadsLegacyUnscopedRecords(t *testing.T) {
@@ -105,11 +108,43 @@ func TestIdempotencyReadsLegacyUnscopedRecords(t *testing.T) {
 	})
 	require.ErrorIs(t, err, ErrDuplicateRequest)
 	require.False(t, called, "a legacy record must still replay instead of re-executing")
-	require.Equal(t, "legacy", result.(map[string]any)["status"])
+	replay, ok := result.(*Replay)
+	require.True(t, ok)
+	require.Equal(t, "legacy", replay.Body.(map[string]any)["status"])
 
 	otherMerchant, err := middleware.Process(ctx, "merchant-b", "legacy-key", func() (any, error) {
 		return map[string]string{"status": "fresh"}, nil
 	})
 	require.NoError(t, err, "a legacy record belonging to another merchant must not block this merchant")
 	require.Equal(t, "fresh", otherMerchant.(map[string]string)["status"])
+}
+
+type testStatusError struct{ status int }
+
+func (e testStatusError) Error() string   { return "refused" }
+func (e testStatusError) HTTPStatus() int { return e.status }
+
+func TestIdempotencyReplaysRecordedRefusalStatus(t *testing.T) {
+	db := newIdempotencyDB(t)
+	middleware := NewIdempotencyMiddleware(db, time.Hour)
+	ctx := context.Background()
+
+	calls := 0
+	_, err := middleware.Process(ctx, "merchant-a", "refused-key", func() (any, error) {
+		calls++
+		return nil, testStatusError{status: 429}
+	})
+	require.Error(t, err)
+	require.Equal(t, 1, calls)
+
+	replay, err := middleware.Process(ctx, "merchant-a", "refused-key", func() (any, error) {
+		calls++
+		return nil, nil
+	})
+	require.ErrorIs(t, err, ErrDuplicateRequest)
+	require.Equal(t, 1, calls, "a replay must not execute the handler again")
+	stored, ok := replay.(*Replay)
+	require.True(t, ok)
+	require.Equal(t, 429, stored.StatusCode)
+	require.Equal(t, "refused", stored.Body.(map[string]any)["error"])
 }

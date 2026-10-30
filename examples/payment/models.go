@@ -1,6 +1,8 @@
 package payment
 
 import (
+	"encoding/base64"
+	"strconv"
 	"time"
 )
 
@@ -112,6 +114,56 @@ type RateLimits struct {
 	PaymentsPerMinute int   `json:"payments_per_minute"`
 	PaymentsPerDay    int   `json:"payments_per_day"`
 	MaxPaymentAmount  int64 `json:"max_payment_amount"`
+}
+
+// Usage window identifiers for UsageCounter.
+const (
+	UsageWindowMinute = "minute"
+	UsageWindowDay    = "day"
+)
+
+// UsageCounter records how many payments a merchant has started inside one
+// fixed minute or day window. Count is incremented with a conditional ADD in
+// the same transaction that creates the payment, so concurrent requests cannot
+// overshoot the configured limit.
+type UsageCounter struct {
+	ID          string `theorydb:"pk" json:"id"`
+	MerchantID  string `json:"merchant_id"`
+	WindowKind  string `json:"window_kind"`
+	WindowStart int64  `json:"window_start"`
+	Count       int64  `theorydb:"attr:usageCount" json:"usage_count"`
+	ExpiresAt   int64  `theorydb:"ttl" json:"expires_at"`
+	Version     int    `theorydb:"version" json:"version"`
+}
+
+// NewUsageCounter builds the deterministic counter key for a merchant and
+// window. The merchant ID is base64url-encoded so two IDs containing "#" can
+// never produce the same key.
+func NewUsageCounter(merchantID, windowKind string, now time.Time) *UsageCounter {
+	now = now.UTC()
+
+	var start time.Time
+	var retention time.Duration
+	switch windowKind {
+	case UsageWindowMinute:
+		start = now.Truncate(time.Minute)
+		retention = 48 * time.Hour
+	case UsageWindowDay:
+		start = now.Truncate(24 * time.Hour)
+		retention = 72 * time.Hour
+	default:
+		start = now
+		retention = 48 * time.Hour
+	}
+
+	encodedMerchant := base64.RawURLEncoding.EncodeToString([]byte(merchantID))
+	return &UsageCounter{
+		ID:          "usage#" + encodedMerchant + "#" + windowKind + "#" + strconv.FormatInt(start.Unix(), 10),
+		MerchantID:  merchantID,
+		WindowKind:  windowKind,
+		WindowStart: start.Unix(),
+		ExpiresAt:   start.Add(retention).Unix(),
+	}
 }
 
 // AuditEntry represents an entry in the audit trail

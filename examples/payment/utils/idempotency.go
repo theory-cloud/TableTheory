@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	payment "github.com/theory-cloud/tabletheory/v6/examples/payment"
@@ -16,6 +17,20 @@ import (
 
 // ErrDuplicateRequest indicates a duplicate request was detected
 var ErrDuplicateRequest = errors.New("duplicate request")
+
+// Replay is the stored outcome of an idempotent request. A caller that receives
+// ErrDuplicateRequest with a *Replay must return the recorded status and body
+// instead of executing the handler again.
+type Replay struct {
+	StatusCode int
+	Body       any
+}
+
+// httpStatusError lets a callback classify a refusal that is not a server
+// error, such as a transient rate-limit denial.
+type httpStatusError interface {
+	HTTPStatus() int
+}
 
 const (
 	// idempotencyKeyVersionPrefix marks a merchant-scoped stored key so it can
@@ -60,7 +75,7 @@ func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key str
 			if err := json.Unmarshal([]byte(existing.Response), &response); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal cached response: %w", err)
 			}
-			return response, ErrDuplicateRequest
+			return &Replay{StatusCode: existing.StatusCode, Body: response}, ErrDuplicateRequest
 		}
 		// Request is still processing
 		return nil, fmt.Errorf("request is still being processed")
@@ -109,7 +124,7 @@ func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key str
 				if err := json.Unmarshal([]byte(existing.Response), &response); err != nil {
 					return nil, fmt.Errorf("failed to unmarshal cached response: %w", err)
 				}
-				return response, ErrDuplicateRequest
+				return &Replay{StatusCode: existing.StatusCode, Body: response}, ErrDuplicateRequest
 			}
 			return nil, fmt.Errorf("request is still being processed")
 		}
@@ -119,11 +134,16 @@ func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key str
 	// Execute the function
 	result, fnErr := fn()
 
-	// Update record with result
+	// Update record with the outcome. The status is stored with the body so a
+	// replay returns the same refusal instead of silently succeeding.
 	var responseData []byte
-	statusCode := 200
+	statusCode := http.StatusOK
 	if fnErr != nil {
-		statusCode = 500
+		statusCode = http.StatusInternalServerError
+		var statusErr httpStatusError
+		if errors.As(fnErr, &statusErr) {
+			statusCode = statusErr.HTTPStatus()
+		}
 		responseData, _ = json.Marshal(map[string]string{"error": fnErr.Error()})
 	} else {
 		responseData, _ = json.Marshal(result)
@@ -131,10 +151,6 @@ func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key str
 
 	record.Response = string(responseData)
 	record.StatusCode = statusCode
-
-	// Update with response
-	record.Response = string(responseData)
-	record.StatusCode = 200
 
 	err = m.db.Model(record).Update("Response", "StatusCode")
 	if err != nil {

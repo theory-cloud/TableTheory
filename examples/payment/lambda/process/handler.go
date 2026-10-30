@@ -26,7 +26,23 @@ var (
 	errMerchantNotFound        = errors.New("merchant not found")
 	errMerchantInactive        = errors.New("merchant is not active")
 	errMerchantLimit           = errors.New("merchant limits do not permit this payment")
+	errPaymentLimitExceeded    = errors.New("payment rate limit exceeded")
 )
+
+// paymentLimitError carries the transient rate-limit refusal. The idempotency
+// middleware records HTTPStatus so a replay returns the same 429 instead of a
+// generic server error.
+type paymentLimitError struct {
+	cause error
+}
+
+func (e *paymentLimitError) Error() string {
+	return fmt.Sprintf("%s: %v", errPaymentLimitExceeded, e.cause)
+}
+
+func (e *paymentLimitError) Unwrap() error { return errPaymentLimitExceeded }
+
+func (e *paymentLimitError) HTTPStatus() int { return http.StatusTooManyRequests }
 
 // ProcessPaymentRequest represents the payment request payload
 type ProcessPaymentRequest struct {
@@ -52,6 +68,7 @@ type Handler struct {
 	idempotency   *utils.IdempotencyMiddleware
 	webhookSender webhookDispatcher
 	jwtValidator  *utils.SimpleJWTValidator
+	now           func() time.Time
 }
 
 // NewHandler creates a new payment handler
@@ -70,6 +87,7 @@ func NewHandler() (*Handler, error) {
 	db.Model(&payment.AuditEntry{})
 	db.Model(&payment.Merchant{})
 	db.Model(&payment.Webhook{})
+	db.Model(&payment.UsageCounter{})
 
 	// Initialize idempotency middleware
 	idempotency := utils.NewIdempotencyMiddleware(db, 24*time.Hour)
@@ -94,6 +112,7 @@ func NewHandler() (*Handler, error) {
 		idempotency:   idempotency,
 		webhookSender: webhookSender,
 		jwtValidator:  jwtValidator,
+		now:           time.Now,
 	}, nil
 }
 
@@ -139,11 +158,25 @@ func (h *Handler) HandleRequest(ctx context.Context, request events.APIGatewayPr
 	})
 
 	if err != nil {
-		if err == utils.ErrDuplicateRequest {
-			// Return cached response
-			if cached, ok := result.(*payment.Payment); ok {
-				return successResponse(http.StatusOK, cached), nil
+		if errors.Is(err, utils.ErrDuplicateRequest) {
+			// Replay the stored outcome without executing the payment again.
+			if replay, ok := result.(*utils.Replay); ok {
+				statusCode := replay.StatusCode
+				if statusCode < 200 || statusCode > 599 {
+					statusCode = http.StatusInternalServerError
+				}
+				if statusCode < 400 && replayBodyHasError(replay.Body) {
+					statusCode = http.StatusInternalServerError
+				}
+				if statusCode >= 200 && statusCode < 300 {
+					return successResponse(http.StatusOK, replay.Body), nil
+				}
+				return errorResponse(statusCode, replayErrorMessage(replay.Body)), nil
 			}
+			return errorResponse(http.StatusConflict, "Request is still being processed"), nil
+		}
+		if errors.Is(err, errPaymentLimitExceeded) {
+			return errorResponse(http.StatusTooManyRequests, "Payment limit exceeded"), nil
 		}
 		return errorResponse(http.StatusInternalServerError, "Payment processing failed"), nil
 	}
@@ -158,6 +191,8 @@ func (h *Handler) HandleRequest(ctx context.Context, request events.APIGatewayPr
 
 // processPayment handles the actual payment processing
 func (h *Handler) processPayment(ctx context.Context, merchant *payment.Merchant, req *ProcessPaymentRequest) (*payment.Payment, error) {
+	now := h.currentTime()
+
 	// Create payment record first
 	paymentRecord := &payment.Payment{
 		ID:             uuid.New().String(),
@@ -170,8 +205,8 @@ func (h *Handler) processPayment(ctx context.Context, merchant *payment.Merchant
 		CustomerID:     req.CustomerID,
 		Description:    req.Description,
 		Metadata:       req.Metadata,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		CreatedAt:      now,
+		UpdatedAt:      now,
 		Version:        1,
 	}
 
@@ -182,16 +217,16 @@ func (h *Handler) processPayment(ctx context.Context, merchant *payment.Merchant
 		Type:        payment.TransactionTypeCapture,
 		Amount:      req.Amount,
 		Status:      "pending",
-		ProcessedAt: time.Now(),
+		ProcessedAt: now,
 		AuditTrail:  []payment.AuditEntry{},
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
 		Version:     1,
 	}
 
 	// Add initial audit entry
 	txRecord.AuditTrail = append(txRecord.AuditTrail, payment.AuditEntry{
-		Timestamp: time.Now(),
+		Timestamp: now,
 		Action:    "transaction_created",
 		Changes: map[string]any{
 			"type":   payment.TransactionTypeCapture,
@@ -202,20 +237,41 @@ func (h *Handler) processPayment(ctx context.Context, merchant *payment.Merchant
 	// Simulate payment processing before composing the atomic writes.
 	// In real implementation, this would call the payment processor.
 	paymentRecord.Status = payment.PaymentStatusSucceeded
-	paymentRecord.UpdatedAt = time.Now()
+	paymentRecord.UpdatedAt = now
 
 	txRecord.Status = "succeeded"
 	txRecord.ProcessorID = "PROC-" + uuid.New().String()
 	txRecord.ResponseCode = "00"
 	txRecord.ResponseText = "Approved"
-	txRecord.UpdatedAt = time.Now()
+	txRecord.UpdatedAt = now
+
+	// The payment, its transaction, and both usage counters share one
+	// transaction. A conditional failure on either counter rolls back every
+	// write, so concurrent requests cannot overshoot the configured limit and a
+	// refused request leaves no payment or counter increment behind.
+	minuteCounter := payment.NewUsageCounter(merchant.ID, payment.UsageWindowMinute, now)
+	dayCounter := payment.NewUsageCounter(merchant.ID, payment.UsageWindowDay, now)
 
 	err := h.db.Transact().
+		WithContext(ctx).
 		Create(paymentRecord).
 		Create(txRecord).
+		UpdateWithBuilder(
+			minuteCounter,
+			usageIncrement(minuteCounter),
+			usageLimitCondition(merchant.RateLimits.PaymentsPerMinute),
+		).
+		UpdateWithBuilder(
+			dayCounter,
+			usageIncrement(dayCounter),
+			usageLimitCondition(merchant.RateLimits.PaymentsPerDay),
+		).
 		Execute()
 
 	if err != nil {
+		if errors.Is(err, customerrors.ErrConditionFailed) {
+			return nil, &paymentLimitError{cause: err}
+		}
 		return nil, fmt.Errorf("failed to process payment: %w", err)
 	}
 
@@ -310,6 +366,55 @@ func isPolicyDenial(err error) bool {
 		errors.Is(err, errMerchantNotFound) ||
 		errors.Is(err, errMerchantInactive) ||
 		errors.Is(err, errMerchantLimit)
+}
+
+func (h *Handler) currentTime() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
+}
+
+// usageIncrement adds one payment to a window counter and refreshes its
+// descriptive attributes. Version is incremented atomically with the count so
+// the stored row shows how many times the counter has advanced.
+func usageIncrement(counter *payment.UsageCounter) func(core.UpdateBuilder) error {
+	return func(ub core.UpdateBuilder) error {
+		ub.Add("Count", int64(1))
+		ub.Add("Version", int64(1))
+		ub.Set("MerchantID", counter.MerchantID)
+		ub.Set("WindowKind", counter.WindowKind)
+		ub.Set("WindowStart", counter.WindowStart)
+		ub.Set("ExpiresAt", counter.ExpiresAt)
+		return nil
+	}
+}
+
+// usageLimitCondition is the atomic guard for one counter. A missing counter
+// starts at zero; an existing counter must still be below the limit.
+func usageLimitCondition(limit int) core.TransactCondition {
+	return tabletheory.ConditionExpression(
+		"attribute_not_exists(usageCount) OR usageCount < :usage_limit",
+		map[string]any{":usage_limit": int64(limit)},
+	)
+}
+
+func replayBodyHasError(body any) bool {
+	values, ok := body.(map[string]any)
+	if !ok {
+		return false
+	}
+	_, hasError := values["error"]
+	return hasError
+}
+
+func replayErrorMessage(body any) string {
+	if values, ok := body.(map[string]any); ok {
+		if message, ok := values["error"].(string); ok && message != "" {
+			return message
+		}
+	}
+	return "Payment processing failed"
 }
 
 func validatePaymentRequest(req *ProcessPaymentRequest) error {

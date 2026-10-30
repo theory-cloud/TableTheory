@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 )
 
 const policyTestSecret = "policy-test-secret"
+
+var policyTestNow = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 
 type policyTestKMS struct{}
 
@@ -71,6 +74,7 @@ func newPolicyTestDB(t *testing.T) core.ExtendedDB {
 		&payment.Merchant{},
 		&payment.IdempotencyRecord{},
 		&payment.Webhook{},
+		&payment.UsageCounter{},
 	} {
 		require.NoError(t, db.CreateTable(model))
 	}
@@ -87,6 +91,7 @@ func newPolicyTestHandler(t *testing.T, db core.ExtendedDB) (*Handler, *recordin
 		idempotency:   utils.NewIdempotencyMiddleware(db, time.Hour),
 		webhookSender: recorder,
 		jwtValidator:  utils.NewSimpleJWTValidator(policyTestSecret, "", ""),
+		now:           func() time.Time { return policyTestNow },
 	}, recorder
 }
 
@@ -149,6 +154,19 @@ func countPolicyRows[T any](t *testing.T, db core.ExtendedDB) int {
 	var rows []T
 	require.NoError(t, db.Model(new(T)).Scan(&rows))
 	return len(rows)
+}
+
+func usageCount(t *testing.T, db core.ExtendedDB, windowKind string) int64 {
+	t.Helper()
+
+	var counters []payment.UsageCounter
+	require.NoError(t, db.Model(&payment.UsageCounter{}).Scan(&counters))
+	for _, counter := range counters {
+		if counter.WindowKind == windowKind {
+			return counter.Count
+		}
+	}
+	return 0
 }
 
 func TestPaymentPolicyRefusesBeforeAnySideEffect(t *testing.T) {
@@ -226,4 +244,222 @@ func TestPaymentPolicyAllowsAuthorizedBoundaryPayment(t *testing.T) {
 	require.Equal(t, 1, countPolicyRows[payment.Payment](t, db))
 	require.Equal(t, 1, countPolicyRows[payment.Transaction](t, db))
 	require.Equal(t, 1, recorder.count())
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowMinute))
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowDay))
+}
+
+func TestPaymentRateLimitEnforcesMinuteBoundary(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 2,
+		PaymentsPerDay:    10,
+		MaxPaymentAmount:  100,
+	})
+	handler, recorder := newPolicyTestHandler(t, db)
+	token := signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite})
+
+	for i := 0; i < 2; i++ {
+		response, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "minute-key-"+string(rune('a'+i)), 100))
+		require.NoError(t, err)
+		require.Equal(t, 201, response.StatusCode)
+	}
+
+	response, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "minute-key-c", 100))
+	require.NoError(t, err)
+	require.Equal(t, 429, response.StatusCode)
+
+	require.Equal(t, 2, countPolicyRows[payment.Payment](t, db))
+	require.Equal(t, 2, countPolicyRows[payment.Transaction](t, db))
+	require.Equal(t, 2, recorder.count())
+	require.EqualValues(t, 2, usageCount(t, db, payment.UsageWindowMinute))
+	require.EqualValues(t, 2, usageCount(t, db, payment.UsageWindowDay))
+}
+
+func TestPaymentRateLimitEnforcesDayBoundary(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 10,
+		PaymentsPerDay:    2,
+		MaxPaymentAmount:  100,
+	})
+	handler, recorder := newPolicyTestHandler(t, db)
+	token := signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite})
+
+	for i := 0; i < 2; i++ {
+		response, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "day-key-"+string(rune('a'+i)), 100))
+		require.NoError(t, err)
+		require.Equal(t, 201, response.StatusCode)
+	}
+
+	response, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "day-key-c", 100))
+	require.NoError(t, err)
+	require.Equal(t, 429, response.StatusCode)
+
+	require.Equal(t, 2, countPolicyRows[payment.Payment](t, db))
+	require.Equal(t, 2, recorder.count())
+	require.EqualValues(t, 2, usageCount(t, db, payment.UsageWindowMinute))
+	require.EqualValues(t, 2, usageCount(t, db, payment.UsageWindowDay))
+}
+
+func TestPaymentIdempotentReplayDoesNotDoubleCount(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 10,
+		PaymentsPerDay:    10,
+		MaxPaymentAmount:  100,
+	})
+	handler, recorder := newPolicyTestHandler(t, db)
+	token := signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite})
+
+	first, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "replay-key", 100))
+	require.NoError(t, err)
+	require.Equal(t, 201, first.StatusCode)
+
+	var firstBody struct {
+		Data payment.Payment `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(first.Body), &firstBody))
+
+	replay, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "replay-key", 100))
+	require.NoError(t, err)
+	require.Equal(t, 200, replay.StatusCode)
+
+	var replayBody struct {
+		Data map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(replay.Body), &replayBody))
+	require.Equal(t, firstBody.Data.ID, replayBody.Data["id"])
+
+	require.Equal(t, 1, countPolicyRows[payment.Payment](t, db))
+	require.Equal(t, 1, countPolicyRows[payment.Transaction](t, db))
+	require.Equal(t, 1, recorder.count())
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowMinute))
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowDay))
+}
+
+func TestPaymentRateLimitRefusalReplaysAs429(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 1,
+		PaymentsPerDay:    10,
+		MaxPaymentAmount:  100,
+	})
+	handler, recorder := newPolicyTestHandler(t, db)
+	token := signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite})
+
+	first, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "limit-key-a", 100))
+	require.NoError(t, err)
+	require.Equal(t, 201, first.StatusCode)
+
+	refused, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "limit-key-b", 100))
+	require.NoError(t, err)
+	require.Equal(t, 429, refused.StatusCode)
+
+	replay, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "limit-key-b", 100))
+	require.NoError(t, err)
+	require.Equal(t, 429, replay.StatusCode)
+
+	require.Equal(t, 1, countPolicyRows[payment.Payment](t, db))
+	require.Equal(t, 1, recorder.count())
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowMinute))
+}
+
+func TestConcurrentMinuteLimitCannotOvershoot(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 1,
+		PaymentsPerDay:    10,
+		MaxPaymentAmount:  100,
+	})
+	handler, recorder := newPolicyTestHandler(t, db)
+	token := signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite})
+
+	requests := make([]events.APIGatewayProxyRequest, 8)
+	for i := range requests {
+		requests[i] = policyRequest(t, token, "concurrent-minute-"+string(rune('a'+i)), 100)
+	}
+
+	var successes atomic.Int32
+	var refusals atomic.Int32
+	var unexpected atomic.Int32
+	var wg sync.WaitGroup
+	for _, request := range requests {
+		wg.Add(1)
+		go func(request events.APIGatewayProxyRequest) {
+			defer wg.Done()
+			response, err := handler.HandleRequest(context.Background(), request)
+			if err != nil {
+				unexpected.Add(1)
+				return
+			}
+			switch response.StatusCode {
+			case 201:
+				successes.Add(1)
+			case 429:
+				refusals.Add(1)
+			default:
+				unexpected.Add(1)
+			}
+		}(request)
+	}
+	wg.Wait()
+
+	require.Zero(t, unexpected.Load())
+	require.EqualValues(t, 1, successes.Load())
+	require.EqualValues(t, 7, refusals.Load())
+	require.Equal(t, 1, countPolicyRows[payment.Payment](t, db))
+	require.Equal(t, 1, countPolicyRows[payment.Transaction](t, db))
+	require.Equal(t, 1, recorder.count())
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowMinute))
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowDay))
+}
+
+func TestConcurrentDayLimitCannotOvershoot(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 10,
+		PaymentsPerDay:    1,
+		MaxPaymentAmount:  100,
+	})
+	handler, recorder := newPolicyTestHandler(t, db)
+	token := signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite})
+
+	requests := make([]events.APIGatewayProxyRequest, 8)
+	for i := range requests {
+		requests[i] = policyRequest(t, token, "concurrent-day-"+string(rune('a'+i)), 100)
+	}
+
+	var successes atomic.Int32
+	var refusals atomic.Int32
+	var unexpected atomic.Int32
+	var wg sync.WaitGroup
+	for _, request := range requests {
+		wg.Add(1)
+		go func(request events.APIGatewayProxyRequest) {
+			defer wg.Done()
+			response, err := handler.HandleRequest(context.Background(), request)
+			if err != nil {
+				unexpected.Add(1)
+				return
+			}
+			switch response.StatusCode {
+			case 201:
+				successes.Add(1)
+			case 429:
+				refusals.Add(1)
+			default:
+				unexpected.Add(1)
+			}
+		}(request)
+	}
+	wg.Wait()
+
+	require.Zero(t, unexpected.Load())
+	require.EqualValues(t, 1, successes.Load())
+	require.EqualValues(t, 7, refusals.Load())
+	require.Equal(t, 1, countPolicyRows[payment.Payment](t, db))
+	require.Equal(t, 1, countPolicyRows[payment.Transaction](t, db))
+	require.Equal(t, 1, recorder.count())
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowMinute))
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowDay))
 }
