@@ -15,6 +15,13 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
+# shellcheck source=scripts/lib/ensure-node-scanner-deps.sh
+source scripts/lib/ensure-node-scanner-deps.sh
+if ! ensure_node_scanner_deps "${repo_root}"; then
+  echo "lambda-runtime-deprecations-policy-test: FAIL (pinned scanner dependencies are unavailable)" >&2
+  exit 1
+fi
+
 checker="scripts/check-lambda-runtime-deprecations.mjs"
 wrapper="scripts/verify-lambda-runtime-deprecations.sh"
 
