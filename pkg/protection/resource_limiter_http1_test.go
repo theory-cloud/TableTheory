@@ -327,7 +327,7 @@ func TestSecureBodyReaderReadsCompleteHTTP1Body(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write(body); err != nil {
+		if _, err := w.Write(body); err != nil { //nolint:gosec // test-only echo back to the authorized test client
 			return
 		}
 	}))

@@ -93,9 +93,9 @@ func TestSecureBodyReaderWithDeadlineBoundsStalledHTTP1Cleanup(t *testing.T) {
 	// The client socket is deliberately left open: the enforced transport
 	// deadline, not a disconnect, must end the read and the cleanup.
 	select {
-	case err := <-handlerErrs:
-		require.Error(t, err)
-		require.Equal(t, "RequestTimeout", GetResourceProtectionType(err))
+	case handlerErr := <-handlerErrs:
+		require.Error(t, handlerErr)
+		require.Equal(t, "RequestTimeout", GetResourceProtectionType(handlerErr))
 	case <-time.After(2 * time.Second):
 		t.Fatal("the enforced transport deadline did not unblock the stalled cleanup")
 	}
@@ -229,7 +229,7 @@ func TestSecureBodyReaderWithDeadlineReadsCompleteHTTP1Body(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write(body); err != nil {
+		if _, err := w.Write(body); err != nil { //nolint:gosec // test-only echo back to the authorized test client
 			return
 		}
 	}))

@@ -251,9 +251,9 @@ func TestNewWithConditions_ConstructorCancellationSurvivesDerivations(t *testing
 // the scan workers rather than being replaced by a background root.
 type recordingScanExecutor struct {
 	ctx   context.Context
-	mu    sync.Mutex
 	seen  []error
 	calls int
+	mu    sync.Mutex
 }
 
 func (e *recordingScanExecutor) SetContext(ctx context.Context) {
