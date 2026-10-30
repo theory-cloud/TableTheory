@@ -85,6 +85,12 @@ type PaymentMethod struct {
 	IsDefault   bool      `json:"is_default"`
 }
 
+// MerchantStatusActive is the only merchant status permitted to create payments.
+const MerchantStatusActive = "active"
+
+// PermissionPaymentsWrite is the exact JWT permission required to create a payment.
+const PermissionPaymentsWrite = "payments:write"
+
 // Merchant represents a merchant account
 type Merchant struct {
 	CreatedAt       time.Time      `theorydb:"created_at" json:"created_at"`

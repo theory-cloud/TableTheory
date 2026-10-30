@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,6 +18,14 @@ import (
 	payment "github.com/theory-cloud/tabletheory/v6/examples/payment"
 	"github.com/theory-cloud/tabletheory/v6/examples/payment/utils"
 	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	customerrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
+)
+
+var (
+	errPaymentPermissionDenied = errors.New("token lacks the payments:write permission")
+	errMerchantNotFound        = errors.New("merchant not found")
+	errMerchantInactive        = errors.New("merchant is not active")
+	errMerchantLimit           = errors.New("merchant limits do not permit this payment")
 )
 
 // ProcessPaymentRequest represents the payment request payload
@@ -31,11 +40,17 @@ type ProcessPaymentRequest struct {
 	Amount         int64             `json:"amount"`
 }
 
+// webhookDispatcher is the payment-to-webhook boundary. It is an interface so
+// the handler tests can record intended deliveries without a hosted endpoint.
+type webhookDispatcher interface {
+	SendSync(ctx context.Context, job *utils.WebhookJob) error
+}
+
 // Handler processes payment requests
 type Handler struct {
 	db            core.ExtendedDB
 	idempotency   *utils.IdempotencyMiddleware
-	webhookSender *utils.WebhookSender
+	webhookSender webhookDispatcher
 	jwtValidator  *utils.SimpleJWTValidator
 }
 
@@ -84,8 +99,9 @@ func NewHandler() (*Handler, error) {
 
 // HandleRequest processes the payment request
 func (h *Handler) HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// Extract merchant ID from JWT claims
-	merchantID, err := h.extractMerchantID(request.Headers)
+	// Extract and validate the JWT claims. The merchant ID alone is not enough:
+	// the token must also carry the permission that allows a payment write.
+	claims, err := h.extractClaims(request.Headers)
 	if err != nil {
 		return errorResponse(http.StatusUnauthorized, "Invalid authentication"), nil
 	}
@@ -101,14 +117,25 @@ func (h *Handler) HandleRequest(ctx context.Context, request events.APIGatewayPr
 		return errorResponse(http.StatusBadRequest, err.Error()), nil
 	}
 
+	// Authorize the merchant before any idempotency reservation or payment
+	// write. A refusal at this point leaves no payment, transaction, counter,
+	// webhook, or idempotency record behind.
+	merchant, err := h.authorizeMerchant(claims, req.Amount)
+	if err != nil {
+		if isPolicyDenial(err) {
+			return errorResponse(http.StatusForbidden, "Payment not permitted"), nil
+		}
+		return errorResponse(http.StatusInternalServerError, "Payment processing failed"), nil
+	}
+
 	// Create idempotency key if not provided
 	if req.IdempotencyKey == "" {
-		req.IdempotencyKey = generateIdempotencyKey(merchantID, &req)
+		req.IdempotencyKey = generateIdempotencyKey(merchant.ID, &req)
 	}
 
 	// Process with idempotency
-	result, err := h.idempotency.Process(ctx, merchantID, req.IdempotencyKey, func() (any, error) {
-		return h.processPayment(ctx, merchantID, &req)
+	result, err := h.idempotency.Process(ctx, merchant.ID, req.IdempotencyKey, func() (any, error) {
+		return h.processPayment(ctx, merchant, &req)
 	})
 
 	if err != nil {
@@ -130,12 +157,12 @@ func (h *Handler) HandleRequest(ctx context.Context, request events.APIGatewayPr
 }
 
 // processPayment handles the actual payment processing
-func (h *Handler) processPayment(ctx context.Context, merchantID string, req *ProcessPaymentRequest) (*payment.Payment, error) {
+func (h *Handler) processPayment(ctx context.Context, merchant *payment.Merchant, req *ProcessPaymentRequest) (*payment.Payment, error) {
 	// Create payment record first
 	paymentRecord := &payment.Payment{
 		ID:             uuid.New().String(),
 		IdempotencyKey: req.IdempotencyKey,
-		MerchantID:     merchantID,
+		MerchantID:     merchant.ID,
 		Amount:         req.Amount,
 		Currency:       req.Currency,
 		Status:         payment.PaymentStatusPending,
@@ -194,7 +221,7 @@ func (h *Handler) processPayment(ctx context.Context, merchantID string, req *Pr
 
 	// Send the webhook notification for this payment.
 	webhookJob := &utils.WebhookJob{
-		MerchantID: merchantID,
+		MerchantID: merchant.ID,
 		EventType:  "payment.succeeded",
 		PaymentID:  paymentRecord.ID,
 		Data:       paymentRecord,
@@ -216,15 +243,73 @@ func (h *Handler) processPayment(ctx context.Context, merchantID string, req *Pr
 
 // Helper functions
 
-func (h *Handler) extractMerchantID(headers map[string]string) (string, error) {
+func (h *Handler) extractClaims(headers map[string]string) (*utils.JWTClaims, error) {
 	// Extract from Authorization header
 	auth := headers["Authorization"]
 	if auth == "" {
 		auth = headers["authorization"]
 	}
 
-	// Use the JWT validator to extract merchant ID
-	return utils.ValidateAndExtractMerchantID(auth, h.jwtValidator)
+	return utils.ValidateAndExtractClaims(auth, h.jwtValidator)
+}
+
+// authorizeMerchant enforces the example's merchant policy. Permission, status,
+// and every configured limit are checked before the caller reserves an
+// idempotency key or writes payment state. Zero or negative limits are treated
+// as disabled, so they deny positive payments instead of meaning "unlimited".
+func (h *Handler) authorizeMerchant(claims *utils.JWTClaims, amount int64) (*payment.Merchant, error) {
+	if !hasExactPermission(claims.Permissions, payment.PermissionPaymentsWrite) {
+		return nil, errPaymentPermissionDenied
+	}
+
+	var merchant payment.Merchant
+	err := h.db.Model(&payment.Merchant{}).
+		Where("ID", "=", claims.MerchantID).
+		First(&merchant)
+	if err != nil {
+		if errors.Is(err, customerrors.ErrItemNotFound) {
+			return nil, errMerchantNotFound
+		}
+		return nil, fmt.Errorf("load merchant: %w", err)
+	}
+
+	if merchant.Status != payment.MerchantStatusActive {
+		return nil, errMerchantInactive
+	}
+
+	limits := merchant.RateLimits
+	if limits.MaxPaymentAmount <= 0 {
+		return nil, fmt.Errorf("%w: max_payment_amount must be positive", errMerchantLimit)
+	}
+	if amount > limits.MaxPaymentAmount {
+		return nil, fmt.Errorf("%w: amount exceeds max_payment_amount", errMerchantLimit)
+	}
+	if limits.PaymentsPerMinute <= 0 {
+		return nil, fmt.Errorf("%w: payments_per_minute must be positive", errMerchantLimit)
+	}
+	if limits.PaymentsPerDay <= 0 {
+		return nil, fmt.Errorf("%w: payments_per_day must be positive", errMerchantLimit)
+	}
+
+	return &merchant, nil
+}
+
+// hasExactPermission requires the exact permission string. Prefixes, casing
+// variants, and similarly named permissions are not accepted.
+func hasExactPermission(permissions []string, required string) bool {
+	for _, permission := range permissions {
+		if permission == required {
+			return true
+		}
+	}
+	return false
+}
+
+func isPolicyDenial(err error) bool {
+	return errors.Is(err, errPaymentPermissionDenied) ||
+		errors.Is(err, errMerchantNotFound) ||
+		errors.Is(err, errMerchantInactive) ||
+		errors.Is(err, errMerchantLimit)
 }
 
 func validatePaymentRequest(req *ProcessPaymentRequest) error {
