@@ -139,9 +139,6 @@ class Table[T]:
         self._model = model
         self._table_name = table_name
         raw_client = client or cast(DynamoDBClientProtocol, boto3.client("dynamodb"))
-        # Keep the caller's client as the canonical transaction identity. The
-        # redaction proxy is a per-Table wrapper, so comparing wrappers would
-        # reject independently constructed Tables that share one raw client.
         self._raw_client: DynamoDBClientProtocol = raw_client
         self._redact_item_images = redact_item_images
         self._client: DynamoDBClientProtocol = _aws_errors.redacting_client(raw_client, redact_item_images)
@@ -178,8 +175,6 @@ class Table[T]:
             now=self._now,
             redact_item_images=self._redact_item_images,
         )
-        # Wrap the timeout client, not the raw client, so timeout checks run
-        # before each call while redaction still sits closest to the caller.
         derived._client = _aws_errors.redacting_client(client, self._redact_item_images)
         return derived
 
