@@ -225,6 +225,20 @@ func TestRecorder_ImplicitWriteIsOK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.statusCode())
 }
 
+// TestAPIKeyHandlerIsCachedPerExecutionEnvironment proves the authorizer reuses
+// one handler — and therefore one process-local verifier — across warm
+// invocations. The handler constructor performs no I/O, so this stays a
+// lifecycle test rather than a DynamoDB test.
+func TestAPIKeyHandlerIsCachedPerExecutionEnvironment(t *testing.T) {
+	first, err := apiKeyHandler()
+	require.NoError(t, err)
+	second, err := apiKeyHandler()
+	require.NoError(t, err)
+
+	assert.Same(t, first, second, "warm invocations must share the API-key handler and its verifier")
+	assert.NotNil(t, first)
+}
+
 func TestAuthorizeAPIKey_DeniesWithoutKey(t *testing.T) {
 	// No key is present, so the denial happens before any database access.
 	_, err := authorizeAPIKey(events.APIGatewayCustomAuthorizerRequestTypeRequest{

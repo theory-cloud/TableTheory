@@ -44,6 +44,20 @@ var db = sync.OnceValues(func() (core.ExtendedDB, error) {
 	return tabletheory.New(config)
 })
 
+// apiKeyHandler builds the API-key handler once per execution environment,
+// alongside the database handle. The handler owns the process-local verifier:
+// its bcrypt slot bound and per-key failure history must survive invocations or
+// repeated wrong secrets would reset the warm threshold on every call. The
+// handler never caches a successful credential, so revocation and rotation are
+// still observed on the next record lookup.
+var apiKeyHandler = sync.OnceValues(func() (*handlers.APIKeyHandler, error) {
+	database, err := db()
+	if err != nil {
+		return nil, err
+	}
+	return handlers.NewAPIKeyHandler(database), nil
+})
+
 // region reads the deployed region, falling back to the standard AWS variable.
 func region() string {
 	if value := strings.TrimSpace(os.Getenv("REGION")); value != "" {
@@ -276,12 +290,11 @@ func authorizeAPIKey(event events.APIGatewayCustomAuthorizerRequestTypeRequest) 
 		return events.APIGatewayCustomAuthorizerResponse{}, errors.New("Unauthorized")
 	}
 
-	database, err := db()
+	keyHandler, err := apiKeyHandler()
 	if err != nil {
 		return events.APIGatewayCustomAuthorizerResponse{}, fmt.Errorf("initialize TableTheory: %w", err)
 	}
 
-	keyHandler := handlers.NewAPIKeyHandler(database)
 	key, err := keyHandler.ValidateAPIKey(apiKey)
 	if err != nil {
 		return events.APIGatewayCustomAuthorizerResponse{}, errors.New("Unauthorized")
