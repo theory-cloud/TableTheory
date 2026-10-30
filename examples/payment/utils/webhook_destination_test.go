@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -176,6 +177,11 @@ func TestWebhookRejectsNonPublicDestinations(t *testing.T) {
 		"https://100.64.0.1/hook",
 		"https://198.18.0.1/hook",
 		"https://240.0.0.1/hook",
+		"https://192.88.99.1/hook",
+		"https://[fec0::1]/hook",
+		"https://[3ffe::1]/hook",
+		"https://[2001:2::1]/hook",
+		"https://[2002:c000:0201::1]/hook",
 		"https://user:pass@93.184.216.34/hook",
 	}
 
@@ -380,6 +386,32 @@ func TestWebhookRejectsRedirectToNonPublicDestination(t *testing.T) {
 	require.Equal(t, payment.WebhookStatusFailed, records[0].Status)
 }
 
+func TestOmittedNonPublicDestinationPrefixesAreClassifiedNonPublic(t *testing.T) {
+	tests := []struct {
+		name    string
+		prefix  netip.Prefix
+		address string
+	}{
+		{name: "site-local", prefix: netip.MustParsePrefix("fec0::/10"), address: "fec0::1"},
+		{name: "6bone", prefix: netip.MustParsePrefix("3ffe::/16"), address: "3ffe::1"},
+		{name: "ipv6-benchmarking", prefix: netip.MustParsePrefix("2001:2::/48"), address: "2001:2::1"},
+		{name: "6to4", prefix: netip.MustParsePrefix("2002::/16"), address: "2002:c000:0201::1"},
+		{name: "6to4-relay-anycast", prefix: netip.MustParsePrefix("192.88.99.0/24"), address: "192.88.99.1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addr := netip.MustParseAddr(tt.address)
+			require.True(t, tt.prefix.Contains(addr), "test address must be inside the omitted prefix")
+			require.False(t, isPublicAddr(addr), "%s must not be public", tt.address)
+			require.False(t, isPublicIP(net.ParseIP(tt.address)), "%s must not be public", tt.address)
+			require.Error(t,
+				rejectNonPublicDialAddress("tcp", net.JoinHostPort(tt.address, "443"), nil),
+				"the socket-boundary check must refuse %s", tt.address)
+		})
+	}
+}
+
 func TestIsPublicIP(t *testing.T) {
 	public := []string{
 		"93.184.216.34",
@@ -399,10 +431,16 @@ func TestIsPublicIP(t *testing.T) {
 		"198.51.100.1",
 		"203.0.113.1",
 		"240.0.0.1",
+		"192.88.99.1",
+		"::ffff:192.88.99.1",
 		"::1",
 		"fc00::1",
 		"fe80::1",
+		"fec0::1",
+		"3ffe::1",
+		"2001:2::1",
 		"2001:db8::1",
+		"2002:c000:0201::1",
 		"ff02::1",
 		"::ffff:127.0.0.1",
 		"64:ff9b::10.0.0.1",

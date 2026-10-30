@@ -149,8 +149,16 @@ func (h *Handler) HandleRequest(ctx context.Context, request events.APIGatewayPr
 		req.IdempotencyKey = generateIdempotencyKey(merchant.ID, &req)
 	}
 
+	// Bind the key to the full validated request payload. Authentication is not
+	// part of the payload, and a replay is returned only when this hash matches
+	// the one stored with the key.
+	requestHash, err := paymentRequestHash(&req)
+	if err != nil {
+		return errorResponse(http.StatusInternalServerError, "Payment processing failed"), nil
+	}
+
 	// Process with idempotency
-	result, err := h.idempotency.Process(ctx, merchant.ID, req.IdempotencyKey, func() (any, error) {
+	result, err := h.idempotency.Process(ctx, merchant.ID, req.IdempotencyKey, requestHash, func() (any, error) {
 		return h.processPayment(ctx, merchant, &req)
 	})
 
@@ -171,6 +179,9 @@ func (h *Handler) HandleRequest(ctx context.Context, request events.APIGatewayPr
 				return errorResponse(statusCode, replayErrorMessage(replay.Body)), nil
 			}
 			return errorResponse(http.StatusConflict, "Request is still being processed"), nil
+		}
+		if errors.Is(err, utils.ErrIdempotencyConflict) {
+			return errorResponse(http.StatusConflict, "Idempotency key conflict"), nil
 		}
 		if errors.Is(err, errPaymentLimitExceeded) {
 			return errorResponse(http.StatusTooManyRequests, "Payment limit exceeded"), nil
@@ -425,6 +436,19 @@ func validatePaymentRequest(req *ProcessPaymentRequest) error {
 		return fmt.Errorf("payment_method is required")
 	}
 	return nil
+}
+
+// paymentRequestHash returns a deterministic digest of the full validated
+// request payload. Authentication is not part of the payload. encoding/json
+// emits struct fields in declaration order and sorts map keys, so the digest
+// is stable across processes.
+func paymentRequestHash(req *ProcessPaymentRequest) (string, error) {
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("marshal payment request: %w", err)
+	}
+	sum := sha256.Sum256(payload)
+	return fmt.Sprintf("%x", sum), nil
 }
 
 func generateIdempotencyKey(merchantID string, req *ProcessPaymentRequest) string {

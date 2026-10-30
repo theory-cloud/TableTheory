@@ -25,8 +25,9 @@ This document describes the implementation of the Payment Example's three main f
    - Public HTTPS destinations only; `http://` and other schemes are refused
    - DNS and dialed-IP validation before record creation, before every attempt,
      and on every redirect
-   - Loopback, link-local, private, unspecified, CGNAT, documentation,
-     benchmark, multicast, and reserved address ranges are refused
+   - Loopback, link-local, private, unspecified, site-local, 6bone, 6to4,
+     IPv6 benchmarking, CGNAT, documentation, multicast, and reserved address
+     ranges (including the deprecated 6to4 relay anycast prefix) are refused
    - The validated address is dialed directly, with a second check at the
      socket boundary, so DNS rebinding cannot swap in a private target
    - Exponential backoff retry (up to 5 attempts, all inside the invocation) for
@@ -155,6 +156,13 @@ the limit and a refused request leaves no counter increment behind.
 Idempotent replay never executes the payment again: a successful replay returns
 the stored payment with HTTP 200 and no additional counter increment, while a
 rate-limit refusal replays as HTTP 429.
+
+Idempotency keys are bound to a deterministic SHA-256 of the full validated
+request payload; authentication is not part of the payload. A replay is
+returned only when the stored hash matches. Reusing a key with a different
+payload is refused with HTTP 409 before any payment, transaction, counter,
+webhook, or idempotency write. Rows written before request-hash binding have no
+stored hash and fail closed with HTTP 409 instead of guessing.
 
 ## Feature 3: Export Job Records
 
@@ -317,6 +325,9 @@ These checks are security corrections, not feature flags.
 - The new `UsageCounters` rows are additive and harmless if unused. Reverting the
   enforcement restores the original exposure; roll forward with corrected policy
   instead of restoring the unsafe behavior.
+- Idempotency rows written before request-hash binding have no stored hash and
+  fail closed with HTTP 409. Retry with a new idempotency key or wait for the row
+  to expire; the stored outcome cannot be verified.
 - Payment, transaction, audit, idempotency, and webhook records are not migrated
   or deleted. Retain them through any rollback.
 

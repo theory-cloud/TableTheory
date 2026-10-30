@@ -35,12 +35,18 @@ counter, webhook, or idempotency record behind. A rate-limit refusal rolls back
 the payment, transaction, and counter writes and records the 429 against the
 idempotency key for replay.
 
+Idempotency keys are bound to a deterministic hash of the validated request
+payload. Reusing a key with a different payload is refused with HTTP 409 before
+any payment, transaction, counter, webhook, or idempotency write; legacy rows
+without a stored hash fail closed the same way.
+
 Merchant webhooks are public HTTPS only. The sender validates the URL and every
 DNS answer before record creation, before each attempt, and on every redirect;
 it dials the validated address and checks it again at the socket boundary.
-Loopback, link-local, private, unspecified, CGNAT, documentation, benchmark,
-multicast, and reserved destinations are refused before request bytes. There is
-no private-network or environment override.
+Loopback, link-local, private, unspecified, site-local, 6bone, 6to4, IPv6
+benchmarking, CGNAT, documentation, multicast, and reserved destinations
+(including the deprecated 6to4 relay anycast prefix) are refused before request
+bytes. There is no private-network or environment override.
 
 ### Migration and Rollback
 
@@ -51,6 +57,9 @@ no private-network or environment override.
 - `UsageCounters` rows are additive and harmless if unused. Reverting the checks
   restores the original exposure; roll forward with corrected policy rather than
   restoring unsafe behavior.
+- Idempotency rows written before request-hash binding have no stored hash and
+  fail closed with HTTP 409. Retry with a new idempotency key or wait for the
+  row to expire; the stored outcome cannot be verified.
 - Payment, transaction, audit, idempotency, and webhook rows are not migrated or
   deleted. Retain them through any rollback.
 

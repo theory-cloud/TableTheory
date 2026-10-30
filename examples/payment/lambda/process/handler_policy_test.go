@@ -188,6 +188,14 @@ func usageCount(t *testing.T, db core.ExtendedDB, windowKind string) int64 {
 	return 0
 }
 
+func idempotencyRecords(t *testing.T, db core.ExtendedDB) []payment.IdempotencyRecord {
+	t.Helper()
+
+	var records []payment.IdempotencyRecord
+	require.NoError(t, db.Model(&payment.IdempotencyRecord{}).Scan(&records))
+	return records
+}
+
 func TestPaymentPolicyRefusesBeforeAnySideEffect(t *testing.T) {
 	validLimits := payment.RateLimits{
 		PaymentsPerMinute: 10,
@@ -419,6 +427,102 @@ func TestPaymentIdempotentReplayDoesNotDoubleCount(t *testing.T) {
 	require.Equal(t, 1, recorder.count())
 	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowMinute))
 	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowDay))
+}
+
+func TestPaymentRequestHashIsDeterministicAndPayloadSensitive(t *testing.T) {
+	first := ProcessPaymentRequest{
+		Amount:         100,
+		Currency:       "USD",
+		PaymentMethod:  "card",
+		IdempotencyKey: "hash-key",
+		Metadata:       map[string]string{"a": "1", "b": "2"},
+	}
+	sameContentDifferentInsertion := ProcessPaymentRequest{
+		Amount:         100,
+		Currency:       "USD",
+		PaymentMethod:  "card",
+		IdempotencyKey: "hash-key",
+		Metadata:       map[string]string{"b": "2", "a": "1"},
+	}
+
+	firstHash, err := paymentRequestHash(&first)
+	require.NoError(t, err)
+	secondHash, err := paymentRequestHash(&sameContentDifferentInsertion)
+	require.NoError(t, err)
+	require.Equal(t, firstHash, secondHash, "map insertion order must not change the hash")
+
+	sameContentDifferentInsertion.Amount = 101
+	changedHash, err := paymentRequestHash(&sameContentDifferentInsertion)
+	require.NoError(t, err)
+	require.NotEqual(t, firstHash, changedHash, "a changed payload must change the hash")
+}
+
+func TestPaymentIdempotencyRejectsSameKeyWithDifferentPayload(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 10,
+		PaymentsPerDay:    10,
+		MaxPaymentAmount:  100,
+	})
+	handler, recorder := newPolicyTestHandler(t, db)
+	token := signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite})
+
+	first, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "same-key", 100))
+	require.NoError(t, err)
+	require.Equal(t, 201, first.StatusCode)
+
+	records := idempotencyRecords(t, db)
+	require.Len(t, records, 1)
+	require.NotEmpty(t, records[0].RequestHash)
+	storedHash := records[0].RequestHash
+	storedResponse := records[0].Response
+
+	conflict, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "same-key", 50))
+	require.NoError(t, err)
+	require.Equal(t, 409, conflict.StatusCode, "a reused key with a different payload must conflict")
+
+	records = idempotencyRecords(t, db)
+	require.Len(t, records, 1, "a mismatch must not write another idempotency record")
+	require.Equal(t, storedHash, records[0].RequestHash, "a mismatch must not rewrite the stored hash")
+	require.Equal(t, storedResponse, records[0].Response, "a mismatch must not rewrite the stored outcome")
+	require.Equal(t, 1, countPolicyRows[payment.Payment](t, db))
+	require.Equal(t, 1, countPolicyRows[payment.Transaction](t, db))
+	require.Equal(t, 1, recorder.count(), "a mismatch must not schedule another webhook")
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowMinute))
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowDay))
+}
+
+func TestPaymentIdempotencyLegacyRecordWithoutHashFailsClosed(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 10,
+		PaymentsPerDay:    10,
+		MaxPaymentAmount:  100,
+	})
+	handler, recorder := newPolicyTestHandler(t, db)
+	token := signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite})
+
+	require.NoError(t, db.Model(&payment.IdempotencyRecord{
+		Key:        "legacy-key",
+		MerchantID: merchant.ID,
+		Response:   `{"id":"legacy-payment"}`,
+		StatusCode: 200,
+		CreatedAt:  time.Now(),
+		ExpiresAt:  time.Now().Add(time.Hour).Unix(),
+	}).Create())
+
+	response, err := handler.HandleRequest(context.Background(), policyRequest(t, token, "legacy-key", 100))
+	require.NoError(t, err)
+	require.Equal(t, 409, response.StatusCode, "a legacy row without a request hash must fail closed")
+
+	records := idempotencyRecords(t, db)
+	require.Len(t, records, 1, "a legacy refusal must not write another idempotency record")
+	require.Empty(t, records[0].RequestHash)
+	require.Equal(t, `{"id":"legacy-payment"}`, records[0].Response)
+	require.Zero(t, countPolicyRows[payment.Payment](t, db))
+	require.Zero(t, countPolicyRows[payment.Transaction](t, db))
+	require.Zero(t, countPolicyRows[payment.UsageCounter](t, db))
+	require.Zero(t, recorder.count())
 }
 
 func TestPaymentRateLimitRefusalReplaysAs429(t *testing.T) {

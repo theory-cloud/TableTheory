@@ -18,6 +18,11 @@ import (
 // ErrDuplicateRequest indicates a duplicate request was detected
 var ErrDuplicateRequest = errors.New("duplicate request")
 
+// ErrIdempotencyConflict indicates an idempotency key cannot be replayed for
+// the current request: the stored request hash does not match, or the stored
+// record predates request-hash binding. The request must not execute.
+var ErrIdempotencyConflict = errors.New("idempotency key conflict")
+
 // Replay is the stored outcome of an idempotent request. A caller that receives
 // ErrDuplicateRequest with a *Replay must return the recorded status and body
 // instead of executing the handler again.
@@ -63,22 +68,19 @@ func NewIdempotencyMiddleware(db core.ExtendedDB, ttl time.Duration) *Idempotenc
 	}
 }
 
-// Process executes a function with idempotency protection
-func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key string, fn func() (any, error)) (any, error) {
+// Process executes a function with idempotency protection. requestHash is a
+// deterministic digest of the validated request payload; an existing record is
+// replayed only when its stored hash matches. An empty hash is not a valid
+// request identity and is refused.
+func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key, requestHash string, fn func() (any, error)) (any, error) {
+	if requestHash == "" {
+		return nil, fmt.Errorf("idempotency request hash is required")
+	}
+
 	// Use the getRecord method to check if request already exists
 	existing, err := m.getRecord(ctx, merchantID, key)
 	if err == nil {
-		// Request already exists
-		if existing.Response != "" {
-			// Parse and return existing response
-			var response any
-			if err := json.Unmarshal([]byte(existing.Response), &response); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal cached response: %w", err)
-			}
-			return &Replay{StatusCode: existing.StatusCode, Body: response}, ErrDuplicateRequest
-		}
-		// Request is still processing
-		return nil, fmt.Errorf("request is still being processed")
+		return replayRecord(existing, requestHash)
 	}
 
 	// Only proceed if record not found, otherwise return the error
@@ -89,10 +91,11 @@ func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key str
 	// Reserve a merchant-scoped key. A key another merchant already reserved is
 	// a different partition and can no longer deny this merchant.
 	record := &payment.IdempotencyRecord{
-		Key:        scopedIdempotencyKey(merchantID, key),
-		MerchantID: merchantID,
-		CreatedAt:  time.Now(),
-		ExpiresAt:  time.Now().Add(m.ttl).Unix(), // Unix timestamp for TTL
+		Key:         scopedIdempotencyKey(merchantID, key),
+		MerchantID:  merchantID,
+		RequestHash: requestHash,
+		CreatedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(m.ttl).Unix(), // Unix timestamp for TTL
 	}
 
 	created := false
@@ -115,18 +118,11 @@ func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key str
 
 	if !created {
 		// The reservation belongs to a concurrent same-merchant request. Re-read
-		// once: report its response when it has completed, otherwise surface
-		// contention. Never execute the handler twice.
+		// once: replay it only when its hash matches the current request,
+		// otherwise surface contention. Never execute the handler twice.
 		existing, err := m.getRecord(ctx, merchantID, key)
 		if err == nil {
-			if existing.Response != "" {
-				var response any
-				if err := json.Unmarshal([]byte(existing.Response), &response); err != nil {
-					return nil, fmt.Errorf("failed to unmarshal cached response: %w", err)
-				}
-				return &Replay{StatusCode: existing.StatusCode, Body: response}, ErrDuplicateRequest
-			}
-			return nil, fmt.Errorf("request is still being processed")
+			return replayRecord(existing, requestHash)
 		}
 		return nil, fmt.Errorf("%w: idempotency reservation contention", ErrDuplicateRequest)
 	}
@@ -163,6 +159,28 @@ func (m *IdempotencyMiddleware) Process(ctx context.Context, merchantID, key str
 	}
 
 	return result, nil
+}
+
+// replayRecord returns a stored outcome only when the stored request hash
+// matches the current request. A missing hash predates hash binding and fails
+// closed; a different hash is a key-reuse conflict. Neither path executes the
+// handler or mutates the stored record.
+func replayRecord(existing *payment.IdempotencyRecord, requestHash string) (any, error) {
+	if existing.RequestHash == "" {
+		return nil, fmt.Errorf("%w: stored record has no request hash; migration required", ErrIdempotencyConflict)
+	}
+	if existing.RequestHash != requestHash {
+		return nil, fmt.Errorf("%w: request payload does not match the stored request", ErrIdempotencyConflict)
+	}
+	if existing.Response == "" {
+		return nil, fmt.Errorf("request is still being processed")
+	}
+
+	var response any
+	if err := json.Unmarshal([]byte(existing.Response), &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cached response: %w", err)
+	}
+	return &Replay{StatusCode: existing.StatusCode, Body: response}, ErrDuplicateRequest
 }
 
 // GenerateKey generates an idempotency key from request data
