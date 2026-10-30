@@ -3,6 +3,7 @@ package marshal
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
@@ -54,6 +55,22 @@ const (
 	ItemWriterPathTransactWrite ItemWriterPath = "transact_write"
 )
 
+// PreflightOptions carries the writer configuration an item preflight cannot
+// infer from the model alone.
+type PreflightOptions struct {
+	// Now is the clock the named writer path reads when it stamps lifecycle
+	// timestamps. Pass the same clock the writer is configured with (for
+	// example `session.Config.Now`).
+	//
+	// A model that declares `createdAt` or `updatedAt` cannot be preflighted on
+	// the put path without it: that writer stamps a time the preflight cannot
+	// predict, so no byte-equality claim is supportable and the preflight fails
+	// closed instead of returning a payload that will not match. The
+	// transactional path in this runtime never stamps lifecycle fields, so it
+	// needs no clock.
+	Now func() time.Time
+}
+
 // MarshalItemForWriterPath returns the DynamoDB item that the named writer path
 // stores for model, so a caller can measure the bytes it is about to write.
 //
@@ -78,13 +95,32 @@ const (
 //   - Models that declare `encrypted` attributes are refused with an error. The
 //     stored bytes of an encrypted attribute depend on KMS key material and
 //     envelope randomness, so no static preflight can predict them.
-//   - A model that declares `createdAt` or `updatedAt` is serialized with the
-//     current time, exactly as the writers do; callers that need a fixed
-//     timestamp should pass a model whose lifecycle fields are unset.
+//   - A model that declares `createdAt` or `updatedAt` is refused on the put
+//     path with an error, because that writer stamps a time this call cannot
+//     predict. Use MarshalItemForWriterPathWithOptions with the writer's clock
+//     to make the claim truthful.
 //
 // An unrecognized path is refused with an error. The preflight has no side
 // effects and never contacts DynamoDB.
 func MarshalItemForWriterPath(model any, metadata *model.Metadata, path ItemWriterPath) (map[string]types.AttributeValue, error) {
+	return MarshalItemForWriterPathWithOptions(model, metadata, path, PreflightOptions{})
+}
+
+// MarshalItemForWriterPathWithOptions is MarshalItemForWriterPath with the
+// writer configuration the preflight cannot infer.
+//
+// The byte-equality claim above only holds when a lifecycle-stamped writer and
+// this preflight read the same clock, so the caller supplies it. When a model
+// declares lifecycle fields and the put path is requested without a clock, the
+// claim is unsupported and the preflight fails closed with
+// customerrors.ErrUnsupportedType instead of returning a payload that will not
+// match what the writer stores.
+func MarshalItemForWriterPathWithOptions(
+	model any,
+	metadata *model.Metadata,
+	path ItemWriterPath,
+	opts PreflightOptions,
+) (map[string]types.AttributeValue, error) {
 	if metadata == nil {
 		return nil, fmt.Errorf("%w: metadata is required for an item preflight", customerrors.ErrInvalidModel)
 	}
@@ -97,10 +133,17 @@ func MarshalItemForWriterPath(model any, metadata *model.Metadata, path ItemWrit
 
 	switch path {
 	case ItemWriterPathPut:
+		if metadataHasLifecycleFields(metadata) && opts.Now == nil {
+			return nil, fmt.Errorf(
+				"%w: item preflight for %s needs the writer's lifecycle clock",
+				customerrors.ErrUnsupportedType, metadata.TableName,
+			)
+		}
 		// The put family marshals through a SafeMarshaler built the same way
 		// internal/theorydb builds the default marshaler, so this branch is the
 		// writer's own serializer rather than a copy of its rule.
-		return NewSafeMarshalerWithConverter(pkgTypes.NewConverter()).MarshalItem(model, metadata)
+		return NewSafeMarshalerWithConverterAndClock(pkgTypes.NewConverter(), opts.Now).
+			MarshalItem(model, metadata)
 
 	case ItemWriterPathTransactWrite:
 		return marshalTransactWritePlainItem(model, metadata, pkgTypes.NewConverter())
@@ -108,6 +151,17 @@ func MarshalItemForWriterPath(model any, metadata *model.Metadata, path ItemWrit
 	default:
 		return nil, fmt.Errorf("%w: unknown item writer path %q", customerrors.ErrInvalidModel, path)
 	}
+}
+
+// metadataHasLifecycleFields reports whether the writer stamps a timestamp the
+// caller cannot supply itself.
+func metadataHasLifecycleFields(metadata *model.Metadata) bool {
+	for _, field := range metadata.Fields {
+		if field.IsCreatedAt || field.IsUpdatedAt {
+			return true
+		}
+	}
+	return false
 }
 
 // marshalTransactWritePlainItem reproduces the item a transactional writer path

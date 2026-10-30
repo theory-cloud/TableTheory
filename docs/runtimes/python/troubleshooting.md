@@ -22,6 +22,8 @@ This guide maps common problems to verified fixes for the Python SDK.
 **Solution:** Provide dummy credentials:
 
 ```python
+import boto3
+
 client = boto3.client(
     "dynamodb",
     endpoint_url="http://localhost:8000",
@@ -53,6 +55,8 @@ at AWS when you expected DynamoDB Local.
 integration-test setup.
 
 ```python
+import boto3
+
 client = boto3.client(
     "dynamodb",
     endpoint_url="http://localhost:8000",

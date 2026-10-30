@@ -44,8 +44,9 @@ export type ItemWriterPath = 'put' | 'transact_write';
  *   - For a model that declares `createdAt` or `updatedAt`, both writer paths
  *     stamp it from the client's clock: `create`, `save` and `batchWrite` pass
  *     it to `marshalPutItem`, and `transactWrite` puts do the same. Pass
- *     `opts.now` to reproduce a specific client clock; with no clock injected
- *     both paths use `nowRfc3339Nano`, matching the writers.
+ *     `opts.now` to reproduce the clock the writer read; without it the
+ *     equality claim cannot be supported, so the preflight refuses the model
+ *     instead of stamping a fresh timestamp that will not match.
  *
  * An unrecognized path is refused. The preflight has no side effects and never
  * contacts DynamoDB.
@@ -70,5 +71,21 @@ export function marshalItemForWriterPath(
     );
   }
 
+  if (modelHasLifecycleFields(model) && opts.now === undefined) {
+    throw new TheorydbError(
+      'ErrInvalidModel',
+      `Item preflight for model ${model.name} needs the writer's lifecycle clock; pass opts.now`,
+    );
+  }
+
   return marshalPutItem(model, item, opts);
+}
+
+// A lifecycle field is stamped by the writer from its clock, so a preflight
+// without that clock cannot predict the bytes it claims to predict. Both writer
+// paths in this runtime call the same serializer, so both need the clock.
+function modelHasLifecycleFields(model: Model): boolean {
+  return (
+    model.roles.createdAt !== undefined || model.roles.updatedAt !== undefined
+  );
 }

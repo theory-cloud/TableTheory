@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -645,6 +646,10 @@ class Table[T]:
             raise ValidationError("retry exhausted without results")
         return last_page
 
+    def _segment_worker(self) -> Table[T]:
+        """Clone a segment worker: operational chain reused, raw identity kept."""
+        return copy.copy(self)
+
     def scan_all_segments(
         self,
         *,
@@ -667,15 +672,7 @@ class Table[T]:
         from concurrent.futures import ThreadPoolExecutor
 
         def scan_segment(segment: int) -> list[T]:
-            table: Table[T] = Table(
-                self._model,
-                client=self._raw_client,
-                table_name=self._table_name,
-                kms_key_arn=self._kms_key_arn,
-                kms_client=self._kms_client,
-                rand_bytes=self._rand_bytes,
-                redact_item_images=self._redact_item_images,
-            )
+            table = self._segment_worker()
             cursor: str | None = None
             out: list[T] = []
             while True:

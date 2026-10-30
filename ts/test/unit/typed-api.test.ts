@@ -87,17 +87,63 @@ async function typeAssertions(client: TheorydbClient): Promise<void> {
 }
 
 async function numberModeTypeAssertions(): Promise<void> {
+  const ddbStub = new StubDdb() as unknown as DynamoDBClient;
+
+  // Passing the option alone selects the declared mode, so a caller never has
+  // to repeat it as a type argument that could drift from the value.
+  const inferredNumberClient = new TheorydbClient(ddbStub, {
+    numberUnmarshalMode: 'number',
+  });
+  const inferredUsers = inferredNumberClient.model(TypedUser);
+  const inferredItem = await inferredUsers.get({
+    PK: 'TENANT#1',
+    SK: 'USER#1',
+  });
+  inferredItem.age.toFixed();
+  await inferredUsers.create({ PK: 'TENANT#1', SK: 'USER#1', age: 42 });
+  // @ts-expect-error age is a number in the inferred number mode
+  await inferredUsers.create({ PK: 'TENANT#1', SK: 'USER#1', age: '42' });
+
   // A client configured for 'number' mode declares N/NS values as numbers.
-  const numberClient = new TheorydbClient<'number'>(
-    new StubDdb() as unknown as DynamoDBClient,
-    { numberUnmarshalMode: 'number' },
-  );
+  const numberClient = new TheorydbClient<'number'>(ddbStub, {
+    numberUnmarshalMode: 'number',
+  });
   const users = numberClient.model(TypedUser);
   const item = await users.get({ PK: 'TENANT#1', SK: 'USER#1' });
   item.age.toFixed();
   await users.create({ PK: 'TENANT#1', SK: 'USER#1', age: 42 });
   // @ts-expect-error age is a number in number mode
   await users.create({ PK: 'TENANT#1', SK: 'USER#1', age: '42' });
+
+  // Omitting the option keeps the string mode at compile time and at runtime.
+  const defaultClient = new TheorydbClient(ddbStub);
+  const defaultItem = await defaultClient
+    .model(TypedUser)
+    .get({ PK: 'TENANT#1', SK: 'USER#1' });
+  defaultItem.age.toUpperCase();
+
+  function declareNumberClient(client: TheorydbClient<'number'>): void {
+    void client;
+  }
+
+  // @ts-expect-error a client with no number option stays in string mode
+  declareNumberClient(defaultClient);
+
+  const stringOptions = { numberUnmarshalMode: 'string' } as const;
+  const wrongMode: TheorydbClient<'number'> = new TheorydbClient<'number'>(
+    ddbStub,
+    // @ts-expect-error the option must match the declared number mode
+    stringOptions,
+  );
+  void wrongMode;
+
+  const emptyOptions = {};
+  const missingMode: TheorydbClient<'number'> = new TheorydbClient<'number'>(
+    ddbStub,
+    // @ts-expect-error number mode must be requested explicitly
+    emptyOptions,
+  );
+  void missingMode;
 }
 
 void typeAssertions;
@@ -137,4 +183,15 @@ void test('typed reads match the configured number-unmarshal mode at runtime', a
     .get({ PK: 'TENANT#1', SK: 'USER#1' });
   assert.equal(typeof numberItem.age, 'number');
   assert.equal(numberItem.age, 42);
+
+  // The option alone declares the mode, so inference and the explicit type
+  // argument agree with each other and with the value the reader produces.
+  const inferredClient = new TheorydbClient(ddb as unknown as DynamoDBClient, {
+    numberUnmarshalMode: 'number',
+  });
+  const inferredItem = await inferredClient
+    .model(TypedUser)
+    .get({ PK: 'TENANT#1', SK: 'USER#1' });
+  assert.equal(typeof inferredItem.age, 'number');
+  assert.equal(inferredItem.age, 42);
 });

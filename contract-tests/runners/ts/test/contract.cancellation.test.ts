@@ -140,9 +140,70 @@ function cancellationReasons(
 // directly (an unclassified error passes through unchanged) or through the
 // preserved cause of a mapped TheorydbError.
 function isRecoverableCancellation(thrown: unknown): boolean {
-  if (thrown instanceof TransactionCanceledException) return true;
+  if (isCancellationLike(thrown)) return true;
   if (thrown instanceof TheorydbError) {
-    return thrown.cause instanceof TransactionCanceledException;
+    return isCancellationLike(thrown.cause);
   }
   return false;
 }
+
+// Recognizes a cancellation without relying on this module graph's constructor.
+//
+// This runner resolves its own `@aws-sdk/client-dynamodb` install, which need not
+// be the copy the workspace client used. The exception classes in the installed
+// SDK carry a Smithy `Symbol.hasInstance` that matches by shape, so `instanceof`
+// already crosses graphs there; an older or partial graph has no such shim. The
+// explicit name check is the rule `mapDynamoError` applies, so this asserts the
+// production rule rather than whatever identity shim the installed SDK provides.
+function isCancellationLike(value: unknown): boolean {
+  if (value instanceof TransactionCanceledException) return true;
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { name?: unknown }).name === 'TransactionCanceledException'
+  );
+}
+
+// A cancellation named and shaped exactly as a second SDK graph produces one,
+// but built from a constructor no SDK identity shim knows. The control asserts
+// `instanceof` is false for it, so the recognition below cannot be an identity
+// check wearing a different hat.
+class ForeignSdkCancellation extends Error {
+  readonly $metadata = {};
+  readonly CancellationReasons: readonly unknown[] = [];
+
+  constructor() {
+    super('Transaction canceled.');
+    this.name = 'TransactionCanceledException';
+  }
+}
+
+test("cancellation.recognition.survives-a-second-sdk-graph (ts runner)", () => {
+  const foreign = new ForeignSdkCancellation();
+  assert.equal(
+    foreign instanceof TransactionCanceledException,
+    false,
+    "the control must exercise the non-instanceof path",
+  );
+  assert.equal(isCancellationLike(foreign), true);
+  assert.equal(isRecoverableCancellation(foreign), true);
+
+  const mapped = new TheorydbError("ErrTransactionCanceled", "canceled", {
+    cause: foreign,
+  });
+  assert.equal(isRecoverableCancellation(mapped), true);
+
+  const unrelated = new Error("connection reset");
+  assert.equal(isCancellationLike(unrelated), false);
+  assert.equal(isRecoverableCancellation(unrelated), false);
+
+  const renamed = new Error("slow down");
+  renamed.name = "ThrottlingException";
+  assert.equal(isCancellationLike(renamed), false);
+  assert.equal(isRecoverableCancellation(renamed), false);
+
+  const unmapped = new TheorydbError("ErrInvalidModel", "bad model", {
+    cause: unrelated,
+  });
+  assert.equal(isRecoverableCancellation(unmapped), false);
+});

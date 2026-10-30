@@ -8,6 +8,7 @@ representation.
 
 from __future__ import annotations
 
+from copy import copy
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
@@ -45,7 +46,13 @@ class ItemWriterPath(StrEnum):
     """
 
 
-def marshal_item_for_writer_path[T](table: Table[T], item: T, path: ItemWriterPath) -> dict[str, Any]:
+def marshal_item_for_writer_path[T](
+    table: Table[T],
+    item: T,
+    path: ItemWriterPath,
+    *,
+    now: str | None = None,
+) -> dict[str, Any]:
     """Return the DynamoDB item that the named writer path stores for ``item``.
 
     The returned mapping is byte-equal to the payload the real writer sends.
@@ -60,6 +67,13 @@ def marshal_item_for_writer_path[T](table: Table[T], item: T, path: ItemWriterPa
     pinned by regression tests that capture live payloads through the stateful
     fake client, so neither answer can drift from its writer without failing the
     build.
+
+    ``now`` is the timestamp the writer will stamp when the model declares
+    ``created_at`` or ``updated_at`` fields. Both writer paths stamp those from
+    the table's clock, so a preflight without that clock cannot support the
+    equality claim above; the model is refused instead of being stamped from a
+    different clock read. Pass the same value the writer's clock produces.
+    Models with no lifecycle field do not need it.
 
     Scope:
 
@@ -81,4 +95,32 @@ def marshal_item_for_writer_path[T](table: Table[T], item: T, path: ItemWriterPa
             f"item preflight does not cover the encrypted attributes of {table._table_name}"
         )
 
+    if _has_lifecycle_fields(table):
+        if now is None:
+            raise ValidationError(
+                f"item preflight for {table._table_name} needs the writer's lifecycle clock"
+            )
+        table = _clock_pinned_table(table, now)
+
     return table._to_item(item)
+
+
+def _has_lifecycle_fields(table: Table[Any]) -> bool:
+    """Report whether a writer stamps a lifecycle field from the table clock."""
+
+    return any(
+        "created_at" in attr.roles or "updated_at" in attr.roles for attr in table._model.attributes.values()
+    )
+
+
+def _clock_pinned_table[T](table: Table[T], now: str) -> Table[T]:
+    """Return a shallow clone whose clock returns ``now`` for every read.
+
+    The clone shares the model, client and serializer with ``table``; only the
+    clock is replaced, so the preflight reads the caller's fixed stamp instead of
+    consuming a tick from the table's own clock.
+    """
+
+    pinned = copy(table)
+    pinned._now = lambda: now
+    return pinned

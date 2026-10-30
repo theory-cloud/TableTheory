@@ -85,6 +85,9 @@ verify-runtime-docs-site:
 verify-generative-artifacts:
 	@python3 scripts/verify-generative-artifacts.py
 
+verify-doc-snippets:
+	@python3 scripts/verify-doc-snippets.py
+
 # Run benchmarks
 benchmark:
 	@echo "Running benchmarks..."

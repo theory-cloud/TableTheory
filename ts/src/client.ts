@@ -69,7 +69,9 @@ import {
   type WritePolicyOptions,
 } from './write-policy.js';
 
-export interface TheorydbClientOptions {
+export interface TheorydbClientOptions<
+  TNumberMode extends NumberUnmarshalMode = NumberUnmarshalMode,
+> {
   encryption?: EncryptionProvider;
   now?: () => string;
   sendOptions?: SendOptions;
@@ -89,9 +91,32 @@ export interface TheorydbClientOptions {
    * are precision-safe for integers outside the safe range and high-precision
    * decimals. Use 'number' only when lossy JavaScript Number conversion is
    * acceptable for a specific client.
+   *
+   * The value is also the client's declared number mode: passing 'number'
+   * constructs a `TheorydbClient<'number'>`, so typed model reads declare N and
+   * NS values as numbers exactly when the runtime produces numbers. Passing
+   * 'string', or omitting the option, constructs a `TheorydbClient<'string'>`.
    */
-  numberUnmarshalMode?: NumberUnmarshalMode;
+  numberUnmarshalMode?: TNumberMode;
 }
+
+/**
+ * Requires the option that selects a non-default number mode.
+ *
+ * The declared mode is only truthful when the option that sets it is present, so
+ * a `TheorydbClient<'number'>` cannot be handed an options object that omits the
+ * option or contradicts it. The default mode stays omissible. Without this,
+ * `{}` or `{ numberUnmarshalMode: 'string' }` next to a number declaration would
+ * type-check while the client ran in string mode.
+ *
+ * TypeScript cannot reject an explicit type argument on a one-argument
+ * construction, so `new TheorydbClient<'number'>(ddb)` still compiles; that form
+ * is not part of the supported surface. Pass the option and let the constructor
+ * infer the mode.
+ */
+type NumberModeOption<N extends NumberUnmarshalMode> = N extends 'number'
+  ? { numberUnmarshalMode: 'number' }
+  : { numberUnmarshalMode?: N };
 
 type ModelKey<TItem extends Record<string, unknown>> = Partial<TItem>;
 type ModelField<TItem extends Record<string, unknown>> = Extract<
@@ -103,7 +128,7 @@ export class ModelRepository<
   TItem extends Record<string, unknown> = Record<string, unknown>,
 > {
   constructor(
-    private readonly client: TheorydbClient,
+    private readonly client: TheorydbClient<NumberUnmarshalMode>,
     private readonly modelDef: Model<TItem>,
   ) {}
 
@@ -178,18 +203,48 @@ export class TheorydbClient<
   private readonly sendOptions: SendOptions | undefined;
   private readonly unmarshalOptions: UnmarshalOptions;
   private readonly redactItemImages: boolean;
+  /**
+   * The number mode this client is declared with, defaulted the same way the
+   * constructor defaults it.
+   *
+   * The field is deliberately typed with the class parameter rather than the
+   * widened `NumberUnmarshalMode`, so a `TheorydbClient<'string'>` is not
+   * assignable where a `TheorydbClient<'number'>` is required. A declared mode
+   * therefore has to match the option that produced it instead of resolving to
+   * the recursive structural comparison, which would accept either side.
+   */
+  private readonly numberMode: TNumberMode;
 
   constructor(
     private readonly ddb: DynamoDBClient,
-    opts: TheorydbClientOptions = {},
+    opts: TheorydbClientOptions<TNumberMode> &
+      NumberModeOption<TNumberMode> = {} as never,
   ) {
+    const configured = (opts as { numberUnmarshalMode?: TNumberMode })
+      .numberUnmarshalMode;
     this.encryption = opts.encryption;
     this.now = opts.now ?? (() => nowRfc3339Nano());
     this.sendOptions = opts.sendOptions;
+    this.numberMode = (configured ?? 'string') as TNumberMode;
     this.unmarshalOptions = {
-      numberMode: opts.numberUnmarshalMode ?? 'string',
+      numberMode: this.numberMode,
     };
     this.redactItemImages = opts.redactItemImages ?? false;
+  }
+
+  /**
+   * Builds a derived client that keeps this client's declared number mode.
+   *
+   * The constructor narrows its mode option to the declared type parameter, and
+   * every derived client copies the mode it was constructed with, so the cast
+   * here is the single place the stored mode and the type parameter are
+   * asserted to be the same value.
+   */
+  private static derive<T extends NumberUnmarshalMode>(
+    ddb: DynamoDBClient,
+    opts: TheorydbClientOptions<T>,
+  ): TheorydbClient<T> {
+    return new TheorydbClient<T>(ddb, opts as never);
   }
 
   /**
@@ -213,11 +268,11 @@ export class TheorydbClient<
   }
 
   withSendOptions(sendOptions?: SendOptions): TheorydbClient<TNumberMode> {
-    const next = new TheorydbClient<TNumberMode>(this.ddb, {
+    const next = TheorydbClient.derive<TNumberMode>(this.ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(sendOptions ? { sendOptions } : {}),
-      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+      numberUnmarshalMode: this.numberMode,
       redactItemImages: this.redactItemImages,
     });
     next.register(...this.models.values());
@@ -225,11 +280,11 @@ export class TheorydbClient<
   }
 
   withDynamoDBClient(ddb: DynamoDBClient): TheorydbClient<TNumberMode> {
-    const next = new TheorydbClient<TNumberMode>(ddb, {
+    const next = TheorydbClient.derive<TNumberMode>(ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
-      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+      numberUnmarshalMode: this.numberMode,
       redactItemImages: this.redactItemImages,
     });
     next.register(...this.models.values());
@@ -256,11 +311,11 @@ export class TheorydbClient<
    * shared registry.
    */
   fork(): TheorydbClient<TNumberMode> {
-    return new TheorydbClient<TNumberMode>(this.ddb, {
+    return TheorydbClient.derive<TNumberMode>(this.ddb, {
       now: this.now,
       ...(this.encryption ? { encryption: this.encryption } : {}),
       ...(this.sendOptions ? { sendOptions: this.sendOptions } : {}),
-      numberUnmarshalMode: this.unmarshalOptions.numberMode ?? 'string',
+      numberUnmarshalMode: this.numberMode,
       redactItemImages: this.redactItemImages,
     });
   }
@@ -1068,23 +1123,47 @@ function composeConditions(
     };
   }
 
-  let expression = suppliedExpression as string;
-  for (const [placeholder, attribute] of Object.entries(suppliedNames ?? {})) {
-    let target = placeholder;
-    if (target in names) {
-      target = nextPlaceholder('#caller', names);
-      expression = replacePlaceholder(expression, placeholder, target);
+  const callerNames = suppliedNames ?? {};
+  const callerValues = suppliedValues ?? {};
+
+  // Reserve every caller placeholder before rewriting anything. A name this pass
+  // allocates is therefore never a name a later rule still has to move, which is
+  // what made the previous loop cascade: renaming `#a` to `#caller1` could turn
+  // a caller-supplied `#caller1` into a second collision and pull the predicate
+  // that used it onto a different attribute.
+  const takenNames = new Set([
+    ...Object.keys(names),
+    ...Object.keys(callerNames),
+  ]);
+  const takenValues = new Set([
+    ...Object.keys(values),
+    ...Object.keys(callerValues),
+  ]);
+
+  const renames = new Map<string, string>();
+  for (const placeholder of Object.keys(callerNames)) {
+    if (placeholder in names) {
+      const target = nextFreePlaceholder('#caller', takenNames);
+      takenNames.add(target);
+      renames.set(placeholder, target);
     }
-    names[target] = attribute;
+    names[renames.get(placeholder) ?? placeholder] = callerNames[placeholder]!;
   }
-  for (const [placeholder, value] of Object.entries(suppliedValues ?? {})) {
-    let target = placeholder;
-    if (target in values) {
-      target = nextPlaceholder(':caller', values);
-      expression = replacePlaceholder(expression, placeholder, target);
+  for (const [placeholder, value] of Object.entries(callerValues)) {
+    if (placeholder in values) {
+      const target = nextFreePlaceholder(':caller', takenValues);
+      takenValues.add(target);
+      renames.set(placeholder, target);
     }
-    values[target] = value;
+    values[renames.get(placeholder) ?? placeholder] = value;
   }
+
+  // One pass over the caller expression, so a replacement is never rescanned by
+  // another rule and no two caller predicates can collapse onto one placeholder.
+  const expression =
+    renames.size === 0
+      ? (suppliedExpression as string)
+      : rewritePlaceholders(suppliedExpression as string, renames);
 
   if (!generated.conditionExpression) {
     return { conditionExpression: expression, names, values };
@@ -1096,21 +1175,22 @@ function composeConditions(
   };
 }
 
-function replacePlaceholder(
+function rewritePlaceholders(
   expression: string,
-  from: string,
-  to: string,
+  renames: ReadonlyMap<string, string>,
 ): string {
-  const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return expression.replace(new RegExp(`${escaped}(?![A-Za-z0-9_])`, 'g'), to);
+  return expression.replace(
+    /[#:][A-Za-z0-9_]+/g,
+    (token) => renames.get(token) ?? token,
+  );
 }
 
-function nextPlaceholder(
+function nextFreePlaceholder(
   prefix: string,
-  used: Record<string, unknown>,
+  used: ReadonlySet<string>,
 ): string {
   let index = 1;
-  while (`${prefix}${index}` in used) index += 1;
+  while (used.has(`${prefix}${index}`)) index += 1;
   return `${prefix}${index}`;
 }
 
