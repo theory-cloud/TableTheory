@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory/v6"
+	"github.com/theory-cloud/tabletheory/v6/internal/encryption"
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v6/pkg/schema"
 	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 	"github.com/theory-cloud/tabletheory/v6/pkg/testing/fakedb"
@@ -147,4 +149,157 @@ func TestAutoMigrateWithOptionsEncryptedTargetWithoutDataCopyIsUnaffected(t *tes
 	tables, listErr := fake.ListTables(context.Background(), &dynamodb.ListTablesInput{})
 	require.NoError(t, listErr)
 	assert.Equal(t, []string{"migration_encrypted_target"}, tables.TableNames)
+}
+
+type migrationSharedSource struct {
+	PK     string `theorydb:"pk,attr:PK" json:"PK"`
+	SK     string `theorydb:"sk,attr:SK" json:"SK"`
+	Secret string `theorydb:"attr:secret,encrypted" json:"secret"`
+}
+
+func (migrationSharedSource) TableName() string { return "migration_shared_source_e2e" }
+
+type migrationSharedTarget struct {
+	PK     string `theorydb:"pk,attr:PK" json:"PK"`
+	SK     string `theorydb:"sk,attr:SK" json:"SK"`
+	Secret string `theorydb:"attr:secret,encrypted" json:"secret"`
+}
+
+func (migrationSharedTarget) TableName() string { return "migration_shared_target_e2e" }
+
+// S5: same-name encrypted attributes move across tables only after the source
+// envelope is opened with the source binding and re-sealed with the target
+// binding. Legacy v1 rows are upgraded to v2, and the target model can read
+// every migrated row.
+func TestAutoMigrateWithOptionsRebindsSharedEncryptedAttributes(t *testing.T) {
+	fake := fakedb.New()
+	keyARN := "arn:aws:kms:us-east-1:111111111111:key/migration-shared"
+	db, err := tabletheory.NewWithClient(session.Config{
+		Region:         "us-east-1",
+		KMSKeyARN:      keyARN,
+		KMSClient:      fakeMigrationKMS{},
+		EncryptionRand: bytes.NewReader(bytes.Repeat([]byte{0x0a}, 512)),
+	}, fake)
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&migrationSharedSource{}))
+
+	svc := encryption.NewService(keyARN, fakeMigrationKMS{})
+	ctx := context.Background()
+
+	v1Envelope, err := svc.EncryptAttributeValue(ctx, "secret", &types.AttributeValueMemberS{Value: "v1-secret"})
+	require.NoError(t, err)
+
+	sourceBinding, err := encryption.NewRecordBinding(
+		"migration_shared_source_e2e",
+		&types.AttributeValueMemberS{Value: "V2"},
+		&types.AttributeValueMemberS{Value: "PROFILE"},
+	)
+	require.NoError(t, err)
+	v2Envelope, err := svc.EncryptAttributeValueWithBinding(ctx, sourceBinding, "secret", &types.AttributeValueMemberS{Value: "v2-secret"})
+	require.NoError(t, err)
+
+	require.NoError(t, fake.Seed("migration_shared_source_e2e",
+		map[string]types.AttributeValue{
+			"PK":     &types.AttributeValueMemberS{Value: "V1"},
+			"SK":     &types.AttributeValueMemberS{Value: "PROFILE"},
+			"secret": v1Envelope,
+		},
+		map[string]types.AttributeValue{
+			"PK":     &types.AttributeValueMemberS{Value: "V2"},
+			"SK":     &types.AttributeValueMemberS{Value: "PROFILE"},
+			"secret": v2Envelope,
+		},
+	))
+
+	require.NoError(t, db.AutoMigrateWithOptions(
+		&migrationSharedSource{},
+		schema.WithTargetModel(&migrationSharedTarget{}),
+		schema.WithDataCopy(true),
+		schema.WithBatchSize(1),
+	))
+
+	for key, want := range map[string]string{"V1": "v1-secret", "V2": "v2-secret"} {
+		var got migrationSharedTarget
+		require.NoError(t, db.Model(&migrationSharedTarget{}).
+			Where("PK", "=", key).
+			Where("SK", "=", "PROFILE").
+			First(&got))
+		assert.Equal(t, want, got.Secret)
+	}
+
+	items := fake.Items("migration_shared_target_e2e")
+	require.Len(t, items, 2)
+	for _, item := range items {
+		envelope, ok := item["secret"].(*types.AttributeValueMemberM)
+		require.True(t, ok, "target rows only carry envelopes, got %T", item["secret"])
+		version, ok := envelope.Value["v"].(*types.AttributeValueMemberN)
+		require.True(t, ok)
+		assert.Equal(t, "2", version.Value, "migrated rows are target-bound v2 envelopes")
+	}
+}
+
+// S6: a source page that cannot be opened fails before that page is written.
+func TestAutoMigrateWithOptionsWritesNoPageOnSourceDecryptFailure(t *testing.T) {
+	fake := fakedb.New()
+	keyARN := "arn:aws:kms:us-east-1:111111111111:key/migration-shared"
+	db, err := tabletheory.NewWithClient(session.Config{
+		Region:         "us-east-1",
+		KMSKeyARN:      keyARN,
+		KMSClient:      fakeMigrationKMS{},
+		EncryptionRand: bytes.NewReader(bytes.Repeat([]byte{0x0b}, 512)),
+	}, fake)
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&migrationSharedSource{}))
+
+	svc := encryption.NewService(keyARN, fakeMigrationKMS{})
+	tampered, err := svc.EncryptAttributeValue(context.Background(), "secret", &types.AttributeValueMemberS{Value: "tampered"})
+	require.NoError(t, err)
+	envelope, ok := tampered.(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	ciphertext, ok := envelope.Value["ct"].(*types.AttributeValueMemberB)
+	require.True(t, ok)
+	ciphertext.Value[len(ciphertext.Value)-1] ^= 0xff
+
+	require.NoError(t, fake.Seed("migration_shared_source_e2e", map[string]types.AttributeValue{
+		"PK":     &types.AttributeValueMemberS{Value: "BROKEN"},
+		"SK":     &types.AttributeValueMemberS{Value: "PROFILE"},
+		"secret": tampered,
+	}))
+
+	err = db.AutoMigrateWithOptions(
+		&migrationSharedSource{},
+		schema.WithTargetModel(&migrationSharedTarget{}),
+		schema.WithDataCopy(true),
+		schema.WithBatchSize(1),
+	)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidEncryptedEnvelope)
+	assert.Empty(t, fake.Items("migration_shared_target_e2e"), "the failing page must not be written")
+}
+
+// S7: without a provider the migration refuses before creating the target.
+func TestAutoMigrateWithOptionsRefusesSharedEncryptionWithoutProvider(t *testing.T) {
+	fake := fakedb.New()
+	db, err := tabletheory.NewWithClient(session.Config{Region: "us-east-1"}, fake)
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&migrationSharedSource{}))
+
+	svc := encryption.NewService("arn:aws:kms:us-east-1:111111111111:key/unused", fakeMigrationKMS{})
+	envelope, err := svc.EncryptAttributeValue(context.Background(), "secret", &types.AttributeValueMemberS{Value: "top-secret"})
+	require.NoError(t, err)
+	require.NoError(t, fake.Seed("migration_shared_source_e2e", map[string]types.AttributeValue{
+		"PK":     &types.AttributeValueMemberS{Value: "NOKMS"},
+		"SK":     &types.AttributeValueMemberS{Value: "PROFILE"},
+		"secret": envelope,
+	}))
+
+	err = db.AutoMigrateWithOptions(
+		&migrationSharedSource{},
+		schema.WithTargetModel(&migrationSharedTarget{}),
+		schema.WithDataCopy(true),
+	)
+	require.ErrorIs(t, err, schema.ErrMigrationEncryptionRequired)
+	assert.Empty(t, fake.Items("migration_shared_target_e2e"))
+	tables, listErr := fake.ListTables(context.Background(), &dynamodb.ListTablesInput{})
+	require.NoError(t, listErr)
+	assert.NotContains(t, tables.TableNames, "migration_shared_target_e2e")
 }

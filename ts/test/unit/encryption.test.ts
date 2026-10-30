@@ -13,6 +13,7 @@ import {
   aadForContext,
   decryptItemAttributes,
   encryptAttributeValue,
+  envelopeFromAttributeValue,
   envelopeVersionForContext,
   marshalPutItemEncrypted,
   type EncryptionContext,
@@ -445,4 +446,22 @@ void test('client.update writes v2 envelopes bound to the record key', async () 
     provider,
   );
   assert.deepEqual(decrypted.secret, { S: 'rotated' });
+});
+
+void test('envelope parsing rejects a nonce length other than the AEAD size', () => {
+  assert.throws(
+    () =>
+      envelopeFromAttributeValue({
+        M: {
+          v: { N: '2' },
+          edk: { B: new Uint8Array([1]) },
+          nonce: { B: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]) },
+          ct: { B: new Uint8Array([1]) },
+        },
+      }),
+    (err) =>
+      err instanceof TheorydbError &&
+      err.code === 'ErrInvalidEncryptedEnvelope' &&
+      /nonce length/.test(String(err.message)),
+  );
 });

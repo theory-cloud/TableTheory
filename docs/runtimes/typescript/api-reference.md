@@ -849,6 +849,8 @@ export declare function recordBindingFromKey(model: Model, key: Record<string, A
  */
 export declare function recordBindingFromItem(model: Model, item: Record<string, AttributeValue>): RecordBinding | undefined;
 export declare function envelopeToAttributeValue(env: EncryptedEnvelope): AttributeValue;
+/** Parses a stored envelope map into the provider's envelope shape. */
+export declare function envelopeFromAttributeValue(av: AttributeValue): EncryptedEnvelope;
 export declare function modelHasEncryptedAttributes(model: Model): boolean;
 export declare function marshalPutItemEncrypted(model: Model, item: Record<string, unknown>, provider: EncryptionProvider, opts?: {
     now?: string;

@@ -68,7 +68,9 @@ Use `--model <name>` to emit a single model from a multi-model DMS file. TypeScr
 
 Generated Go structs include `TableName()` and, when the DMS declares non-default write policy or index projection
 metadata, the small metadata methods needed for `pkg/dms.FromMetadata` equivalence. Generated TypeScript registers via
-`defineModel`, and generated Python creates a `ModelDefinition.from_dataclass(...)` value.
+`defineModel`, and generated Python creates a `ModelDefinition.from_dataclass(...)` value. A DMS attribute that
+declares `json_string_mode` is emitted as the runtime `jsonStringMode` property in generated TypeScript schemas, so
+the parse-mode discriminator survives the DMS-to-code path.
 
 ## Generate CDK table constructs
 

@@ -7,16 +7,46 @@ from dataclasses import MISSING, fields
 from typing import Any, cast, get_type_hints
 
 import yaml
+from yaml.events import AliasEvent
 
 from .attr_types import infer_storage_type, validate_json_storage_type
 from .errors import ValidationError
 from .model import ModelDefinition
 
+# Bounds that keep a hostile DMS document from turning into recursion or
+# resource exhaustion. The limits are far above any legitimate schema.
+MAX_DMS_DOCUMENT_BYTES = 1 << 20
+MAX_DMS_NODES = 10_000
+MAX_DMS_DEPTH = 64
+MAX_DMS_ALIASES = 50
+
+
+class _BoundedSafeLoader(yaml.SafeLoader):
+    """SafeLoader that refuses alias amplification while composing the graph."""
+
+    def __init__(self, stream: Any) -> None:
+        super().__init__(stream)
+        self._dms_alias_count = 0
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        if self.check_event(AliasEvent):  # type: ignore[no-untyped-call]
+            self._dms_alias_count += 1
+            if self._dms_alias_count > MAX_DMS_ALIASES:
+                raise yaml.YAMLError("DMS YAML contains too many aliases")
+        return super().compose_node(parent, index)
+
 
 def parse_dms_document(raw: str) -> dict[str, Any]:
     try:
-        parsed = yaml.safe_load(raw)
+        document_size = len(raw.encode("utf-8"))
     except Exception as err:
+        raise ValidationError("invalid DMS YAML/JSON") from err
+    if document_size > MAX_DMS_DOCUMENT_BYTES:
+        raise ValidationError("DMS document is too large")
+
+    try:
+        parsed = yaml.load(raw, Loader=_BoundedSafeLoader)
+    except (yaml.YAMLError, RecursionError) as err:
         raise ValidationError("invalid DMS YAML/JSON") from err
 
     if not isinstance(parsed, dict):
@@ -84,22 +114,46 @@ def assert_models_equivalent(
         )
 
 
+class _JsonWalkState:
+    __slots__ = ("nodes", "seen")
+
+    def __init__(self) -> None:
+        self.nodes = 0
+        self.seen: set[int] = set()
+
+
 def _assert_json_compatible(value: Any, *, path: str) -> None:
+    _walk_json_compatible(value, path=path, depth=0, state=_JsonWalkState())
+
+
+def _walk_json_compatible(value: Any, *, path: str, depth: int, state: _JsonWalkState) -> None:
+    state.nodes += 1
+    if state.nodes > MAX_DMS_NODES:
+        raise ValidationError("DMS contains too many nodes")
+    if depth > MAX_DMS_DEPTH:
+        raise ValidationError(f"DMS nesting exceeds {MAX_DMS_DEPTH} at {path}")
+
     if value is None or isinstance(value, (str, bool, int, float)):
         if isinstance(value, float) and not math.isfinite(value):
             raise ValidationError(f"DMS contains non-finite float at {path}")
         return
 
     if isinstance(value, list):
+        if id(value) in state.seen:
+            raise ValidationError(f"DMS contains a cyclic or shared reference at {path}")
+        state.seen.add(id(value))
         for idx, elem in enumerate(value):
-            _assert_json_compatible(elem, path=f"{path}[{idx}]")
+            _walk_json_compatible(elem, path=f"{path}[{idx}]", depth=depth + 1, state=state)
         return
 
     if isinstance(value, dict):
+        if id(value) in state.seen:
+            raise ValidationError(f"DMS contains a cyclic or shared reference at {path}")
+        state.seen.add(id(value))
         for k, v in value.items():
             if not isinstance(k, str):
                 raise ValidationError(f"DMS contains non-string key at {path}: {k!r}")
-            _assert_json_compatible(v, path=f"{path}.{k}")
+            _walk_json_compatible(v, path=f"{path}.{k}", depth=depth + 1, state=state)
         return
 
     raise ValidationError(f"DMS contains non-JSON value at {path}: {type(value).__name__}")
