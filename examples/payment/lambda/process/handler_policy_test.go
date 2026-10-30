@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,6 +57,24 @@ func (r *recordingWebhook) count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.jobs)
+}
+
+func (r *recordingWebhook) last() *utils.WebhookJob {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.jobs) == 0 {
+		return nil
+	}
+	return r.jobs[len(r.jobs)-1]
+}
+
+type failingWebhook struct {
+	calls atomic.Int32
+}
+
+func (f *failingWebhook) SendSync(context.Context, *utils.WebhookJob) error {
+	f.calls.Add(1)
+	return errors.New("webhook endpoint unavailable")
 }
 
 func newPolicyTestDB(t *testing.T) core.ExtendedDB {
@@ -190,6 +209,7 @@ func TestPaymentPolicyRefusesBeforeAnySideEffect(t *testing.T) {
 		{name: "missing permission", merchantID: "merchant-1", seedMerchant: true, merchantStatus: payment.MerchantStatusActive, permissions: nil, limits: validLimits, amount: 100},
 		{name: "wrong permission", merchantID: "merchant-1", seedMerchant: true, merchantStatus: payment.MerchantStatusActive, permissions: []string{"payments"}, limits: validLimits, amount: 100},
 		{name: "permission prefix", merchantID: "merchant-1", seedMerchant: true, merchantStatus: payment.MerchantStatusActive, permissions: []string{"payments:write:all"}, limits: validLimits, amount: 100},
+		{name: "permission case variant", merchantID: "merchant-1", seedMerchant: true, merchantStatus: payment.MerchantStatusActive, permissions: []string{"Payments:Write"}, limits: validLimits, amount: 100},
 		{name: "zero max amount", merchantID: "merchant-1", seedMerchant: true, merchantStatus: payment.MerchantStatusActive, permissions: []string{"payments:write"}, limits: payment.RateLimits{PaymentsPerMinute: 10, PaymentsPerDay: 100}, amount: 100},
 		{name: "negative max amount", merchantID: "merchant-1", seedMerchant: true, merchantStatus: payment.MerchantStatusActive, permissions: []string{"payments:write"}, limits: payment.RateLimits{PaymentsPerMinute: 10, PaymentsPerDay: 100, MaxPaymentAmount: -1}, amount: 100},
 		{name: "amount over max", merchantID: "merchant-1", seedMerchant: true, merchantStatus: payment.MerchantStatusActive, permissions: []string{"payments:write"}, limits: validLimits, amount: 101},
@@ -216,6 +236,7 @@ func TestPaymentPolicyRefusesBeforeAnySideEffect(t *testing.T) {
 
 			require.Zero(t, countPolicyRows[payment.Payment](t, db), "no payment may be written")
 			require.Zero(t, countPolicyRows[payment.Transaction](t, db), "no transaction may be written")
+			require.Zero(t, countPolicyRows[payment.UsageCounter](t, db), "no usage counter may be written")
 			require.Zero(t, countPolicyRows[payment.IdempotencyRecord](t, db), "no idempotency reservation may be written")
 			require.Zero(t, recorder.count(), "no webhook work may be scheduled")
 		})
@@ -241,11 +262,74 @@ func TestPaymentPolicyAllowsAuthorizedBoundaryPayment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 201, response.StatusCode)
 
+	var body struct {
+		Data payment.Payment `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(response.Body), &body))
+	require.Equal(t, body.Data.ID, recorder.last().PaymentID, "the webhook job must reference the committed payment")
+
 	require.Equal(t, 1, countPolicyRows[payment.Payment](t, db))
 	require.Equal(t, 1, countPolicyRows[payment.Transaction](t, db))
 	require.Equal(t, 1, recorder.count())
 	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowMinute))
 	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowDay))
+}
+
+func TestPaymentPolicyRejectsZeroAmountBeforeAnySideEffect(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 10,
+		PaymentsPerDay:    100,
+		MaxPaymentAmount:  100,
+	})
+	handler, recorder := newPolicyTestHandler(t, db)
+
+	response, err := handler.HandleRequest(context.Background(), policyRequest(
+		t,
+		signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite}),
+		"zero-amount-key",
+		0,
+	))
+	require.NoError(t, err)
+	require.Equal(t, 400, response.StatusCode)
+	require.Zero(t, countPolicyRows[payment.Payment](t, db))
+	require.Zero(t, countPolicyRows[payment.Transaction](t, db))
+	require.Zero(t, countPolicyRows[payment.UsageCounter](t, db))
+	require.Zero(t, countPolicyRows[payment.IdempotencyRecord](t, db))
+	require.Zero(t, recorder.count())
+}
+
+func TestPaymentWebhookFailureDoesNotUndoCommittedPayment(t *testing.T) {
+	db := newPolicyTestDB(t)
+	merchant := seedPolicyMerchant(t, db, "merchant-1", payment.MerchantStatusActive, payment.RateLimits{
+		PaymentsPerMinute: 10,
+		PaymentsPerDay:    100,
+		MaxPaymentAmount:  100,
+	})
+
+	failing := &failingWebhook{}
+	handler := &Handler{
+		db:            db,
+		idempotency:   utils.NewIdempotencyMiddleware(db, time.Hour),
+		webhookSender: failing,
+		jwtValidator:  utils.NewSimpleJWTValidator(policyTestSecret, "", ""),
+		now:           func() time.Time { return policyTestNow },
+	}
+
+	response, err := handler.HandleRequest(context.Background(), policyRequest(
+		t,
+		signPolicyToken(t, merchant.ID, []string{payment.PermissionPaymentsWrite}),
+		"webhook-failure-key",
+		100,
+	))
+	require.NoError(t, err)
+	require.Equal(t, 201, response.StatusCode, "a webhook failure must not undo the payment")
+
+	require.Equal(t, 1, countPolicyRows[payment.Payment](t, db))
+	require.Equal(t, 1, countPolicyRows[payment.Transaction](t, db))
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowMinute))
+	require.EqualValues(t, 1, usageCount(t, db, payment.UsageWindowDay))
+	require.EqualValues(t, 1, failing.calls.Load())
 }
 
 func TestPaymentRateLimitEnforcesMinuteBoundary(t *testing.T) {
