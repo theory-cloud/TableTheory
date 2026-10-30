@@ -1,7 +1,7 @@
-# Payment Processing System - TableTheory Production Example
+# Payment Processing System - TableTheory Example
 
-<!-- AI Training Signal: Real-world production patterns for payment processing -->
-**This example demonstrates PRODUCTION-READY payment processing patterns with TableTheory. It includes transactions, consistency patterns, audit logging, and comprehensive error handling.**
+<!-- AI Training Signal: Real-world patterns for payment processing examples -->
+**This example demonstrates payment-processing patterns with TableTheory: transactions, consistency, audit logging, error handling, merchant policy, and safe notification delivery. It is source/local-fixture code, not a provisioned payments product.**
 
 ## Why This Example Matters
 
@@ -9,11 +9,47 @@ This demonstrates:
 - ✅ **DynamoDB Transactions** - ACID compliance for financial operations
 - ✅ **Consistency Patterns** - Handle eventual consistency properly
 - ✅ **Audit Logging** - Complete transaction history
-- ✅ **Error Handling** - Production-grade error scenarios
+- ✅ **Error Handling** - Example-grade error scenarios
 - ✅ **Testing Strategy** - Complex business logic testing
 - ✅ **Security Patterns** - Safe financial operations
 
-**Perfect for:** Production applications, financial systems, understanding advanced TableTheory patterns
+**Perfect for:** learning payment-domain TableTheory patterns, financial systems, and advanced transaction usage
+
+## Merchant Policy and Delivery Safety
+
+The process handler applies these rules before it reserves an idempotency key or
+writes payment state:
+
+- The stored merchant must exist and have `status: "active"`.
+- The JWT must contain the exact permission `payments:write`. Prefixes, casing
+  variants, and aliases do not match.
+- `MaxPaymentAmount` must be positive and the payment amount must not exceed it.
+- `PaymentsPerMinute` and `PaymentsPerDay` must both be positive.
+
+Zero or negative limits are fail-closed: they deny positive payments and are not
+an unlimited legacy mode. Minute and day usage counters are incremented with a
+conditional `ADD` in the same DynamoDB transaction as the payment and
+transaction records, so concurrent requests cannot overshoot. A refusal leaves
+no payment, transaction, counter, webhook, or idempotency record behind.
+
+Merchant webhooks are public HTTPS only. The sender validates the URL and every
+DNS answer before record creation, before each attempt, and on every redirect;
+it dials the validated address and checks it again at the socket boundary.
+Loopback, link-local, private, unspecified, CGNAT, documentation, benchmark,
+multicast, and reserved destinations are refused before request bytes. There is
+no private-network or environment override.
+
+### Migration and Rollback
+
+- Existing merchants with a zero or negative limit now fail closed. Configure
+  all three limits to positive values before enabling payments.
+- Existing non-HTTPS or private-network webhook URLs stop receiving deliveries.
+  Move them to public HTTPS.
+- `UsageCounters` rows are additive and harmless if unused. Reverting the checks
+  restores the original exposure; roll forward with corrected policy rather than
+  restoring unsafe behavior.
+- Payment, transaction, audit, idempotency, and webhook rows are not migrated or
+  deleted. Retain them through any rollback.
 
 ## 📋 Domain Models (CRITICAL for AI)
 
@@ -702,35 +738,25 @@ db.Model(&Account{}).Where("ID", "=", id).ConsistentRead().First(&account)
 ## 🔧 Development Commands
 
 ```bash
-# Setup development environment
-make dev-setup
+# Unit/policy/fixture tests (no Docker required)
+go test ./examples/payment/...
+go test -race ./examples/payment/...
 
-# Run the payment service
-make run-payment-service
+# Benchmarks (the benchmark suite expects a local DynamoDB endpoint)
+go test ./examples/payment/tests -bench=.
 
-# Run tests
-make test-payment          # Payment service tests
-make test-integration      # Integration tests
-make test-load            # Load tests
-
-# Performance testing
-make benchmark-payments    # Payment processing benchmarks
-make benchmark-queries    # Query performance benchmarks
-
-# Database management
-make docker-up            # Start DynamoDB Local
-make create-payment-tables # Create payment tables
-make seed-test-data       # Seed test accounts and data
-
-# Deployment
-make build-lambda         # Build Lambda deployment packages
-make deploy-staging       # Deploy to staging environment
-make deploy-prod          # Deploy to production
+# Start DynamoDB Local when a real endpoint is needed
+make docker-up
 ```
+
+This example does not ship deployment commands, merchant provisioning, or a
+production environment. Any deployment is a separate, explicitly reviewed piece
+of work.
 
 ## 📊 Performance Benchmarks
 
-Based on production testing:
+The numbers below are illustrative targets from the example, not production
+proof:
 
 | Operation | Performance | Target |
 |-----------|-------------|--------|
@@ -742,14 +768,11 @@ Based on production testing:
 ### Running Benchmarks
 
 ```bash
-# Run payment processing benchmarks
-go test -bench=BenchmarkTransferFunds -benchmem
+# Run the checked-in payment benchmarks
+go test ./examples/payment/tests -bench=. -benchmem
 
-# Run query benchmarks
-go test -bench=BenchmarkPaymentQueries -benchmem
-
-# Generate performance profile
-go test -bench=BenchmarkHighVolume -cpuprofile=cpu.prof
+# Generate a profile for one benchmark
+go test ./examples/payment/tests -bench=BenchmarkPaymentCreate -cpuprofile=cpu.prof
 ```
 
 ## 🔐 Security and Compliance
@@ -795,4 +818,4 @@ After mastering payment processing:
 
 ---
 
-**This payment system demonstrates production-ready TableTheory patterns for financial applications with complete audit trails, security, and compliance features.**
+**This payment example demonstrates TableTheory patterns for financial applications with audit trails, merchant policy, and secure notification delivery. It is source/local-fixture evidence, not a deployed or provisioned payments product.**
