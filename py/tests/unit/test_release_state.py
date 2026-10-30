@@ -519,6 +519,78 @@ def test_binding_values_equal_rejects_bool_number_mix() -> None:
     assert not _binding_values_equal(False, 0)
 
 
+def test_binding_values_equal_rejects_adjacent_large_integers() -> None:
+    assert not _binding_values_equal({"N": "9007199254740992"}, {"N": "9007199254740993"})
+    assert _binding_values_equal({"N": "9007199254740993"}, {"N": "9007199254740993"})
+    assert _binding_values_equal({"N": "9007199254740993"}, 9007199254740993)
+    assert not _binding_values_equal({"N": "9007199254740992"}, 9007199254740993)
+    assert not _binding_values_equal(9007199254740992.0, 9007199254740993)
+
+
+def test_binding_values_equal_preserves_dynamodb_discriminators() -> None:
+    assert not _binding_values_equal({"S": "1"}, {"N": "1"})
+    assert not _binding_values_equal({"S": "5"}, 5)
+    assert not _binding_values_equal({"S": "001"}, {"S": "1"})
+    assert _binding_values_equal({"N": "001"}, {"N": "1"})
+    assert not _binding_values_equal("007", 7)
+
+
+def test_binding_values_equal_compares_nested_documents_exactly() -> None:
+    assert _binding_values_equal(
+        {"M": {"ttl": {"N": "9007199254740993"}}},
+        {"M": {"ttl": {"N": "9007199254740993"}}},
+    )
+    assert not _binding_values_equal(
+        {"M": {"ttl": {"N": "9007199254740992"}}},
+        {"M": {"ttl": {"N": "9007199254740993"}}},
+    )
+    assert not _binding_values_equal(
+        {"L": [{"N": "9007199254740992"}]},
+        {"L": [{"N": "9007199254740993"}]},
+    )
+
+
+def test_transition_release_state_rejects_adjacent_large_next_version_binding() -> None:
+    client = FakeDynamoDBClient()
+    actual_table = _actual_table(client)
+    event_table = _event_table(client)
+
+    with pytest.raises(ValidationError, match='event attribute "version"'):
+        transition_release_state(
+            actual_table,
+            event_table,
+            actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+            expected_version=9007199254740992,
+            set_values={"status": "active"},
+            event_item=ReleaseStateEvent(
+                pk="RELEASE#service-a",
+                sk="EVENT#1",
+                version=9007199254740992,
+            ),
+            event_binding={"version": "nextVersion"},
+        )
+
+    assert client.calls == []
+
+    client.expect("transact_write_items", None, response={})
+    transition_release_state(
+        actual_table,
+        event_table,
+        actual_key={"PK": "RELEASE#service-a", "SK": "ACTUAL"},
+        expected_version=9007199254740992,
+        set_values={"status": "active"},
+        event_item=ReleaseStateEvent(
+            pk="RELEASE#service-a",
+            sk="EVENT#1",
+            version=9007199254740993,
+        ),
+        event_binding={"version": "nextVersion"},
+    )
+
+    assert len(client.calls) == 1
+    client.assert_no_pending()
+
+
 def test_transition_release_state_rejects_stale_next_version_binding() -> None:
     client = FakeDynamoDBClient()
     actual_table = _actual_table(client)

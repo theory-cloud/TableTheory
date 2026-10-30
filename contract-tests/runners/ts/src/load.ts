@@ -178,6 +178,7 @@ function validateStep(
     case "transition_append_event":
       requireTransitionActual(step.actual, `${prefix}: actual`);
       requireTransitionEvent(step.event, `${prefix}: event`);
+      validateOptionalBinding(step.event_binding, `${prefix}: event_binding`);
       break;
     case "validate_provenance":
       requirePlainObject(step.item, `${prefix}: item is required`);
@@ -367,6 +368,18 @@ function requireTransitionEvent(value: unknown, prefix: string): void {
     throw new Error(`${prefix}.model is required`);
   }
   requirePlainObject(event.item, `${prefix}.item is required`);
+}
+
+function validateOptionalBinding(value: unknown, prefix: string): void {
+  if (value === undefined) return;
+  if (!isPlainObject(value)) {
+    throw new Error(`${prefix} must be a map`);
+  }
+  for (const [attribute, source] of Object.entries(value)) {
+    if (typeof source !== "string" || source.length === 0) {
+      throw new Error(`${prefix}.${attribute} must be a non-empty string`);
+    }
+  }
 }
 
 function requirePlainObject(value: unknown, message: string): void {

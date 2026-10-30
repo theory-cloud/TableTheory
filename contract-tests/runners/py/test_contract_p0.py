@@ -4,11 +4,12 @@ import base64
 import hashlib
 import hmac
 import os
+import re
 import time
 from dataclasses import asdict, dataclass, is_dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Mapping, cast
 
 import boto3
 import pytest
@@ -522,7 +523,12 @@ class _TheorydbPyDriver:
             )
         raise ValidationError(f"unsupported transact_write action: {kind}")
 
-    def transition_append_event(self, actual: dict[str, Any], event: dict[str, Any]) -> None:
+    def transition_append_event(
+        self,
+        actual: dict[str, Any],
+        event: dict[str, Any],
+        event_binding: Mapping[str, str] | None = None,
+    ) -> None:
         transition_release_state(
             self._table(actual["model"]),
             self._table(event["model"]),
@@ -530,6 +536,7 @@ class _TheorydbPyDriver:
             expected_version=actual.get("expected_version"),
             set_values=actual["set"],
             event_item=self._item(event["model"], event["item"]),
+            event_binding=event_binding,
         )
 
     def validate_provenance(self, model: str, item: dict[str, Any]) -> None:
@@ -577,7 +584,19 @@ class _TheorydbPyDriver:
                 }
         if model not in _MODEL_CLASSES:
             raise AssertionError(f"unknown model: {model}")
-        return _MODEL_CLASSES[model](**_to_python_kwargs(model, kwargs))
+        python_kwargs = _to_python_kwargs(model, kwargs)
+        # Scenario YAML keeps integers above 2^53 as quoted decimal strings so
+        # every parser stays exact. Convert only N-typed attributes; S values
+        # stay strings and keep their DynamoDB type discriminator.
+        for attr in _MODEL_DEFINITIONS[model].attributes.values():
+            value = python_kwargs.get(attr.python_name)
+            if attr.storage_type != "N" or not isinstance(value, str):
+                continue
+            if re.fullmatch(r"-?\d+", value):
+                python_kwargs[attr.python_name] = int(value)
+            else:
+                python_kwargs[attr.python_name] = Decimal(value)
+        return _MODEL_CLASSES[model](**python_kwargs)
 
 
 @pytest.mark.parametrize("scenario", _load_scenarios(), ids=lambda scenario: str(scenario["name"]))
@@ -946,7 +965,13 @@ def _run_step(
         return
 
     if step["op"] == "transition_append_event":
-        error = _capture_error(lambda: driver.transition_append_event(step["actual"], step["event"]))
+        error = _capture_error(
+            lambda: driver.transition_append_event(
+                step["actual"],
+                step["event"],
+                step.get("event_binding"),
+            )
+        )
         _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
         return
 

@@ -47,6 +47,7 @@ type Step struct {
 	TransactWrite       *TransactWriteRequest `yaml:"transact_write"`
 	Actual              *TransitionActual     `yaml:"actual"`
 	Event               *TransitionEvent      `yaml:"event"`
+	EventBinding        map[string]string     `yaml:"event_binding"`
 	Ms                  int                   `yaml:"ms"`
 	Save                map[string]string     `yaml:"save"`
 	Expect              Expectation           `yaml:"expect"`

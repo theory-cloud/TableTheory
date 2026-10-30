@@ -71,6 +71,7 @@ export interface Driver {
   transitionAppendEvent(
     actual: TransitionActual,
     event: TransitionEvent,
+    eventBinding?: Record<string, string>,
   ): Promise<void>;
   validateProvenance(
     model: string,
@@ -458,15 +459,36 @@ export class TheorydbDriver implements Driver {
   async transitionAppendEvent(
     actual: TransitionActual,
     event: TransitionEvent,
+    eventBinding?: Record<string, string>,
   ): Promise<void> {
     await transitionReleaseState(this.client, {
       actualModel: actual.model,
       actualKey: actual.key,
       set: actual.set,
       eventModel: event.model,
-      eventItem: event.item,
+      eventItem: this.exactNumericTransitionItem(event.model, event.item),
       expectedVersion: actual.expectedVersion,
+      eventBinding,
     });
+  }
+
+  // Scenario YAML keeps integers above 2^53 as quoted decimal strings so every
+  // parser stays exact. Convert only N-typed event attributes to bigint; S
+  // attributes stay strings, preserving the DynamoDB type discriminator.
+  private exactNumericTransitionItem(
+    modelName: string,
+    item: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const model = this.requireScenarioModel(modelName);
+    const out = { ...item };
+    for (const [attribute, schema] of model.attributes) {
+      if (schema.type !== "N") continue;
+      const value = out[attribute];
+      if (typeof value === "string" && /^-?\d+$/.test(value)) {
+        out[attribute] = BigInt(value);
+      }
+    }
+    return out;
   }
 
   async validateProvenance(
