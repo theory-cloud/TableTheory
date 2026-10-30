@@ -191,6 +191,13 @@ export function envelopeToAttributeValue(
   };
 }
 
+/** Parses a stored envelope map into the provider's envelope shape. */
+export function envelopeFromAttributeValue(
+  av: AttributeValue,
+): EncryptedEnvelope {
+  return parseEnvelope(av);
+}
+
 export function modelHasEncryptedAttributes(model: Model): boolean {
   return model.schema.attributes.some((a) => a.encryption !== undefined);
 }
@@ -337,6 +344,12 @@ function parseEnvelope(av: AttributeValue): EncryptedEnvelope {
     throw new TheorydbError(
       'ErrInvalidEncryptedEnvelope',
       'Invalid envelope nonce',
+    );
+  }
+  if (nonce.B.length !== 12) {
+    throw new TheorydbError(
+      'ErrInvalidEncryptedEnvelope',
+      `Invalid envelope nonce length ${nonce.B.length}`,
     );
   }
   if (!ct || !('B' in ct) || !ct.B) {
