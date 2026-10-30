@@ -181,6 +181,8 @@ func TestProjectScopedAPIKeyCannotRecordUsageForAnotherProject(t *testing.T) {
 		OrgID:     testOrgID,
 		KeyID:     "key#one",
 		ProjectID: "project#assigned",
+		Active:    true,
+		RateLimit: 1000,
 	}
 	db := newAuthzTestDB(t)
 	require.NoError(t, db.Model(key).Create())
