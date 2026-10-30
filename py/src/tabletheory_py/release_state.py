@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from botocore.exceptions import ClientError
@@ -335,26 +337,91 @@ def _binding_values_equal(left: Any, right: Any) -> bool:
         return False
     if left == right:
         return True
-    left_number = _numeric_value(left)
-    right_number = _numeric_value(right)
+
+    left_kind = _attribute_value_discriminator(left)
+    right_kind = _attribute_value_discriminator(right)
+    if left_kind is not None and right_kind is not None:
+        # Serialized AttributeValues keep their DynamoDB type. Only the same
+        # discriminator may compare, so S never satisfies N.
+        if left_kind != right_kind:
+            return False
+        return _same_discriminator_values_equal(left_kind, left, right)
+    if left_kind is not None or right_kind is not None:
+        # A serialized AttributeValue may match a plain numeric transition
+        # value only when it is N; strings are never parsed as numbers.
+        if left_kind != "N" and right_kind != "N":
+            return False
+        left_number = _exact_number(left)
+        right_number = _exact_number(right)
+        return left_number is not None and right_number is not None and left_number == right_number
+
+    left_number = _exact_number(left)
+    right_number = _exact_number(right)
     return left_number is not None and right_number is not None and left_number == right_number
 
 
-def _numeric_value(value: Any) -> float | None:
+def _attribute_value_discriminator(value: Any) -> str | None:
     if isinstance(value, Mapping) and len(value) == 1:
-        kind, inner = next(iter(value.items()))
-        if kind != "N" or isinstance(inner, bool):
-            return None
-        try:
-            return float(inner)
-        except (TypeError, ValueError):
-            return None
-    scalar = value
-    if scalar is None or isinstance(scalar, bool):
-        return None
-    if isinstance(scalar, (int, float)):
-        return float(scalar)
+        kind = next(iter(value))
+        if isinstance(kind, str):
+            return kind
     return None
+
+
+def _same_discriminator_values_equal(kind: str, left: Any, right: Any) -> bool:
+    if kind == "N":
+        left_number = _exact_number(left)
+        right_number = _exact_number(right)
+        return left_number is not None and right_number is not None and left_number == right_number
+    if kind == "M":
+        left_map = left[kind]
+        right_map = right[kind]
+        if not isinstance(left_map, Mapping) or not isinstance(right_map, Mapping):
+            return False
+        if set(left_map) != set(right_map):
+            return False
+        return all(_binding_values_equal(left_map[key], right_map[key]) for key in left_map)
+    if kind == "L":
+        left_list = left[kind]
+        right_list = right[kind]
+        if not isinstance(left_list, list) or not isinstance(right_list, list):
+            return False
+        if len(left_list) != len(right_list):
+            return False
+        return all(
+            _binding_values_equal(left_item, right_item)
+            for left_item, right_item in zip(left_list, right_list, strict=True)
+        )
+    return False
+
+
+def _exact_number(value: Any) -> Decimal | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, Mapping):
+        if _attribute_value_discriminator(value) != "N":
+            return None
+        inner = value["N"]
+        if isinstance(inner, bool):
+            return None
+        if isinstance(inner, str):
+            return _decimal_string(inner)
+        return _exact_number(inner)
+    if isinstance(value, Decimal):
+        return value if value.is_finite() else None
+    if isinstance(value, int):
+        return Decimal(value)
+    if isinstance(value, float):
+        return Decimal(value) if math.isfinite(value) else None
+    return None
+
+
+def _decimal_string(value: str) -> Decimal | None:
+    try:
+        parsed = Decimal(value)
+    except (InvalidOperation, ValueError):
+        return None
+    return parsed if parsed.is_finite() else None
 
 
 def validate_deploy_authority_metadata(item: Mapping[str, Any]) -> None:
