@@ -11,6 +11,7 @@ await import('./unit/marshal.test.js');
 await import('./unit/preflight.test.js');
 await import('./unit/preflight-conformance.test.js');
 await import('./unit/lifecycle-clock-conformance.test.js');
+await import('./unit/condition-composition.test.js');
 await import('./unit/client.test.js');
 await import('./unit/dynamo-error-cancellation.test.js');
 await import('./unit/query-builder.test.js');

@@ -1123,23 +1123,47 @@ function composeConditions(
     };
   }
 
-  let expression = suppliedExpression as string;
-  for (const [placeholder, attribute] of Object.entries(suppliedNames ?? {})) {
-    let target = placeholder;
-    if (target in names) {
-      target = nextPlaceholder('#caller', names);
-      expression = replacePlaceholder(expression, placeholder, target);
+  const callerNames = suppliedNames ?? {};
+  const callerValues = suppliedValues ?? {};
+
+  // Reserve every caller placeholder before rewriting anything. A name this pass
+  // allocates is therefore never a name a later rule still has to move, which is
+  // what made the previous loop cascade: renaming `#a` to `#caller1` could turn
+  // a caller-supplied `#caller1` into a second collision and pull the predicate
+  // that used it onto a different attribute.
+  const takenNames = new Set([
+    ...Object.keys(names),
+    ...Object.keys(callerNames),
+  ]);
+  const takenValues = new Set([
+    ...Object.keys(values),
+    ...Object.keys(callerValues),
+  ]);
+
+  const renames = new Map<string, string>();
+  for (const placeholder of Object.keys(callerNames)) {
+    if (placeholder in names) {
+      const target = nextFreePlaceholder('#caller', takenNames);
+      takenNames.add(target);
+      renames.set(placeholder, target);
     }
-    names[target] = attribute;
+    names[renames.get(placeholder) ?? placeholder] = callerNames[placeholder]!;
   }
-  for (const [placeholder, value] of Object.entries(suppliedValues ?? {})) {
-    let target = placeholder;
-    if (target in values) {
-      target = nextPlaceholder(':caller', values);
-      expression = replacePlaceholder(expression, placeholder, target);
+  for (const [placeholder, value] of Object.entries(callerValues)) {
+    if (placeholder in values) {
+      const target = nextFreePlaceholder(':caller', takenValues);
+      takenValues.add(target);
+      renames.set(placeholder, target);
     }
-    values[target] = value;
+    values[renames.get(placeholder) ?? placeholder] = value;
   }
+
+  // One pass over the caller expression, so a replacement is never rescanned by
+  // another rule and no two caller predicates can collapse onto one placeholder.
+  const expression =
+    renames.size === 0
+      ? (suppliedExpression as string)
+      : rewritePlaceholders(suppliedExpression as string, renames);
 
   if (!generated.conditionExpression) {
     return { conditionExpression: expression, names, values };
@@ -1151,21 +1175,22 @@ function composeConditions(
   };
 }
 
-function replacePlaceholder(
+function rewritePlaceholders(
   expression: string,
-  from: string,
-  to: string,
+  renames: ReadonlyMap<string, string>,
 ): string {
-  const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return expression.replace(new RegExp(`${escaped}(?![A-Za-z0-9_])`, 'g'), to);
+  return expression.replace(
+    /[#:][A-Za-z0-9_]+/g,
+    (token) => renames.get(token) ?? token,
+  );
 }
 
-function nextPlaceholder(
+function nextFreePlaceholder(
   prefix: string,
-  used: Record<string, unknown>,
+  used: ReadonlySet<string>,
 ): string {
   let index = 1;
-  while (`${prefix}${index}` in used) index += 1;
+  while (used.has(`${prefix}${index}`)) index += 1;
   return `${prefix}${index}`;
 }
 
