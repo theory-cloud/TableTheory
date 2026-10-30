@@ -311,6 +311,26 @@ func TestRevokedKeyIsDenied(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
+// TestRecordUsageWithoutKeyIdentityIsControlled invokes the handler directly,
+// bypassing the router's principal gate, to prove the handler itself never
+// panics on a missing identity and creates no usage row.
+func TestRecordUsageWithoutKeyIdentityIsControlled(t *testing.T) {
+	db := newPrincipalTestDB(t, testOrganization(), testProject("project#one", "One"))
+	req := principalRequest(http.MethodPost, "/organizations/acme/resources", "", "",
+		`{"project_id":"project#one","type":"api_call","quantity":1}`)
+	req = mux.SetURLVars(req, map[string]string{"org_id": testOrgID})
+	rec := httptest.NewRecorder()
+
+	require.NotPanics(t, func() {
+		NewResourceHandler(db).RecordUsage(rec, req)
+	})
+	require.Equal(t, http.StatusForbidden, rec.Code)
+
+	count, err := db.Model(&models.Resource{}).Where("OrgID", "=", testOrgID).Count()
+	require.NoError(t, err)
+	require.Zero(t, count, "a request without key identity must not record usage")
+}
+
 // TestHandlersRejectNonActiveUsersWithoutRouter proves the active-status check
 // lives in the shared principal helper, not only in router middleware, so a
 // direct handler invocation cannot bypass it.

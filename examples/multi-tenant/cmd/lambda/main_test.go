@@ -170,18 +170,20 @@ func TestHTTPRequest_MapsEventToRequest(t *testing.T) {
 }
 
 // TestHTTPRequest_CopiesAuthorizerContext proves the Lambda adapter carries the
-// authorizer's tenant IDs onto the request context. The handlers read these
-// exact string keys; without the copy the deployed path would lose the caller's
-// organization and could not enforce it.
+// authorizer's tenant and key identities onto the request context. The handlers
+// read these exact string keys; without the copy the deployed path would lose
+// the caller's organization or API-key identity and could not enforce or record
+// it. Only the explicit allowlist is copied.
 func TestHTTPRequest_CopiesAuthorizerContext(t *testing.T) {
 	event := events.APIGatewayProxyRequest{
 		HTTPMethod: "GET",
 		Path:       "/organizations/org%23demo",
 		RequestContext: events.APIGatewayProxyRequestContext{
 			Authorizer: map[string]interface{}{
-				"user_id": "user#user123",
-				"org_id":  "org#orgabc",
-				"ignored": 42,
+				"user_id":    "user#user123",
+				"org_id":     "org#orgabc",
+				"api_key_id": "key#abc",
+				"ignored":    42,
 			},
 		},
 	}
@@ -191,6 +193,7 @@ func TestHTTPRequest_CopiesAuthorizerContext(t *testing.T) {
 
 	assert.Equal(t, "user#user123", request.Context().Value("user_id"))
 	assert.Equal(t, "org#orgabc", request.Context().Value("org_id"))
+	assert.Equal(t, "key#abc", request.Context().Value("api_key_id"))
 	// Non-string values are not copied.
 	assert.Nil(t, request.Context().Value("ignored"))
 }
@@ -204,6 +207,7 @@ func TestHTTPRequest_NoAuthorizerContext(t *testing.T) {
 
 	assert.Nil(t, request.Context().Value("org_id"))
 	assert.Nil(t, request.Context().Value("user_id"))
+	assert.Nil(t, request.Context().Value("api_key_id"))
 }
 
 func TestRecorder_CapturesStatusHeadersAndBody(t *testing.T) {
