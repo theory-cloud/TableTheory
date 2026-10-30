@@ -311,6 +311,9 @@ These checks are security corrections, not feature flags.
 - Merchants with non-HTTPS or private-network webhook URLs stop receiving
   deliveries. Update the stored URL to a public HTTPS endpoint. There is no
   environment opt-out.
+- Create the `UsageCounters` table with partition key `id` and enable TTL on
+  `expiresAt` alongside the existing payment tables. The example registers the
+  model but deliberately does not provision tables.
 - The new `UsageCounters` rows are additive and harmless if unused. Reverting the
   enforcement restores the original exposure; roll forward with corrected policy
   instead of restoring the unsafe behavior.
