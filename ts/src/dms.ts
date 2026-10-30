@@ -51,12 +51,33 @@ export function parseDmsDocument(raw: string): DmsDocument {
       'DMS document must include models[]',
     );
   }
-  for (const model of doc.models) {
+  const models = doc.models.map((model) => {
     validateDmsNamingConvention(model);
-    defineModel(model);
-  }
+    const normalized = normalizeJsonStringModeModel(model);
+    defineModel(normalized);
+    return normalized;
+  });
 
-  return doc as DmsDocument;
+  return { ...doc, models } as DmsDocument;
+}
+
+// normalizeJsonStringModeModel preserves the DMS json_string_mode wire hint on
+// the schema consumers receive, expressed as the runtime jsonStringMode
+// property. A conflicting pair is refused rather than silently preferring one.
+function normalizeJsonStringModeModel(model: ModelSchema): ModelSchema {
+  const attributes = model.attributes.map((attr) => {
+    const camel = attr.jsonStringMode;
+    const snake = attr.json_string_mode;
+    if (camel !== undefined && snake !== undefined && camel !== snake) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        `jsonStringMode and json_string_mode conflict: ${attr.attribute}`,
+      );
+    }
+    const mode = camel ?? snake;
+    return mode === undefined ? attr : { ...attr, jsonStringMode: mode };
+  });
+  return { ...model, attributes };
 }
 
 export function getDmsModel(doc: DmsDocument, name: string): ModelSchema {
