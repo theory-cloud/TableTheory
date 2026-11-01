@@ -81,9 +81,10 @@ already-exists outcome the call returns for a table without TTL. Repeating a
 local provisioning step (or a multi-tenant test that recreates its schema) must
 not fail.
 
-- **Go:** `DB.CreateTable`, `schema.Manager.EnableTTL`, and
-  `schema.Manager.UpdateTable` sync TTL; `DB.EnsureTable` creates only when the
-  table is missing.
+- **Go:** `DB.CreateTable`, `DB.EnsureTable`, `schema.Manager.EnableTTL`, and
+  `schema.Manager.UpdateTable` sync TTL. `DB.EnsureTable` creates a missing
+  table and, when the table already exists and the model defines a `ttl` role,
+  enables TTL on that attribute.
 - **TypeScript:** `createTable`, `ensureTable`, `updateTimeToLive`
 - **Python:** `create_table`, `ensure_table`, `update_time_to_live`
 
@@ -92,6 +93,25 @@ fails with a validation error that names both the model attribute and the
 attribute that is currently enabled. TableTheory never silently switches the TTL
 attribute: disable TTL on the existing attribute first if the change is
 intended. Item storage is unchanged by this provisioning behavior.
+
+The error is typed in every runtime:
+
+| Runtime | Error surface | Classification |
+| --- | --- | --- |
+| Go | `errors.ErrTTLAttributeMismatch` (`errors.Is`-comparable) | also matches `errors.ErrInvalidModel` |
+| TypeScript | `TheorydbError` with `code: "ErrInvalidModel"` | `ErrInvalidModel` |
+| Python | `ValidationError` | `ValidationError` |
+
+`CreateTable` and `EnsureTable` surface the same error in all three runtimes for
+this conflict; the shared contract scenario
+`p0/22-ttl-different-attribute-error.yml` enforces it.
+
+> **Go behavior change:** before this alignment, `DB.EnsureTable` returned `nil`
+> for an existing table and never touched TTL. It now enables TTL on an existing
+> table whose TTL is disabled, and returns `ErrTTLAttributeMismatch` when TTL is
+> enabled on a different attribute. Callers that intentionally manage TTL outside
+> TableTheory and rely on `EnsureTable` leaving it untouched should provision with
+> `CreateTable` or call `EnsureTable` only for tables without a `ttl` role.
 
 ## DynamoDB's TTL behavior
 

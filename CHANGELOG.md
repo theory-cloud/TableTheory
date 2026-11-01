@@ -69,6 +69,11 @@
 
 ### Bug Fixes
 
+* **go:** make `DB.EnsureTable` converge TTL on an existing table and return the exported
+  `errors.ErrTTLAttributeMismatch` when TTL is enabled on a different attribute; `CreateTable` now returns the same
+  typed error instead of a plain wrapped service error, matching TypeScript's `ErrInvalidModel` and Python's
+  `ValidationError`. The exported sentinel also matches `errors.ErrInvalidModel` via `errors.Is`, and the shared P0
+  contract now enforces the conflict in all three runtimes
 * **go:** refuse data-copying `AutoMigrateWithOptions` migrations that would write plaintext into a target
   `theorydb:"encrypted"` field, before any table is created or any row is copied, and encrypt plaintext through the
   configured session KMS key when one is present

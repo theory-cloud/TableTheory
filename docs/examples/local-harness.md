@@ -226,11 +226,5 @@ variables, because the harness owns that environment.
 
 ## Known gaps
 
-- `CreateTable` is not idempotent for a model with a TTL field: when the table
-  already exists with TTL enabled, AWS returns `ValidationException:
-  TimeToLive is already enabled` from the TTL sync inside `CreateTable`. The
-  multi-tenant example therefore provisions tables with `EnsureTable` (create if
-  missing) and treats `ResourceInUseException` as typed success. A library-level
-  fix is tracked separately.
 - DynamoDB Local has no Streams, so stream-delivery paths are `L3` with the
   named gap "managed stream delivery" from T4a onward.
