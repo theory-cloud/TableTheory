@@ -73,6 +73,7 @@ from tabletheory_py import (
     ValidationError,
     VersionConflictError,
     auto_migrate,
+    create_table,
     theorydb_field,
     transition_release_state,
     validate_deploy_authority_metadata,
@@ -404,6 +405,9 @@ class _TheorydbPyDriver:
                 **kwargs,
             )
         return self.tables[model]
+
+    def create_table(self, model: str) -> None:
+        create_table(_MODEL_DEFINITIONS[model], client=self.client)
 
     def create(self, model: str, item: dict[str, Any], *, if_not_exists: bool = False) -> None:
         self._validate_release_state_metadata_if_present(model, item)
@@ -1101,6 +1105,11 @@ def _run_step(
                 request.get("encryption"),
             )
         )
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "create_table":
+        error = _capture_error(lambda: driver.create_table(model_name))
         _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
         return
 

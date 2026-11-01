@@ -212,6 +212,8 @@ function validateStep(
         throw new Error(`${prefix}: migrate.source_table is required`);
       }
       break;
+    case "create_table":
+      break;
     case "dms_parse":
     case "dms_get":
       requirePlainObject(step.dms, `${prefix}: dms is required`);

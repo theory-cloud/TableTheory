@@ -2,15 +2,28 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
+
+// timeToLiveDescriber is satisfied by the real DynamoDB client. It is kept
+// separate from session.DynamoDBAPI so narrow test doubles and existing
+// implementations of that interface keep working.
+type timeToLiveDescriber interface {
+	DescribeTimeToLive(
+		ctx context.Context,
+		params *dynamodb.DescribeTimeToLiveInput,
+		optFns ...func(*dynamodb.Options),
+	) (*dynamodb.DescribeTimeToLiveOutput, error)
+}
 
 // EnableTTL enables DynamoDB TTL for the ttl-tagged field on an existing model table.
 func (m *Manager) EnableTTL(modelValue any) error {
@@ -37,21 +50,73 @@ func (m *Manager) syncModelTTL(ctx context.Context, client session.DynamoDBAPI, 
 		return nil
 	}
 
+	attributeName := metadata.TTLField.DBName
 	_, err := client.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
 		TableName: aws.String(metadata.TableName),
 		TimeToLiveSpecification: &types.TimeToLiveSpecification{
-			AttributeName: aws.String(metadata.TTLField.DBName),
+			AttributeName: aws.String(attributeName),
 			Enabled:       aws.Bool(true),
 		},
 	})
-	if err != nil {
-		return fmt.Errorf(
-			"failed to enable ttl on table %s using attribute %s: %w",
-			metadata.TableName,
-			metadata.TTLField.DBName,
-			err,
-		)
+	if err == nil {
+		return nil
 	}
 
-	return nil
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) && apiErr.ErrorCode() == "ValidationException" {
+		if handled, resolved := resolveTTLValidationFailure(ctx, client, metadata.TableName, attributeName, err); handled {
+			return resolved
+		}
+	}
+
+	return fmt.Errorf(
+		"failed to enable ttl on table %s using attribute %s: %w",
+		metadata.TableName,
+		attributeName,
+		err,
+	)
+}
+
+// resolveTTLValidationFailure turns the two "TTL is already in the desired
+// state" validation outcomes into an idempotent success while keeping a
+// distinct-attribute conflict a hard error. DescribeTimeToLive is consulted
+// instead of matching the service message text.
+func resolveTTLValidationFailure(
+	ctx context.Context,
+	client session.DynamoDBAPI,
+	tableName string,
+	attributeName string,
+	cause error,
+) (bool, error) {
+	describer, ok := client.(timeToLiveDescriber)
+	if !ok {
+		return false, nil
+	}
+
+	out, err := describer.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	if err != nil || out == nil || out.TimeToLiveDescription == nil {
+		return false, nil
+	}
+
+	description := out.TimeToLiveDescription
+	switch description.TimeToLiveStatus {
+	case types.TimeToLiveStatusEnabled, types.TimeToLiveStatusEnabling:
+	default:
+		return false, nil
+	}
+
+	currentAttribute := aws.ToString(description.AttributeName)
+	if currentAttribute == attributeName {
+		return true, nil
+	}
+
+	return true, fmt.Errorf(
+		"failed to enable ttl on table %s using attribute %s: ttl is already enabled on a different attribute %s: %w",
+		tableName,
+		attributeName,
+		currentAttribute,
+		cause,
+	)
 }

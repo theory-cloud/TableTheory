@@ -227,6 +227,121 @@ def test_create_table_maps_validation_exception(model: ModelDefinition[object]) 
     client.assert_no_pending()
 
 
+def test_update_time_to_live_already_enabled_same_attribute_is_idempotent(
+    ttl_model: ModelDefinition[object],
+) -> None:
+    client = FakeDynamoDBClient()
+    client.expect(
+        "update_time_to_live",
+        {
+            "TableName": "ttl_tbl",
+            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
+        },
+        error=ClientError(
+            {"Error": {"Code": "ValidationException", "Message": "TimeToLive is already enabled"}},
+            "UpdateTimeToLive",
+        ),
+    )
+    client.expect(
+        "describe_time_to_live",
+        {"TableName": "ttl_tbl"},
+        response={
+            "TimeToLiveDescription": {
+                "TimeToLiveStatus": "ENABLED",
+                "AttributeName": "expires_at",
+            }
+        },
+    )
+
+    update_time_to_live(ttl_model, client=client)
+    client.assert_no_pending()
+
+
+def test_update_time_to_live_different_attribute_raises_clear_error(
+    ttl_model: ModelDefinition[object],
+) -> None:
+    client = FakeDynamoDBClient()
+    client.expect(
+        "update_time_to_live",
+        {"TableName": "ttl_tbl"},
+        error=ClientError(
+            {
+                "Error": {
+                    "Code": "ValidationException",
+                    "Message": "TimeToLive is active on a different AttributeName",
+                }
+            },
+            "UpdateTimeToLive",
+        ),
+    )
+    client.expect(
+        "describe_time_to_live",
+        {"TableName": "ttl_tbl"},
+        response={
+            "TimeToLiveDescription": {
+                "TimeToLiveStatus": "ENABLED",
+                "AttributeName": "legacy_ttl",
+            }
+        },
+    )
+
+    with pytest.raises(ValidationError) as excinfo:
+        update_time_to_live(ttl_model, client=client)
+
+    message = str(excinfo.value)
+    assert "different attribute" in message
+    assert "expires_at" in message
+    assert "legacy_ttl" in message
+    client.assert_no_pending()
+
+
+def test_update_time_to_live_describe_failure_keeps_original_error(
+    ttl_model: ModelDefinition[object],
+) -> None:
+    client = FakeDynamoDBClient()
+    client.expect(
+        "update_time_to_live",
+        {"TableName": "ttl_tbl"},
+        error=ClientError(
+            {"Error": {"Code": "ValidationException", "Message": "TimeToLive is already enabled"}},
+            "UpdateTimeToLive",
+        ),
+    )
+    client.expect(
+        "describe_time_to_live",
+        {"TableName": "ttl_tbl"},
+        error=ClientError(
+            {"Error": {"Code": "InternalServerError", "Message": "describe failed"}},
+            "DescribeTimeToLive",
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="TimeToLive is already enabled"):
+        update_time_to_live(ttl_model, client=client)
+    client.assert_no_pending()
+
+
+def test_update_time_to_live_disable_does_not_describe(
+    ttl_model: ModelDefinition[object],
+) -> None:
+    client = FakeDynamoDBClient()
+    client.expect(
+        "update_time_to_live",
+        {
+            "TableName": "ttl_tbl",
+            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": False},
+        },
+        error=ClientError(
+            {"Error": {"Code": "ValidationException", "Message": "TimeToLive is not enabled"}},
+            "UpdateTimeToLive",
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="TimeToLive is not enabled"):
+        update_time_to_live(ttl_model, client=client, enabled=False)
+    client.assert_no_pending()
+
+
 def test_ensure_table_waits_for_active_when_table_exists(model: ModelDefinition[object]) -> None:
     client = FakeDynamoDBClient()
     client.expect("describe_table", {"TableName": "tbl"}, response={"Table": {"TableStatus": "CREATING"}})
@@ -412,9 +527,15 @@ def test_update_time_to_live_maps_validation_exception(ttl_model: ModelDefinitio
             {"Error": {"Code": "ValidationException", "Message": "bad ttl"}}, "UpdateTimeToLive"
         ),
     )
+    client.expect(
+        "describe_time_to_live",
+        {"TableName": "ttl_tbl"},
+        response={"TimeToLiveDescription": {"TimeToLiveStatus": "DISABLED"}},
+    )
 
     with pytest.raises(ValidationError, match="bad ttl"):
         update_time_to_live(ttl_model, client=client)
+    client.assert_no_pending()
 
 
 def test_schema_operations_require_table_name_when_model_has_none(model: ModelDefinition[object]) -> None:
