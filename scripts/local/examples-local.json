@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "profile": {
+    "name": "tabletheory-examples-local",
+    "composeFile": "scripts/local/docker-compose.yml",
+    "dynamodbLocal": {
+      "image": "amazon/dynamodb-local:3.1.0",
+      "port": 8123
+    }
+  },
+  "entrypoints": {
+    "examples/local-quickstart/main.go": {
+      "run": "go-local-quickstart",
+      "class": "L1",
+      "description": "Go CRUD quickstart: create, read, update and delete one note on DynamoDB Local."
+    },
+    "examples/cdk-multilang/local/run-local.sh": {
+      "run": "shell-cdk-multilang-local",
+      "class": "L1",
+      "description": "Cross-language no-drift check: Go writes one item, TypeScript and Python read the same shape back, and the generated CDK construct is drift-checked."
+    },
+    "examples/cdk-multilang/local/go/writer.go": {
+      "coveredBy": "examples/cdk-multilang/local/run-local.sh",
+      "class": "L1",
+      "description": "Go writer half of the cross-language no-drift check; executed inside run-local.sh."
+    },
+    "examples/multi-tenant/cmd/local/main.go": {
+      "run": "multi-tenant-http",
+      "class": "L1",
+      "description": "Multi-tenant API as a real HTTP server: health, JWT authorizer refusals, organization creation and authenticated reads with real tenant-isolation responses."
+    },
+    "examples/multi-tenant/cmd/lambda/main.go": {
+      "run": "multi-tenant-lambda",
+      "class": "L1",
+      "description": "Lambda adapter driven through its route-matrix tests: API Gateway proxy events, loopback HTTP through the shared router, and the warm API-key authorizer."
+    },
+    "examples/multi-tenant/cmd/token/main.go": {
+      "run": "multi-tenant-token",
+      "class": "L1",
+      "description": "Token CLI: mints the HS256 bearer token the local server verifies, and refuses incomplete arguments."
+    },
+    "ts/examples/local.ts": {
+      "run": "ts-local",
+      "class": "L1",
+      "description": "TypeScript runtime CRUD example: table creation, conditional create, query paging, update and delete."
+    },
+    "py/examples/local_crud.py": {
+      "run": "py-local-crud",
+      "class": "L1",
+      "description": "Python runtime CRUD example: table creation, put, get and a sort-key begins_with query."
+    },
+    "examples/basic/contacts/main.go": {
+      "pending": "T2",
+      "description": "Interactive contacts CLI; T2 adds a scripted non-interactive transcript with output assertions."
+    },
+    "examples/basic/notes/main.go": {
+      "pending": "T2",
+      "description": "Interactive notes CLI; T2 adds a scripted non-interactive transcript with output assertions."
+    },
+    "examples/basic/todo/main.go": {
+      "pending": "T2",
+      "description": "Interactive todo CLI; T2 adds a scripted non-interactive transcript with output assertions."
+    },
+    "examples/initialization/main.go": {
+      "pending": "T2",
+      "description": "Initialization demo; T2 gives the local path a real operation and a real success signal."
+    },
+    "examples/optimization/main.go": {
+      "pending": "T2",
+      "description": "Query-planner demo; T2 classifies it as a library demo that runs without DynamoDB."
+    },
+    "examples/release-state/main.go": {
+      "pending": "T2",
+      "description": "Release-state registry; T2 adds a real TransactWrite driver on DynamoDB Local."
+    },
+    "examples/typed-go/main.go": {
+      "pending": "T2",
+      "description": "Typed generics demo; T2 adds a driver for typedFlow with table creation."
+    },
+    "ts/examples/release-state.ts": {
+      "pending": "T2",
+      "description": "TypeScript release-state registry; T2 adds the DynamoDB Local driver."
+    },
+    "py/examples/gsi_query.py": {
+      "pending": "T2",
+      "description": "Python GSI query demo; T2 runs it against DynamoDB Local."
+    },
+    "py/examples/release_state.py": {
+      "pending": "T2",
+      "description": "Python release-state registry; T2 adds the DynamoDB Local driver."
+    },
+    "examples/encryption/main.go": {
+      "pending": "T3",
+      "description": "KMS envelope round-trip; T3 selects a KMS emulator or records the named cloud gap."
+    },
+    "examples/lambda/main.go": {
+      "pending": "T4a",
+      "description": "Lambda handler example; T4a runs it through the Lambda runtime interface with real event payloads."
+    },
+    "examples/payment/lambda/process/handler.go": {
+      "pending": "T4a",
+      "description": "Payment processing handler; T4a provisions tables and invokes it through API Gateway events."
+    },
+    "examples/payment/lambda/query/handler.go": {
+      "pending": "T4a",
+      "description": "Payment query handler; T4a invokes it through API Gateway events."
+    },
+    "examples/payment/lambda/reconcile/handler.go": {
+      "pending": "T4a",
+      "description": "Payment reconcile handler; T4a runs it with generated S3 events on the T3 emulator."
+    },
+    "ts/examples/lambda/handler.ts": {
+      "pending": "T4a",
+      "description": "TypeScript Lambda handler; T4a runs it as a real handler through the runtime interface."
+    },
+    "py/examples/lambda_stream_handler.py": {
+      "pending": "T4a",
+      "description": "Python stream handler; T4a feeds it stream events generated from real local writes (L3: managed stream delivery)."
+    },
+    "examples/blog/authorizer/main.go": {
+      "pending": "T4b",
+      "description": "Blog authorizer Lambda; T4b runs the real authorizer locally with the identity-bypass flag unset."
+    },
+    "examples/blog/cmd/comments/main.go": {
+      "pending": "T4b",
+      "description": "Blog comments Lambda; T4b runs it through the runtime interface against local models."
+    },
+    "examples/blog/cmd/posts/main.go": {
+      "pending": "T4b",
+      "description": "Blog posts Lambda; T4b runs it through the runtime interface against local models."
+    },
+    "examples/cdk-multilang/lambdas/go/main.go": {
+      "pending": "T4b",
+      "description": "Deployed cdk-multilang Go handler; T4b runs it locally with the T3 KMS/S3 emulators."
+    },
+    "examples/cdk-multilang/scripts/smoke.sh": {
+      "pending": "T4b",
+      "description": "Deployed-AWS smoke script: it requires a deployed stack and real credentials, so T4b owns its local replacement."
+    }
+  },
+  "suites": {
+    "examples/multi-tenant": {
+      "run": "multi-tenant-module-tests",
+      "class": "L1",
+      "description": "The example's separate Go module: go test ./... across auth, handlers, cmd and the DynamoDB Local tests package. Handler unit tests use the in-process fake; real-DynamoDB coverage comes from the route-matrix and HTTP rows."
+    }
+  }
+}
