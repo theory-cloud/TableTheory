@@ -2,7 +2,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests example-local examples-local examples-local-down generate-contract-models verify-generated-models generate-api-reference verify-api-reference sync-runtime-docs-site verify-runtime-docs-site verify-generative-artifacts benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests example-local examples-local examples-local-selftest examples-local-down generate-contract-models verify-generated-models generate-api-reference verify-api-reference sync-runtime-docs-site verify-runtime-docs-site verify-generative-artifacts benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory/v6
@@ -64,8 +64,13 @@ example-local: docker-up
 # attaches to an already-running profile), owns the endpoint/credential
 # environment, asserts each example's real outcome, and fails on any skip or
 # unclassified entrypoint.
-examples-local:
+examples-local: examples-local-selftest
 	@python3 ./scripts/local/run_examples_local.py
+
+# Mutation self-tests for the harness classification: a rogue runtime file or a
+# pending row that names a missing file must fail validation.
+examples-local-selftest:
+	@python3 ./scripts/local/test_examples_local.py
 
 # Stop the harness's DynamoDB Local profile container.
 examples-local-down:
@@ -296,6 +301,7 @@ help:
 	@echo "  make contract-tests - Run Go/TypeScript/Python contract suite (requires Docker)"
 	@echo "  make example-local - Start DynamoDB Local and run the Go quickstart CRUD proof"
 	@echo "  make examples-local - Run every classified example against the local harness profile"
+	@echo "  make examples-local-selftest - Prove the harness classification fails closed on mutations"
 	@echo "  make examples-local-down - Stop the harness DynamoDB Local profile container"
 	@echo "  make verify-runtime-docs-site - Check generated TS/Py site doc copies"
 	@echo "  make verify-api-reference - Check generated API reference drift"
