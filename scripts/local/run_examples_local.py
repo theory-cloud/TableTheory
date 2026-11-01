@@ -978,6 +978,42 @@ def run_py_gsi_query(harness: Harness) -> str:
     return "real GSI query returning only the matching partition"
 
 
+def run_go_library_demos(harness: Harness) -> str:
+    planner = harness.run(["go", "run", "./examples/optimization"])
+    expect_output(
+        planner.stdout,
+        [
+            "=== TableTheory Query Optimizer Examples ===",
+            "Example 1: Efficient Query with Partition Key",
+            "Operation: Query",
+            "Optimization Hints:",
+            "Example 8: Adaptive Optimization Demo",
+            "Query Statistics:",
+            "Executions: 20",
+            "After clearing cache:",
+        ],
+        "examples/optimization",
+    )
+
+    expected = {
+        "TestGetUser",
+        "TestGetUser_NotFound",
+        "TestGetActiveUsers",
+        "TestCreateUser",
+        "TestDeactivateUser",
+        "TestWithMatchedBy",
+    }
+    _, passed, _ = _go_test_json(
+        harness, ["./examples/testing"], cwd=ROOT, label="examples/testing"
+    )
+    missing = sorted(expected - passed)
+    if missing:
+        raise HarnessFailure(
+            f"examples/testing: tests did not run: {', '.join(missing)}"
+        )
+    return f"query-planner demo + {len(expected)} mock-based tests passed"
+
+
 def run_multi_tenant_token(harness: Harness) -> str:
     token = mint_token(harness, "user#token-row", "org#token-row")
     header, payload = decode_jwt(token)
@@ -1247,6 +1283,7 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "ts-release-state": run_ts_release_state,
     "py-release-state": run_py_release_state,
     "py-gsi-query": run_py_gsi_query,
+    "go-library-demos": run_go_library_demos,
     "multi-tenant-token": run_multi_tenant_token,
     "multi-tenant-lambda": run_multi_tenant_lambda,
     "multi-tenant-module-tests": run_multi_tenant_module_tests,

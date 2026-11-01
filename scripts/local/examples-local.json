@@ -80,8 +80,14 @@
       "description": "Local initialization mode creates the table and performs a real TableTheory write/read on DynamoDB Local. The aws, profile, minimal and debug modes resolve real AWS defaults; they are the named cloud gap and never run in the harness."
     },
     "examples/optimization/main.go": {
-      "pending": "T2",
-      "description": "Query-planner demo; T2 classifies it as a library demo that runs without DynamoDB."
+      "run": "go-library-demos",
+      "class": "L1",
+      "description": "Library demo: the query planner runs locally without DynamoDB, and the same runner executes the examples/testing mock-based unit-test suite. Fakes here are test doubles for unit tests, not example verification."
+    },
+    "examples/testing/user_service_test.go": {
+      "coveredBy": "examples/optimization/main.go",
+      "class": "L1",
+      "description": "Mock-based unit-test suite demonstrating pkg/mocks; executed by the library-demo runner. It runs locally without DynamoDB by design."
     },
     "examples/release-state/main.go": {
       "run": "go-release-state",
