@@ -371,12 +371,14 @@ lambda-build:
 	@cd build/lambda && zip function.zip bootstrap
 	@echo "Lambda function built: build/lambda/function.zip"
 
-# Test Lambda functionality
+# Lambda helpers live in internal/theorydb. The historical ./lambda_test.go
+# path never existed in the tree; keep the public target names but run the
+# tests and benchmarks where they actually live.
 lambda-test:
 	@echo "Running Lambda tests..."
-	@go test -v ./lambda_test.go -run TestLambda
+	@go test -v ./internal/theorydb -run '^TestLambda'
 
 # Run Lambda benchmarks
 lambda-bench:
 	@echo "Running Lambda benchmarks..."
-	@go test -bench=BenchmarkLambda -benchmem ./lambda_test.go 
+	@go test -bench='^BenchmarkLambda' -benchmem ./internal/theorydb
