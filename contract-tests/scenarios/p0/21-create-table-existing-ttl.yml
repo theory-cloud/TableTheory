@@ -4,15 +4,23 @@ model: "User"
 table:
   name: "users_contract"
 steps:
-  # The runner provisions the table before the steps. The first CreateTable
-  # meets an existing table without TTL and enables TTL from the model.
+  # The runner provisions the table before the steps, without TTL. Enable TTL on
+  # the model's ttl attribute deliberately, the same way a caller or their
+  # infrastructure-as-code does when expiry is intended: provisioning never
+  # turns TTL on for an existing table.
+  - op: update_time_to_live
+    attribute: "ttl"
+    expect:
+      ok: true
+
+  # CreateTable meets an existing table whose TTL is already enabled on the
+  # model attribute. It must return the already-exists outcome (no error), not a
+  # TimeToLive ValidationException.
   - op: create_table
     expect:
       ok: true
 
-  # The second CreateTable meets the same table with TTL already enabled on the
-  # model attribute. It must return the already-exists outcome (no error), not a
-  # TimeToLive ValidationException.
-  - op: create_table
+  # EnsureTable must be idempotent on the same table.
+  - op: ensure_table
     expect:
       ok: true
