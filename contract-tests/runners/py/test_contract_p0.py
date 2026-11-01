@@ -74,6 +74,7 @@ from tabletheory_py import (
     VersionConflictError,
     auto_migrate,
     create_table,
+    ensure_table,
     theorydb_field,
     transition_release_state,
     validate_deploy_authority_metadata,
@@ -408,6 +409,9 @@ class _TheorydbPyDriver:
 
     def create_table(self, model: str) -> None:
         create_table(_MODEL_DEFINITIONS[model], client=self.client)
+
+    def ensure_table(self, model: str) -> None:
+        ensure_table(_MODEL_DEFINITIONS[model], client=self.client)
 
     def create(self, model: str, item: dict[str, Any], *, if_not_exists: bool = False) -> None:
         self._validate_release_state_metadata_if_present(model, item)
@@ -1110,6 +1114,22 @@ def _run_step(
 
     if step["op"] == "create_table":
         error = _capture_error(lambda: driver.create_table(model_name))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "ensure_table":
+        error = _capture_error(lambda: driver.ensure_table(model_name))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "update_time_to_live":
+        attribute = step["attribute"]
+        error = _capture_error(
+            lambda: client.update_time_to_live(
+                TableName=table_name,
+                TimeToLiveSpecification={"AttributeName": attribute, "Enabled": True},
+            )
+        )
         _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
         return
 

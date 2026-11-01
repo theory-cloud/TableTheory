@@ -69,6 +69,7 @@ const (
 type Driver interface {
 	Capabilities() []string
 	CreateTable(ctx context.Context, model string) error
+	EnsureTable(ctx context.Context, model string) error
 	Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error
 	Get(ctx context.Context, model string, key map[string]any) (map[string]any, error)
 	GetOptional(ctx context.Context, model string, key map[string]any) (map[string]any, bool, error)
@@ -364,6 +365,14 @@ func (d *TheorydbDriver) CreateTable(_ context.Context, model string) error {
 		return err
 	}
 	return d.activeDB().CreateTable(instance)
+}
+
+func (d *TheorydbDriver) EnsureTable(_ context.Context, model string) error {
+	instance, err := emptyModel(model)
+	if err != nil {
+		return err
+	}
+	return d.activeDB().EnsureTable(instance)
 }
 
 func (d *TheorydbDriver) Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error {

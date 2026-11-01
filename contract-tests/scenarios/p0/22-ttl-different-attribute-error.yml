@@ -1,0 +1,25 @@
+name: "p0.schema.ttl_different_attribute_error"
+dms_version: "0.2"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  # The runner provisions the table before the steps. Enable TTL on an
+  # attribute that differs from the model's ttl role ("ttl") so the next
+  # provisioning calls meet a table whose TTL is already enabled elsewhere.
+  - op: update_time_to_live
+    attribute: "legacyTtl"
+    expect:
+      ok: true
+
+  # CreateTable must classify the conflict as the invalid-model error, not a
+  # runtime-specific wrapped error.
+  - op: create_table
+    expect:
+      error: "ErrInvalidModel"
+
+  # EnsureTable must surface the same error instead of silently leaving TTL on
+  # the other attribute.
+  - op: ensure_table
+    expect:
+      error: "ErrInvalidModel"

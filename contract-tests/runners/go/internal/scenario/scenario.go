@@ -50,6 +50,7 @@ type Step struct {
 	ProtectedAttributes []string              `yaml:"protected_attributes"`
 	Encryption          string                `yaml:"encryption"`
 	Table               string                `yaml:"table"`
+	Attribute           string                `yaml:"attribute"`
 	RawItem             map[string]any        `yaml:"raw_item"`
 	EnvelopeVersion     int                   `yaml:"envelope_version"`
 	Corrupt             string                `yaml:"corrupt"`
@@ -334,7 +335,11 @@ func validateStep(label string, i int, step Step) error {
 		default:
 			return fmt.Errorf("%s migrate: unsupported encryption %q", prefix, step.Migrate.Encryption)
 		}
-	case "create_table":
+	case "create_table", "ensure_table":
+	case "update_time_to_live":
+		if step.Attribute == "" {
+			return fmt.Errorf("%s update_time_to_live: attribute is required", prefix)
+		}
 	case "dms_parse", "dms_get":
 		if step.Dms == nil {
 			return fmt.Errorf("%s %s: dms is required", prefix, step.Op)

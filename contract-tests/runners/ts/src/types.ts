@@ -83,8 +83,11 @@ export interface Step {
     | "seed_encrypted"
     | "migrate"
     | "dms_parse"
-    | "dms_get";
+    | "dms_get"
+    | "ensure_table"
+    | "update_time_to_live";
   model?: string;
+  attribute?: string;
   if_not_exists?: boolean;
   fields?: string[];
   protected_attributes?: string[];

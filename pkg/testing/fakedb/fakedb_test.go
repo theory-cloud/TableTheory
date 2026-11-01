@@ -435,3 +435,43 @@ func TestScanCountLimitAndCombinedConditions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, avS("one"), got.Item["name"])
 }
+
+func TestTTLStateRejectsDifferentAttribute(t *testing.T) {
+	ctx := context.Background()
+	fake := fakedb.New()
+	tableName := "ttl_fake"
+
+	_, err := fake.CreateTable(ctx, &dynamodb.CreateTableInput{TableName: aws.String(tableName)})
+	require.NoError(t, err)
+
+	_, err = fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String("expiresAt"),
+			Enabled:       aws.Bool(true),
+		},
+	})
+	require.NoError(t, err)
+
+	description, err := fake.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.TimeToLiveStatusEnabled, description.TimeToLiveDescription.TimeToLiveStatus)
+	require.Equal(t, "expiresAt", aws.ToString(description.TimeToLiveDescription.AttributeName))
+
+	_, err = fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String("legacyTtl"),
+			Enabled:       aws.Bool(true),
+		},
+	})
+	require.ErrorContains(t, err, "different AttributeName")
+
+	description, err = fake.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "expiresAt", aws.ToString(description.TimeToLiveDescription.AttributeName))
+}

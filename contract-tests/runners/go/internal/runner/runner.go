@@ -160,6 +160,16 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		r.assertStepResult(t, step.Expect, nil, err, nil, model)
 		return
 
+	case "ensure_table":
+		err := r.driver.EnsureTable(ctx, modelName)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "update_time_to_live":
+		err := r.updateTimeToLive(ctx, tableName, step.Attribute)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
 	case "dms_parse", "dms_get":
 		require.FailNow(t, "DMS scenario op is not supported by the Go runtime")
 		return
@@ -1083,6 +1093,17 @@ func (r *Runner) recreateTable(ctx context.Context, tableName string, model spec
 func isResourceNotFound(err error) bool {
 	var rnfe *types.ResourceNotFoundException
 	return errors.As(err, &rnfe)
+}
+
+func (r *Runner) updateTimeToLive(ctx context.Context, tableName, attribute string) error {
+	_, err := r.ddb.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String(attribute),
+			Enabled:       aws.Bool(true),
+		},
+	})
+	return err
 }
 
 func createTableInput(tableName string, model spec.Model) (*dynamodb.CreateTableInput, error) {

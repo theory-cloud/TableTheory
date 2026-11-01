@@ -10,7 +10,8 @@ import {
 } from '@aws-sdk/client-dynamodb';
 
 import { defineModel } from '../../src/model.js';
-import { createTable, deleteTable } from '../../src/schema.js';
+import { TheorydbError } from '../../src/errors.js';
+import { createTable, deleteTable, ensureTable } from '../../src/schema.js';
 
 const endpoint = process.env.DYNAMODB_ENDPOINT ?? 'http://localhost:8000';
 const skipIntegration =
@@ -120,6 +121,63 @@ try {
     message,
     /different attribute/i,
     `error must explain the conflict: ${message}`,
+  );
+
+  // ensureTable must surface the same typed conflict for an existing table.
+  let ensureConflictError: unknown;
+  try {
+    await ensureTable(ddb, ttlModel);
+  } catch (err) {
+    ensureConflictError = err;
+  }
+  assert.ok(ensureConflictError, 'expected ensureTable to reject the conflict');
+  assert.ok(
+    ensureConflictError instanceof TheorydbError,
+    'ensureTable must raise a TheorydbError',
+  );
+  assert.equal(ensureConflictError.code, 'ErrInvalidModel');
+  const ensureMessage = ensureConflictError.message;
+  assert.match(
+    ensureMessage,
+    /expiresAt/,
+    `ensureTable error must name the model attribute: ${ensureMessage}`,
+  );
+  assert.match(
+    ensureMessage,
+    /LegacyTtl/,
+    `ensureTable error must name the enabled attribute: ${ensureMessage}`,
+  );
+  assert.match(
+    ensureMessage,
+    /different attribute/i,
+    `ensureTable error must explain the conflict: ${ensureMessage}`,
+  );
+
+  await ddb.send(new DeleteTableCommand({ TableName: tableName }));
+
+  // ensureTable must also converge an existing table whose TTL is disabled.
+  await ddb.send(
+    new CreateTableCommand({
+      TableName: tableName,
+      BillingMode: 'PAY_PER_REQUEST',
+      KeySchema: [{ AttributeName: 'ID', KeyType: 'HASH' }],
+      AttributeDefinitions: [{ AttributeName: 'ID', AttributeType: 'S' }],
+    }),
+  );
+  await ensureTable(ddb, ttlModel);
+
+  const afterEnsure = await ddb.send(
+    new DescribeTimeToLiveCommand({ TableName: tableName }),
+  );
+  assert.equal(
+    afterEnsure.TimeToLiveDescription?.TimeToLiveStatus,
+    'ENABLED',
+    'ensureTable must enable TTL on an existing table',
+  );
+  assert.equal(
+    afterEnsure.TimeToLiveDescription?.AttributeName,
+    'expiresAt',
+    'ensureTable must use the model TTL attribute',
   );
 
   await ddb.send(new DeleteTableCommand({ TableName: tableName }));

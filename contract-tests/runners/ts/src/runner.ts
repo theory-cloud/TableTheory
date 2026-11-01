@@ -6,6 +6,7 @@ import {
   DescribeTableCommand,
   GetItemCommand,
   ListTablesCommand,
+  UpdateTimeToLiveCommand,
   type AttributeDefinition,
   type AttributeValue,
   type CreateTableCommandInput,
@@ -145,6 +146,28 @@ async function runStep(opts: {
 
   if (step.op === "create_table") {
     const err = await captureError(() => driver.createTable(modelName));
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "ensure_table") {
+    const err = await captureError(() => driver.ensureTable(modelName));
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "update_time_to_live") {
+    const err = await captureError(async () => {
+      await ddb.send(
+        new UpdateTimeToLiveCommand({
+          TableName: tableName,
+          TimeToLiveSpecification: {
+            AttributeName: step.attribute!,
+            Enabled: true,
+          },
+        }),
+      );
+    });
     assertExpectation(step.expect, { err, model, vars });
     return;
   }

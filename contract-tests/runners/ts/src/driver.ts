@@ -22,7 +22,11 @@ import {
   type Model,
   type ModelSchema,
 } from "../../../../ts/src/model.js";
-import { createTable, describeTable } from "../../../../ts/src/schema.js";
+import {
+  createTable,
+  describeTable,
+  ensureTable,
+} from "../../../../ts/src/schema.js";
 import { autoMigrate } from "../../../../ts/src/schema-migration.js";
 import type { TransactAction } from "../../../../ts/src/transaction.js";
 import {
@@ -56,6 +60,7 @@ export type ErrorCode =
 export interface Driver {
   capabilities(): readonly string[];
   createTable(model: string): Promise<void>;
+  ensureTable(model: string): Promise<void>;
   create(
     model: string,
     item: Record<string, unknown>,
@@ -237,6 +242,10 @@ export class TheorydbDriver implements Driver {
 
   async createTable(model: string): Promise<void> {
     await createTable(this.ddb, this.requireScenarioModel(model));
+  }
+
+  async ensureTable(model: string): Promise<void> {
+    await ensureTable(this.ddb, this.requireScenarioModel(model));
   }
 
   async create(

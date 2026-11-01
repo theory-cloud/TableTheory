@@ -213,6 +213,14 @@ function validateStep(
       }
       break;
     case "create_table":
+    case "ensure_table":
+      break;
+    case "update_time_to_live":
+      if (typeof step.attribute !== "string" || !step.attribute) {
+        throw new Error(
+          `${prefix}: update_time_to_live.attribute is required`,
+        );
+      }
       break;
     case "dms_parse":
     case "dms_get":

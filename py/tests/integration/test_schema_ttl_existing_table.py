@@ -7,7 +7,7 @@ import boto3
 import pytest
 
 from tabletheory_py import ModelDefinition, ValidationError, theorydb_field
-from tabletheory_py.schema import create_table, delete_table
+from tabletheory_py.schema import create_table, delete_table, ensure_table
 
 
 def _dynamodb_endpoint() -> str:
@@ -78,5 +78,35 @@ def test_create_table_existing_table_ttl_on_different_attribute_raises_clear_err
         assert "expiresAt" in message
         assert "LegacyTtl" in message
         assert "different attribute" in message
+
+        # ensure_table must surface the same typed conflict for an existing table.
+        with pytest.raises(ValidationError) as ensure_excinfo:
+            ensure_table(MODEL, client=client)
+
+        ensure_message = str(ensure_excinfo.value)
+        assert "expiresAt" in ensure_message
+        assert "LegacyTtl" in ensure_message
+        assert "different attribute" in ensure_message
+    finally:
+        delete_table(MODEL, client=client, ignore_missing=True)
+
+
+def test_ensure_table_existing_table_without_ttl_enables_model_ttl() -> None:
+    client = _client()
+    delete_table(MODEL, client=client, ignore_missing=True)
+    try:
+        client.create_table(
+            TableName=MODEL.table_name,
+            BillingMode="PAY_PER_REQUEST",
+            KeySchema=[{"AttributeName": "ID", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "ID", "AttributeType": "S"}],
+        )
+        client.get_waiter("table_exists").wait(TableName=MODEL.table_name)
+
+        ensure_table(MODEL, client=client)
+
+        description = client.describe_time_to_live(TableName=MODEL.table_name)["TimeToLiveDescription"]
+        assert description["TimeToLiveStatus"] == "ENABLED"
+        assert description["AttributeName"] == "expiresAt"
     finally:
         delete_table(MODEL, client=client, ignore_missing=True)
