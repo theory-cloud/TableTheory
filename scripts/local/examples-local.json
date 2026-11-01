@@ -75,8 +75,9 @@
       "description": "Todo CLI driven through its checked-in stdin transcript: create, list, complete and delete, with output assertions."
     },
     "examples/initialization/main.go": {
-      "pending": "T2",
-      "description": "Initialization demo; T2 gives the local path a real operation and a real success signal."
+      "run": "go-initialization-local",
+      "class": "L3",
+      "description": "Local initialization mode creates the table and performs a real TableTheory write/read on DynamoDB Local. The aws, profile, minimal and debug modes resolve real AWS defaults; they are the named cloud gap and never run in the harness."
     },
     "examples/optimization/main.go": {
       "pending": "T2",

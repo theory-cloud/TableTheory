@@ -882,6 +882,26 @@ def run_py_local_crud(harness: Harness) -> str:
     return "put/get/begins_with checks"
 
 
+def run_go_initialization_local(harness: Harness) -> str:
+    result = harness.run(["go", "run", "./examples/initialization", "-mode", "local"])
+    endpoint = harness.env["DYNAMODB_ENDPOINT"]
+    expect_output(
+        result.stdout,
+        [
+            "1. Local Development (DynamoDB Local)",
+            f"✓ Initialized successfully against {endpoint}",
+            "✓ real round-trip: wrote and read INIT#local#",
+        ],
+        "examples/initialization",
+    )
+    reject_output(
+        result.stdout,
+        ["AWS Environment", "AWS init failed", "✗"],
+        "examples/initialization",
+    )
+    return "real local write + read; cloud modes excluded"
+
+
 def run_multi_tenant_token(harness: Harness) -> str:
     token = mint_token(harness, "user#token-row", "org#token-row")
     header, payload = decode_jwt(token)
@@ -1144,6 +1164,7 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "go-basic-todo": run_basic_todo,
     "go-basic-notes": run_basic_notes,
     "go-basic-contacts": run_basic_contacts,
+    "go-initialization-local": run_go_initialization_local,
     "multi-tenant-token": run_multi_tenant_token,
     "multi-tenant-lambda": run_multi_tenant_lambda,
     "multi-tenant-module-tests": run_multi_tenant_module_tests,
