@@ -831,7 +831,11 @@ def run_basic_notes(harness: Harness) -> str:
     reject_output(work_section, ["Personal note"], "notes work category")
 
     deleted_tail = _after(output, "✅ Note deleted successfully", "notes transcript")
-    expect_output(deleted_tail, ["Your Notes (1 notes):", "TableTheory local notes"], "notes transcript after delete")
+    expect_output(
+        deleted_tail,
+        ["Your Notes (1 notes):", "TableTheory local notes"],
+        "notes transcript after delete",
+    )
     reject_output(deleted_tail, ["Personal note"], "notes transcript after delete")
     return "15 transcript checks (CRUD + gsi-user + gsi-category)"
 
