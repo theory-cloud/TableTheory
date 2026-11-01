@@ -124,8 +124,9 @@
       "description": "TypeScript release-state driver: the same real TransactWrite, read-back and stale-version refusal as the Go and Python rows, with an identical parity line."
     },
     "py/examples/gsi_query.py": {
-      "pending": "T2",
-      "description": "Python GSI query demo; T2 runs it against DynamoDB Local."
+      "run": "py-gsi-query",
+      "class": "L1",
+      "description": "Python GSI query on DynamoDB Local: creates the table and index, writes two users and asserts the email index returns only the matching row."
     },
     "py/examples/release_state.py": {
       "run": "py-release-state",

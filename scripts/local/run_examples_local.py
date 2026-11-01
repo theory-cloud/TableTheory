@@ -966,6 +966,18 @@ def run_py_release_state(harness: Harness) -> str:
     return _expect_release_state(result.stdout, "py/examples/release_state.py")
 
 
+def run_py_gsi_query(harness: Harness) -> str:
+    result = harness.run(
+        ["uv", "--directory", "py", "run", "python", "examples/gsi_query.py"]
+    )
+    expect_output(
+        result.stdout,
+        ["gsi_items=1 email=ada@example.com"],
+        "py/examples/gsi_query.py",
+    )
+    return "real GSI query returning only the matching partition"
+
+
 def run_multi_tenant_token(harness: Harness) -> str:
     token = mint_token(harness, "user#token-row", "org#token-row")
     header, payload = decode_jwt(token)
@@ -1234,6 +1246,7 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "go-release-state": run_go_release_state,
     "ts-release-state": run_ts_release_state,
     "py-release-state": run_py_release_state,
+    "py-gsi-query": run_py_gsi_query,
     "multi-tenant-token": run_multi_tenant_token,
     "multi-tenant-lambda": run_multi_tenant_lambda,
     "multi-tenant-module-tests": run_multi_tenant_module_tests,

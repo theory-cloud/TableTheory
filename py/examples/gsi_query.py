@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
-from typing import Any
+
+import boto3
 
 from tabletheory_py import ModelDefinition, Table, gsi, theorydb_field
-from tabletheory_py.mocks import FakeDynamoDBClient
+
+TABLE_NAME = "tabletheory_py_gsi_query"
 
 
 @dataclass(frozen=True)
@@ -16,41 +19,81 @@ class User:
     email: str = theorydb_field()
 
 
+def _client():
+    return boto3.client(
+        "dynamodb",
+        endpoint_url=os.environ.get("DYNAMODB_ENDPOINT", "http://localhost:8000"),
+        region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "dummy"),
+        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "dummy"),
+    )
+
+
 def main() -> None:
-    model = ModelDefinition.from_dataclass(
-        User,
-        table_name="users_contract",
-        indexes=[gsi("gsi_email", partition="gsi1pk", sort="gsi1sk")],
-    )
-
-    client = FakeDynamoDBClient()
-    response: dict[str, Any] = {
-        "Items": [
+    client = _client()
+    client.create_table(
+        TableName=TABLE_NAME,
+        AttributeDefinitions=[
+            {"AttributeName": "PK", "AttributeType": "S"},
+            {"AttributeName": "SK", "AttributeType": "S"},
+            {"AttributeName": "GSI1PK", "AttributeType": "S"},
+            {"AttributeName": "GSI1SK", "AttributeType": "S"},
+        ],
+        KeySchema=[
+            {"AttributeName": "PK", "KeyType": "HASH"},
+            {"AttributeName": "SK", "KeyType": "RANGE"},
+        ],
+        GlobalSecondaryIndexes=[
             {
-                "PK": {"S": "USER#ada"},
-                "SK": {"S": "PROFILE"},
-                "GSI1PK": {"S": "EMAIL#ada@example.com"},
-                "GSI1SK": {"S": "ada@example.com"},
-                "email": {"S": "ada@example.com"},
+                "IndexName": "gsi_email",
+                "KeySchema": [
+                    {"AttributeName": "GSI1PK", "KeyType": "HASH"},
+                    {"AttributeName": "GSI1SK", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
             }
-        ]
-    }
-    client.expect(
-        "query",
-        {
-            "TableName": "users_contract",
-            "IndexName": "gsi_email",
-            "KeyConditionExpression": "#pk = :pk",
-            "ExpressionAttributeNames": {"#pk": "GSI1PK"},
-        },
-        response=response,
+        ],
+        BillingMode="PAY_PER_REQUEST",
     )
+    client.get_waiter("table_exists").wait(TableName=TABLE_NAME)
 
-    table = Table(model, client=client)
-    page = table.query("EMAIL#ada@example.com", index_name="gsi_email", limit=25)
-    client.assert_no_pending()
+    try:
+        model = ModelDefinition.from_dataclass(
+            User,
+            table_name=TABLE_NAME,
+            indexes=[gsi("gsi_email", partition="gsi1pk", sort="gsi1sk")],
+        )
+        table = Table(model, client=client)
 
-    print(f"gsi_items={len(page.items)} email={page.items[0].email}")
+        table.put(
+            User(
+                pk="USER#ada",
+                sk="PROFILE",
+                gsi1pk="EMAIL#ada@example.com",
+                gsi1sk="ada@example.com",
+                email="ada@example.com",
+            )
+        )
+        table.put(
+            User(
+                pk="USER#grace",
+                sk="PROFILE",
+                gsi1pk="EMAIL#grace@example.com",
+                gsi1sk="grace@example.com",
+                email="grace@example.com",
+            )
+        )
+
+        page = table.query("EMAIL#ada@example.com", index_name="gsi_email", limit=25)
+        if len(page.items) != 1 or page.items[0].email != "ada@example.com":
+            raise AssertionError(
+                f"gsi_email query returned {len(page.items)} items: {page.items!r}; "
+                "want exactly ada@example.com"
+            )
+
+        print(f"gsi_items={len(page.items)} email={page.items[0].email}")
+    finally:
+        client.delete_table(TableName=TABLE_NAME)
 
 
 if __name__ == "__main__":
