@@ -229,9 +229,7 @@ console.log(
 
 ddb.destroy();
 
-async function ensureReleaseStateTable(
-  client: DynamoDBClient,
-): Promise<void> {
+async function ensureReleaseStateTable(client: DynamoDBClient): Promise<void> {
   try {
     await client.send(new DescribeTableCommand({ TableName: tableName }));
     return;

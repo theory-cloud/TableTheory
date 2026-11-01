@@ -212,9 +212,7 @@ def main() -> None:
 
     stored_outbox = outbox_table.get(partition, outbox.sk, consistent_read=True)
     if stored_outbox.operation != "lambda_alias_update":
-        raise AssertionError(
-            f"outbox operation={stored_outbox.operation}; want lambda_alias_update"
-        )
+        raise AssertionError(f"outbox operation={stored_outbox.operation}; want lambda_alias_update")
 
     stale_rejected = False
     try:
