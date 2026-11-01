@@ -143,6 +143,12 @@ async function runStep(opts: {
     return;
   }
 
+  if (step.op === "create_table") {
+    const err = await captureError(() => driver.createTable(modelName));
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
   if (step.op === "create") {
     const item = step.item ?? {};
     const err = await captureError(() =>

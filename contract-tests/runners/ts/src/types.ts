@@ -63,6 +63,7 @@ export interface EncryptionScenarioConfig {
 export interface Step {
   op:
     | "create"
+    | "create_table"
     | "get"
     | "get_optional"
     | "update"

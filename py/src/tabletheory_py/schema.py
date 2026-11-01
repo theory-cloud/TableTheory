@@ -213,7 +213,40 @@ def update_time_to_live(
             },
         )
     except ClientError as err:
+        if enabled and _is_validation_exception(err):
+            current = _current_time_to_live(client, resolved_table)
+            if current is not None:
+                status, current_attribute = current
+                if status in {"ENABLED", "ENABLING"}:
+                    if current_attribute == resolved_attribute:
+                        return
+                    raise ValidationError(
+                        "failed to enable ttl on table "
+                        f"{resolved_table} using attribute {resolved_attribute}: "
+                        "ttl is already enabled on a different attribute "
+                        f"{current_attribute}"
+                    ) from err
         raise _map_schema_error(err) from err
+
+
+def _is_validation_exception(err: ClientError) -> bool:
+    return str(err.response.get("Error", {}).get("Code", "")) == "ValidationException"
+
+
+def _current_time_to_live(
+    client: Any,
+    table_name: str,
+) -> tuple[str, str] | None:
+    try:
+        response = client.describe_time_to_live(TableName=table_name)
+    except ClientError:
+        return None
+
+    description = response.get("TimeToLiveDescription") or {}
+    status = str(description.get("TimeToLiveStatus", ""))
+    if not status:
+        return None
+    return status, str(description.get("AttributeName", ""))
 
 
 def build_create_table_request(

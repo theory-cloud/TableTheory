@@ -72,6 +72,27 @@ class Session:
     expires_at: int = theorydb_field(roles=["ttl"])  # epoch seconds
 ```
 
+## Schema provisioning is idempotent
+
+Creating a table from a model also enables TTL for the model's `ttl` role. That
+provisioning step is idempotent: calling it again against an existing table whose
+TTL is already enabled on the model attribute succeeds with the same
+already-exists outcome the call returns for a table without TTL. Repeating a
+local provisioning step (or a multi-tenant test that recreates its schema) must
+not fail.
+
+- **Go:** `DB.CreateTable`, `schema.Manager.EnableTTL`, and
+  `schema.Manager.UpdateTable` sync TTL; `DB.EnsureTable` creates only when the
+  table is missing.
+- **TypeScript:** `createTable`, `ensureTable`, `updateTimeToLive`
+- **Python:** `create_table`, `ensure_table`, `update_time_to_live`
+
+If the table's TTL is already enabled on a **different** attribute, the call
+fails with a validation error that names both the model attribute and the
+attribute that is currently enabled. TableTheory never silently switches the TTL
+attribute: disable TTL on the existing attribute first if the change is
+intended. Item storage is unchanged by this provisioning behavior.
+
 ## DynamoDB's TTL behavior
 
 DynamoDB does not delete TTL-expired items immediately — its sweep is

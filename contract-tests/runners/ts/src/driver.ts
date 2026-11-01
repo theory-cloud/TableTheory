@@ -55,6 +55,7 @@ export type ErrorCode =
 
 export interface Driver {
   capabilities(): readonly string[];
+  createTable(model: string): Promise<void>;
   create(
     model: string,
     item: Record<string, unknown>,
@@ -232,6 +233,10 @@ export class TheorydbDriver implements Driver {
       "encryption.migration_rebinding",
       "dms.json_string_mode",
     ];
+  }
+
+  async createTable(model: string): Promise<void> {
+    await createTable(this.ddb, this.requireScenarioModel(model));
   }
 
   async create(
