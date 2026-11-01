@@ -902,6 +902,20 @@ def run_go_initialization_local(harness: Harness) -> str:
     return "real local write + read; cloud modes excluded"
 
 
+def run_go_typed(harness: Harness) -> str:
+    result = harness.run(["go", "run", "./examples/typed-go"])
+    expect_output(
+        result.stdout,
+        [
+            "OK: typed-go typedFlow wrote and updated TENANT#demo/USER#ada",
+            'name="Ada Lovelace"',
+            "matches=1",
+        ],
+        "examples/typed-go",
+    )
+    return "create/get/update/query through the typed API"
+
+
 def run_multi_tenant_token(harness: Harness) -> str:
     token = mint_token(harness, "user#token-row", "org#token-row")
     header, payload = decode_jwt(token)
@@ -1165,6 +1179,7 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "go-basic-notes": run_basic_notes,
     "go-basic-contacts": run_basic_contacts,
     "go-initialization-local": run_go_initialization_local,
+    "go-typed-go": run_go_typed,
     "multi-tenant-token": run_multi_tenant_token,
     "multi-tenant-lambda": run_multi_tenant_lambda,
     "multi-tenant-module-tests": run_multi_tenant_module_tests,

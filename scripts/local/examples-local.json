@@ -88,8 +88,9 @@
       "description": "Release-state registry; T2 adds a real TransactWrite driver on DynamoDB Local."
     },
     "examples/typed-go/main.go": {
-      "pending": "T2",
-      "description": "Typed generics demo; T2 adds a driver for typedFlow with table creation."
+      "run": "go-typed-go",
+      "class": "L1",
+      "description": "Typed generic API driver: table creation, typed create/get/update and a begins_with query on DynamoDB Local, with read-back assertions."
     },
     "ts/examples/release-state.ts": {
       "pending": "T2",

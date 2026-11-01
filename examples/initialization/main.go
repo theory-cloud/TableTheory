@@ -29,6 +29,10 @@ type User struct {
 	Active    bool
 }
 
+// TableName keeps this example's table distinct from other examples' User
+// models when they share one local DynamoDB instance.
+func (User) TableName() string { return "tabletheory_initialization_users" }
+
 func main() {
 	mode := flag.String(
 		"mode",
