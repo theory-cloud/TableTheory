@@ -334,6 +334,7 @@ func validateStep(label string, i int, step Step) error {
 		default:
 			return fmt.Errorf("%s migrate: unsupported encryption %q", prefix, step.Migrate.Encryption)
 		}
+	case "create_table":
 	case "dms_parse", "dms_get":
 		if step.Dms == nil {
 			return fmt.Errorf("%s %s: dms is required", prefix, step.Op)

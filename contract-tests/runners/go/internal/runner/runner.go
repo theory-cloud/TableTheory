@@ -155,6 +155,11 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		r.assertStepResult(t, step.Expect, nil, err, nil, model)
 		return
 
+	case "create_table":
+		err := r.driver.CreateTable(ctx, modelName)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
 	case "dms_parse", "dms_get":
 		require.FailNow(t, "DMS scenario op is not supported by the Go runtime")
 		return
