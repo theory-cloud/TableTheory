@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -26,7 +27,9 @@ type timeToLiveDescriber interface {
 	) (*dynamodb.DescribeTimeToLiveOutput, error)
 }
 
-// EnableTTL enables DynamoDB TTL for the ttl-tagged field on an existing model table.
+// EnableTTL turns DynamoDB TTL on for the ttl-tagged field of an existing model
+// table. This is an explicit opt-in: provisioning never calls it, because
+// enabling TTL makes DynamoDB delete items that are already past their expiry.
 func (m *Manager) EnableTTL(modelValue any) error {
 	metadata, err := m.registry.GetMetadata(modelValue)
 	if err != nil {
@@ -43,10 +46,34 @@ func (m *Manager) EnableTTL(modelValue any) error {
 		return fmt.Errorf("failed to get client for ttl update: %w", err)
 	}
 
-	return m.syncModelTTL(ctx, client, metadata)
+	return m.enableModelTTL(ctx, client, metadata)
 }
 
-func (m *Manager) syncModelTTL(ctx context.Context, client session.DynamoDBAPI, metadata *model.Metadata) error {
+// VerifyTTL inspects the TTL state of an existing model table without changing
+// it. TTL already enabled on the model attribute is an idempotent success, TTL
+// enabled on a different attribute is a typed conflict, and a disabled TTL only
+// reports a warning so provisioning keeps succeeding.
+func (m *Manager) VerifyTTL(modelValue any) error {
+	metadata, err := m.registry.GetMetadata(modelValue)
+	if err != nil {
+		return fmt.Errorf("failed to get model metadata: %w", err)
+	}
+	if metadata.TTLField == nil {
+		return nil
+	}
+
+	ctx := context.Background()
+	client, err := m.session.API()
+	if err != nil {
+		return fmt.Errorf("failed to get client for ttl check: %w", err)
+	}
+
+	return m.verifyModelTTL(ctx, client, metadata)
+}
+
+// enableModelTTL is reserved for tables this call just created. It must never
+// run against a table that already existed before the call.
+func (m *Manager) enableModelTTL(ctx context.Context, client session.DynamoDBAPI, metadata *model.Metadata) error {
 	if metadata == nil || metadata.TTLField == nil {
 		return nil
 	}
@@ -75,6 +102,60 @@ func (m *Manager) syncModelTTL(ctx context.Context, client session.DynamoDBAPI, 
 		metadata.TableName,
 		attributeName,
 		err,
+	)
+}
+
+// verifyModelTTL reports the TTL state of an existing table. It never calls
+// UpdateTimeToLive: the caller decides whether expiring existing items is
+// intended.
+func (m *Manager) verifyModelTTL(ctx context.Context, client session.DynamoDBAPI, metadata *model.Metadata) error {
+	if metadata == nil || metadata.TTLField == nil {
+		return nil
+	}
+
+	describer, ok := client.(timeToLiveDescriber)
+	if !ok {
+		return nil
+	}
+
+	attributeName := metadata.TTLField.DBName
+	out, err := describer.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(metadata.TableName),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to describe ttl on table %s: %w", metadata.TableName, err)
+	}
+
+	if out == nil || out.TimeToLiveDescription == nil {
+		warnModelTTLDisabled(metadata, attributeName)
+		return nil
+	}
+
+	description := out.TimeToLiveDescription
+	switch description.TimeToLiveStatus {
+	case types.TimeToLiveStatusEnabled, types.TimeToLiveStatusEnabling:
+		currentAttribute := aws.ToString(description.AttributeName)
+		if currentAttribute == attributeName {
+			return nil
+		}
+		return &ttlAttributeMismatchError{
+			tableName:        metadata.TableName,
+			attributeName:    attributeName,
+			currentAttribute: currentAttribute,
+		}
+	}
+
+	warnModelTTLDisabled(metadata, attributeName)
+	return nil
+}
+
+func warnModelTTLDisabled(metadata *model.Metadata, attributeName string) {
+	log.Printf(
+		"tabletheory: table %s exists with ttl disabled, but the model declares ttl attribute %s; "+
+			"leaving ttl disabled because enabling it would make DynamoDB expire items that are already past their expiry. "+
+			"Enable ttl deliberately with UpdateTimeToLive or your infrastructure-as-code if that expiry is intended.",
+		metadata.TableName,
+		attributeName,
 	)
 }
 
@@ -131,15 +212,22 @@ type ttlAttributeMismatchError struct {
 }
 
 func (e *ttlAttributeMismatchError) Error() string {
-	return fmt.Sprintf(
-		"failed to enable ttl on table %s using attribute %s: ttl is already enabled on a different attribute %s: %v",
+	message := fmt.Sprintf(
+		"table %s has ttl enabled on a different attribute %s, but the model declares ttl attribute %s",
 		e.tableName,
-		e.attributeName,
 		e.currentAttribute,
-		e.cause,
+		e.attributeName,
 	)
+	if e.cause != nil {
+		return message + ": " + e.cause.Error()
+	}
+	return message
 }
 
 func (e *ttlAttributeMismatchError) Unwrap() []error {
-	return []error{theorydbErrors.ErrTTLAttributeMismatch, e.cause}
+	causes := []error{theorydbErrors.ErrTTLAttributeMismatch}
+	if e.cause != nil {
+		causes = append(causes, e.cause)
+	}
+	return causes
 }

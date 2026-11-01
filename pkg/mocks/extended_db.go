@@ -51,8 +51,8 @@ func (m *MockExtendedDB) CreateTable(model any, opts ...schema.TableOption) erro
 	return args.Error(0)
 }
 
-// EnsureTable checks if a table exists and creates it if not, enabling TTL for
-// an existing table whose model defines a ttl field.
+// EnsureTable checks if a table exists and creates it if not, verifying (but
+// never enabling) TTL for an existing table whose model defines a ttl field.
 func (m *MockExtendedDB) EnsureTable(model any) error {
 	args := m.Called(model)
 	return args.Error(0)

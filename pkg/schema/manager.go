@@ -109,10 +109,11 @@ func (m *Manager) CreateTable(model any, opts ...TableOption) error {
 
 	_, err = client.CreateTable(ctx, input)
 	if err != nil {
-		// Check if table already exists
+		// The table already existed before this call, so TTL is only checked,
+		// never enabled: turning TTL on would expire items the caller kept.
 		var existsErr *types.ResourceInUseException
 		if errors.As(err, &existsErr) {
-			return m.syncModelTTL(ctx, client, metadata)
+			return m.verifyModelTTL(ctx, client, metadata)
 		}
 		return fmt.Errorf("failed to create table %s: %w", metadata.TableName, err)
 	}
@@ -125,7 +126,8 @@ func (m *Manager) CreateTable(model any, opts ...TableOption) error {
 		return err
 	}
 
-	return m.syncModelTTL(ctx, client, metadata)
+	// This call created the table, so enabling TTL cannot expire existing data.
+	return m.enableModelTTL(ctx, client, metadata)
 }
 
 // buildKeySchema builds the primary key schema
@@ -389,7 +391,7 @@ func (m *Manager) UpdateTable(model any, opts ...TableOption) error {
 	}
 
 	if !hasUpdateTableChanges(input) {
-		return m.syncModelTTL(ctx, client, metadata)
+		return m.verifyModelTTL(ctx, client, metadata)
 	}
 
 	_, err = client.UpdateTable(ctx, input)
@@ -402,7 +404,9 @@ func (m *Manager) UpdateTable(model any, opts ...TableOption) error {
 		return err
 	}
 
-	return m.syncModelTTL(ctx, client, metadata)
+	// UpdateTable only ever runs against an existing table, so TTL is checked
+	// instead of enabled.
+	return m.verifyModelTTL(ctx, client, metadata)
 }
 
 func buildCreateTableInput(opts []TableOption) *dynamodb.CreateTableInput {

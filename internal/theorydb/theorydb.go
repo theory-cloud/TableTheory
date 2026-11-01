@@ -356,9 +356,13 @@ func (db *DB) CreateTableWithOptions(model any, opts ...schema.TableOption) erro
 }
 
 // EnsureTable checks if a table exists for the model and creates it if not.
-// When the table already exists and the model defines a ttl field, it also
-// enables TTL on that field, matching CreateTable and the TypeScript/Python
-// ensureTable behavior.
+// A table this call creates gets TTL enabled for the model's ttl field. An
+// existing table is only inspected: TTL already enabled on the model attribute
+// succeeds, TTL enabled on a different attribute returns
+// errors.ErrTTLAttributeMismatch, and a disabled TTL is reported as a warning
+// and left untouched. TableTheory never enables TTL on an existing table
+// because that would make DynamoDB expire items that are already past their
+// expiry.
 func (db *DB) EnsureTable(model any) error {
 	// Register model first
 	if err := db.registry.Register(model); err != nil {
@@ -384,7 +388,7 @@ func (db *DB) EnsureTable(model any) error {
 		return nil
 	}
 
-	return manager.EnableTTL(model)
+	return manager.VerifyTTL(model)
 }
 
 // DeleteTable deletes the DynamoDB table for the given model

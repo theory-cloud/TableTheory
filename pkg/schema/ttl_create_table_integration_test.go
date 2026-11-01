@@ -113,3 +113,42 @@ func TestCreateTable_ExistingTableWithTTLOnDifferentAttribute_ReturnsClearError(
 	require.Contains(t, err.Error(), "LegacyTtl")
 	require.Contains(t, err.Error(), "different attribute")
 }
+
+func TestCreateTable_ExistingTableWithTTLDisabled_LeavesTTLDisabled(t *testing.T) {
+	mgr, client := newTTLIntegrationManager(t)
+	ctx := context.Background()
+
+	deleteTableIfExists(t, mgr, "tabletheory_local_t15_ttl_create")
+	t.Cleanup(func() {
+		if err := mgr.DeleteTable("tabletheory_local_t15_ttl_create"); err != nil {
+			t.Logf("cleanup: delete table: %v", err)
+		}
+	})
+
+	_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName:   aws.String("tabletheory_local_t15_ttl_create"),
+		BillingMode: types.BillingModePayPerRequest,
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("ID"), KeyType: types.KeyTypeHash},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("ID"), AttributeType: types.ScalarAttributeTypeS},
+		},
+	})
+	require.NoError(t, err)
+
+	waiter := dynamodb.NewTableExistsWaiter(client)
+	require.NoError(t, waiter.Wait(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String("tabletheory_local_t15_ttl_create"),
+	}, 30*time.Second))
+
+	require.NoError(t, mgr.CreateTable(&ttlCreateTableModel{}))
+
+	ttl, err := client.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String("tabletheory_local_t15_ttl_create"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, ttl.TimeToLiveDescription)
+	require.Equal(t, types.TimeToLiveStatusDisabled, ttl.TimeToLiveDescription.TimeToLiveStatus)
+	require.Empty(t, aws.ToString(ttl.TimeToLiveDescription.AttributeName))
+}

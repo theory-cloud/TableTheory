@@ -49,8 +49,8 @@ type ExtendedDB interface {
 	CreateTable(model any, opts ...schema.TableOption) error
 
 	// EnsureTable checks if a table exists for the model and creates it if not.
-	// For an existing table whose model defines a ttl field, it also enables TTL
-	// on that field.
+	// For an existing table whose model defines a ttl field, TTL is only
+	// verified: it is never enabled implicitly.
 	EnsureTable(model any) error
 
 	// DeleteTable deletes the DynamoDB table for the given model

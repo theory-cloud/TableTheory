@@ -22,7 +22,7 @@ type ensureTableTTLModel struct {
 
 func (ensureTableTTLModel) TableName() string { return "tabletheory_local_t16_ensure_table_ttl" }
 
-func resetEnsureTableTTLTable(t *testing.T, testCtx *TestContext) {
+func deleteEnsureTableTTLTable(t *testing.T, testCtx *TestContext) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -35,8 +35,17 @@ func resetEnsureTableTTLTable(t *testing.T, testCtx *TestContext) {
 		var notFound *types.ResourceNotFoundException
 		require.True(t, errors.As(err, &notFound), "delete existing table: %v", err)
 	}
+}
 
-	_, err = testCtx.DynamoDBClient.CreateTable(ctx, &dynamodb.CreateTableInput{
+func resetEnsureTableTTLTable(t *testing.T, testCtx *TestContext) {
+	t.Helper()
+
+	deleteEnsureTableTTLTable(t, testCtx)
+
+	ctx := context.Background()
+	tableName := "tabletheory_local_t16_ensure_table_ttl"
+
+	_, err := testCtx.DynamoDBClient.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName:   aws.String(tableName),
 		BillingMode: types.BillingModePayPerRequest,
 		KeySchema: []types.KeySchemaElement{
@@ -104,7 +113,7 @@ func TestEnsureTable_ExistingTableTTLOnDifferentAttribute_ReturnsClearError(t *t
 	require.Contains(t, err.Error(), "LegacyTtl")
 }
 
-func TestEnsureTable_ExistingTableWithoutTTL_EnablesModelTTL(t *testing.T) {
+func TestEnsureTable_ExistingTableWithoutTTL_LeavesTTLDisabled(t *testing.T) {
 	tests.RequireDynamoDBLocal(t)
 	testCtx := InitTestDB(t)
 
@@ -117,17 +126,19 @@ func TestEnsureTable_ExistingTableWithoutTTL_EnablesModelTTL(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.TimeToLiveDescription)
-	require.Equal(t, types.TimeToLiveStatusEnabled, out.TimeToLiveDescription.TimeToLiveStatus)
-	require.Equal(t, "expiresAt", aws.ToString(out.TimeToLiveDescription.AttributeName))
+	require.Equal(t, types.TimeToLiveStatusDisabled, out.TimeToLiveDescription.TimeToLiveStatus)
+	require.Empty(t, aws.ToString(out.TimeToLiveDescription.AttributeName))
 }
 
 func TestEnsureTable_ExistingTableWithModelTTL_IsIdempotent(t *testing.T) {
 	tests.RequireDynamoDBLocal(t)
 	testCtx := InitTestDB(t)
 
-	resetEnsureTableTTLTable(t, testCtx)
+	// A table this call creates gets TTL enabled at creation.
+	deleteEnsureTableTTLTable(t, testCtx)
 	require.NoError(t, testCtx.DB.CreateTable(&ensureTableTTLModel{}))
 
+	// EnsureTable against the existing, already-configured table is a no-op.
 	require.NoError(t, testCtx.DB.EnsureTable(&ensureTableTTLModel{}))
 
 	out, err := testCtx.DynamoDBClient.DescribeTimeToLive(context.Background(), &dynamodb.DescribeTimeToLiveInput{

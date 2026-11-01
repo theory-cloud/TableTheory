@@ -49,13 +49,13 @@ func TestManager_CreateTable_EnablesTTLFromModel_COV6(t *testing.T) {
 	}, reqs[len(reqs)-1].Payload["TimeToLiveSpecification"])
 }
 
-func TestManager_CreateTable_ExistingTableStillSyncsTTL_COV6(t *testing.T) {
+func TestManager_CreateTable_ExistingTableOnlyVerifiesTTL_COV6(t *testing.T) {
 	httpClient := newCapturingHTTPClient(nil)
 	httpClient.SetResponseSequence("DynamoDB_20120810.CreateTable", []stubbedResponse{
 		stubbedAWSError("ResourceInUseException", "exists"),
 	})
-	httpClient.SetResponseSequence("DynamoDB_20120810.UpdateTimeToLive", []stubbedResponse{
-		{body: `{"TimeToLiveSpecification":{"AttributeName":"expiresAt","Enabled":true}}`},
+	httpClient.SetResponseSequence("DynamoDB_20120810.DescribeTimeToLive", []stubbedResponse{
+		{body: `{"TimeToLiveDescription":{"TimeToLiveStatus":"ENABLED","AttributeName":"expiresAt"}}`},
 	})
 
 	mgr := newTestManager(t, httpClient)
@@ -65,15 +65,35 @@ func TestManager_CreateTable_ExistingTableStillSyncsTTL_COV6(t *testing.T) {
 
 	reqs := httpClient.Requests()
 	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.CreateTable"))
-	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
+	require.Equal(t, 0, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
+	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.DescribeTimeToLive"))
 }
 
-func TestManager_UpdateTable_SyncsTTLWithoutOtherTableChanges_COV6(t *testing.T) {
+func TestManager_CreateTable_ExistingTableWithDisabledTTLDoesNotEnable_COV6(t *testing.T) {
+	httpClient := newCapturingHTTPClient(nil)
+	httpClient.SetResponseSequence("DynamoDB_20120810.CreateTable", []stubbedResponse{
+		stubbedAWSError("ResourceInUseException", "exists"),
+	})
+	httpClient.SetResponseSequence("DynamoDB_20120810.DescribeTimeToLive", []stubbedResponse{
+		{body: `{"TimeToLiveDescription":{"TimeToLiveStatus":"DISABLED"}}`},
+	})
+
+	mgr := newTestManager(t, httpClient)
+	require.NoError(t, mgr.registry.Register(&ttlSchemaModel{}))
+
+	require.NoError(t, mgr.CreateTable(&ttlSchemaModel{}))
+
+	reqs := httpClient.Requests()
+	require.Equal(t, 0, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
+	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.DescribeTimeToLive"))
+}
+
+func TestManager_UpdateTable_VerifiesTTLWithoutOtherTableChanges_COV6(t *testing.T) {
 	httpClient := newCapturingHTTPClient(map[string]string{
 		"DynamoDB_20120810.DescribeTable": `{"Table":{"TableName":"ttl_records","TableStatus":"ACTIVE","BillingModeSummary":{"BillingMode":"PAY_PER_REQUEST"}}}`,
 	})
-	httpClient.SetResponseSequence("DynamoDB_20120810.UpdateTimeToLive", []stubbedResponse{
-		{body: `{"TimeToLiveSpecification":{"AttributeName":"expiresAt","Enabled":true}}`},
+	httpClient.SetResponseSequence("DynamoDB_20120810.DescribeTimeToLive", []stubbedResponse{
+		{body: `{"TimeToLiveDescription":{"TimeToLiveStatus":"ENABLED","AttributeName":"expiresAt"}}`},
 	})
 
 	mgr := newTestManager(t, httpClient)
@@ -83,7 +103,8 @@ func TestManager_UpdateTable_SyncsTTLWithoutOtherTableChanges_COV6(t *testing.T)
 
 	reqs := httpClient.Requests()
 	require.Equal(t, 0, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTable"))
-	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
+	require.Equal(t, 0, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
+	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.DescribeTimeToLive"))
 }
 
 func TestManager_EnableTTL_ValidatesTTLField_COV6(t *testing.T) {
@@ -128,7 +149,7 @@ func TestManager_EnableTTL_WrapsMetadataAndClientErrors_COV6(t *testing.T) {
 	})
 }
 
-func TestManager_SyncModelTTL_WrapsUpdateErrors_COV6(t *testing.T) {
+func TestManager_EnableModelTTL_WrapsUpdateErrors_COV6(t *testing.T) {
 	httpClient := newCapturingHTTPClient(nil)
 	httpClient.SetResponseSequence("DynamoDB_20120810.UpdateTimeToLive", []stubbedResponse{
 		stubbedAWSError("ValidationException", "boom"),
@@ -143,7 +164,7 @@ func TestManager_SyncModelTTL_WrapsUpdateErrors_COV6(t *testing.T) {
 	metadata, err := mgr.registry.GetMetadata(&ttlSchemaModel{})
 	require.NoError(t, err)
 
-	err = mgr.syncModelTTL(context.Background(), client, metadata)
+	err = mgr.enableModelTTL(context.Background(), client, metadata)
 	require.ErrorContains(t, err, "failed to enable ttl on table ttl_records")
 }
 
@@ -151,9 +172,6 @@ func TestManager_CreateTable_ExistingTableWithTTLAlreadyEnabled_COV6(t *testing.
 	httpClient := newCapturingHTTPClient(nil)
 	httpClient.SetResponseSequence("DynamoDB_20120810.CreateTable", []stubbedResponse{
 		stubbedAWSError("ResourceInUseException", "exists"),
-	})
-	httpClient.SetResponseSequence("DynamoDB_20120810.UpdateTimeToLive", []stubbedResponse{
-		stubbedAWSError("ValidationException", "TimeToLive is already enabled"),
 	})
 	httpClient.SetResponseSequence("DynamoDB_20120810.DescribeTimeToLive", []stubbedResponse{
 		{body: `{"TimeToLiveDescription":{"TimeToLiveStatus":"ENABLED","AttributeName":"expiresAt"}}`},
@@ -166,7 +184,7 @@ func TestManager_CreateTable_ExistingTableWithTTLAlreadyEnabled_COV6(t *testing.
 
 	reqs := httpClient.Requests()
 	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.CreateTable"))
-	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
+	require.Equal(t, 0, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
 	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.DescribeTimeToLive"))
 }
 
@@ -220,6 +238,74 @@ func TestManager_EnableTTL_NonValidationErrorSkipsDescribe_COV6(t *testing.T) {
 	err := mgr.EnableTTL(&ttlSchemaModel{})
 	require.ErrorContains(t, err, "table is gone")
 	require.Equal(t, 0, countRequestsByTarget(httpClient.Requests(), "DynamoDB_20120810.DescribeTimeToLive"))
+}
+
+func TestManager_VerifyTTL_DisabledLeavesTTLAlone_COV6(t *testing.T) {
+	httpClient := newCapturingHTTPClient(nil)
+	httpClient.SetResponseSequence("DynamoDB_20120810.DescribeTimeToLive", []stubbedResponse{
+		{body: `{"TimeToLiveDescription":{"TimeToLiveStatus":"DISABLED"}}`},
+	})
+
+	mgr := newTestManager(t, httpClient)
+	require.NoError(t, mgr.registry.Register(&ttlSchemaModel{}))
+
+	require.NoError(t, mgr.VerifyTTL(&ttlSchemaModel{}))
+
+	reqs := httpClient.Requests()
+	require.Equal(t, 1, countRequestsByTarget(reqs, "DynamoDB_20120810.DescribeTimeToLive"))
+	require.Equal(t, 0, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
+}
+
+func TestManager_VerifyTTL_AlreadyEnabledOnModelAttribute_COV6(t *testing.T) {
+	httpClient := newCapturingHTTPClient(nil)
+	httpClient.SetResponseSequence("DynamoDB_20120810.DescribeTimeToLive", []stubbedResponse{
+		{body: `{"TimeToLiveDescription":{"TimeToLiveStatus":"ENABLED","AttributeName":"expiresAt"}}`},
+	})
+
+	mgr := newTestManager(t, httpClient)
+	require.NoError(t, mgr.registry.Register(&ttlSchemaModel{}))
+
+	require.NoError(t, mgr.VerifyTTL(&ttlSchemaModel{}))
+
+	reqs := httpClient.Requests()
+	require.Equal(t, 0, countRequestsByTarget(reqs, "DynamoDB_20120810.UpdateTimeToLive"))
+}
+
+func TestManager_VerifyTTL_AlreadyEnabledOnDifferentAttribute_IsTypedConflict_COV6(t *testing.T) {
+	httpClient := newCapturingHTTPClient(nil)
+	httpClient.SetResponseSequence("DynamoDB_20120810.DescribeTimeToLive", []stubbedResponse{
+		{body: `{"TimeToLiveDescription":{"TimeToLiveStatus":"ENABLED","AttributeName":"legacyTtl"}}`},
+	})
+
+	mgr := newTestManager(t, httpClient)
+	require.NoError(t, mgr.registry.Register(&ttlSchemaModel{}))
+
+	err := mgr.VerifyTTL(&ttlSchemaModel{})
+	require.ErrorContains(t, err, "different attribute")
+	require.ErrorContains(t, err, "expiresAt")
+	require.ErrorContains(t, err, "legacyTtl")
+	require.ErrorIs(t, err, theorydbErrors.ErrTTLAttributeMismatch)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+	require.Equal(t, 0, countRequestsByTarget(httpClient.Requests(), "DynamoDB_20120810.UpdateTimeToLive"))
+}
+
+func TestManager_VerifyTTL_DescribeFailureIsReported_COV6(t *testing.T) {
+	httpClient := newCapturingHTTPClient(nil)
+	httpClient.SetResponseSequence("DynamoDB_20120810.DescribeTimeToLive", []stubbedResponse{
+		stubbedAWSError("InternalServerError", "describe failed"),
+	})
+
+	mgr := newTestManager(t, httpClient)
+	require.NoError(t, mgr.registry.Register(&ttlSchemaModel{}))
+
+	err := mgr.VerifyTTL(&ttlSchemaModel{})
+	require.ErrorContains(t, err, "failed to describe ttl on table ttl_records")
+}
+
+func TestManager_VerifyTTL_ModelWithoutTTLFieldIsNoop_COV6(t *testing.T) {
+	mgr := &Manager{registry: modelRegistryWith(t, &noTTLModel{})}
+
+	require.NoError(t, mgr.VerifyTTL(&noTTLModel{}))
 }
 
 func modelRegistryWith(t *testing.T, values ...any) *model.Registry {
