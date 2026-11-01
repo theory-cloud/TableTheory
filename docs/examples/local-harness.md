@@ -7,28 +7,30 @@ title: Local examples harness
 `make examples-local` runs every classified TableTheory example against local
 backends and asserts each one's real outcome. Nothing reaches AWS: the harness
 sets its own endpoint overrides and static dummy credentials, and its preflight
-refuses to start when a DynamoDB client would resolve anywhere else.
+refuses to start unless DynamoDB, KMS, STS, S3 and SQS all resolve to loopback
+endpoints it owns.
 
 ```bash
 make examples-local        # run everything that is classified
-make examples-local-down   # stop the profile container
+make examples-local-down   # remove leftover containers/networks from any run
 ```
 
 ## What the harness owns
 
 | Piece | Where it lives |
 | --- | --- |
-| DynamoDB Local profile | `scripts/local/docker-compose.yml` — `amazon/dynamodb-local:3.1.0`, loopback port 8123 |
+| Local profile | `scripts/local/docker-compose.yml` — digest-pinned DynamoDB Local, moto (KMS + STS), s3proxy and ElasticMQ |
 | Classification manifest | `scripts/local/examples-local.json` |
 | Harness | `scripts/local/run_examples_local.py` |
 | Endpoint-resolution preflight | `scripts/local/cmd/examples-local-preflight` |
+| KMS key provisioning and round-trip | `scripts/local/cmd/examples-local-kms-key` |
 | CI job | `.github/workflows/examples-local.yml` |
 
 The harness sets this environment for every child process and unsets anything
 that could redirect it: every inherited `AWS_*` variable (`AWS_PROFILE`,
-`AWS_SESSION_TOKEN`, an inherited `AWS_ENDPOINT_URL`, and so on) and the proxy
-variables `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` in both cases,
-so no child request can be routed through an inherited proxy.
+`AWS_SESSION_TOKEN`, an inherited `AWS_ENDPOINT_URL_KMS`, and so on) and the
+proxy variables `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` in both
+cases, so no child request can be routed through an inherited proxy.
 
 ```bash
 AWS_REGION=us-east-1
@@ -38,41 +40,121 @@ AWS_SECRET_ACCESS_KEY=dummy
 AWS_EC2_METADATA_DISABLED=true
 AWS_CONFIG_FILE=/dev/null
 AWS_SHARED_CREDENTIALS_FILE=/dev/null
-AWS_ENDPOINT_URL=http://127.0.0.1:8123
-AWS_ENDPOINT_URL_DYNAMODB=http://127.0.0.1:8123
-DYNAMODB_ENDPOINT=http://127.0.0.1:8123
+AWS_ENDPOINT_URL=http://127.0.0.1:<dynamodb-port>
+AWS_ENDPOINT_URL_DYNAMODB=http://127.0.0.1:<dynamodb-port>
+DYNAMODB_ENDPOINT=http://127.0.0.1:<dynamodb-port>
+AWS_ENDPOINT_URL_KMS=http://127.0.0.1:<moto-port>
+KMS_ENDPOINT=http://127.0.0.1:<moto-port>
+AWS_ENDPOINT_URL_STS=http://127.0.0.1:<moto-port>
+STS_ENDPOINT=http://127.0.0.1:<moto-port>
+AWS_ENDPOINT_URL_S3=http://127.0.0.1:<s3proxy-port>
+S3_ENDPOINT=http://127.0.0.1:<s3proxy-port>
+AWS_ENDPOINT_URL_SQS=http://127.0.0.1:<elasticmq-port>
+SQS_ENDPOINT=http://127.0.0.1:<elasticmq-port>
 ```
 
-`AWS_ENDPOINT_URL_DYNAMODB` is the AWS-standard override the Go SDK resolves;
-`DYNAMODB_ENDPOINT` is the convention the examples already read; `AWS_ENDPOINT_URL`
-keeps the multi-tenant entrypoint, which reads it, on the same profile.
+`AWS_ENDPOINT_URL_<SERVICE>` is the AWS-standard override the SDKs resolve;
+`DYNAMODB_ENDPOINT`, `KMS_ENDPOINT`, `S3_ENDPOINT` and the other aliases are the
+conventions the examples already read. `AWS_ENDPOINT_URL` keeps the multi-tenant
+entrypoint, which reads it, on the DynamoDB profile. The ports are not fixed:
+the harness reads them back from Docker after the stack starts (see
+"Isolation" below).
 
-The harness also strips inherited `USER`, `ORG_ID` and
-`FACETHEORY_CACHE_TABLE_NAME`. Rows that need a deterministic identity set
-their own runtime values (the notes transcript uses `USER=harness-user`, the
-contacts transcript uses `ORG_ID=org-harness`, and the FaceTheory cache demo
-uses its default table name).
+The harness also strips inherited `USER`, `ORG_ID`, `FACETHEORY_CACHE_TABLE_NAME`
+and `KMS_KEY_ARN`. Rows that need a deterministic identity set their own runtime
+values (the notes transcript uses `USER=harness-user`, the contacts transcript
+uses `ORG_ID=org-harness`, and the FaceTheory cache demo uses its default table
+name). `KMS_KEY_ARN` is provisioned fresh per run.
 
 ## Preflight
 
 The run stops before any example if:
 
-- DynamoDB Local is not listening and cannot be started from the profile;
-- the endpoint accepts HTTP but does not speak the DynamoDB protocol
-  (`internal/dynamodbprobe` issues a real `ListTables` call);
-- a DynamoDB client built from the harness environment resolves to an empty
-  endpoint (unresolved) or to any endpoint other than the profile's;
+- Docker is unavailable (the profile is a real compose stack, not an optional
+  convenience);
+- DynamoDB Local, moto, s3proxy or ElasticMQ does not answer;
+- any of DynamoDB, KMS, STS, S3 or SQS resolves to an empty endpoint, to a
+  non-loopback host, or to anything other than the profile endpoint the harness
+  started;
 - the resolved credentials are not the static dummy keys;
-- the HTTP example port or the cross-language container port is already in use.
-
-The profile's in-memory database is recreated when the harness owns the
-container, so every run starts from an empty backend. Examples that are run by
-hand against the shared `:8000` convention do not get this isolation.
+- the HTTP example port or the cross-language container port is already in use;
+- a service does not speak its AWS protocol: the preflight issues a real
+  `ListTables` (DynamoDB), `ListKeys` (KMS), `GetCallerIdentity` (STS),
+  `ListBuckets` (S3, path-style) and `ListQueues` (SQS);
+- the local KMS cannot wrap and unwrap a data key with the framework's
+  `EncryptionContext`.
 
 Before the first row, the harness installs any missing JavaScript toolchain from
 the checked-in lockfiles: `ts/` (for `tsx` and the TypeScript runtime) and
 `examples/cdk-multilang/` (the Node reader resolves `@aws-sdk/client-dynamodb`
-from that example's own dependency tree).
+from that example's own dependency tree). It then creates one KMS key with
+`examples-local-kms-key`, which also performs a real `GenerateDataKey`/`Decrypt`
+round-trip, and exports the key ARN to the rows that need it.
+
+## Isolation
+
+Every run gets a private Docker identity:
+
+- the compose project is `tabletheory-examples-local-<10 hex>`, computed from
+  the resolved checkout path and a run id (random per run; `--run-id` makes it
+  reproducible for debugging);
+- every service publishes an ephemeral loopback port (`127.0.0.1::<container
+  port>`); the harness reads the assigned host port back with
+  `docker compose port` and exports it to the examples;
+- the harness removes its own containers and network in a `finally` block, and
+  `make examples-local-down` (`--cleanup`) removes leftovers from any checkout.
+
+Two harness instances on one host therefore never share a container, a network
+or a port. That matters in this workspace: an implementer and a reviewer run
+the harness from different checkouts at the same time. The regression test
+`ConcurrencyIsolationTests` starts two real profiles concurrently and asserts
+that the second one neither recreates nor removes the first one's container,
+that the endpoints differ, and that the first database still answers after the
+second stack is torn down.
+
+`examples/cdk-multilang/local/run-local.sh` also starts its own throwaway
+DynamoDB Local. Without `CDK_LOCAL_PORT` it now publishes an ephemeral port and
+discovers it, so a hand run cannot collide either.
+
+
+## Emulator decision (T3)
+
+The profile uses one permissively licensed, maintained emulator per service.
+Each candidate below was trialed with the Go SDK v2 at the versions this module
+pins, against a real container, before it was chosen.
+
+| Service | Choice | Licence | Image pin | What the trial proved | Fidelity limits | Class |
+| --- | --- | --- | --- | --- | --- | --- |
+| KMS | moto 5.2.5 | Apache-2.0 | `motoserver/moto@sha256:59a1965d845249b04def37a0e2565f9cc6c44543cb89b68e90f28f344b3b0d1a` | `CreateKey`, `GenerateDataKey` (AES-256, `EncryptionContext`) and `Decrypt` round-trip; a mismatched context is refused; `examples/encryption` ran end to end with real envelope crypto | No HSM, no key-policy/IAM/grant enforcement, no cross-account semantics; key material is in process memory. `GenerateDataKey`/`Decrypt`/`CreateKey` and context binding are real | `L2` |
+| STS | moto 5.2.5 | Apache-2.0 | same image as KMS | `AssumeRole` returned credentials with an expiration | Synthetic credentials; no trust-policy or IAM evaluation, any role ARN is accepted, session policies/tags are not enforced | `L2` |
+| S3 | s3proxy (`gaul/s3proxy`, commit `c7d5140`) | Apache-2.0 | `andrewgaul/s3proxy@sha256:1f8915c2b4a8af22bf1fc191500f242974a458c457391b5788f9107544273dc3` | SigV4 with the harness's dummy identity; `CreateBucket`, `PutObject`, `GetObject`, `ListObjectsV2` | No IAM/bucket policies, no event notifications, no Object Lock; versioning, multipart and checksum enforcement are partial. S3 → EventBridge delivery is absent, so S3 event paths remain `L3` "managed S3 event delivery" | `L2` |
+| SQS | ElasticMQ 1.7.1 | Apache-2.0 | `softwaremill/elasticmq-native@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c` | `CreateQueue`, `SendMessage`, `ReceiveMessage`, `DeleteMessage` | In-memory queues; no IAM policies, cross-account access or SNS/EventBridge subscriptions. Polling delivery is real, so a later SQS polling example can be `L2`; managed event-source-mapping delivery remains `L3` | `L2` |
+
+Evaluated and rejected:
+
+- **LocalStack** — excluded. The `localstack/localstack` repository is archived
+  (2026-03-23), and the current documentation makes a `LOCALSTACK_AUTH_TOKEN`
+  mandatory to start the container: the token is a per-user or workspace
+  credential from the LocalStack web app, and startup fails without it. That is
+  an operator account credential and a network activation dependency, which the
+  no-real-AWS/no-operator-configuration rules forbid. It also cannot start
+  unauthenticated. Source: <https://docs.localstack.cloud/getting-started/auth-token/>.
+- **local-kms** 3.11.7 (MIT) — passed the same `CreateKey`/`GenerateDataKey`/
+  `Decrypt` trial and the mismatched-context refusal, but its stable image is
+  from 2023-10 while the current `latest` tag is `4.0.0-alpha.1` (2026-02). A
+  maintained KMS in moto was preferred over an alpha line.
+- **moto S3** — passed the same put/get/list trial, but s3proxy was chosen for a
+  dedicated, SigV4-enforcing S3 service with a filesystem backend.
+
+DynamoDB Local predates this decision (T1) and is now digest-pinned
+(`amazon/dynamodb-local@sha256:7ef4a2c45b58c2901e70a4f28e0953a422c2c631baaaf5e2c15e0805740c7752`,
+tag `3.1.0`).
+
+Every image in the profile is pinned by digest, and the manifest validation
+fails if a tag-only image, a fixed host port, a fixed container name or a fixed
+compose project name is introduced. The tags that produced the current digests
+are `amazon/dynamodb-local:3.1.0`, `motoserver/moto:5.2.5`,
+`andrewgaul/s3proxy:master` and `softwaremill/elasticmq-native:1.7.1`.
 
 ## Discovery
 
@@ -117,8 +199,18 @@ build throwaway repository trees and assert that validation fails when:
   treat as an entrypoint.
 
 They also pin the documented exclusions against the real tree, so `bin/app.ts`
-stays visible while `lib/`, `test/` and generated output stay out. Run them alone
-with `make examples-local-selftest`.
+stays visible while `lib/`, `test/` and generated output stay out.
+
+The profile itself is tested the same way: a tag-only image, a fixed host port,
+a fixed `container_name`, a fixed compose project name, a missing logical
+endpoint, or an endpoint that omits its `AWS_ENDPOINT_URL_<SERVICE>` override
+all fail validation. `ConcurrencyIsolationTests` starts two real profiles at
+once and asserts that the second run neither recreates nor removes the first
+run's container, that the endpoints differ, and that the first database still
+answers after the second stack is torn down. That test needs Docker and fails
+with a clear message when Docker is unavailable, because a skipped concurrency
+proof would not prove isolation. Run the suite alone with
+`make examples-local-selftest`.
 
 ## Classes
 
@@ -130,7 +222,7 @@ Every manifest entry declares exactly one of:
 | `L2` | Local with an AWS-API emulator; the emulator's fidelity limits are documented. |
 | `L3` | Every locally executable part runs for real, plus a named cloud gap that is never faked. |
 | `I` | Infrastructure-only: synthesis plus construct assertions. |
-| `pending: T2/T3/T4a/T4b` | Not wired yet. Reported as `PENDING-MILESTONE`, never counted as pass. |
+| `pending: T4a/T4b` | Not wired yet. Reported as `PENDING-MILESTONE`, never counted as pass. |
 
 A skip is a failure. Go tests are run through `go test -json`, and any `skip`
 event fails the row; example runners treat a non-zero exit, a timeout, or a
@@ -144,9 +236,25 @@ missing expected output as a failure.
   "profile": {
     "name": "tabletheory-examples-local",
     "composeFile": "scripts/local/docker-compose.yml",
-    "dynamodbLocal": {
-      "image": "amazon/dynamodb-local:3.1.0",
-      "port": 8123
+    "containers": {
+      "dynamodb-local": {
+        "image": "amazon/dynamodb-local@sha256:...",
+        "containerPort": 8000
+      },
+      "moto": {
+        "image": "motoserver/moto@sha256:...",
+        "containerPort": 5000
+      }
+    },
+    "endpoints": {
+      "dynamodb": {
+        "container": "dynamodb-local",
+        "env": ["AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_DYNAMODB", "DYNAMODB_ENDPOINT"]
+      },
+      "kms": {
+        "container": "moto",
+        "env": ["AWS_ENDPOINT_URL_KMS", "KMS_ENDPOINT"]
+      }
     }
   },
   "entrypoints": {
@@ -157,12 +265,13 @@ missing expected output as a failure.
     },
     "examples/cdk-multilang/local/go/writer.go": {
       "coveredBy": "examples/cdk-multilang/local/run-local.sh",
-      "class": "L1",
+      "class": "L2",
       "description": "Executed inside run-local.sh."
     },
     "examples/encryption/main.go": {
-      "pending": "T3",
-      "description": "KMS envelope round-trip."
+      "run": "go-encryption",
+      "class": "L2",
+      "description": "KMS envelope round-trip; gap: the KMS is emulated."
     }
   },
   "suites": {
@@ -175,6 +284,15 @@ missing expected output as a failure.
 }
 ```
 
+- `containers` declares every compose service with its digest-pinned image and
+  container port; `endpoints` maps each logical service (`dynamodb`, `kms`,
+  `sts`, `s3`, `sqs`; the example above abbreviates the last three) to a
+  container and the environment variables that must point at it.
+- Validation checks that every container image is digest-pinned, that the
+  compose file declares the same image and publishes an ephemeral loopback port
+  (`127.0.0.1::<containerPort>`), that no `container_name` or top-level compose
+  `name` fixes an identity, that all five logical services exist, and that each
+  one exposes its `AWS_ENDPOINT_URL_<SERVICE>` override.
 - `run` names a runner implemented in `scripts/local/run_examples_local.py`.
   Each runner is used by exactly one entry.
 - `coveredBy` points at another executed entry; the covered row inherits its
@@ -186,8 +304,6 @@ missing expected output as a failure.
   printed on every run and never counted as pass.
 - `suites` cover separate Go modules. A root `go test ./...` never reaches
   `examples/multi-tenant`, so its module test suite is a first-class row.
-- The manifest's `port` and `image` are checked against the compose file during
-  validation, and port 8000 is rejected.
 
 ## Current coverage
 
@@ -196,10 +312,11 @@ The harness wires:
 | Example | Class | How it is verified |
 | --- | --- | --- |
 | `examples/local-quickstart/main.go` | `L1` | `go run`; five print/CRUD outcome checks |
-| `examples/cdk-multilang/local/run-local.sh` | `L1` | Real script; construct drift check plus Go → TypeScript → Python round-trip |
-| `examples/cdk-multilang/local/go/writer.go` | `L1` | `coveredBy` the `run-local.sh` row: the Go writer half of the round-trip |
-| `examples/cdk-multilang/local/read.mts` | `L1` | `coveredBy` the `run-local.sh` row: the Node reader validates the written shape |
-| `examples/cdk-multilang/local/read.py` | `L1` | `coveredBy` the `run-local.sh` row: the Python reader validates the written shape |
+| `examples/cdk-multilang/local/run-local.sh` | `L2` | Real script; construct drift check plus a Go → TypeScript → Python round-trip whose `secret` field is encrypted on write and decrypted through the local KMS by all three runtimes. Gap: emulated KMS (no HSM, key policies or grants) |
+| `examples/cdk-multilang/local/go/writer.go` | `L2` | `coveredBy` the `run-local.sh` row: writes the encrypted item and asserts it decrypts on read |
+| `examples/cdk-multilang/local/read.mts` | `L2` | `coveredBy` the `run-local.sh` row: the Node reader validates the shape and decrypts the secret |
+| `examples/cdk-multilang/local/read.py` | `L2` | `coveredBy` the `run-local.sh` row: the Python reader validates the shape and decrypts the secret |
+| `examples/encryption/main.go` | `L2` | `go run` against DynamoDB Local and moto KMS: the plaintext field round-trips on read, and a raw `GetItem` proves the stored attribute is a v2 envelope (`edk`/`nonce`/`ct`) whose ciphertext does not contain the plaintext. Gap: emulated KMS (no HSM, key policies or grants) |
 | `examples/multi-tenant/cmd/local/main.go` | `L1` | Real HTTP server; health, 401 refusals, signed-JWT signup, authenticated reads, cross-tenant 404 |
 | `examples/multi-tenant/cmd/lambda/main.go` | `L1` | Route-matrix tests through API Gateway events and a loopback HTTP server |
 | `examples/multi-tenant/cmd/token/main.go` | `L1` | Minted JWT claims plus refusal of incomplete arguments |
@@ -228,14 +345,20 @@ because its AWS/profile/minimal/debug modes need a real AWS account and
 credentials. The harness runs only the local mode, which performs a real
 DynamoDB write and read.
 
+The T3 rows (`examples/encryption` and the cdk-multilang local variant) are
+`L2`: the envelope cryptography, KMS calls and cross-language decryption are
+real, and the KMS emulator's limits are the named gap. The S3 and SQS emulators
+are part of the profile and preflighted, but no T3 example uses them yet; T4a
+(payment reconcile on S3) and AppTheory (SQS polling) consume them.
+
 `optimization` and `testing` are intentionally library demos: the query planner
 takes metadata/executor interfaces rather than a database, and `testing`
 demonstrates mocks for unit tests. They run locally without DynamoDB, as scoped
 by the local-execution need (Q3).
 
 Every other entrypoint in the tree is listed in the manifest as `pending` for
-T3, T4a or T4b. That includes the `examples/cdk-multilang` runtime files that
-local execution does not reach yet: `bin/app.ts`, `lambdas/node/handler.ts`,
+T4a or T4b. That includes the `examples/cdk-multilang` runtime files that local
+execution does not reach yet: `bin/app.ts`, `lambdas/node/handler.ts`,
 `lambdas/archive/handler.ts` and `lambdas/python/handler.py` are T4b rows,
 alongside the deployed `lambdas/go` handler and `scripts/smoke.sh`. Pending rows
 are printed on every run and are never counted as pass.
@@ -253,9 +376,11 @@ are printed on every run and are never counted as pass.
 ## CI
 
 `.github/workflows/examples-local.yml` runs `make examples-local` on pull
-requests to `staging` and on manual dispatch. The job provides only a DynamoDB
-Local service container on port 8123; it sets no AWS secrets and no endpoint
-variables, because the harness owns that environment.
+requests to `staging` and on manual dispatch. The job has no service containers
+and no fixed ports: the harness starts the whole profile itself with a project
+name and ephemeral ports unique to the run, and removes it afterwards. It sets
+no AWS secrets and no endpoint variables, because the harness owns that
+environment.
 
 ## Known gaps
 
@@ -267,3 +392,14 @@ variables, because the harness owns that environment.
   fix is tracked separately.
 - DynamoDB Local has no Streams, so stream-delivery paths are `L3` with the
   named gap "managed stream delivery" from T4a onward.
+- The S3, SQS and STS emulators do not deliver managed events: S3 event
+  notifications, SQS event-source mappings and EventBridge delivery remain `L3`
+  with the named "managed <service> delivery" gap. Polling an ElasticMQ queue
+  is real delivery and can be `L2`.
+- moto's STS accepts any role ARN and does not evaluate trust or IAM policies;
+  any T4a partner-AssumeRole row must treat the authorization decision as a
+  named gap even though the `AssumeRole` call itself is real.
+- The emulator images are digest-pinned but the s3proxy image publishes no
+  semantic tag (the current pin came from `master`/commit `c7d5140`); refreshing
+  it means re-running the S3 trial and updating both the compose file and this
+  document.
