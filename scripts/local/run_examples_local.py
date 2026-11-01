@@ -11,6 +11,8 @@ Rules enforced here:
 
 * enumeration is derived from the repository tree, so an entrypoint that is not
   in the manifest fails the run;
+* every manifest row names a file that exists in the tree, pending rows
+  included; only ``coveredBy`` may point at a non-entrypoint helper;
 * a skip is a failure, including a ``t.Skip`` inside a Go test;
 * entries owned by a later milestone are reported as ``PENDING-MILESTONE`` and
   are never counted as pass;
@@ -397,6 +399,7 @@ def load_manifest(path: Path) -> tuple[dict, list[Entry]]:
 
 
 def validate_manifest(
+    root: Path,
     manifest_path: Path,
     profile: dict,
     entries: list[Entry],
@@ -406,19 +409,28 @@ def validate_manifest(
     errors: list[str] = []
 
     entrypoint_keys = {entry.key for entry in entries if entry.kind == "entrypoint"}
+    by_key = {entry.key: entry for entry in entries}
     for path in sorted(set(discovered) - entrypoint_keys):
         errors.append(f"unclassified entrypoint (add it to {manifest_path.name}): {path}")
-    for path in sorted(entrypoint_keys - set(discovered)):
-        entry = next(item for item in entries if item.key == path)
-        if not entry.covered_by and not entry.pending:
-            errors.append(f"manifest entry is not an entrypoint in the tree: {path}")
+
+    # Every row names a real file, pending rows included: a pending row is a
+    # claim about the tree just like a classified one. Only a coveredBy row may
+    # point at a file that discovery does not treat as an entrypoint, because it
+    # documents a helper executed inside another row.
+    for path in sorted(entrypoint_keys):
+        entry = by_key[path]
+        if not (root / path).is_file():
+            errors.append(f"manifest entry does not name a file in the tree: {path}")
+        elif not entry.covered_by and path not in discovered:
+            errors.append(
+                f"{path}: pending and classified rows must name a discovered entrypoint"
+            )
 
     runner_owner: dict[str, str] = {}
-    by_key = {entry.key: entry for entry in entries}
 
     for entry in entries:
         if entry.kind == "suite":
-            suite_dir = ROOT / entry.key
+            suite_dir = root / entry.key
             if not (suite_dir / "go.mod").is_file():
                 errors.append(f"suite is not a Go module: {entry.key}")
 
@@ -458,7 +470,7 @@ def validate_manifest(
         else:
             runner_owner[entry.runner] = entry.key
 
-    compose_path = ROOT / str(profile.get("composeFile", ""))
+    compose_path = root / str(profile.get("composeFile", ""))
     if not compose_path.is_file():
         errors.append(f"profile compose file is missing: {profile.get('composeFile')}")
     else:
@@ -1025,7 +1037,7 @@ def main() -> int:
         return 2
 
     discovered = discover(ROOT)
-    errors = validate_manifest(MANIFEST_PATH, profile, entries, discovered, RUNNERS)
+    errors = validate_manifest(ROOT, MANIFEST_PATH, profile, entries, discovered, RUNNERS)
     if errors:
         print("examples-local: manifest validation failed", file=sys.stderr)
         for error in errors:
