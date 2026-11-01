@@ -112,8 +112,10 @@ not fail.
 > `UpdateTimeToLive`. Callers that relied on that behavior should call
 > `createTable` / `create_table`, `updateTimeToLive` /
 > `update_time_to_live`, or manage TTL in infrastructure as code. New tables
-> are still created with TTL. This change adds **no IAM permission** and does
-> not change Go behavior; item storage is unchanged by provisioning.
+> are still created with TTL. TypeScript/Python auto-migration inherits this
+> through `ensureTable` / `ensure_table`, so an existing migration target keeps
+> its current TTL state, matching Go. This change adds **no IAM permission** and
+> does not change Go behavior; item storage is unchanged by provisioning.
 
 ## DynamoDB's TTL behavior
 
