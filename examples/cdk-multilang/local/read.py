@@ -61,7 +61,7 @@ def main() -> None:
     if item.secret != "shared-secret-v1":
         raise SystemExit(f"python: secret did not decrypt: {item.secret!r}")
     print(
-        f"python: read demo#1/v1 value={item.value!r} lang={item.lang!r} secret={item.secret!r}"
+        f"python: read demo#1/v1 value={item.value!r} lang={item.lang!r} secret=<decrypted>"
     )
 
 

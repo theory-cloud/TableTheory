@@ -1034,9 +1034,9 @@ def run_shell_cdk_multilang_local(harness: Harness) -> str:
     expect_output(
         result.stdout,
         [
-            "go: wrote demo#1/v1 (lang=go, secret=shared-secret-v1 encrypted)",
-            "node: read demo#1/v1 value=shared-value lang=go secret=shared-secret-v1",
-            "python: read demo#1/v1 value='shared-value' lang='go' secret='shared-secret-v1'",
+            "go: wrote demo#1/v1 (lang=go, secret encrypted)",
+            "node: read demo#1/v1 value=shared-value lang=go secret=<decrypted>",
+            "python: read demo#1/v1 value='shared-value' lang='go' secret=<decrypted>",
             "LOCAL CROSS-LANGUAGE NO-DRIFT: PASS",
         ],
         "cdk-multilang local",

@@ -61,5 +61,5 @@ func main() {
 	if out.Secret != item.Secret {
 		log.Fatalf("decrypt assertion failed: read back %q, want %q", out.Secret, item.Secret)
 	}
-	fmt.Println("go: wrote demo#1/v1 (lang=go, secret=shared-secret-v1 encrypted)")
+	fmt.Println("go: wrote demo#1/v1 (lang=go, secret encrypted)")
 }

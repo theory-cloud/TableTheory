@@ -62,5 +62,5 @@ if (item.secret !== 'shared-secret-v1') {
   throw new Error(`node: secret did not decrypt: ${JSON.stringify(item.secret)}`);
 }
 console.log(
-  `node: read demo#1/v1 value=${String(item.value)} lang=${String(item.lang)} secret=${String(item.secret)}`,
+  `node: read demo#1/v1 value=${String(item.value)} lang=${String(item.lang)} secret=<decrypted>`,
 );
