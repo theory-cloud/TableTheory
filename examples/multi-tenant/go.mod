@@ -6,6 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/aws/aws-lambda-go v1.55.1
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.72.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/rs/cors v1.11.1
@@ -22,7 +23,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.7 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.7 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.7 // indirect
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.72.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.22 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.7 // indirect
