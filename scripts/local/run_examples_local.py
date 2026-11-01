@@ -1008,6 +1008,8 @@ def _stop_process(process: subprocess.Popen) -> None:
         try:
             os.killpg(os.getpgid(process.pid), signal.SIGKILL)
         except ProcessLookupError:
+            # The process group can exit between the wait timeout and this kill;
+            # SIGKILL then has no target, which is the outcome it was sent for.
             pass
         process.wait(timeout=15)
 

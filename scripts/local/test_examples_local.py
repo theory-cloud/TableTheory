@@ -18,8 +18,8 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
-from unittest import mock
 
 HARNESS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(HARNESS_DIR))
@@ -278,7 +278,7 @@ class EnvironmentTests(unittest.TestCase):
             "JWT_SECRET": "leaked",
         }
 
-        with mock.patch.dict(os.environ, injected):
+        with unittest.mock.patch.dict(os.environ, injected):
             env = harness.build_env(8123)
 
         cleared = set(injected) - {"AWS_ACCESS_KEY_ID", "AWS_ENDPOINT_URL"}
