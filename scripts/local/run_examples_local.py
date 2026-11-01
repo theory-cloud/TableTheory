@@ -585,6 +585,20 @@ def prepare(harness: Harness) -> None:
     if not tsx.exists():
         raise HarnessFailure(f"TypeScript runner is still missing after npm ci: {tsx}")
 
+    # The cdk-multilang Node reader resolves @aws-sdk/client-dynamodb from the
+    # example's own dependency tree, which a clean checkout does not have.
+    example_sdk = (
+        ROOT / "examples" / "cdk-multilang" / "node_modules" / "@aws-sdk" / "client-dynamodb"
+    )
+    if not example_sdk.is_dir():
+        print("  ... installing the cdk-multilang example toolchain (npm ci)")
+        harness.run(
+            ["npm", "--prefix", "examples/cdk-multilang", "ci", "--ignore-scripts"],
+            timeout=1800,
+        )
+    if not example_sdk.is_dir():
+        raise HarnessFailure(f"cdk-multilang dependencies are still missing after npm ci: {example_sdk}")
+
 
 # --- runners ----------------------------------------------------------------
 

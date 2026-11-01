@@ -61,6 +61,11 @@ The profile's in-memory database is recreated when the harness owns the
 container, so every run starts from an empty backend. Examples that are run by
 hand against the shared `:8000` convention do not get this isolation.
 
+Before the first row, the harness installs any missing JavaScript toolchain from
+the checked-in lockfiles: `ts/` (for `tsx` and the TypeScript runtime) and
+`examples/cdk-multilang/` (the Node reader resolves `@aws-sdk/client-dynamodb`
+from that example's own dependency tree).
+
 ## Discovery
 
 Entrypoints are discovered from the tree, not from a hand-maintained list:
