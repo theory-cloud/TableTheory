@@ -59,7 +59,7 @@ type indexState struct {
 // New returns an empty in-memory DynamoDB fake. Use it for tests whose outcome
 // depends on stored state or supported condition expressions; pkg/mocks does
 // not evaluate those conditions. With no options the fake keeps its historical
-// permissive TTL behaviour; pass WithDynamoDBTTLValidation to make
+// permissive TTL behavior; pass WithDynamoDBTTLValidation to make
 // UpdateTimeToLive reject what DynamoDB rejects.
 func New(options ...Option) *Fake {
 	fake := &Fake{tables: make(map[string]*tableState)}
@@ -77,7 +77,7 @@ type Option func(*Fake)
 // WithDynamoDBTTLValidation makes UpdateTimeToLive reject the requests DynamoDB
 // rejects: a missing TimeToLiveSpecification.AttributeName, enabling TTL on the
 // attribute that is already enabled, and enabling TTL while another attribute is
-// enabled. The default fake accepts all three, matching the behaviour existing
+// enabled. The default fake accepts all three, matching the behavior existing
 // consumer tests rely on.
 func WithDynamoDBTTLValidation() Option {
 	return func(fake *Fake) {
