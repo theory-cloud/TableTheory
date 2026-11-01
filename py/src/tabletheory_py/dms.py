@@ -29,7 +29,7 @@ class _BoundedSafeLoader(yaml.SafeLoader):
         self._dms_alias_count = 0
 
     def compose_node(self, parent: Any, index: Any) -> Any:
-        if self.check_event(AliasEvent):  # type: ignore[no-untyped-call]
+        if self.check_event(AliasEvent):
             self._dms_alias_count += 1
             if self._dms_alias_count > MAX_DMS_ALIASES:
                 raise yaml.YAMLError("DMS YAML contains too many aliases")

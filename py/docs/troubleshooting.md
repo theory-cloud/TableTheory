@@ -64,6 +64,7 @@ and `roles=["sk"]`. DynamoDB key attributes cannot be empty strings.
 def profile_key(user_id: str) -> tuple[str, str]:
     return (f"USER#{user_id}", "PROFILE")
 
+
 pk, sk = profile_key("42")
 item = table.get(pk, sk)
 ```
