@@ -22,7 +22,9 @@ Rules enforced here:
 
 from __future__ import annotations
 
+import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -37,7 +39,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -47,6 +49,17 @@ MANIFEST_PATH = HARNESS_DIR / "examples-local.json"
 
 CLASSES = ("L1", "L2", "L3", "I")
 MILESTONES = ("T2", "T3", "T4a", "T4b")
+# Logical services every local profile must wire, and the AWS-standard endpoint
+# variable each one must expose. KMS and STS deliberately share one container.
+REQUIRED_ENDPOINTS = ("dynamodb", "kms", "sts", "s3", "sqs")
+STANDARD_ENDPOINT_ENV = {
+    "dynamodb": "AWS_ENDPOINT_URL_DYNAMODB",
+    "kms": "AWS_ENDPOINT_URL_KMS",
+    "sts": "AWS_ENDPOINT_URL_STS",
+    "s3": "AWS_ENDPOINT_URL_S3",
+    "sqs": "AWS_ENDPOINT_URL_SQS",
+}
+DIGEST_PIN_RE = re.compile(r"@sha256:[0-9a-f]{64}$")
 # Dependency trees and build output: never entrypoints.
 EXCLUDED_DIR_PARTS = {
     "node_modules",
@@ -65,7 +78,6 @@ GENERATED_MARKER_RE = re.compile(r"Code generated .*\bDO NOT EDIT\b")
 GO_MAIN_RE = re.compile(r"^func main\(\)", re.MULTILINE)
 MULTI_TENANT = ROOT / "examples" / "multi-tenant"
 JWT_SECRET = "tabletheory-local-harness-secret"
-COMPOSE_PROJECT = "tabletheory-examples-local"
 DEFAULT_TIMEOUT = 900
 FAILURE_OUTPUT_LINES = 60
 
@@ -108,6 +120,91 @@ class Entry:
     @property
     def label(self) -> str:
         return f"{self.key} [{self.kind}]" if self.kind == "suite" else self.key
+
+
+@dataclass(frozen=True)
+class Container:
+    name: str
+    image: str
+    container_port: int
+
+
+@dataclass(frozen=True)
+class Endpoint:
+    service: str
+    container: str
+    env: tuple[str, ...]
+
+
+@dataclass
+class LocalProfile:
+    """One harness run's view of the checked-in profile.
+
+    ``project`` is unique per checkout and run id, and every service publishes
+    an ephemeral loopback port, so concurrent harness instances never share a
+    container, a network or a port. ``host_ports`` is filled from
+    ``docker compose port`` after the stack starts.
+    """
+
+    name: str
+    compose_file: Path
+    containers: dict[str, Container]
+    endpoints: dict[str, Endpoint]
+    run_id: str
+    project: str
+    host_ports: dict[str, int] = field(default_factory=dict)
+
+    def url(self, service: str) -> str:
+        try:
+            port = self.host_ports[self.endpoints[service].container]
+        except KeyError as exc:
+            raise HarnessFailure(f"endpoint {service!r} has no discovered host port") from exc
+        return f"http://127.0.0.1:{port}"
+
+    def endpoint_env(self) -> dict[str, str]:
+        env: dict[str, str] = {}
+        for service in sorted(self.endpoints):
+            for name in self.endpoints[service].env:
+                env[name] = self.url(service)
+        return env
+
+
+def project_name(profile_name: str, root: Path, run_id: str) -> str:
+    """Return a compose project name unique to this checkout and run.
+
+    Two harness instances in different checkouts, or two runs in the same
+    checkout, get different project names and therefore different containers
+    and networks. ``--run-id`` makes the value reproducible for debugging.
+    """
+    material = f"{root.resolve()}|{run_id}".encode("utf-8")
+    return f"{profile_name}-{hashlib.sha256(material).hexdigest()[:10]}"
+
+
+def build_profile(profile: dict, root: Path, run_id: str) -> LocalProfile:
+    containers = {
+        name: Container(
+            name=name,
+            image=str(spec["image"]),
+            container_port=int(spec["containerPort"]),
+        )
+        for name, spec in profile["containers"].items()
+    }
+    endpoints = {
+        name: Endpoint(
+            service=name,
+            container=str(spec["container"]),
+            env=tuple(str(item) for item in spec["env"]),
+        )
+        for name, spec in profile["endpoints"].items()
+    }
+    return LocalProfile(
+        name=str(profile["name"]),
+        compose_file=root / str(profile["composeFile"]),
+        containers=containers,
+        endpoints=endpoints,
+        run_id=run_id,
+        project=project_name(str(profile["name"]), root, run_id),
+    )
 
 
 @dataclass
@@ -387,7 +484,7 @@ def load_manifest(path: Path) -> tuple[dict, list[Entry]]:
     profile = raw.get("profile")
     if not isinstance(profile, dict):
         raise HarnessFailure(f"{path}: missing profile object")
-    for key in ("composeFile", "dynamodbLocal"):
+    for key in ("composeFile", "containers", "endpoints"):
         if key not in profile:
             raise HarnessFailure(f"{path}: profile is missing {key}")
 
@@ -477,19 +574,78 @@ def validate_manifest(
             runner_owner[entry.runner] = entry.key
 
     compose_path = root / str(profile.get("composeFile", ""))
+    containers = profile.get("containers", {})
+    endpoints = profile.get("endpoints", {})
+    if not isinstance(containers, dict) or not containers:
+        errors.append("profile.containers must be a non-empty object")
+    if not isinstance(endpoints, dict) or not endpoints:
+        errors.append("profile.endpoints must be a non-empty object")
+    if not isinstance(containers, dict) or not isinstance(endpoints, dict):
+        return errors
+
+    seen_env: dict[str, str] = {}
+    for service in REQUIRED_ENDPOINTS:
+        spec = endpoints.get(service)
+        if not isinstance(spec, dict):
+            errors.append(f"profile.endpoints.{service} is required")
+            continue
+        container_name = str(spec.get("container", ""))
+        if container_name not in containers:
+            errors.append(f"profile.endpoints.{service} names an undeclared container: {container_name!r}")
+        env = spec.get("env")
+        if not isinstance(env, list) or not env:
+            errors.append(f"profile.endpoints.{service}.env must be a non-empty list")
+            continue
+        standard = STANDARD_ENDPOINT_ENV[service]
+        if standard not in env:
+            errors.append(
+                f"profile.endpoints.{service}.env must include the AWS-standard override {standard}"
+            )
+        for name in env:
+            name = str(name)
+            if name in seen_env:
+                errors.append(
+                    f"endpoint variable {name} is used by both {seen_env[name]} and {service}"
+                )
+            else:
+                seen_env[name] = service
+
+    for name, spec in containers.items():
+        if not isinstance(spec, dict):
+            errors.append(f"profile.containers.{name} must be an object")
+            continue
+        image = str(spec.get("image", ""))
+        port = spec.get("containerPort")
+        if not DIGEST_PIN_RE.search(image):
+            errors.append(
+                f"profile.containers.{name}.image must be pinned by digest (@sha256:...), got {image!r}"
+            )
+        if not isinstance(port, int) or port <= 0:
+            errors.append(f"profile.containers.{name}.containerPort must be a positive integer")
+
     if not compose_path.is_file():
         errors.append(f"profile compose file is missing: {profile.get('composeFile')}")
     else:
         compose_text = compose_path.read_text(encoding="utf-8")
-        local = profile.get("dynamodbLocal", {})
-        image = str(local.get("image", ""))
-        port = int(local.get("port", 0))
-        if image and f"image: {image}" not in compose_text:
-            errors.append(f"{compose_path}: image pin does not match the manifest ({image})")
-        if port and f"127.0.0.1:{port}:8000" not in compose_text:
-            errors.append(f"{compose_path}: port does not match the manifest ({port})")
-        if port == 8000:
-            errors.append(f"{compose_path}: the profile must not reuse the shared :8000")
+        if "container_name:" in compose_text:
+            errors.append(f"{compose_path}: container_name is fixed and would collide across runs")
+        for line in compose_text.splitlines():
+            if line.startswith("name:"):
+                errors.append(f"{compose_path}: a top-level name fixes the compose project across runs")
+                break
+        for name, spec in containers.items():
+            if not isinstance(spec, dict):
+                continue
+            image = str(spec.get("image", ""))
+            port = spec.get("containerPort")
+            if image and f"image: {image}" not in compose_text:
+                errors.append(f"{compose_path}: image pin does not match the manifest for {name} ({image})")
+            if isinstance(port, int):
+                if f"127.0.0.1::{port}" not in compose_text:
+                    errors.append(
+                        f"{compose_path}: {name} must publish an ephemeral loopback port "
+                        f"(127.0.0.1::{port}) so concurrent runs cannot collide"
+                    )
 
     return errors
 
@@ -512,8 +668,7 @@ def go_toolchain() -> str:
     return match.group(1)
 
 
-def build_env(port: int) -> dict:
-    endpoint = f"http://127.0.0.1:{port}"
+def build_env(profile: LocalProfile) -> dict:
     # Start from a clean AWS surface: an inherited profile, session token or
     # endpoint override must not be able to redirect any child process.
     env = {key: value for key, value in os.environ.items() if not key.startswith("AWS_")}
@@ -525,6 +680,11 @@ def build_env(port: int) -> dict:
         "FACETHEORY_CACHE_TABLE_NAME",
         "ORG_ID",
         "USER",
+        "KMS_KEY_ARN",
+        "KMS_ENDPOINT",
+        "S3_ENDPOINT",
+        "STS_ENDPOINT",
+        "SQS_ENDPOINT",
     ):
         env.pop(key, None)
     # Proxy variables are cleared in both cases for the same reason: no child
@@ -541,13 +701,103 @@ def build_env(port: int) -> dict:
             "AWS_EC2_METADATA_DISABLED": "true",
             "AWS_CONFIG_FILE": os.devnull,
             "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
-            "AWS_ENDPOINT_URL": endpoint,
-            "AWS_ENDPOINT_URL_DYNAMODB": endpoint,
-            "DYNAMODB_ENDPOINT": endpoint,
             "GOTOOLCHAIN": go_toolchain(),
         }
     )
+    env.update(profile.endpoint_env())
     return env
+
+
+def free_port(taken: set[int]) -> int:
+    """Return a loopback port nothing is listening on right now."""
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = int(probe.getsockname()[1])
+        if port in taken or port_open("127.0.0.1", port):
+            continue
+        taken.add(port)
+        return port
+
+
+def compose(
+    harness: Harness,
+    profile: LocalProfile,
+    *args: str,
+    check: bool = True,
+    timeout: int = 300,
+) -> subprocess.CompletedProcess:
+    return harness.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            str(profile.compose_file),
+            "-p",
+            profile.project,
+            *args,
+        ],
+        timeout=timeout,
+        check=check,
+    )
+
+
+def start_profile(harness: Harness, profile: LocalProfile) -> None:
+    """Start this run's private compose stack and discover its ports.
+
+    The project name is unique to the checkout and run id, so ``down`` here can
+    only ever remove this run's own containers. Every host port is chosen by
+    Docker and read back, so two concurrent runs cannot claim the same port.
+    """
+    if not _docker_available(harness):
+        raise HarnessFailure(
+            "Docker is required for the local profile; start Colima/Docker first"
+        )
+    compose(harness, profile, "down", "-v", "--remove-orphans", check=False, timeout=120)
+    compose(harness, profile, "up", "-d", timeout=600)
+    for name, container in profile.containers.items():
+        profile.host_ports[name] = _compose_host_port(harness, profile, container)
+    ports = list(profile.host_ports.values())
+    if len(ports) != len(set(ports)):
+        raise HarnessFailure(f"compose assigned duplicate host ports: {profile.host_ports}")
+    print(
+        "  PASS  started profile "
+        + ", ".join(f"{name}={port}" for name, port in sorted(profile.host_ports.items()))
+    )
+
+
+def stop_profile(harness: Harness, profile: LocalProfile) -> None:
+    compose(harness, profile, "down", "-v", "--remove-orphans", check=False, timeout=180)
+
+
+def _compose_host_port(harness: Harness, profile: LocalProfile, container: Container) -> int:
+    result = compose(
+        harness,
+        profile,
+        "port",
+        container.name,
+        str(container.container_port),
+        timeout=60,
+    )
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not lines:
+        raise HarnessFailure(
+            f"docker compose did not publish a host port for {container.name}:{container.container_port}"
+        )
+    host, _, raw_port = lines[0].rpartition(":")
+    if host not in ("127.0.0.1", "0.0.0.0", "::1", "[::1]"):
+        raise HarnessFailure(
+            f"{container.name} is published on {host!r}, not loopback; refusing to run"
+        )
+    try:
+        return int(raw_port)
+    except ValueError as exc:
+        raise HarnessFailure(f"cannot parse {container.name} host port from {lines[0]!r}") from exc
+
+
+def container_id(harness: Harness, profile: LocalProfile, service: str) -> str:
+    result = compose(harness, profile, "ps", "-q", service, timeout=60, check=False)
+    return result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
 
 
 def wait_for_dynamodb_local(harness: Harness, endpoint: str, seconds: int = 120) -> None:
@@ -572,50 +822,52 @@ def wait_for_dynamodb_local(harness: Harness, endpoint: str, seconds: int = 120)
     raise HarnessFailure(f"DynamoDB Local did not become ready at {endpoint}", last)
 
 
-def preflight(harness: Harness, profile: dict) -> None:
-    local = profile["dynamodbLocal"]
-    port = int(local["port"])
-    endpoint = f"http://127.0.0.1:{port}"
-    compose_file = ROOT / str(profile["composeFile"])
+def wait_for_http(url: str, seconds: int = 120) -> None:
+    deadline = time.monotonic() + seconds
+    last = ""
+    # An inherited proxy must not be able to intercept this readiness probe.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    while time.monotonic() < deadline:
+        try:
+            with opener.open(url, timeout=2) as response:
+                if response.status == 200:
+                    return
+                last = f"HTTP {response.status}"
+        except (urllib.error.URLError, OSError) as exc:
+            last = str(exc)
+        time.sleep(0.5)
+    raise HarnessFailure(f"local service did not answer at {url}", last)
 
-    docker_here = _docker_available(harness)
-    if docker_here and _profile_container_id(harness, compose_file):
-        # The harness owns this container, so every run starts from an empty
-        # in-memory database. Examples must not depend on state a previous run
-        # (or another session) left behind.
-        harness.run(
-            ["docker", "compose", "-f", str(compose_file), "-p", COMPOSE_PROJECT, "down", "-v"],
-            timeout=120,
-            check=False,
-        )
-        print("  PASS  recreated the profile container (clean database)")
 
-    if not port_open("127.0.0.1", port):
-        if not docker_here:
-            raise HarnessFailure(
-                "DynamoDB Local is not listening and Docker is unavailable; start Colima/Docker first"
-            )
-        harness.run(
-            [
-                "docker",
-                "compose",
-                "-f",
-                str(compose_file),
-                "-p",
-                COMPOSE_PROJECT,
-                "up",
-                "-d",
-            ],
-            timeout=300,
-        )
-    wait_for_dynamodb_local(harness, endpoint)
-    print(f"  PASS  DynamoDB Local answers at {endpoint}")
+def wait_for_port(port: int, host: str = "127.0.0.1", seconds: int = 120) -> None:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if port_open(host, port):
+            return
+        time.sleep(0.5)
+    raise HarnessFailure(f"local service did not start listening at {host}:{port}")
 
-    for key in ("AWS_ENDPOINT_URL_DYNAMODB", "DYNAMODB_ENDPOINT", "AWS_ENDPOINT_URL"):
-        resolved = harness.env.get(key)
-        if resolved != endpoint:
-            raise HarnessFailure(f"{key} is {resolved!r}; the harness must own it ({endpoint})")
-    print("  PASS  harness owns AWS_ENDPOINT_URL_DYNAMODB, DYNAMODB_ENDPOINT and AWS_ENDPOINT_URL")
+
+def preflight(harness: Harness, profile: LocalProfile) -> None:
+    wait_for_dynamodb_local(harness, profile.url("dynamodb"))
+    print(f"  PASS  DynamoDB Local answers at {profile.url('dynamodb')}")
+    wait_for_http(f"{profile.url('kms').rstrip('/')}/moto-api/")
+    print(f"  PASS  moto answers at {profile.url('kms')} (KMS and STS)")
+    wait_for_port(int(profile.host_ports[profile.endpoints["s3"].container]))
+    print(f"  PASS  s3proxy listens at {profile.url('s3')}")
+    wait_for_port(int(profile.host_ports[profile.endpoints["sqs"].container]))
+    print(f"  PASS  ElasticMQ listens at {profile.url('sqs')}")
+
+    for service in REQUIRED_ENDPOINTS:
+        endpoint = profile.url(service)
+        for name in profile.endpoints[service].env:
+            resolved = harness.env.get(name)
+            if resolved != endpoint:
+                raise HarnessFailure(f"{name} is {resolved!r}; the harness must own it ({endpoint})")
+    print(
+        "  PASS  harness owns every endpoint override (DynamoDB, KMS, STS, S3, SQS) "
+        "and the static dummy credentials"
+    )
 
     for name in ("http", "cdk"):
         port = int(harness.ports[name])
@@ -625,14 +877,11 @@ def preflight(harness: Harness, profile: dict) -> None:
             )
     print("  PASS  example ports are free (HTTP server and cross-language container)")
 
+    flags: list[str] = []
+    for service in REQUIRED_ENDPOINTS:
+        flags.extend([f"-{service}", profile.url(service)])
     probe = harness.run(
-        [
-            "go",
-            "run",
-            "./scripts/local/cmd/examples-local-preflight",
-            "-endpoint",
-            endpoint,
-        ],
+        ["go", "run", "./scripts/local/cmd/examples-local-preflight", *flags],
         timeout=300,
     )
     for line in probe.stdout.strip().splitlines():
@@ -644,23 +893,58 @@ def _docker_available(harness: Harness) -> bool:
     return result.returncode == 0
 
 
-def _profile_container_id(harness: Harness, compose_file: Path) -> str:
-    result = harness.run(
+def cleanup_projects(prefix: str) -> int:
+    """Remove every harness container and network, from any checkout or run.
+
+    ``make examples-local-down`` uses this after a crashed run left its private
+    project behind. Normal runs remove their own project in ``finally``.
+    """
+    harness = Harness(env=dict(os.environ), ports={})
+    containers = harness.run(
+        ["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project"],
+        timeout=60,
+        check=False,
+    )
+    removed = 0
+    for container in containers.stdout.split():
+        label = harness.run(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                '{{index .Config.Labels "com.docker.compose.project"}}',
+                container,
+            ],
+            timeout=60,
+            check=False,
+        )
+        project = label.stdout.strip()
+        if project == prefix or project.startswith(f"{prefix}-"):
+            harness.run(["docker", "rm", "-f", container], timeout=120, check=False)
+            removed += 1
+    networks = harness.run(
         [
             "docker",
-            "compose",
-            "-f",
-            str(compose_file),
-            "-p",
-            COMPOSE_PROJECT,
-            "ps",
-            "-q",
-            "dynamodb-local",
+            "network",
+            "ls",
+            "--filter",
+            "label=com.docker.compose.project",
+            "--format",
+            '{{.ID}} {{.Label "com.docker.compose.project"}}',
         ],
         timeout=60,
         check=False,
     )
-    return result.stdout.strip()
+    for line in networks.stdout.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        network_id, project = parts
+        if project == prefix or project.startswith(f"{prefix}-"):
+            harness.run(["docker", "network", "rm", network_id], timeout=60, check=False)
+            removed += 1
+    print(f"examples-local: removed {removed} container/network ref(s) for {prefix}-*")
+    return 0
 
 
 def prepare(harness: Harness) -> None:
@@ -685,8 +969,45 @@ def prepare(harness: Harness) -> None:
     if not example_sdk.is_dir():
         raise HarnessFailure(f"cdk-multilang dependencies are still missing after npm ci: {example_sdk}")
 
+    # Provision the envelope key and prove the local KMS wraps and unwraps a
+    # data key with the framework's EncryptionContext before any example runs.
+    key = harness.run(
+        ["go", "run", "./scripts/local/cmd/examples-local-kms-key"],
+        timeout=300,
+    )
+    key_arn = key.stdout.strip().splitlines()[-1] if key.stdout.strip() else ""
+    if not key_arn.startswith("arn:"):
+        raise HarnessFailure("the local KMS did not return a key ARN", _combined_output(key))
+    harness.env["KMS_KEY_ARN"] = key_arn
+    print(f"  PASS  local KMS envelope key ready ({key_arn})")
+
 
 # --- runners ----------------------------------------------------------------
+
+
+def run_go_encryption(harness: Harness) -> str:
+    result = harness.run(
+        ["go", "run", "./examples/encryption"],
+        env={"DYNAMORM_ENCRYPTION_CREATE_TABLE": "1"},
+    )
+    output = _combined_output(result)
+    label = "examples/encryption"
+    expect_output(
+        output,
+        [
+            'decrypted secret: "hello from theorydb"',
+            'plaintext round-trip: "hello from theorydb" == "hello from theorydb"',
+            "stored attribute is ciphertext: envelope v=2",
+            "OK: KMS envelope round-trip encrypted on write and decrypted on read",
+        ],
+        label,
+    )
+    reject_output(
+        output,
+        ["decrypt assertion failed", "stored ciphertext contains the plaintext"],
+        label,
+    )
+    return "real KMS GenerateDataKey/Decrypt; plaintext round-trip and stored-ciphertext assertions"
 
 
 def run_go_local_quickstart(harness: Harness) -> str:
@@ -713,14 +1034,14 @@ def run_shell_cdk_multilang_local(harness: Harness) -> str:
     expect_output(
         result.stdout,
         [
-            "go: wrote demo#1/v1 (lang=go)",
-            "node: read demo#1/v1 value=shared-value lang=go",
-            "python: read demo#1/v1 value='shared-value' lang='go'",
+            "go: wrote demo#1/v1 (lang=go, secret=shared-secret-v1 encrypted)",
+            "node: read demo#1/v1 value=shared-value lang=go secret=shared-secret-v1",
+            "python: read demo#1/v1 value='shared-value' lang='go' secret='shared-secret-v1'",
             "LOCAL CROSS-LANGUAGE NO-DRIFT: PASS",
         ],
         "cdk-multilang local",
     )
-    return "drift check + Go/TS/Py round-trip"
+    return "drift check + Go/TS/Py round-trip with a decrypted KMS secret"
 
 
 def run_ts_local(harness: Harness) -> str:
@@ -1283,6 +1604,7 @@ def _stop_process(process: subprocess.Popen) -> None:
 
 RUNNERS: dict[str, Callable[[Harness], str]] = {
     "go-local-quickstart": run_go_local_quickstart,
+    "go-encryption": run_go_encryption,
     "shell-cdk-multilang-local": run_shell_cdk_multilang_local,
     "ts-local": run_ts_local,
     "py-local-crud": run_py_local_crud,
@@ -1314,113 +1636,153 @@ def print_failure(label: str, failure: HarnessFailure) -> None:
             print(f"        | {line}")
 
 
-def main() -> int:
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run every classified TableTheory example against the local profile."
+    )
+    parser.add_argument(
+        "--run-id",
+        default="",
+        help="reproducible run id mixed into the compose project name (default: random per run)",
+    )
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="remove the containers and networks of every harness run, from any checkout",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
-        profile, entries = load_manifest(MANIFEST_PATH)
+        raw_profile, entries = load_manifest(MANIFEST_PATH)
     except HarnessFailure as failure:
         print(f"examples-local: {failure.message}", file=sys.stderr)
         return 2
 
+    if args.cleanup:
+        return cleanup_projects(str(raw_profile.get("name", "tabletheory-examples-local")))
+
     discovered = discover(ROOT)
-    errors = validate_manifest(ROOT, MANIFEST_PATH, profile, entries, discovered, RUNNERS)
+    errors = validate_manifest(ROOT, MANIFEST_PATH, raw_profile, entries, discovered, RUNNERS)
     if errors:
         print("examples-local: manifest validation failed", file=sys.stderr)
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
         return 2
 
-    port = int(profile["dynamodbLocal"]["port"])
-    ports = {"ddb": port, "http": port + 1, "cdk": port + 2}
-    harness = Harness(env=build_env(port), ports=ports)
+    run_id = args.run_id or f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    try:
+        profile = build_profile(raw_profile, ROOT, run_id)
+    except (KeyError, TypeError, ValueError) as exc:
+        print(f"examples-local: invalid profile: {exc}", file=sys.stderr)
+        return 2
+
+    taken: set[int] = set()
+    harness = Harness(env=dict(os.environ), ports={"http": free_port(taken), "cdk": free_port(taken)})
 
     print("TableTheory local examples harness")
     print(f"  repository: {ROOT}")
-    print(f"  profile:    {profile['composeFile']} ({profile['dynamodbLocal']['image']})")
-    print(f"  endpoint:   {harness.env['DYNAMODB_ENDPOINT']}")
+    print(f"  profile:    {raw_profile['composeFile']}")
+    print(f"  project:    {profile.project} (run id {run_id})")
     print(f"  discovered: {len(discovered)} entrypoints; manifest entries: {len(entries)}")
     print()
     print("preflight")
+
     try:
-        preflight(harness, profile)
-        prepare(harness)
-    except HarnessFailure as failure:
-        print_failure("preflight", failure)
-        print()
-        print("RESULT: FAIL (preflight)")
-        return 1
-
-    executed = [entry for entry in entries if entry.runner]
-    results: dict[str, tuple[str, str]] = {}
-    failures: list[tuple[Entry, HarnessFailure]] = []
-
-    print()
-    total = len(executed)
-    for index, entry in enumerate(executed, start=1):
-        print(
-            f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} RUN",
-            flush=True,
-        )
+        start_profile(harness, profile)
+        harness.env = build_env(profile)
+        for service in REQUIRED_ENDPOINTS:
+            print(f"          {service:<9} {profile.url(service)}")
         try:
-            detail = RUNNERS[entry.runner](harness)
-            results[entry.key] = ("PASS", detail)
-            print(f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} PASS  {detail}")
+            preflight(harness, profile)
+            prepare(harness)
         except HarnessFailure as failure:
-            results[entry.key] = ("FAIL", failure.message)
-            failures.append((entry, failure))
-            print(f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} FAIL")
-            print_failure(entry.label, failure)
-        except Exception as exc:  # noqa: BLE001 - a harness bug must fail the row, not abort the run
-            failure = HarnessFailure(f"{type(exc).__name__}: {exc}", traceback.format_exc())
-            results[entry.key] = ("FAIL", failure.message)
-            failures.append((entry, failure))
-            print(f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} FAIL")
-            print_failure(entry.label, failure)
+            print_failure("preflight", failure)
+            print()
+            print("RESULT: FAIL (preflight)")
+            return 1
 
-    for entry in entries:
-        if not entry.covered_by:
-            continue
-        target = results.get(entry.covered_by)
-        if target is None:
-            results[entry.key] = ("FAIL", f"covered row {entry.covered_by} did not run")
-            failures.append((entry, HarnessFailure(results[entry.key][1])))
+        executed = [entry for entry in entries if entry.runner]
+        results: dict[str, tuple[str, str]] = {}
+        failures: list[tuple[Entry, HarnessFailure]] = []
+
+        print()
+        total = len(executed)
+        for index, entry in enumerate(executed, start=1):
+            print(
+                f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} RUN",
+                flush=True,
+            )
+            try:
+                detail = RUNNERS[entry.runner](harness)
+                results[entry.key] = ("PASS", detail)
+                print(f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} PASS  {detail}")
+            except HarnessFailure as failure:
+                results[entry.key] = ("FAIL", failure.message)
+                failures.append((entry, failure))
+                print(f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} FAIL")
+                print_failure(entry.label, failure)
+            except Exception as exc:  # noqa: BLE001 - a harness bug must fail the row, not abort the run
+                failure = HarnessFailure(f"{type(exc).__name__}: {exc}", traceback.format_exc())
+                results[entry.key] = ("FAIL", failure.message)
+                failures.append((entry, failure))
+                print(f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} FAIL")
+                print_failure(entry.label, failure)
+
+        for entry in entries:
+            if not entry.covered_by:
+                continue
+            target = results.get(entry.covered_by)
+            if target is None:
+                results[entry.key] = ("FAIL", f"covered row {entry.covered_by} did not run")
+                failures.append((entry, HarnessFailure(results[entry.key][1])))
+            else:
+                results[entry.key] = target
+
+        pending = [entry for entry in entries if entry.pending]
+        print()
+        print("pending milestones (reported, never counted as pass)")
+        if pending:
+            for entry in pending:
+                print(f"  {entry.key:<58} PENDING-MILESTONE {entry.pending}")
         else:
-            results[entry.key] = target
+            print("  (none)")
 
-    pending = [entry for entry in entries if entry.pending]
-    print()
-    print("pending milestones (reported, never counted as pass)")
-    if pending:
-        for entry in pending:
-            print(f"  {entry.key:<58} PENDING-MILESTONE {entry.pending}")
-    else:
-        print("  (none)")
+        print()
+        print("summary")
+        print(f"  {'result':<8} {'class':<22} example")
+        passed = 0
+        failed = 0
+        for entry in entries:
+            if entry.pending:
+                print(f"  {'PENDING':<8} {'PENDING-MILESTONE ' + entry.pending:<22} {entry.key}")
+                continue
+            result, detail = results.get(entry.key, ("FAIL", "row did not run"))
+            suffix = f"  ({detail})" if detail else ""
+            if entry.covered_by:
+                suffix = f"  (via {entry.covered_by})"
+            print(f"  {result:<8} {entry.class_name:<22} {entry.key}{suffix}")
+            if result == "PASS":
+                passed += 1
+            else:
+                failed += 1
 
-    print()
-    print("summary")
-    print(f"  {'result':<8} {'class':<22} example")
-    passed = 0
-    failed = 0
-    for entry in entries:
-        if entry.pending:
-            print(f"  {'PENDING':<8} {'PENDING-MILESTONE ' + entry.pending:<22} {entry.key}")
-            continue
-        result, detail = results.get(entry.key, ("FAIL", "row did not run"))
-        suffix = f"  ({detail})" if detail else ""
-        if entry.covered_by:
-            suffix = f"  (via {entry.covered_by})"
-        print(f"  {result:<8} {entry.class_name:<22} {entry.key}{suffix}")
-        if result == "PASS":
-            passed += 1
+        print()
+        print(f"counts: {passed} passed, {failed} failed, {len(pending)} pending-milestone")
+        if failures:
+            print("RESULT: FAIL")
+            return 1
+        print("RESULT: PASS")
+        return 0
+    finally:
+        try:
+            stop_profile(harness, profile)
+        except HarnessFailure as exc:
+            print(f"  WARN  could not remove profile {profile.project}: {exc.message}")
         else:
-            failed += 1
-
-    print()
-    print(f"counts: {passed} passed, {failed} failed, {len(pending)} pending-milestone")
-    if failures:
-        print("RESULT: FAIL")
-        return 1
-    print("RESULT: PASS")
-    return 0
+            print(f"  PASS  removed profile {profile.project} (containers and network)")
 
 
 if __name__ == "__main__":

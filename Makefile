@@ -65,21 +65,21 @@ example-local: docker-up
 		go run ./examples/local-quickstart
 
 # Run every classified example against the checked-in local profile. The
-# harness recreates its own DynamoDB Local container on a dedicated port (or
-# attaches to an already-running profile), owns the endpoint/credential
-# environment, asserts each example's real outcome, and fails on any skip or
-# unclassified entrypoint.
+# harness starts a private compose stack (DynamoDB Local plus the pinned
+# KMS/STS/S3/SQS emulators) with a per-run project name and ephemeral ports,
+# owns the endpoint/credential environment, asserts each example's real
+# outcome, and fails on any skip or unclassified entrypoint.
 examples-local: examples-local-selftest
 	@python3 ./scripts/local/run_examples_local.py
 
-# Mutation self-tests for the harness classification: a rogue runtime file or a
-# pending row that names a missing file must fail validation.
+# Mutation self-tests for the harness: classification, profile validation and a
+# real two-instance concurrency isolation test (needs Docker).
 examples-local-selftest:
 	@python3 ./scripts/local/test_examples_local.py
 
-# Stop the harness's DynamoDB Local profile container.
+# Remove leftover harness containers and networks from any run.
 examples-local-down:
-	@docker compose -f scripts/local/docker-compose.yml -p tabletheory-examples-local down -v
+	@python3 ./scripts/local/run_examples_local.py --cleanup
 
 # Generate and verify DMS-derived contract-runner model files.
 generate-contract-models:

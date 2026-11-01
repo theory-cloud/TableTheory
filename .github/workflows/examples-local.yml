@@ -1,8 +1,11 @@
 name: Examples (Local)
 
-# Runs `make examples-local`: the real example code against a DynamoDB Local
-# service container, with the harness owning the endpoint and static dummy
-# credentials. The job carries no AWS secrets, so nothing here can reach AWS.
+# Runs `make examples-local`: the real example code against the checked-in local
+# profile (DynamoDB Local plus the pinned KMS, STS, S3 and SQS emulators), with
+# the harness owning the endpoints and static dummy credentials. The profile
+# stack is started by the harness with a project name and ephemeral ports unique
+# to this run, so CI needs no service containers and no fixed ports. The job
+# carries no AWS secrets, so nothing here can reach AWS.
 on:
   pull_request:
     branches: ["staging"]
@@ -15,11 +18,6 @@ jobs:
   examples-local:
     runs-on: ubuntu-26.04
     timeout-minutes: 40
-    services:
-      dynamodb-local:
-        image: amazon/dynamodb-local:3.1.0
-        ports:
-          - 8123:8000
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
