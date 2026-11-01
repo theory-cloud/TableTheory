@@ -68,10 +68,13 @@ export async function createTable(
       : {}),
   });
 
+  let created = true;
   try {
     await ddb.send(new CreateTableCommand(input));
   } catch (err) {
     if (!isResourceInUse(err)) throw err;
+    // The table existed before this call, so its TTL is only verified below.
+    created = false;
   }
 
   if ((opts.waitForActive ?? true) || ttlAttribute) {
@@ -84,10 +87,18 @@ export async function createTable(
   }
 
   if (ttlAttribute) {
-    await updateTimeToLive(ddb, model, {
+    if (created) {
+      // This call created the table, so enabling TTL cannot expire existing data.
+      await updateTimeToLive(ddb, model, {
+        tableName,
+        attributeName: ttlAttribute,
+        enabled: true,
+      });
+      return;
+    }
+    await verifyTimeToLive(ddb, model, {
       tableName,
       attributeName: ttlAttribute,
-      enabled: true,
     });
   }
 }
@@ -117,10 +128,10 @@ export async function ensureTable(
   }
 
   if (ttlAttribute) {
-    await updateTimeToLive(ddb, model, {
+    // The table already existed, so TTL is verified but never enabled.
+    await verifyTimeToLive(ddb, model, {
       tableName,
       attributeName: ttlAttribute,
-      enabled: true,
     });
   }
 }
@@ -214,13 +225,70 @@ export async function updateTimeToLive(
       if (current.attributeName === attributeName) return;
       throw new TheorydbError(
         'ErrInvalidModel',
-        `Failed to enable TTL on table ${tableName} using attribute ${attributeName}: TTL is already enabled on a different attribute ${current.attributeName}`,
+        timeToLiveMismatchMessage(
+          tableName,
+          attributeName,
+          current.attributeName ?? '<unknown>',
+        ),
         { cause: err },
       );
     }
 
     throw err;
   }
+}
+
+/**
+ * verifyTimeToLive inspects the TTL state of an existing table without changing
+ * it. TTL already enabled on the model attribute is an idempotent success, TTL
+ * enabled on a different attribute is a typed conflict, and a disabled TTL only
+ * emits a warning so provisioning keeps succeeding.
+ */
+export async function verifyTimeToLive(
+  ddb: DynamoDBClient,
+  model: Model,
+  opts: UpdateTimeToLiveOptions = {},
+): Promise<void> {
+  const tableName = opts.tableName ?? model.tableName;
+  const attributeName = opts.attributeName ?? resolveTimeToLiveAttribute(model);
+  if (!attributeName) return;
+
+  const current = await describeRequiredTimeToLiveState(ddb, tableName);
+  if (
+    current !== undefined &&
+    (current.status === 'ENABLED' || current.status === 'ENABLING')
+  ) {
+    if (current.attributeName === attributeName) return;
+    throw new TheorydbError(
+      'ErrInvalidModel',
+      timeToLiveMismatchMessage(
+        tableName,
+        attributeName,
+        current.attributeName ?? '<unknown>',
+      ),
+    );
+  }
+
+  warnTimeToLiveDisabled(tableName, attributeName);
+}
+
+function timeToLiveMismatchMessage(
+  tableName: string,
+  attributeName: string,
+  currentAttribute: string,
+): string {
+  return `Table ${tableName} has TTL enabled on a different attribute ${currentAttribute}, but the model declares TTL attribute ${attributeName}`;
+}
+
+function warnTimeToLiveDisabled(
+  tableName: string,
+  attributeName: string,
+): void {
+  console.warn(
+    `TableTheory: table ${tableName} exists with TTL disabled, but the model declares TTL attribute ${attributeName}; ` +
+      'leaving TTL disabled because enabling it would make DynamoDB expire items that are already past their expiry. ' +
+      'Enable TTL deliberately with UpdateTimeToLive or your infrastructure-as-code if that expiry is intended.',
+  );
 }
 
 interface TimeToLiveState {
@@ -233,20 +301,27 @@ async function describeTimeToLiveState(
   tableName: string,
 ): Promise<TimeToLiveState | undefined> {
   try {
-    const resp = await ddb.send(
-      new DescribeTimeToLiveCommand({ TableName: tableName }),
-    );
-    const description = resp.TimeToLiveDescription;
-    if (!description?.TimeToLiveStatus) return undefined;
-    return {
-      status: description.TimeToLiveStatus,
-      ...(description.AttributeName
-        ? { attributeName: description.AttributeName }
-        : {}),
-    };
+    return await describeRequiredTimeToLiveState(ddb, tableName);
   } catch {
     return undefined;
   }
+}
+
+async function describeRequiredTimeToLiveState(
+  ddb: DynamoDBClient,
+  tableName: string,
+): Promise<TimeToLiveState | undefined> {
+  const resp = await ddb.send(
+    new DescribeTimeToLiveCommand({ TableName: tableName }),
+  );
+  const description = resp.TimeToLiveDescription;
+  if (!description?.TimeToLiveStatus) return undefined;
+  return {
+    status: description.TimeToLiveStatus,
+    ...(description.AttributeName
+      ? { attributeName: description.AttributeName }
+      : {}),
+  };
 }
 
 function buildCreateTableInput(

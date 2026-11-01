@@ -155,7 +155,8 @@ try {
 
   await ddb.send(new DeleteTableCommand({ TableName: tableName }));
 
-  // ensureTable must also converge an existing table whose TTL is disabled.
+  // Provisioning must never enable TTL on an existing table: enabling it would
+  // make DynamoDB expire items that are already past their expiry.
   await ddb.send(
     new CreateTableCommand({
       TableName: tableName,
@@ -164,20 +165,36 @@ try {
       AttributeDefinitions: [{ AttributeName: 'ID', AttributeType: 'S' }],
     }),
   );
-  await ensureTable(ddb, ttlModel);
+
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message));
+  };
+  try {
+    await ensureTable(ddb, ttlModel);
+    await createTable(ddb, ttlModel);
+  } finally {
+    console.warn = originalWarn;
+  }
 
   const afterEnsure = await ddb.send(
     new DescribeTimeToLiveCommand({ TableName: tableName }),
   );
   assert.equal(
     afterEnsure.TimeToLiveDescription?.TimeToLiveStatus,
-    'ENABLED',
-    'ensureTable must enable TTL on an existing table',
+    'DISABLED',
+    'provisioning must leave TTL disabled on an existing table',
   );
   assert.equal(
     afterEnsure.TimeToLiveDescription?.AttributeName,
-    'expiresAt',
-    'ensureTable must use the model TTL attribute',
+    undefined,
+    'provisioning must not claim a TTL attribute on a disabled table',
+  );
+  assert.match(
+    warnings.join('\n'),
+    /leaving TTL disabled/,
+    'the disabled TTL must be reported as a warning',
   );
 
   await ddb.send(new DeleteTableCommand({ TableName: tableName }));

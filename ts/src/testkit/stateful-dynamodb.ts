@@ -6,6 +6,7 @@ import {
   DeleteItemCommand,
   DeleteTableCommand,
   DescribeTableCommand,
+  DescribeTimeToLiveCommand,
   GetItemCommand,
   ListTablesCommand,
   PutItemCommand,
@@ -24,7 +25,13 @@ import {
 } from '@aws-sdk/client-dynamodb';
 
 type Item = Record<string, AttributeValue>;
-type Table = { items: Map<string, Item>; pk: string; sk?: string };
+type Table = {
+  items: Map<string, Item>;
+  pk: string;
+  sk?: string;
+  ttlEnabled: boolean;
+  ttlAttribute?: string;
+};
 
 export interface StatefulDynamoDBClient {
   readonly client: DynamoDBClient;
@@ -47,6 +54,7 @@ type SupportedCommand =
   | BatchWriteItemCommand
   | CreateTableCommand
   | DescribeTableCommand
+  | DescribeTimeToLiveCommand
   | DeleteTableCommand
   | ListTablesCommand
   | UpdateTimeToLiveCommand
@@ -123,6 +131,8 @@ export class StatefulDynamoDBFake {
     if (command instanceof CreateTableCommand) return this.createTable(command);
     if (command instanceof DescribeTableCommand)
       return this.describeTable(command);
+    if (command instanceof DescribeTimeToLiveCommand)
+      return this.describeTimeToLive(command);
     if (command instanceof DeleteTableCommand) return this.deleteTable(command);
     if (command instanceof ListTablesCommand) return this.listTables(command);
     if (command instanceof UpdateTimeToLiveCommand)
@@ -140,6 +150,7 @@ export class StatefulDynamoDBFake {
     const table: Table = {
       pk: keySchemaAttribute(command.input.KeySchema, 'HASH') ?? 'PK',
       items: new Map(),
+      ttlEnabled: false,
     };
     const sk = keySchemaAttribute(command.input.KeySchema, 'RANGE');
     if (sk) table.sk = sk;
@@ -172,10 +183,49 @@ export class StatefulDynamoDBFake {
 
   private updateTimeToLive(command: UpdateTimeToLiveCommand): object {
     const name = command.input.TableName ?? 'default';
-    if (!this.tables.has(name)) throw resourceNotFound(name);
+    const table = this.tables.get(name);
+    if (!table) throw resourceNotFound(name);
+    const specification = command.input.TimeToLiveSpecification;
+    const attributeName = specification?.AttributeName;
+    if (!attributeName) {
+      throw validationFailed(
+        'TimeToLiveSpecification.AttributeName is required',
+      );
+    }
+    const enabled = specification?.Enabled === true;
+    if (enabled && table.ttlEnabled && table.ttlAttribute !== attributeName) {
+      throw validationFailed(
+        `TimeToLive is active on a different AttributeName: ${table.ttlAttribute ?? ''}`,
+      );
+    }
+    if (enabled) {
+      table.ttlEnabled = true;
+      table.ttlAttribute = attributeName;
+    } else if (
+      table.ttlAttribute === undefined ||
+      table.ttlAttribute === attributeName
+    ) {
+      table.ttlEnabled = false;
+    }
+    return { $metadata: {}, TimeToLiveSpecification: specification };
+  }
+
+  private describeTimeToLive(command: DescribeTimeToLiveCommand): object {
+    const name = command.input.TableName ?? 'default';
+    const table = this.tables.get(name);
+    if (!table) throw resourceNotFound(name);
+    if (!table.ttlEnabled) {
+      return {
+        $metadata: {},
+        TimeToLiveDescription: { TimeToLiveStatus: 'DISABLED' },
+      };
+    }
     return {
       $metadata: {},
-      TimeToLiveSpecification: command.input.TimeToLiveSpecification,
+      TimeToLiveDescription: {
+        TimeToLiveStatus: 'ENABLED',
+        AttributeName: table.ttlAttribute,
+      },
     };
   }
 
@@ -392,7 +442,7 @@ export class StatefulDynamoDBFake {
     const tableName = name ?? 'default';
     let table = this.tables.get(tableName);
     if (!table) {
-      table = { pk: 'PK', sk: 'SK', items: new Map() };
+      table = { pk: 'PK', sk: 'SK', items: new Map(), ttlEnabled: false };
       this.tables.set(tableName, table);
     }
     return table;
@@ -529,7 +579,7 @@ function tableFrom(tables: Map<string, Table>, name?: string): Table {
   const tableName = name ?? 'default';
   let table = tables.get(tableName);
   if (!table) {
-    table = { pk: 'PK', sk: 'SK', items: new Map() };
+    table = { pk: 'PK', sk: 'SK', items: new Map(), ttlEnabled: false };
     tables.set(tableName, table);
   }
   return table;
@@ -786,8 +836,11 @@ function cloneTables(tables: Map<string, Table>): Map<string, Table> {
       items: new Map(
         [...table.items].map(([key, item]) => [key, cloneItem(item)]),
       ),
+      ttlEnabled: table.ttlEnabled,
     };
     if (table.sk !== undefined) cloned.sk = table.sk;
+    if (table.ttlAttribute !== undefined)
+      cloned.ttlAttribute = table.ttlAttribute;
     out.set(name, cloned);
   }
   return out;
@@ -830,6 +883,12 @@ function resourceInUse(tableName: string): ResourceInUseException {
     $metadata: {},
     message: `table already exists: ${tableName}`,
   });
+}
+
+function validationFailed(message: string): Error {
+  const err = new Error(message);
+  err.name = 'ValidationException';
+  return err;
 }
 
 function transactionCanceled(options: {

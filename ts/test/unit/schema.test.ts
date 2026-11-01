@@ -221,7 +221,7 @@ void test('createTable syncs TTL when the model declares a ttl role', async () =
   });
 });
 
-void test('ensureTable syncs TTL for an existing table', async () => {
+void test('ensureTable verifies without enabling TTL on an existing table', async () => {
   const model = defineModel(ttlSchema);
   const calls: unknown[] = [];
   const ddb = {
@@ -230,16 +230,38 @@ void test('ensureTable syncs TTL for an existing table', async () => {
       if (cmd instanceof DescribeTableCommand) {
         return { Table: { TableStatus: 'ACTIVE' } };
       }
+      if (cmd instanceof DescribeTimeToLiveCommand) {
+        return { TimeToLiveDescription: { TimeToLiveStatus: 'DISABLED' } };
+      }
       return {};
     },
   } as unknown as DynamoDBClient;
 
-  await ensureTable(ddb, model, { waitForActive: false });
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message));
+  };
+  try {
+    await ensureTable(ddb, model, { waitForActive: false });
+  } finally {
+    console.warn = originalWarn;
+  }
 
   assert.equal(calls.length, 3);
   assert.ok(calls[0] instanceof DescribeTableCommand);
   assert.ok(calls[1] instanceof DescribeTableCommand);
-  assert.ok(calls[2] instanceof UpdateTimeToLiveCommand);
+  assert.ok(calls[2] instanceof DescribeTimeToLiveCommand);
+  assert.equal(
+    calls.filter((cmd) => cmd instanceof UpdateTimeToLiveCommand).length,
+    0,
+    'ensureTable must not enable TTL on an existing table',
+  );
+  assert.match(
+    warnings.join('\n'),
+    /leaving TTL disabled/,
+    'the disabled TTL must be reported as a warning',
+  );
 });
 
 void test('createTable treats an already-enabled TTL on the same attribute as ok', async () => {
@@ -341,7 +363,7 @@ void test('updateTimeToLive surfaces the original error when the TTL state canno
   } as unknown as DynamoDBClient;
 
   await assert.rejects(
-    async () => createTable(ddb, model, { waitForActive: false }),
+    async () => updateTimeToLive(ddb, model),
     (err) => err === original,
   );
 });
