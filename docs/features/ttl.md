@@ -80,7 +80,7 @@ Go is the reference implementation. The three runtimes share these outcomes:
 |------|-----------|----------------|
 | Go `DB.EnsureTable` | creates the table with TTL enabled | returns nil; never reads or updates TTL |
 | Go `DB.CreateTable` / `schema.Manager.CreateTable` | creates with TTL | converges TTL |
-| Go `DB.UpdateTable`, auto-migration | — | converges TTL |
+| Go `DB.UpdateTable` / `schema.Manager.UpdateTable` | — | converges TTL |
 | TypeScript `createTable` | creates with TTL | converges TTL |
 | TypeScript `ensureTable` | creates with TTL | returns without reading or updating TTL |
 | Python `create_table` | creates with TTL | converges TTL |
