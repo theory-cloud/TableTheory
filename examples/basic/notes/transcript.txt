@@ -11,6 +11,8 @@ life
 category work
 tag golang
 recent 1
+pin 1
 stats
+delete 2
 list
 quit

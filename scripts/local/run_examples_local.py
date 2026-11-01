@@ -813,10 +813,13 @@ def run_basic_notes(harness: Harness) -> str:
             "TableTheory local notes (work)",
             "Notes tagged 'golang' (1 notes):",
             "Notes from last 1 days (2 notes):",
+            "✅ Note updated successfully",
             "Total Notes: 2",
             "Total Words: 9",
             "Average Words/Note: 4",
-            "Your Notes (2 notes):",
+            "Pinned Notes: 1",
+            "✅ Note deleted successfully",
+            "Your Notes (1 notes):",
             "👋 Goodbye!",
         ],
         env={"USER": "harness-user"},
@@ -826,7 +829,11 @@ def run_basic_notes(harness: Harness) -> str:
     work_section = output.split("Notes in 'work'", 1)[1].split("Notes tagged", 1)[0]
     expect_output(work_section, ["TableTheory local notes"], "notes work category")
     reject_output(work_section, ["Personal note"], "notes work category")
-    return "13 transcript checks (CRUD + gsi-user + gsi-category)"
+
+    deleted_tail = _after(output, "✅ Note deleted successfully", "notes transcript")
+    expect_output(deleted_tail, ["Your Notes (1 notes):", "TableTheory local notes"], "notes transcript after delete")
+    reject_output(deleted_tail, ["Personal note"], "notes transcript after delete")
+    return "15 transcript checks (CRUD + gsi-user + gsi-category)"
 
 
 def run_basic_contacts(harness: Harness) -> str:
