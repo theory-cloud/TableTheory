@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"os"
 
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,9 +27,11 @@ import (
 )
 
 func setupTestDB(t *testing.T) core.ExtendedDB {
-	endpoint := os.Getenv("AWS_ENDPOINT_URL")
+	endpoint := strings.TrimSpace(os.Getenv("DYNAMODB_ENDPOINT"))
 	if endpoint == "" {
-		// Default to localhost if not set, or skip
+		endpoint = strings.TrimSpace(os.Getenv("AWS_ENDPOINT_URL"))
+	}
+	if endpoint == "" {
 		endpoint = "http://localhost:8000"
 	}
 
@@ -50,10 +55,18 @@ func setupTestDB(t *testing.T) core.ExtendedDB {
 	}
 
 	for _, model := range models {
-		err := db.CreateTable(model)
-		if err != nil && err.Error() != "ResourceInUseException" {
-			t.Fatalf("Failed to create table for %T: %v", model, err)
+		// EnsureTable is the create-if-missing form, so a second test function
+		// (or a second run against the same DynamoDB Local) is not an error.
+		err := db.EnsureTable(model)
+		if err == nil {
+			continue
 		}
+		// A concurrent creator can still win the describe/create race.
+		var existsErr *ddbtypes.ResourceInUseException
+		if errors.As(err, &existsErr) {
+			continue
+		}
+		t.Fatalf("Failed to create table for %T: %v", model, err)
 	}
 
 	return db

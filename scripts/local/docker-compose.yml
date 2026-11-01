@@ -1,0 +1,17 @@
+# Checked-in local profile for `make examples-local`.
+#
+# One DynamoDB Local service on a dedicated loopback port (8123, never the
+# shared :8000). The harness owns the endpoint and credential environment
+# (scripts/local/run_examples_local.py); nothing in this profile is meant to be
+# configured by an operator at run time.
+#
+# The in-memory database is deliberately ephemeral: every harness run starts
+# from an empty backend, so examples cannot depend on state left behind by an
+# earlier run or by another checkout.
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:3.1.0
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+    ports:
+      - "127.0.0.1:8123:8000"
+    restart: "no"

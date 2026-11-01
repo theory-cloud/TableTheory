@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/rs/cors"
 	"github.com/theory-cloud/tabletheory/v6"
 	"github.com/theory-cloud/tabletheory/v6/examples/multi-tenant/auth"
@@ -57,9 +59,11 @@ func main() {
 
 	handler := c.Handler(r)
 
+	listenAddr := resolveListenAddr()
+
 	// Setup server
 	srv := &http.Server{
-		Addr:         localListenAddr,
+		Addr:         listenAddr,
 		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
@@ -68,7 +72,7 @@ func main() {
 
 	// Start server
 	go func() {
-		fmt.Printf("Multi-tenant SaaS API starting on %s\n", localListenAddr)
+		fmt.Printf("Multi-tenant SaaS API starting on %s\n", listenAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("Server failed to start:", err)
 		}
@@ -97,6 +101,16 @@ func main() {
 // never listen on every network interface.
 const localListenAddr = "127.0.0.1:8080"
 
+// resolveListenAddr returns the address the local server binds. The checked-in
+// local harness assigns a dedicated port so parallel sessions and CI do not
+// collide; every other run keeps the documented loopback default.
+func resolveListenAddr() string {
+	if addr := strings.TrimSpace(os.Getenv("MULTI_TENANT_LISTEN_ADDR")); addr != "" {
+		return addr
+	}
+	return localListenAddr
+}
+
 // createTables creates the necessary DynamoDB tables for local development
 func createTables(db core.ExtendedDB) error {
 	// Register models
@@ -112,21 +126,20 @@ func createTables(db core.ExtendedDB) error {
 	}
 
 	for _, model := range models {
-		if err := db.CreateTable(model); err != nil {
-			// Ignore if table already exists
-			if !isTableExistsError(err) {
-				return fmt.Errorf("failed to create table for %T: %w", model, err)
+		// EnsureTable is the create-if-missing form, so restarting the local
+		// server against an existing database is not an error.
+		if err := db.EnsureTable(model); err != nil {
+			// A concurrent creator can still win the describe/create race.
+			var existsErr *ddbtypes.ResourceInUseException
+			if errors.As(err, &existsErr) {
+				continue
 			}
+			return fmt.Errorf("failed to create table for %T: %w", model, err)
 		}
 	}
 
 	fmt.Println("Tables created successfully")
 	return nil
-}
-
-// isTableExistsError checks if the error is due to table already existing
-func isTableExistsError(err error) bool {
-	return err != nil && err.Error() == "ResourceInUseException"
 }
 
 // loggingMiddleware logs all incoming requests

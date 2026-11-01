@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -27,7 +29,7 @@ import (
 
 // TestMain points the entrypoint's cached database handle at the local
 // DynamoDB endpoint the route matrix probes. The tests never use hosted AWS:
-// each fixture skips unless the endpoint is loopback.
+// each fixture fails unless the endpoint is loopback and speaking DynamoDB.
 func TestMain(m *testing.M) {
 	if strings.TrimSpace(os.Getenv("DYNAMODB_ENDPOINT")) == "" {
 		endpoint := strings.TrimSpace(os.Getenv("AWS_ENDPOINT_URL"))
@@ -80,12 +82,12 @@ func newRouteMatrix(t *testing.T) *routeMatrix {
 
 	endpoint := strings.TrimSpace(os.Getenv("DYNAMODB_ENDPOINT"))
 	if !isLoopbackEndpoint(endpoint) {
-		t.Skipf("route matrix requires a loopback DynamoDB endpoint, got %q", endpoint)
+		t.Fatalf("route matrix requires a loopback DynamoDB endpoint, got %q", endpoint)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := dynamodbprobe.CheckEndpoint(ctx, endpoint); err != nil {
-		t.Skipf("DynamoDB Local not reachable: %v", err)
+		t.Fatalf("DynamoDB Local not reachable: %v", err)
 	}
 
 	database, err := db()
@@ -98,7 +100,11 @@ func newRouteMatrix(t *testing.T) *routeMatrix {
 		&models.APIKey{},
 		&models.UsageReport{},
 	} {
-		if err := database.CreateTable(model); err != nil && !strings.Contains(err.Error(), "ResourceInUse") {
+		if err := database.EnsureTable(model); err != nil {
+			var existsErr *ddbtypes.ResourceInUseException
+			if errors.As(err, &existsErr) {
+				continue
+			}
 			require.NoErrorf(t, err, "create table for %T", model)
 		}
 	}
