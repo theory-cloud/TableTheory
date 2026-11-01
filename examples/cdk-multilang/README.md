@@ -48,17 +48,17 @@ Additional endpoints:
 
 ## Dependency audit note
 
-The current pin is `aws-cdk-lib@2.274.0`, which publishes bundled `brace-expansion@5.0.12` — the fixed version for the
+The current pin is `aws-cdk-lib@2.275.0`, which publishes bundled `brace-expansion@5.0.12` — the fixed version for the
 three brace-expansion advisories earlier `aws-cdk-lib` releases shipped. The retired copies were `5.0.9`, bundled under
 `node_modules/aws-cdk-lib/node_modules/brace-expansion`, which npm overrides cannot replace because AWS publishes that
 dependency inside `aws-cdk-lib`.
 
-That bundle also ships `minimatch@10.2.6`, which is vulnerable to GHSA-g3hv-75wg-m249 (fixed in `11.0.1`). `aws-cdk-lib`
-2.275.0, the latest release at review time, still declares and bundles minimatch `^10.2.6`, so no `aws-cdk-lib` release
-fixes it, and an npm override cannot replace the bundled copy (verified: the override leaves the bundled lock entry at
-`10.2.6`). Under operator ruling 2026-10-03 — a vulnerable dependency bundled by AWS is an exception until AWS updates
-it, extended 2026-10-04 to AWS-published build-toolchain chains — the advisory is recorded as a visible, expiring entry
-in `gov-infra/planning/theorydb-visible-npm-audit-findings.json` for exactly
+That bundle also ships `minimatch@10.2.6`, which is vulnerable to GHSA-g3hv-75wg-m249 (fixed in `11.0.1`). On
+2026-11-01 the pin was re-reviewed: `aws-cdk-lib` 2.275.0 — still the latest release — declares and bundles minimatch
+`^10.2.6`, so no `aws-cdk-lib` release fixes it, and an npm override cannot replace the bundled copy (verified: the
+override leaves the bundled lock entry at `10.2.6`). Under operator ruling 2026-10-03 — a vulnerable dependency bundled
+by AWS is an exception until AWS updates it, extended 2026-10-04 to AWS-published build-toolchain chains — the advisory
+is recorded as a visible, expiring entry in `gov-infra/planning/theorydb-visible-npm-audit-findings.json` for exactly
 `node_modules/aws-cdk-lib/node_modules/minimatch` (GHSA-g3hv-75wg-m249), plus npm's derived `aws-cdk-lib` parent entry.
 `expires_on` is 2026-12-01, and both entries must be retired when the pinned `aws-cdk-lib` bundles minimatch
 `>= 11.0.1`. They are only ever recorded in that visible-findings file, never in the supply-chain suppression allowlist.
@@ -69,7 +69,7 @@ Non-bundled minimatch copies are fixed by upgrade, never by exception: the `ts` 
 `scripts/test-npm-audit-policy.sh` is the guard that keeps this state honest. It asserts the graph directly and fails
 closed in every direction:
 
-- `aws-cdk-lib` must be `>= 2.274.0`, with a resolved tarball URL and a `sha512-` integrity hash.
+- `aws-cdk-lib` must be `>= 2.275.0`, with a resolved tarball URL and a `sha512-` integrity hash.
 - The bundled `node_modules/aws-cdk-lib/node_modules/brace-expansion` entry must exist, be marked `inBundle: true`, and
   resolve to `>= 5.0.12`; the bundled `minimatch` must be `inBundle: true` and its declared brace-expansion range must be
   satisfied by the actual bundled version.
