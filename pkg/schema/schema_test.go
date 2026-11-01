@@ -68,7 +68,7 @@ func TestCreateTable(t *testing.T) {
 	// Create test session with dummy credentials for DynamoDB Local
 	sess, err := session.NewSession(&session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: tests.GetTestConfig().Endpoint,
 		CredentialsProvider: aws.CredentialsProviderFunc(
 			func(ctx context.Context) (aws.Credentials, error) {
 				return aws.Credentials{
@@ -206,7 +206,7 @@ func TestTableExists(t *testing.T) {
 	// Create test session with dummy credentials for DynamoDB Local
 	sess, err := session.NewSession(&session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: tests.GetTestConfig().Endpoint,
 		CredentialsProvider: aws.CredentialsProviderFunc(
 			func(ctx context.Context) (aws.Credentials, error) {
 				return aws.Credentials{
@@ -255,7 +255,7 @@ func TestUpdateTable(t *testing.T) {
 	// Create test session with dummy credentials for DynamoDB Local
 	sess, err := session.NewSession(&session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: tests.GetTestConfig().Endpoint,
 		CredentialsProvider: aws.CredentialsProviderFunc(
 			func(ctx context.Context) (aws.Credentials, error) {
 				return aws.Credentials{

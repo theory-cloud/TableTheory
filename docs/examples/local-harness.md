@@ -47,6 +47,12 @@ DYNAMODB_ENDPOINT=http://127.0.0.1:8123
 `DYNAMODB_ENDPOINT` is the convention the examples already read; `AWS_ENDPOINT_URL`
 keeps the multi-tenant entrypoint, which reads it, on the same profile.
 
+The harness also strips inherited `USER`, `ORG_ID` and
+`FACETHEORY_CACHE_TABLE_NAME`. Rows that need a deterministic identity set
+their own runtime values (the notes transcript uses `USER=harness-user`, the
+contacts transcript uses `ORG_ID=org-harness`, and the FaceTheory cache demo
+uses its default table name).
+
 ## Preflight
 
 The run stops before any example if:
@@ -74,7 +80,8 @@ Entrypoints are discovered from the tree, not from a hand-maintained list:
 
 - `examples/**/*.go` that declares `func main` is a Go entrypoint (`func main`
   is the marker; path conventions do not apply to Go);
-- `examples/**/*.sh` is a shell runner;
+- a `.sh` file under `examples/`, `ts/examples/` or `py/examples/` is a shell
+  runner;
 - files under `examples/`, `ts/examples/` and `py/examples/` with a runtime
   suffix (`.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`, `.py`) are runtime
   entrypoints, so a `.ts` or `.py` file under `examples/` cannot hide from
@@ -104,7 +111,8 @@ executed inside another row. Unknown or reused runner ids fail as well.
 `make examples-local` runs `make examples-local-selftest` first. The self-tests
 build throwaway repository trees and assert that validation fails when:
 
-- a rogue `.ts` or `.py` file under `examples/` is unclassified;
+- a rogue `.ts` or `.py` file under `examples/` is unclassified, or a rogue
+  `.sh` runner under `ts/examples/` is unclassified;
 - a `pending` row names a file that does not exist, or one discovery does not
   treat as an entrypoint.
 
@@ -183,7 +191,7 @@ missing expected output as a failure.
 
 ## Current coverage
 
-The T1 harness wires:
+The harness wires:
 
 | Example | Class | How it is verified |
 | --- | --- | --- |
@@ -198,14 +206,39 @@ The T1 harness wires:
 | `examples/multi-tenant` (module) | `L1` | `go test -json ./...` with skip detection; handler unit tests use the in-process fake, while the route-matrix and HTTP rows above cover the real-DynamoDB paths |
 | `ts/examples/local.ts` | `L1` | `tsx` run; create/query/update/delete output checks |
 | `py/examples/local_crud.py` | `L1` | `uv run`; put/get/`begins_with` output checks |
+| `examples/basic/todo/main.go` | `L1` | The real CLI driven through `transcript.txt` on stdin; create/list/complete/delete output checks and a post-delete assertion |
+| `examples/basic/notes/main.go` | `L1` | The real CLI driven through its transcript; CRUD plus the `gsi-user` and `gsi-category` reads, scoped so the personal note never appears in the work listing |
+| `examples/basic/contacts/main.go` | `L1` | The real CLI driven through its transcript; CRUD plus `gsi-email`, `gsi-phone` and `gsi-name`, with a post-delete assertion |
+| `examples/initialization/main.go` | `L3` | `-mode local` creates the table and performs a real write/read. The `aws`, `profile`, `minimal` and `debug` modes resolve real AWS defaults; they are the named cloud gap and never run here |
+| `examples/typed-go/main.go` | `L1` | Creates the table, runs `typedFlow`, then reads back the updated name and asserts the `begins_with` result |
+| `examples/drivers/main.go` | `L1` | Drives the loose `examples/*.go` snippets with seeded rows; asserts conditional-helper, transaction-builder, batch-get, list-operation, embedded-struct and FaceTheory TTL outcomes |
+| `examples/feature_spotlight.go` | `L1` | `coveredBy` the driver row: insert-only create, optimistic update and guarded delete |
+| `examples/list_operations_example.go` | `L1` | `coveredBy` the driver row: list append/prepend/element operations and a set DELETE |
+| `examples/embedded_structs_example.go` | `L1` | `coveredBy` the driver row: single-table writes, `gsi1`/`gsi2` reads and the email/GSI2 update |
+| `examples/facetheory_ttl_cache_example.go` | `L1` | `coveredBy` the driver row: real metadata write plus the freshness and TTL boundary helpers |
+| `examples/release-state/main.go` | `L1` | Real `TransactWrite`: actual-state update, event append and conditional outbox create; read-back assertions plus refusal of a stale version |
+| `ts/examples/release-state.ts` | `L1` | The same transition, read-backs and stale-version refusal through the TypeScript runtime; identical parity line |
+| `py/examples/release_state.py` | `L1` | The same transition, read-backs and stale-version refusal through the Python runtime; identical parity line |
+| `py/examples/gsi_query.py` | `L1` | Creates the table and index, writes two users and asserts the real GSI query returns only the matching email |
+| `examples/optimization/main.go` | `L1` | Library demo: the query planner runs locally without DynamoDB; its real plan output is asserted |
+| `examples/testing/user_service_test.go` | `L1` | `coveredBy` the optimization row: the mock-based unit-test suite runs with skip detection. These fakes are test doubles, never example verification |
 
-Every other entrypoint in the tree is listed in the manifest as
-`pending` for T2, T3, T4a or T4b. That includes the `examples/cdk-multilang`
-runtime files that local execution does not reach yet: `bin/app.ts`,
-`lambdas/node/handler.ts`, `lambdas/archive/handler.ts` and
-`lambdas/python/handler.py` are T4b rows, alongside the deployed `lambdas/go`
-handler and `scripts/smoke.sh`. Pending rows are printed on every run and are
-never counted as pass.
+The T2 rows above are all `L1` except `examples/initialization`, which is `L3`
+because its AWS/profile/minimal/debug modes need a real AWS account and
+credentials. The harness runs only the local mode, which performs a real
+DynamoDB write and read.
+
+`optimization` and `testing` are intentionally library demos: the query planner
+takes metadata/executor interfaces rather than a database, and `testing`
+demonstrates mocks for unit tests. They run locally without DynamoDB, as scoped
+by the local-execution need (Q3).
+
+Every other entrypoint in the tree is listed in the manifest as `pending` for
+T3, T4a or T4b. That includes the `examples/cdk-multilang` runtime files that
+local execution does not reach yet: `bin/app.ts`, `lambdas/node/handler.ts`,
+`lambdas/archive/handler.ts` and `lambdas/python/handler.py` are T4b rows,
+alongside the deployed `lambdas/go` handler and `scripts/smoke.sh`. Pending rows
+are printed on every run and are never counted as pass.
 
 ## Adding an example
 

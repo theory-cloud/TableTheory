@@ -1,0 +1,16 @@
+add
+Jane
+Doe
+jane@example.com
+555-0101
+Acme Corp
+Engineer
+client, vip
+email jane@example.com
+phone 555-0101
+name Doe Jane
+favorite 1
+favorites
+delete 1
+list
+quit

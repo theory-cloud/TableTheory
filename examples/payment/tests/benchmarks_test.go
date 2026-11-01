@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -443,10 +444,17 @@ func BenchmarkTransactionOperations(b *testing.B) {
 
 // Helper functions
 
+func benchmarkDynamoEndpoint() string {
+	if endpoint := os.Getenv("DYNAMODB_ENDPOINT"); endpoint != "" {
+		return endpoint
+	}
+	return "http://localhost:8000"
+}
+
 func initBenchDB(_ *testing.B) (core.ExtendedDB, error) {
 	db, err := tabletheory.New(tabletheory.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: benchmarkDynamoEndpoint(),
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(aws.CredentialsProviderFunc(
 				func(ctx context.Context) (aws.Credentials, error) {

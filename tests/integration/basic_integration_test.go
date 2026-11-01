@@ -114,7 +114,7 @@ func TestNilPointerScenarios(t *testing.T) {
 		// Test with local config
 		sessionConfig := session.Config{
 			Region:   "us-east-1",
-			Endpoint: "http://localhost:8000",
+			Endpoint: TestEndpoint(),
 			AWSConfigOptions: []func(*config.LoadOptions) error{
 				config.WithCredentialsProvider(
 					credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),

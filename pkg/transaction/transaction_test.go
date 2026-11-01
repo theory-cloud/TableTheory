@@ -22,6 +22,7 @@ import (
 	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 	pkgTypes "github.com/theory-cloud/tabletheory/v6/pkg/types"
+	"github.com/theory-cloud/tabletheory/v6/tests"
 )
 
 // Test models
@@ -79,7 +80,7 @@ func setupTest(t *testing.T) (*Transaction, *model.Registry) {
 	// Create test session
 	sess, err := session.NewSession(&session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: tests.GetTestConfig().Endpoint,
 	})
 	require.NoError(t, err)
 
