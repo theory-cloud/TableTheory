@@ -98,7 +98,6 @@ export async function ensureTable(
   opts: CreateTableOptions = {},
 ): Promise<void> {
   const tableName = opts.tableName ?? model.tableName;
-  const ttlAttribute = resolveTimeToLiveAttribute(model);
   try {
     await describeTable(ddb, model, { tableName });
   } catch (err) {
@@ -107,21 +106,16 @@ export async function ensureTable(
     return;
   }
 
-  if ((opts.waitForActive ?? true) || ttlAttribute) {
+  // An existing table is left exactly as it is, including its TTL state. This
+  // matches Go's EnsureTable; callers that need convergence call createTable or
+  // updateTimeToLive explicitly.
+  if (opts.waitForActive ?? true) {
     const waitOpts: { timeoutSeconds?: number; pollIntervalMs?: number } = {};
     if (opts.waitTimeoutSeconds !== undefined)
       waitOpts.timeoutSeconds = opts.waitTimeoutSeconds;
     if (opts.pollIntervalMs !== undefined)
       waitOpts.pollIntervalMs = opts.pollIntervalMs;
     await waitForTableActive(ddb, tableName, waitOpts);
-  }
-
-  if (ttlAttribute) {
-    await updateTimeToLive(ddb, model, {
-      tableName,
-      attributeName: ttlAttribute,
-      enabled: true,
-    });
   }
 }
 
@@ -183,6 +177,19 @@ export function resolveTimeToLiveAttribute(model: Model): string | undefined {
   return model.roles.ttl;
 }
 
+/**
+ * Raised when a table's TTL is already enabled on a different attribute than
+ * the model declares. It remains an `ErrInvalidModel` `TheorydbError` so
+ * existing handlers keep matching; `instanceof TTLAttributeMismatchError`
+ * matches the conflict specifically, mirroring Go's
+ * `errors.Is(err, schema.ErrTTLAttributeMismatch)`.
+ */
+export class TTLAttributeMismatchError extends TheorydbError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super('ErrInvalidModel', message, options);
+  }
+}
+
 export async function updateTimeToLive(
   ddb: DynamoDBClient,
   model: Model,
@@ -212,8 +219,7 @@ export async function updateTimeToLive(
       (current.status === 'ENABLED' || current.status === 'ENABLING')
     ) {
       if (current.attributeName === attributeName) return;
-      throw new TheorydbError(
-        'ErrInvalidModel',
+      throw new TTLAttributeMismatchError(
         `Failed to enable TTL on table ${tableName} using attribute ${attributeName}: TTL is already enabled on a different attribute ${current.attributeName}`,
         { cause: err },
       );
