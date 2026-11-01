@@ -123,6 +123,7 @@ class Harness:
         cwd: Path | None = None,
         env: dict | None = None,
         timeout: int | None = None,
+        input: str | None = None,
         check: bool = True,
     ) -> subprocess.CompletedProcess:
         child_env = dict(self.env)
@@ -133,6 +134,7 @@ class Harness:
                 argv,
                 cwd=str(cwd or ROOT),
                 env=child_env,
+                input=input,
                 capture_output=True,
                 text=True,
                 timeout=timeout or self.timeout,
@@ -279,7 +281,8 @@ def discover(root: Path) -> dict[str, str]:
 
     * ``examples/**/*.go`` that declares ``func main`` is a Go entrypoint
       (``func main`` is the entrypoint marker; path conventions do not apply);
-    * ``examples/**/*.sh`` is a shell runner;
+    * a ``.sh`` file under ``examples/``, ``ts/examples/`` or ``py/examples/``
+      is a shell runner;
     * files under ``examples/``, ``ts/examples/`` and ``py/examples/`` with a
       runtime suffix (``.ts``, ``.mts``, ``.cts``, ``.js``, ``.mjs``, ``.cjs``,
       ``.py``) are runtime entrypoints;
@@ -337,8 +340,11 @@ def discover(root: Path) -> dict[str, str]:
                 continue
             suffix = path.suffix.lower()
             if suffix == ".sh":
-                continue  # already classified by the shell pass above
-            if suffix in RUNTIME_SUFFIXES:
+                # The examples/**/*.sh pass above already covers examples/;
+                # this branch keeps shell runners under ts/examples and
+                # py/examples visible instead of silently dropping them.
+                found[relative(path)] = "shell-runner"
+            elif suffix in RUNTIME_SUFFIXES:
                 found[relative(path)] = "ts" if suffix in TS_SUFFIXES else "py"
             elif os.access(path, os.X_OK):
                 found[relative(path)] = "executable"
@@ -516,6 +522,9 @@ def build_env(port: int) -> dict:
         "MULTI_TENANT_LISTEN_ADDR",
         "CDK_LOCAL_PORT",
         "DEMO_TABLE_NAME",
+        "FACETHEORY_CACHE_TABLE_NAME",
+        "ORG_ID",
+        "USER",
     ):
         env.pop(key, None)
     # Proxy variables are cleared in both cases for the same reason: no child
@@ -734,6 +743,133 @@ def run_ts_local(harness: Harness) -> str:
     return "create/get/query/update/delete checks"
 
 
+def _run_scripted_cli(
+    harness: Harness,
+    example: str,
+    expected: list[str],
+    *,
+    env: dict | None = None,
+) -> str:
+    transcript_path = ROOT / "examples" / "basic" / example / "transcript.txt"
+    if not transcript_path.is_file():
+        raise HarnessFailure(f"missing scripted transcript: {transcript_path}")
+    transcript = transcript_path.read_text(encoding="utf-8")
+    result = harness.run(
+        ["go", "run", "."],
+        cwd=ROOT / "examples" / "basic" / example,
+        input=transcript,
+        env=env,
+    )
+    output = _combined_output(result)
+    label = f"examples/basic/{example}"
+    expect_output(output, expected, label)
+    reject_output(
+        output,
+        ["Error:", "panic:", "exit status", "Failed to initialize app"],
+        label,
+    )
+    return output
+
+
+def run_basic_todo(harness: Harness) -> str:
+    output = _run_scripted_cli(
+        harness,
+        "todo",
+        [
+            "🚀 Welcome to TableTheory Todo App!",
+            "✅ Created todo: Ship the local harness",
+            "✅ Created todo: Verify GSIs in notes and contacts",
+            "1. [ ] Ship the local harness",
+            "1. [✓] Ship the local harness",
+            "2. [ ] Verify GSIs in notes and contacts",
+            "✅ Todo deleted successfully",
+            "👋 Goodbye!",
+        ],
+    )
+    deleted_tail = _after(output, "✅ Todo deleted successfully", "todo transcript")
+    expect_output(
+        deleted_tail,
+        ["1. [✓] Ship the local harness"],
+        "todo transcript after delete",
+    )
+    reject_output(
+        deleted_tail,
+        ["Verify GSIs in notes and contacts"],
+        "todo transcript after delete",
+    )
+    return "8 transcript checks (create/list/update/delete)"
+
+
+def run_basic_notes(harness: Harness) -> str:
+    output = _run_scripted_cli(
+        harness,
+        "notes",
+        [
+            "🗒️  Welcome to TableTheory Notes App!",
+            "Logged in as: harness-user",
+            "✅ Created note: TableTheory local notes",
+            "✅ Created note: Personal note",
+            "Notes in 'work' (1 notes):",
+            "TableTheory local notes (work)",
+            "Notes tagged 'golang' (1 notes):",
+            "Notes from last 1 days (2 notes):",
+            "✅ Note updated successfully",
+            "Total Notes: 2",
+            "Total Words: 9",
+            "Average Words/Note: 4",
+            "Pinned Notes: 1",
+            "✅ Note deleted successfully",
+            "Your Notes (1 notes):",
+            "👋 Goodbye!",
+        ],
+        env={"USER": "harness-user"},
+    )
+    # The gsi-user and gsi-category reads must not bring the personal note into
+    # the work category listing.
+    work_section = output.split("Notes in 'work'", 1)[1].split("Notes tagged", 1)[0]
+    expect_output(work_section, ["TableTheory local notes"], "notes work category")
+    reject_output(work_section, ["Personal note"], "notes work category")
+
+    deleted_tail = _after(output, "✅ Note deleted successfully", "notes transcript")
+    expect_output(
+        deleted_tail,
+        ["Your Notes (1 notes):", "TableTheory local notes"],
+        "notes transcript after delete",
+    )
+    reject_output(deleted_tail, ["Personal note"], "notes transcript after delete")
+    return "15 transcript checks (CRUD + gsi-user + gsi-category)"
+
+
+def run_basic_contacts(harness: Harness) -> str:
+    output = _run_scripted_cli(
+        harness,
+        "contacts",
+        [
+            "📇 Welcome to TableTheory Contacts App!",
+            "Organization: org-harness",
+            "✅ Created contact: Jane Doe",
+            "Contact found (1 contacts):",
+            "   📧 jane@example.com | 📱 5550101",
+            "Contacts with phone 555-0101 (1 contacts):",
+            "Contacts named 'Doe Jane' (1 contacts):",
+            "1. ⭐ Jane Doe at Acme Corp",
+            "Favorite Contacts (1 contacts):",
+            "✅ Contact deleted successfully",
+        ],
+        env={"ORG_ID": "org-harness"},
+    )
+    deleted_tail = _after(output, "✅ Contact deleted successfully", "contacts transcript")
+    expect_output(deleted_tail, ["No contacts found"], "contacts transcript after delete")
+    reject_output(deleted_tail, ["jane@example.com"], "contacts transcript after delete")
+    return "11 transcript checks (CRUD + gsi-email + gsi-phone + gsi-name)"
+
+
+def _after(output: str, marker: str, label: str) -> str:
+    if marker not in output:
+        raise HarnessFailure(f"{label}: expected marker not observed: {marker!r}", output)
+    return output.split(marker, 1)[1]
+
+
 def run_py_local_crud(harness: Harness) -> str:
     result = harness.run(
         ["uv", "--directory", "py", "run", "python", "examples/local_crud.py"]
@@ -758,6 +894,137 @@ def run_py_local_crud(harness: Harness) -> str:
             query_line,
         )
     return "put/get/begins_with checks"
+
+
+def run_go_initialization_local(harness: Harness) -> str:
+    result = harness.run(["go", "run", "./examples/initialization", "-mode", "local"])
+    endpoint = harness.env["DYNAMODB_ENDPOINT"]
+    expect_output(
+        result.stdout,
+        [
+            "1. Local Development (DynamoDB Local)",
+            f"✓ Initialized successfully against {endpoint}",
+            "✓ real round-trip: wrote and read INIT#local#",
+        ],
+        "examples/initialization",
+    )
+    reject_output(
+        result.stdout,
+        ["AWS Environment", "AWS init failed", "✗"],
+        "examples/initialization",
+    )
+    return "real local write + read; cloud modes excluded"
+
+
+def run_go_typed(harness: Harness) -> str:
+    result = harness.run(["go", "run", "./examples/typed-go"])
+    expect_output(
+        result.stdout,
+        [
+            "OK: typed-go typedFlow wrote and updated TENANT#demo/USER#ada",
+            'name="Ada Lovelace"',
+            "matches=1",
+        ],
+        "examples/typed-go",
+    )
+    return "create/get/update/query through the typed API"
+
+
+def run_go_loose_examples(harness: Harness) -> str:
+    result = harness.run(["go", "run", "./examples/drivers"])
+    expect_output(
+        result.stdout,
+        [
+            "List operations demonstrated successfully!",
+            "Found 1 customers for tenant",
+            "Customer has 1 orders",
+            (
+                "OK: loose examples drove conditional helpers, transaction builder, "
+                + "batch get (4 invoices), list operations (5 tags), embedded structs "
+                + "(1 orders) and the FaceTheory TTL cache on DynamoDB Local"
+            ),
+        ],
+        "examples/drivers",
+    )
+    return "6 loose snippets with seeded rows and read-back assertions"
+
+
+RELEASE_STATE_LINE = (
+    "release-state: actual=RELEASE#service-a/ACTUAL version=8 status=active "
+    "event=EVENT#2026-04-24T19:00:00Z#rel_002 outbox=OUTBOX#lambda-alias#rel_002"
+)
+
+
+def _expect_release_state(output: str, label: str) -> str:
+    expect_output(output, [RELEASE_STATE_LINE], label)
+    reject_output(output, ["want ", "Error", "panic"], label)
+    return "real TransactWrite + read-back + stale-version refusal"
+
+
+def run_go_release_state(harness: Harness) -> str:
+    result = harness.run(["go", "run", "./examples/release-state"])
+    return _expect_release_state(result.stdout, "examples/release-state")
+
+
+def run_ts_release_state(harness: Harness) -> str:
+    tsx = ROOT / "ts" / "node_modules" / ".bin" / "tsx"
+    result = harness.run([str(tsx), "ts/examples/release-state.ts"])
+    return _expect_release_state(result.stdout, "ts/examples/release-state.ts")
+
+
+def run_py_release_state(harness: Harness) -> str:
+    result = harness.run(
+        ["uv", "--directory", "py", "run", "python", "examples/release_state.py"]
+    )
+    return _expect_release_state(result.stdout, "py/examples/release_state.py")
+
+
+def run_py_gsi_query(harness: Harness) -> str:
+    result = harness.run(
+        ["uv", "--directory", "py", "run", "python", "examples/gsi_query.py"]
+    )
+    expect_output(
+        result.stdout,
+        ["gsi_items=1 email=ada@example.com"],
+        "py/examples/gsi_query.py",
+    )
+    return "real GSI query returning only the matching partition"
+
+
+def run_go_library_demos(harness: Harness) -> str:
+    planner = harness.run(["go", "run", "./examples/optimization"])
+    expect_output(
+        planner.stdout,
+        [
+            "=== TableTheory Query Optimizer Examples ===",
+            "Example 1: Efficient Query with Partition Key",
+            "Operation: Query",
+            "Optimization Hints:",
+            "Example 8: Adaptive Optimization Demo",
+            "Query Statistics:",
+            "Executions: 20",
+            "After clearing cache:",
+        ],
+        "examples/optimization",
+    )
+
+    expected = {
+        "TestGetUser",
+        "TestGetUser_NotFound",
+        "TestGetActiveUsers",
+        "TestCreateUser",
+        "TestDeactivateUser",
+        "TestWithMatchedBy",
+    }
+    _, passed, _ = _go_test_json(
+        harness, ["./examples/testing"], cwd=ROOT, label="examples/testing"
+    )
+    missing = sorted(expected - passed)
+    if missing:
+        raise HarnessFailure(
+            f"examples/testing: tests did not run: {', '.join(missing)}"
+        )
+    return f"query-planner demo + {len(expected)} mock-based tests passed"
 
 
 def run_multi_tenant_token(harness: Harness) -> str:
@@ -1019,6 +1286,17 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "shell-cdk-multilang-local": run_shell_cdk_multilang_local,
     "ts-local": run_ts_local,
     "py-local-crud": run_py_local_crud,
+    "go-basic-todo": run_basic_todo,
+    "go-basic-notes": run_basic_notes,
+    "go-basic-contacts": run_basic_contacts,
+    "go-initialization-local": run_go_initialization_local,
+    "go-typed-go": run_go_typed,
+    "go-loose-examples": run_go_loose_examples,
+    "go-release-state": run_go_release_state,
+    "ts-release-state": run_ts_release_state,
+    "py-release-state": run_py_release_state,
+    "py-gsi-query": run_py_gsi_query,
+    "go-library-demos": run_go_library_demos,
     "multi-tenant-token": run_multi_tenant_token,
     "multi-tenant-lambda": run_multi_tenant_lambda,
     "multi-tenant-module-tests": run_multi_tenant_module_tests,

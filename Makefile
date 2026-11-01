@@ -16,6 +16,11 @@ UNIT_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_module
 ALL_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress)
 INTEGRATION_PACKAGES := $(shell go list ./tests/integration/...)
 DYNAMODB_LOCAL_IMAGE ?= amazon/dynamodb-local:3.1.0
+# The test suites resolve DynamoDB from DYNAMODB_ENDPOINT (defaulting to the
+# shared :8000 convention). docker-up resolves the same endpoint so a suite run
+# on another port never silently starts a second, unused local backend.
+DYNAMODB_ENDPOINT ?= http://localhost:8000
+DDB_LOCAL_PROBE := go run ./internal/dynamodbprobe/cmd/dynamodb-local-check -endpoint $(DYNAMODB_ENDPOINT)
 
 # Default target
 all: fmt lint test build
@@ -153,9 +158,13 @@ clean:
 
 # Start DynamoDB Local
 docker-up:
-	@echo "Starting DynamoDB Local..."
-	@if curl -s http://localhost:8000 > /dev/null 2>&1; then \
-		echo "DynamoDB Local is already running"; \
+	@echo "Ensuring DynamoDB Local at $(DYNAMODB_ENDPOINT)..."
+	@if $(DDB_LOCAL_PROBE) > /dev/null 2>&1; then \
+		echo "DynamoDB Local is already running at $(DYNAMODB_ENDPOINT)"; \
+	elif [ "$(DYNAMODB_ENDPOINT)" != "http://localhost:8000" ]; then \
+		echo "❌ Error: DYNAMODB_ENDPOINT=$(DYNAMODB_ENDPOINT) is not answering."; \
+		echo "   Start that DynamoDB Local yourself; the checked-in compose profile only publishes :8000."; \
+		exit 1; \
 	else \
 		if [ -f docker-compose.yml ]; then \
 			docker compose up -d dynamodb-local; \
@@ -167,14 +176,14 @@ docker-up:
 			fi; \
 		fi; \
 	fi
-	@echo "Waiting for DynamoDB Local to be ready..."
+	@echo "Waiting for DynamoDB Local to answer the DynamoDB protocol..."
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
-		if curl -s http://localhost:8000 > /dev/null 2>&1; then \
-			echo "✅ DynamoDB Local is ready!"; \
+		if $(DDB_LOCAL_PROBE) > /dev/null 2>&1; then \
+			echo "✅ DynamoDB Local is ready at $(DYNAMODB_ENDPOINT)!"; \
 			break; \
 		fi; \
 		if [ $$i -eq 10 ]; then \
-			echo "❌ Error: DynamoDB Local failed to start"; \
+			echo "❌ Error: DynamoDB Local failed to start at $(DYNAMODB_ENDPOINT)"; \
 			exit 1; \
 		fi; \
 		echo "  Waiting... (attempt $$i/10)"; \
@@ -362,12 +371,14 @@ lambda-build:
 	@cd build/lambda && zip function.zip bootstrap
 	@echo "Lambda function built: build/lambda/function.zip"
 
-# Test Lambda functionality
+# Lambda helpers live in internal/theorydb. The historical ./lambda_test.go
+# path never existed in the tree; keep the public target names but run the
+# tests and benchmarks where they actually live.
 lambda-test:
 	@echo "Running Lambda tests..."
-	@go test -v ./lambda_test.go -run TestLambda
+	@go test -v ./internal/theorydb -run '^TestLambda'
 
 # Run Lambda benchmarks
 lambda-bench:
 	@echo "Running Lambda benchmarks..."
-	@go test -bench=BenchmarkLambda -benchmem ./lambda_test.go 
+	@go test -bench='^BenchmarkLambda' -benchmem ./internal/theorydb

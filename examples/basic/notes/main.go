@@ -58,7 +58,7 @@ func NewNotesApp(userID string) (*NotesApp, error) {
 	// Configure TableTheory
 	cfg := &session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: localEndpoint(),
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 		},
@@ -70,17 +70,26 @@ func NewNotesApp(userID string) (*NotesApp, error) {
 		return nil, fmt.Errorf("failed to create TableTheory client: %v", err)
 	}
 
-	// Create table with GSIs if it doesn't exist
-	if err := db.CreateTable(&Note{}); err != nil {
-		if !strings.Contains(err.Error(), "ResourceInUseException") {
-			return nil, fmt.Errorf("failed to create table: %v", err)
-		}
+	// Create the table and GSIs only when they are missing.
+	if err := db.EnsureTable(&Note{}); err != nil {
+		return nil, fmt.Errorf("failed to create table: %v", err)
 	}
 
 	return &NotesApp{
 		db:     db,
 		userID: userID,
 	}, nil
+}
+
+// localEndpoint honours the local harness endpoint while keeping the historical
+// localhost:8000 default for a hand-started DynamoDB Local.
+func localEndpoint() string {
+	for _, key := range []string{"DYNAMODB_ENDPOINT", "AWS_ENDPOINT_URL_DYNAMODB"} {
+		if endpoint := strings.TrimSpace(os.Getenv(key)); endpoint != "" {
+			return endpoint
+		}
+	}
+	return "http://localhost:8000"
 }
 
 // Create adds a new note

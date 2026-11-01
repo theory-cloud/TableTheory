@@ -14,6 +14,11 @@
 
 **What you'll learn:** Model definition, basic queries, error handling
 
+Each basic CLI has a checked-in `transcript.txt`. `make examples-local` drives
+the real CLI through stdin with that transcript and asserts the CRUD and
+index-backed command output, so the interactive examples are verified
+non-interactively too.
+
 ### 💳 [Payment Processing](payment/)
 **Real-world payment system with TableTheory**
 
@@ -65,8 +70,10 @@ Release-state registry example showing:
 - Mutable actual-state rows with protected registry pin fields
 - Immutable write-once event-history rows
 - Transactional actual-state transition plus event append
+- Conditional outbox creation in the same transaction
 - Deterministic provenance/confidence metadata
 - Outbox rows for external side effects such as Lambda alias updates
+- Real DynamoDB Local drivers in Go, TypeScript and Python, with a stale-version refusal
 
 **What you'll learn:** Release-state write policies, deploy authority validation, audit/outbox reconciliation
 
@@ -90,7 +97,8 @@ Examples do **not** share one fixed layout. Each one carries only the files it
 needs, and the shapes differ:
 
 - `basic/{todo,notes,contacts}` have a `Makefile`, a `docker-compose.yml`, a
-  `README.md` and an interactive `main.go`;
+  `README.md`, an interactive `main.go` and a checked-in `transcript.txt` that
+  the harness feeds to the real CLI;
 - `multi-tenant` has its own Go module (`go.mod`), a `Makefile`, a
   `docker-compose.yml`, `cmd/` entrypoints, `handlers/`, `models/`, `auth/` and a
   real DynamoDB Local test suite;
@@ -155,7 +163,14 @@ the harness, the classes and the manifest rules is in
 | `L2` | Local with an AWS-API emulator; the emulator's fidelity limits are documented. |
 | `L3` | Every locally executable part runs for real, plus a named cloud gap that is never faked. |
 | `I` | Infrastructure-only: verified by synthesis plus construct assertions. |
-| `PENDING-MILESTONE` | Not wired yet; the manifest names the milestone that owns it (T2, T3, T4a, T4b). It is reported, never counted as pass. |
+| `PENDING-MILESTONE` | Not wired yet; the manifest names the milestone that owns it (T3, T4a or T4b). It is reported, never counted as pass. |
+
+`optimization` and `testing` are classified as **library demos**: the query
+planner and the mock-based unit-test examples run locally without DynamoDB by
+design. Their fakes are test doubles for unit tests, not example verification.
+`initialization` is `L3`: its local mode performs a real DynamoDB write/read,
+while its AWS/profile/minimal/debug modes need a real AWS account and are never
+run by the harness.
 
 ### Running one example by hand
 

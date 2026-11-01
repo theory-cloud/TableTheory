@@ -23,7 +23,10 @@ type FaceTheoryCacheMetadata struct {
 }
 
 func (FaceTheoryCacheMetadata) TableName() string {
-	return os.Getenv("FACETHEORY_CACHE_TABLE_NAME")
+	if name := os.Getenv("FACETHEORY_CACHE_TABLE_NAME"); name != "" {
+		return name
+	}
+	return "facetheory_cache_metadata"
 }
 
 // FaceTheoryFreshUntilUnix returns the freshness boundary for ISR (not DynamoDB TTL).

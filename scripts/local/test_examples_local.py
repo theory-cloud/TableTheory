@@ -5,6 +5,7 @@ The harness only holds if its classification fails closed, so these tests build
 throwaway repository trees, mutate them, and assert that validation notices:
 
 * a rogue ``.ts`` and a rogue ``.py`` under ``examples/`` that nothing classifies;
+* a rogue ``.sh`` under ``ts/examples/`` that nothing classifies;
 * a pending row that names a file which does not exist;
 * a pending row that names a file discovery does not treat as an entrypoint.
 
@@ -108,6 +109,19 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(discovered["examples/edge/local/run.sh"], "shell-runner")
             self.assertEqual(discovered["examples/edge/local/run.custom"], "executable")
 
+    def test_shell_runners_under_runtime_example_trees_are_discovered(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            HarnessTree(root)
+            write(root, "ts/examples/edge/run.sh", "#!/usr/bin/env bash\n", executable=True)
+            write(root, "py/examples/edge/run.sh", "#!/usr/bin/env bash\n", executable=True)
+
+            discovered = harness.discover(root)
+
+            for path in ("ts/examples/edge/run.sh", "py/examples/edge/run.sh"):
+                self.assertIn(path, discovered)
+                self.assertEqual(discovered[path], "shell-runner")
+
     def test_documented_non_entrypoints_are_not_discovered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -195,6 +209,31 @@ class UnclassifiedMutationTests(unittest.TestCase):
             self.assertTrue(
                 any(
                     "unclassified entrypoint" in error and "examples/rogue/tool.py" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+            rogue.unlink()
+            self.assertEqual(tree.validate(), [])
+
+    def test_rogue_shell_runner_under_ts_examples_fails_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = HarnessTree(Path(tmp))
+            self.assertEqual(tree.validate(), [])
+
+            rogue = write(
+                tree.root,
+                "ts/examples/rogue/run.sh",
+                "#!/usr/bin/env bash\n",
+                executable=True,
+            )
+            errors = tree.validate()
+
+            self.assertIn("ts/examples/rogue/run.sh", harness.discover(tree.root))
+            self.assertTrue(
+                any(
+                    "unclassified entrypoint" in error and "ts/examples/rogue/run.sh" in error
                     for error in errors
                 ),
                 errors,

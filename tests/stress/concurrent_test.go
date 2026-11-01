@@ -569,10 +569,11 @@ drainLoop:
 // Helper functions
 
 func setupStressDB(t *testing.T) (core.ExtendedDB, error) {
+	endpoint := tests.GetTestConfig().Endpoint
 	// Fixed initialization with session.Config
 	sessionConfig := session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: endpoint,
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(
 				credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
@@ -605,7 +606,7 @@ func setupStressDB(t *testing.T) (core.ExtendedDB, error) {
 	}
 
 	client := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
-		o.BaseEndpoint = aws.String("http://localhost:8000")
+		o.BaseEndpoint = aws.String(endpoint)
 	})
 
 	for _, table := range tables {

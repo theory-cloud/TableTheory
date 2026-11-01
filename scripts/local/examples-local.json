@@ -60,44 +60,84 @@
       "description": "Python runtime CRUD example: table creation, put, get and a sort-key begins_with query."
     },
     "examples/basic/contacts/main.go": {
-      "pending": "T2",
-      "description": "Interactive contacts CLI; T2 adds a scripted non-interactive transcript with output assertions."
+      "run": "go-basic-contacts",
+      "class": "L1",
+      "description": "Contacts CLI driven through its checked-in stdin transcript: create, list, gsi-email, gsi-phone, gsi-name, favorite, delete, with output assertions."
     },
     "examples/basic/notes/main.go": {
-      "pending": "T2",
-      "description": "Interactive notes CLI; T2 adds a scripted non-interactive transcript with output assertions."
+      "run": "go-basic-notes",
+      "class": "L1",
+      "description": "Notes CLI driven through its checked-in stdin transcript: create, list, gsi-user, gsi-category, recent, stats, with output assertions."
     },
     "examples/basic/todo/main.go": {
-      "pending": "T2",
-      "description": "Interactive todo CLI; T2 adds a scripted non-interactive transcript with output assertions."
+      "run": "go-basic-todo",
+      "class": "L1",
+      "description": "Todo CLI driven through its checked-in stdin transcript: create, list, complete and delete, with output assertions."
     },
     "examples/initialization/main.go": {
-      "pending": "T2",
-      "description": "Initialization demo; T2 gives the local path a real operation and a real success signal."
+      "run": "go-initialization-local",
+      "class": "L3",
+      "description": "Local initialization mode creates the table and performs a real TableTheory write/read on DynamoDB Local. The aws, profile, minimal and debug modes resolve real AWS defaults; they are the named cloud gap and never run in the harness."
     },
     "examples/optimization/main.go": {
-      "pending": "T2",
-      "description": "Query-planner demo; T2 classifies it as a library demo that runs without DynamoDB."
+      "run": "go-library-demos",
+      "class": "L1",
+      "description": "Library demo: the query planner runs locally without DynamoDB, and the same runner executes the examples/testing mock-based unit-test suite. Fakes here are test doubles for unit tests, not example verification."
+    },
+    "examples/testing/user_service_test.go": {
+      "coveredBy": "examples/optimization/main.go",
+      "class": "L1",
+      "description": "Mock-based unit-test suite demonstrating pkg/mocks; executed by the library-demo runner. It runs locally without DynamoDB by design."
     },
     "examples/release-state/main.go": {
-      "pending": "T2",
-      "description": "Release-state registry; T2 adds a real TransactWrite driver on DynamoDB Local."
+      "run": "go-release-state",
+      "class": "L1",
+      "description": "Real TransactWrite on DynamoDB Local: actual-state update, event append and conditional outbox create, read-back assertions, plus refusal of a stale expected version."
     },
     "examples/typed-go/main.go": {
-      "pending": "T2",
-      "description": "Typed generics demo; T2 adds a driver for typedFlow with table creation."
+      "run": "go-typed-go",
+      "class": "L1",
+      "description": "Typed generic API driver: table creation, typed create/get/update and a begins_with query on DynamoDB Local, with read-back assertions."
+    },
+    "examples/drivers/main.go": {
+      "run": "go-loose-examples",
+      "class": "L1",
+      "description": "Driver for the loose examples/*.go snippets: seeds each table, runs the real snippet functions and asserts the conditional, transaction, batch-get, list-operation, embedded-struct and FaceTheory TTL outcomes."
+    },
+    "examples/feature_spotlight.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "Conditional helpers, transaction builder and batch-get builder snippets; executed inside examples/drivers."
+    },
+    "examples/list_operations_example.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "List and set update snippets; executed inside examples/drivers."
+    },
+    "examples/embedded_structs_example.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "Embedded-struct single-table snippets; executed inside examples/drivers."
+    },
+    "examples/facetheory_ttl_cache_example.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "FaceTheory ISR cache metadata shape and freshness helpers; executed inside examples/drivers."
     },
     "ts/examples/release-state.ts": {
-      "pending": "T2",
-      "description": "TypeScript release-state registry; T2 adds the DynamoDB Local driver."
+      "run": "ts-release-state",
+      "class": "L1",
+      "description": "TypeScript release-state driver: the same real TransactWrite, read-back and stale-version refusal as the Go and Python rows, with an identical parity line."
     },
     "py/examples/gsi_query.py": {
-      "pending": "T2",
-      "description": "Python GSI query demo; T2 runs it against DynamoDB Local."
+      "run": "py-gsi-query",
+      "class": "L1",
+      "description": "Python GSI query on DynamoDB Local: creates the table and index, writes two users and asserts the email index returns only the matching row."
     },
     "py/examples/release_state.py": {
-      "pending": "T2",
-      "description": "Python release-state registry; T2 adds the DynamoDB Local driver."
+      "run": "py-release-state",
+      "class": "L1",
+      "description": "Python release-state driver: the same real TransactWrite, read-back and stale-version refusal as the Go and TypeScript rows, with an identical parity line."
     },
     "examples/encryption/main.go": {
       "pending": "T3",

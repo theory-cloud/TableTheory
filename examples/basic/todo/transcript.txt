@@ -1,0 +1,8 @@
+add Ship the local harness
+add Verify GSIs in notes and contacts
+list
+complete 1
+list
+delete 2
+list
+quit
