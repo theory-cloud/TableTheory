@@ -192,8 +192,9 @@
       "description": "Python release-state driver: the same real TransactWrite, read-back and stale-version refusal as the Go and TypeScript rows, with an identical parity line."
     },
     "examples/encryption/main.go": {
-      "pending": "T3",
-      "description": "KMS envelope round-trip; T3 selects a KMS emulator or records the named cloud gap."
+      "run": "go-encryption",
+      "class": "L2",
+      "description": "KMS envelope round-trip through TableTheory on DynamoDB Local and the local KMS emulator: the plaintext field round-trips on read, and a raw GetItem proves the stored attribute is a v2 envelope whose ciphertext does not contain the plaintext. Gap: the KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS GenerateDataKey/Decrypt calls are real."
     },
     "examples/lambda/main.go": {
       "pending": "T4a",
