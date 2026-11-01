@@ -938,9 +938,11 @@ def run_go_loose_examples(harness: Harness) -> str:
             "List operations demonstrated successfully!",
             "Found 1 customers for tenant",
             "Customer has 1 orders",
-            "OK: loose examples drove conditional helpers, transaction builder, "
-            "batch get (4 invoices), list operations (5 tags), embedded structs "
-            "(1 orders) and the FaceTheory TTL cache on DynamoDB Local",
+            (
+                "OK: loose examples drove conditional helpers, transaction builder, "
+                + "batch get (4 invoices), list operations (5 tags), embedded structs "
+                + "(1 orders) and the FaceTheory TTL cache on DynamoDB Local"
+            ),
         ],
         "examples/drivers",
     )
