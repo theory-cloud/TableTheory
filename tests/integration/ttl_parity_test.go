@@ -65,7 +65,7 @@ func createTTLParityTable(t *testing.T, ctx context.Context, testCtx *TestContex
 }
 
 // TestEnsureTable_ExistingTableWithTTLDisabled_LeavesTTLDisabled pins the Go
-// reference behaviour: EnsureTable never touches TTL on a table that already
+// reference behavior: EnsureTable never touches TTL on a table that already
 // exists.
 func TestEnsureTable_ExistingTableWithTTLDisabled_LeavesTTLDisabled(t *testing.T) {
 	testCtx := InitTestDB(t)

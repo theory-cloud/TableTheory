@@ -22,20 +22,12 @@ var ErrTTLAttributeMismatch = errors.New("ttl attribute mismatch")
 // ttlAttributeMismatchError carries the conflict details while keeping the
 // message text unchanged from earlier releases.
 type ttlAttributeMismatchError struct {
-	tableName        string
-	attributeName    string
-	currentAttribute string
-	cause            error
+	cause   error
+	message string
 }
 
 func (e *ttlAttributeMismatchError) Error() string {
-	return fmt.Sprintf(
-		"failed to enable ttl on table %s using attribute %s: ttl is already enabled on a different attribute %s: %v",
-		e.tableName,
-		e.attributeName,
-		e.currentAttribute,
-		e.cause,
-	)
+	return e.message
 }
 
 func (e *ttlAttributeMismatchError) Unwrap() []error {
@@ -141,9 +133,13 @@ func resolveTTLValidationFailure(
 	}
 
 	return true, &ttlAttributeMismatchError{
-		tableName:        tableName,
-		attributeName:    attributeName,
-		currentAttribute: currentAttribute,
-		cause:            cause,
+		message: fmt.Sprintf(
+			"failed to enable ttl on table %s using attribute %s: ttl is already enabled on a different attribute %s: %v",
+			tableName,
+			attributeName,
+			currentAttribute,
+			cause,
+		),
+		cause: cause,
 	}
 }
