@@ -6,8 +6,13 @@ from dataclasses import dataclass
 import boto3
 import pytest
 
-from tabletheory_py import ModelDefinition, ValidationError, theorydb_field
-from tabletheory_py.schema import create_table, delete_table
+from tabletheory_py import (
+    ModelDefinition,
+    TTLAttributeMismatchError,
+    ValidationError,
+    theorydb_field,
+)
+from tabletheory_py.schema import create_table, delete_table, ensure_table
 
 
 def _dynamodb_endpoint() -> str:
@@ -34,6 +39,25 @@ MODEL = ModelDefinition.from_dataclass(
     TtlRecord,
     table_name="tabletheory_local_t15_ttl_create_py",
 )
+
+
+def test_ensure_table_leaves_existing_disabled_ttl_untouched() -> None:
+    client = _client()
+    delete_table(MODEL, client=client, ignore_missing=True)
+    try:
+        client.create_table(
+            TableName=MODEL.table_name,
+            BillingMode="PAY_PER_REQUEST",
+            KeySchema=[{"AttributeName": "ID", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "ID", "AttributeType": "S"}],
+        )
+        ensure_table(MODEL, client=client)
+
+        ttl = client.describe_time_to_live(TableName=MODEL.table_name)["TimeToLiveDescription"]
+        assert ttl["TimeToLiveStatus"] == "DISABLED"
+        assert "AttributeName" not in ttl
+    finally:
+        delete_table(MODEL, client=client, ignore_missing=True)
 
 
 def test_create_table_existing_ttl_table_is_idempotent() -> None:
@@ -71,9 +95,10 @@ def test_create_table_existing_table_ttl_on_different_attribute_raises_clear_err
             },
         )
 
-        with pytest.raises(ValidationError) as excinfo:
+        with pytest.raises(TTLAttributeMismatchError) as excinfo:
             create_table(MODEL, client=client)
 
+        assert isinstance(excinfo.value, ValidationError)
         message = str(excinfo.value)
         assert "expiresAt" in message
         assert "LegacyTtl" in message
