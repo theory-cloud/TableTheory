@@ -1,6 +1,7 @@
 package theorydb
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -23,6 +24,13 @@ type BenchUser struct {
 	Balance   float64
 	Version   int64 `theorydb:"version"`
 	IsActive  bool
+}
+
+func benchmarkDynamoEndpoint() string {
+	if endpoint := os.Getenv("DYNAMODB_ENDPOINT"); endpoint != "" {
+		return endpoint
+	}
+	return "http://localhost:8000"
 }
 
 func BenchmarkMarshalItem_Current(b *testing.B) {
@@ -468,7 +476,7 @@ func BenchmarkGetItemDirect(b *testing.B) {
 	// Setup mock or local DynamoDB
 	db, err := NewBasic(session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: benchmarkDynamoEndpoint(),
 	})
 	if err != nil {
 		b.Fatal(err)
@@ -489,7 +497,7 @@ func BenchmarkGetItemByAttribute(b *testing.B) {
 	// Test querying by DynamoDB attribute name
 	db, err := NewBasic(session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: benchmarkDynamoEndpoint(),
 	})
 	if err != nil {
 		b.Fatal(err)
@@ -508,7 +516,7 @@ func BenchmarkGetItemByAttribute(b *testing.B) {
 func BenchmarkGetItemByGoFieldName(b *testing.B) {
 	db, err := NewBasic(session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: benchmarkDynamoEndpoint(),
 	})
 	if err != nil {
 		b.Fatal(err)
@@ -527,7 +535,7 @@ func BenchmarkGetItemByGoFieldName(b *testing.B) {
 func BenchmarkGetItemWithProjection(b *testing.B) {
 	db, err := NewBasic(session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: benchmarkDynamoEndpoint(),
 	})
 	if err != nil {
 		b.Fatal(err)
@@ -546,7 +554,7 @@ func BenchmarkGetItemWithProjection(b *testing.B) {
 func BenchmarkMetadataCaching(b *testing.B) {
 	db, err := NewBasic(session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: benchmarkDynamoEndpoint(),
 	})
 	if err != nil {
 		b.Fatal(err)
@@ -565,7 +573,7 @@ func BenchmarkMetadataCaching(b *testing.B) {
 func BenchmarkQueryOperation(b *testing.B) {
 	db, err := NewBasic(session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: benchmarkDynamoEndpoint(),
 	})
 	if err != nil {
 		b.Fatal(err)

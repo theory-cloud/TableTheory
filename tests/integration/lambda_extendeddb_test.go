@@ -35,7 +35,7 @@ func TestLambdaInitHandleSatisfiesCoreInterfacesAgainstDynamoDBLocal(t *testing.
 	t.Setenv("AWS_ACCESS_KEY_ID", "dummy")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "dummy")
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	t.Setenv("AWS_ENDPOINT_URL_DYNAMODB", "http://localhost:8000")
+	t.Setenv("AWS_ENDPOINT_URL_DYNAMODB", TestEndpoint())
 
 	ldb, err := tabletheory.LambdaInit(&v6LambdaPayment{})
 	require.NoError(t, err)

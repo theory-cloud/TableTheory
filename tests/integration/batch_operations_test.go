@@ -367,7 +367,7 @@ func TestBatchOperationsE2E(t *testing.T) {
 	// Fixed initialization with session.Config
 	sessionConfig := session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: TestEndpoint(),
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(
 				credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
