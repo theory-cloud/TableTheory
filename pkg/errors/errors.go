@@ -57,6 +57,12 @@ var (
 	// Its declared error type is part of the published API contract.
 	ErrDuplicatePrimaryKey error = invalidModelSubtypeError("duplicate primary key definition")
 
+	// ErrTTLAttributeMismatch is returned when a table's TTL is already enabled on
+	// a different attribute than the model's ttl field. It matches ErrInvalidModel
+	// via errors.Is, mirroring the TypeScript ErrInvalidModel code and the Python
+	// ValidationError raised by the same provisioning path.
+	ErrTTLAttributeMismatch error = invalidModelSubtypeError("ttl is already enabled on a different attribute")
+
 	// ErrEmptyValue is returned when a required value is empty
 	ErrEmptyValue = errors.New("empty value")
 

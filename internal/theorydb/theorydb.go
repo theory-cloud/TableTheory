@@ -355,7 +355,10 @@ func (db *DB) CreateTableWithOptions(model any, opts ...schema.TableOption) erro
 	return db.CreateTable(model, opts...)
 }
 
-// EnsureTable checks if a table exists for the model and creates it if not
+// EnsureTable checks if a table exists for the model and creates it if not.
+// When the table already exists and the model defines a ttl field, it also
+// enables TTL on that field, matching CreateTable and the TypeScript/Python
+// ensureTable behavior.
 func (db *DB) EnsureTable(model any) error {
 	// Register model first
 	if err := db.registry.Register(model); err != nil {
@@ -377,7 +380,11 @@ func (db *DB) EnsureTable(model any) error {
 		return manager.CreateTable(model)
 	}
 
-	return nil
+	if metadata.TTLField == nil {
+		return nil
+	}
+
+	return manager.EnableTTL(model)
 }
 
 // DeleteTable deletes the DynamoDB table for the given model

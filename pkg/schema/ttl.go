@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/smithy-go"
 
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
@@ -112,11 +113,33 @@ func resolveTTLValidationFailure(
 		return true, nil
 	}
 
-	return true, fmt.Errorf(
-		"failed to enable ttl on table %s using attribute %s: ttl is already enabled on a different attribute %s: %w",
-		tableName,
-		attributeName,
-		currentAttribute,
-		cause,
+	return true, &ttlAttributeMismatchError{
+		tableName:        tableName,
+		attributeName:    attributeName,
+		currentAttribute: currentAttribute,
+		cause:            cause,
+	}
+}
+
+// ttlAttributeMismatchError keeps the established message text while making the
+// conflict match errors.ErrTTLAttributeMismatch and errors.ErrInvalidModel.
+type ttlAttributeMismatchError struct {
+	cause            error
+	tableName        string
+	attributeName    string
+	currentAttribute string
+}
+
+func (e *ttlAttributeMismatchError) Error() string {
+	return fmt.Sprintf(
+		"failed to enable ttl on table %s using attribute %s: ttl is already enabled on a different attribute %s: %v",
+		e.tableName,
+		e.attributeName,
+		e.currentAttribute,
+		e.cause,
 	)
+}
+
+func (e *ttlAttributeMismatchError) Unwrap() []error {
+	return []error{theorydbErrors.ErrTTLAttributeMismatch, e.cause}
 }

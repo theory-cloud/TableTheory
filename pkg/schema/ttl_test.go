@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	theorydbErrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 	"github.com/theory-cloud/tabletheory/v6/pkg/model"
 )
 
@@ -186,6 +187,8 @@ func TestManager_EnableTTL_AlreadyEnabledOnDifferentAttribute_Errors_COV6(t *tes
 	require.ErrorContains(t, err, "expiresAt")
 	require.ErrorContains(t, err, "legacyTtl")
 	require.ErrorContains(t, err, "TimeToLive is active on a different AttributeName")
+	require.ErrorIs(t, err, theorydbErrors.ErrTTLAttributeMismatch)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
 }
 
 func TestManager_EnableTTL_DescribeFailureKeepsOriginalError_COV6(t *testing.T) {
