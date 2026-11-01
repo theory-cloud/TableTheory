@@ -1,0 +1,34 @@
+name: "p0.schema.create_table_existing_ttl_converges"
+dms_version: "0.2"
+requires_capabilities:
+  - "schema.ttl"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  # The runner provisions the table before the steps, without TTL.
+  - op: describe_ttl
+    expect:
+      ttl_status: "DISABLED"
+
+  # CreateTable on an existing table enables TTL on the model attribute,
+  # matching Go's Manager.CreateTable.
+  - op: create_table
+    expect:
+      ok: true
+
+  - op: describe_ttl
+    expect:
+      ttl_status: "ENABLED"
+      ttl_attribute: "ttl"
+
+  # A repeat meets TTL already enabled on the same attribute, so the
+  # already-exists outcome stays a success.
+  - op: create_table
+    expect:
+      ok: true
+
+  - op: describe_ttl
+    expect:
+      ttl_status: "ENABLED"
+      ttl_attribute: "ttl"

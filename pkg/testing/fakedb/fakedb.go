@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
@@ -40,12 +41,13 @@ type Fake struct {
 }
 
 type tableState struct {
-	indexes map[string]indexState
-	items   map[string]map[string]types.AttributeValue
-	name    string
-	pk      string
-	sk      string
-	ttlAttr string
+	indexes    map[string]indexState
+	items      map[string]map[string]types.AttributeValue
+	name       string
+	pk         string
+	sk         string
+	ttlAttr    string
+	ttlEnabled bool
 }
 
 type indexState struct {
@@ -253,10 +255,40 @@ func (f *Fake) UpdateTimeToLive(_ context.Context, params *dynamodb.UpdateTimeTo
 	if table == nil {
 		return nil, resourceNotFound(tableName)
 	}
-	if params.TimeToLiveSpecification != nil && params.TimeToLiveSpecification.AttributeName != nil {
-		table.ttlAttr = aws.ToString(params.TimeToLiveSpecification.AttributeName)
+	if params.TimeToLiveSpecification == nil || params.TimeToLiveSpecification.AttributeName == nil {
+		return nil, errors.New("UpdateTimeToLive requires TimeToLiveSpecification.AttributeName")
 	}
+
+	attributeName := aws.ToString(params.TimeToLiveSpecification.AttributeName)
+	if aws.ToBool(params.TimeToLiveSpecification.Enabled) && table.ttlEnabled {
+		if table.ttlAttr == attributeName {
+			return nil, &smithy.GenericAPIError{Code: "ValidationException", Message: "TimeToLive is already enabled"}
+		}
+		return nil, &smithy.GenericAPIError{Code: "ValidationException", Message: "TimeToLive is active on a different AttributeName"}
+	}
+
+	table.ttlAttr = attributeName
+	table.ttlEnabled = aws.ToBool(params.TimeToLiveSpecification.Enabled)
 	return &dynamodb.UpdateTimeToLiveOutput{TimeToLiveSpecification: params.TimeToLiveSpecification}, nil
+}
+
+// DescribeTimeToLive reports the TTL state the fake records from
+// UpdateTimeToLive, matching the DynamoDB status and attribute shape.
+func (f *Fake) DescribeTimeToLive(_ context.Context, params *dynamodb.DescribeTimeToLiveInput, _ ...func(*dynamodb.Options)) (*dynamodb.DescribeTimeToLiveOutput, error) {
+	tableName := aws.ToString(params.TableName)
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	table := f.tables[tableName]
+	if table == nil {
+		return nil, resourceNotFound(tableName)
+	}
+
+	description := &types.TimeToLiveDescription{TimeToLiveStatus: types.TimeToLiveStatusDisabled}
+	if table.ttlEnabled {
+		description.TimeToLiveStatus = types.TimeToLiveStatusEnabled
+		description.AttributeName = aws.String(table.ttlAttr)
+	}
+	return &dynamodb.DescribeTimeToLiveOutput{TimeToLiveDescription: description}, nil
 }
 
 func (f *Fake) GetItem(_ context.Context, params *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
@@ -751,12 +783,13 @@ func (f *Fake) cloneTablesLocked() map[string]*tableState {
 	out := make(map[string]*tableState, len(f.tables))
 	for name, table := range f.tables {
 		cloned := &tableState{
-			name:    table.name,
-			pk:      table.pk,
-			sk:      table.sk,
-			ttlAttr: table.ttlAttr,
-			indexes: make(map[string]indexState, len(table.indexes)),
-			items:   make(map[string]map[string]types.AttributeValue, len(table.items)),
+			name:       table.name,
+			pk:         table.pk,
+			sk:         table.sk,
+			ttlAttr:    table.ttlAttr,
+			ttlEnabled: table.ttlEnabled,
+			indexes:    make(map[string]indexState, len(table.indexes)),
+			items:      make(map[string]map[string]types.AttributeValue, len(table.items)),
 		}
 		for k, v := range table.indexes {
 			cloned.indexes[k] = v

@@ -513,6 +513,9 @@ function stubDriver(overrides: Partial<Driver>): Driver {
   };
   return {
     capabilities: () => [],
+    createTable: fail,
+    ensureTable: fail,
+    ttlCallCount: () => 0,
     create: fail,
     get: fail,
     getOptional: fail,

@@ -70,6 +70,9 @@ type Step struct {
 	EventBinding        map[string]string     `yaml:"event_binding"`
 	Ms                  int                   `yaml:"ms"`
 	Save                map[string]string     `yaml:"save"`
+	ForbidTTLCalls      bool                  `yaml:"forbid_ttl_calls"`
+	TTLAttribute        string                `yaml:"ttl_attribute"`
+	TTLEnabled          *bool                 `yaml:"ttl_enabled"`
 	Expect              Expectation           `yaml:"expect"`
 }
 
@@ -162,6 +165,8 @@ type Expectation struct {
 	RawEnvelopeVersions   map[string]string `yaml:"raw_envelope_versions"`
 	ItemFieldEqualsVar    map[string]string `yaml:"item_field_equals_var"`
 	ItemFieldNotEqualsVar map[string]string `yaml:"item_field_not_equals_var"`
+	TTLStatus             string            `yaml:"ttl_status"`
+	TTLAttribute          string            `yaml:"ttl_attribute"`
 }
 
 func LoadFile(path string) (*Scenario, error) {
@@ -335,6 +340,15 @@ func validateStep(label string, i int, step Step) error {
 			return fmt.Errorf("%s migrate: unsupported encryption %q", prefix, step.Migrate.Encryption)
 		}
 	case "create_table":
+	case "ensure_table":
+	case "update_ttl":
+		if step.TTLAttribute == "" {
+			return fmt.Errorf("%s update_ttl: ttl_attribute is required", prefix)
+		}
+	case "describe_ttl":
+		if step.Expect.TTLStatus == "" && step.Expect.TTLAttribute == "" {
+			return fmt.Errorf("%s describe_ttl: expect.ttl_status or expect.ttl_attribute is required", prefix)
+		}
 	case "dms_parse", "dms_get":
 		if step.Dms == nil {
 			return fmt.Errorf("%s %s: dms is required", prefix, step.Op)
@@ -407,7 +421,9 @@ func validateExpectation(prefix string, expect Expectation) error {
 	hasErrorExpectation := expect.Error != "" || len(expect.Errors) > 0
 	hasDataAssertion := expectationHasItemAssertion(expect) ||
 		expectationHasRawItemAssertion(expect) ||
-		expectationHasReadAssertion(expect)
+		expectationHasReadAssertion(expect) ||
+		expect.TTLStatus != "" ||
+		expect.TTLAttribute != ""
 	if hasErrorExpectation && hasDataAssertion {
 		return fmt.Errorf("%s expect: item/read assertions cannot be combined with error expectations", prefix)
 	}

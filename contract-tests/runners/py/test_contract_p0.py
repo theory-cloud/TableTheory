@@ -70,10 +70,12 @@ from tabletheory_py import (
     TransactPut,
     TransactUpdate,
     TransactWriteAction,
+    TTLAttributeMismatchError,
     ValidationError,
     VersionConflictError,
     auto_migrate,
     create_table,
+    ensure_table,
     theorydb_field,
     transition_release_state,
     validate_deploy_authority_metadata,
@@ -370,9 +372,29 @@ def _decode_raw_attribute_value(raw: Any) -> dict[str, Any]:
     raise ValidationError("unsupported raw value shape")
 
 
+class _CountingTimeToLiveClient:
+    """Delegating client that records TTL API calls made through it."""
+
+    def __init__(self, client: Any, counter: list[int]) -> None:
+        self._client = client
+        self._counter = counter
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def update_time_to_live(self, **kwargs: Any) -> Any:
+        self._counter[0] += 1
+        return self._client.update_time_to_live(**kwargs)
+
+    def describe_time_to_live(self, **kwargs: Any) -> Any:
+        self._counter[0] += 1
+        return self._client.describe_time_to_live(**kwargs)
+
+
 class _TheorydbPyDriver:
     def __init__(self, client: Any, *, encryption: dict[str, Any] | None = None) -> None:
         self.client = client
+        self._ttl_calls = [0]
         self.encryption = _deterministic_encryption_material(encryption)
         self.step_encryption = ""
         self.tables: dict[str, Table[Any]] = {
@@ -408,6 +430,25 @@ class _TheorydbPyDriver:
 
     def create_table(self, model: str) -> None:
         create_table(_MODEL_DEFINITIONS[model], client=self.client)
+
+    def ensure_table(self, model: str) -> None:
+        ensure_table(
+            _MODEL_DEFINITIONS[model],
+            client=_CountingTimeToLiveClient(self.client, self._ttl_calls),
+        )
+
+    def ttl_call_count(self) -> int:
+        return self._ttl_calls[0]
+
+    def update_ttl(self, table_name: str, attribute: str, *, enabled: bool = True) -> None:
+        self.client.update_time_to_live(
+            TableName=table_name,
+            TimeToLiveSpecification={"AttributeName": attribute, "Enabled": enabled},
+        )
+
+    def describe_ttl(self, table_name: str) -> dict[str, Any]:
+        response = self.client.describe_time_to_live(TableName=table_name)
+        return dict(response.get("TimeToLiveDescription") or {})
 
     def create(self, model: str, item: dict[str, Any], *, if_not_exists: bool = False) -> None:
         self._validate_release_state_metadata_if_present(model, item)
@@ -909,6 +950,7 @@ def _supported_capabilities() -> list[str]:
         "encryption.fail_closed",
         "encryption.deterministic_interop",
         "encryption.migration_rebinding",
+        "schema.ttl",
     ]
 
 
@@ -1111,6 +1153,37 @@ def _run_step(
     if step["op"] == "create_table":
         error = _capture_error(lambda: driver.create_table(model_name))
         _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "ensure_table":
+        ttl_calls_before = driver.ttl_call_count()
+        error = _capture_error(lambda: driver.ensure_table(model_name))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        if step.get("forbid_ttl_calls") and error is None:
+            assert driver.ttl_call_count() == ttl_calls_before, "ensure_table must not make TTL calls"
+        return
+
+    if step["op"] == "update_ttl":
+        enabled = bool(step.get("ttl_enabled", True))
+        error = _capture_error(lambda: driver.update_ttl(table_name, step["ttl_attribute"], enabled=enabled))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "describe_ttl":
+        description: dict[str, Any] = {}
+        error: Exception | None = None
+        try:
+            description = driver.describe_ttl(table_name)
+        except Exception as exc:
+            error = exc
+        expect = step.get("expect", {})
+        _assert_expectation(expect, error=error, model=model, variables=variables)
+        if error is not None:
+            return
+        if "ttl_status" in expect:
+            assert description.get("TimeToLiveStatus") == expect["ttl_status"]
+        if "ttl_attribute" in expect:
+            assert description.get("AttributeName") == expect["ttl_attribute"]
         return
 
     if step["op"] == "create":
@@ -1698,6 +1771,8 @@ def _map_errors(error: Exception) -> list[str]:
         return ["ErrProtectedFieldMutation"]
     if isinstance(error, RejectedDeployAuthorityEvidenceError):
         return ["ErrRejectedDeployAuthorityEvidence"]
+    if isinstance(error, TTLAttributeMismatchError):
+        return ["ErrTTLAttributeMismatch"]
     if isinstance(error, ValidationError):
         if (
             "consistent_read" in str(error)

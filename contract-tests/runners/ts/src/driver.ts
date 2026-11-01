@@ -1,7 +1,9 @@
 import {
   DeleteTableCommand,
+  DescribeTimeToLiveCommand,
   GetItemCommand,
   PutItemCommand,
+  UpdateTimeToLiveCommand,
   type AttributeValue,
   type DynamoDBClient,
 } from "@aws-sdk/client-dynamodb";
@@ -22,7 +24,11 @@ import {
   type Model,
   type ModelSchema,
 } from "../../../../ts/src/model.js";
-import { createTable, describeTable } from "../../../../ts/src/schema.js";
+import {
+  createTable,
+  describeTable,
+  ensureTable,
+} from "../../../../ts/src/schema.js";
 import { autoMigrate } from "../../../../ts/src/schema-migration.js";
 import type { TransactAction } from "../../../../ts/src/transaction.js";
 import {
@@ -51,11 +57,14 @@ export type ErrorCode =
   | "ErrMigrationEncryptionRequired"
   | "ErrImmutableModelMutation"
   | "ErrProtectedFieldMutation"
-  | "ErrRejectedDeployAuthorityEvidence";
+  | "ErrRejectedDeployAuthorityEvidence"
+  | "ErrTTLAttributeMismatch";
 
 export interface Driver {
   capabilities(): readonly string[];
   createTable(model: string): Promise<void>;
+  ensureTable(model: string): Promise<void>;
+  ttlCallCount(): number;
   create(
     model: string,
     item: Record<string, unknown>,
@@ -163,6 +172,8 @@ export class TheorydbDriver implements Driver {
   private readonly encryption: EncryptionProvider | undefined;
   private noEncryptionClient: TheorydbClient | undefined;
   private stepEncryption = "";
+  private readonly ttlCalls = { count: 0 };
+  private readonly schemaDdb: DynamoDBClient;
 
   constructor(
     ddb: DynamoDBClient,
@@ -172,6 +183,17 @@ export class TheorydbDriver implements Driver {
     this.ddb = ddb;
     this.encryption = opts.encryption;
     this.models = new Map(models.map((model) => [model.name, model]));
+    this.schemaDdb = {
+      send: async (command: unknown) => {
+        if (
+          command instanceof UpdateTimeToLiveCommand ||
+          command instanceof DescribeTimeToLiveCommand
+        ) {
+          this.ttlCalls.count += 1;
+        }
+        return ddb.send(command as never);
+      },
+    } as unknown as DynamoDBClient;
     this.client = new TheorydbClient(ddb, {
       ...(opts.encryption ? { encryption: opts.encryption } : {}),
     }).register(...models);
@@ -232,11 +254,20 @@ export class TheorydbDriver implements Driver {
       "encryption.deterministic_interop",
       "encryption.migration_rebinding",
       "dms.json_string_mode",
+      "schema.ttl",
     ];
   }
 
   async createTable(model: string): Promise<void> {
-    await createTable(this.ddb, this.requireScenarioModel(model));
+    await createTable(this.schemaDdb, this.requireScenarioModel(model));
+  }
+
+  async ensureTable(model: string): Promise<void> {
+    await ensureTable(this.schemaDdb, this.requireScenarioModel(model));
+  }
+
+  ttlCallCount(): number {
+    return this.ttlCalls.count;
   }
 
   async create(
@@ -588,17 +619,12 @@ export class TheorydbDriver implements Driver {
     validateDeployAuthorityMetadata(item);
   }
 
-  async rawPut(
-    table: string,
-    rawItem: Record<string, unknown>,
-  ): Promise<void> {
+  async rawPut(table: string, rawItem: Record<string, unknown>): Promise<void> {
     const item: Record<string, AttributeValue> = {};
     for (const [name, raw] of Object.entries(rawItem)) {
       item[name] = decodeRawAttributeValue(raw);
     }
-    await this.ddb.send(
-      new PutItemCommand({ TableName: table, Item: item }),
-    );
+    await this.ddb.send(new PutItemCommand({ TableName: table, Item: item }));
   }
 
   async seedEncrypted(
@@ -720,9 +746,7 @@ export class TheorydbDriver implements Driver {
 
   private async resetMigrationSourceTable(table: string): Promise<void> {
     try {
-      await this.ddb.send(
-        new DeleteTableCommand({ TableName: table }),
-      );
+      await this.ddb.send(new DeleteTableCommand({ TableName: table }));
     } catch (err) {
       const name = (err as { name?: string }).name;
       if (name !== "ResourceNotFoundException") throw err;
