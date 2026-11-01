@@ -279,7 +279,8 @@ def discover(root: Path) -> dict[str, str]:
 
     * ``examples/**/*.go`` that declares ``func main`` is a Go entrypoint
       (``func main`` is the entrypoint marker; path conventions do not apply);
-    * ``examples/**/*.sh`` is a shell runner;
+    * a ``.sh`` file under ``examples/``, ``ts/examples/`` or ``py/examples/``
+      is a shell runner;
     * files under ``examples/``, ``ts/examples/`` and ``py/examples/`` with a
       runtime suffix (``.ts``, ``.mts``, ``.cts``, ``.js``, ``.mjs``, ``.cjs``,
       ``.py``) are runtime entrypoints;
@@ -337,8 +338,11 @@ def discover(root: Path) -> dict[str, str]:
                 continue
             suffix = path.suffix.lower()
             if suffix == ".sh":
-                continue  # already classified by the shell pass above
-            if suffix in RUNTIME_SUFFIXES:
+                # The examples/**/*.sh pass above already covers examples/;
+                # this branch keeps shell runners under ts/examples and
+                # py/examples visible instead of silently dropping them.
+                found[relative(path)] = "shell-runner"
+            elif suffix in RUNTIME_SUFFIXES:
                 found[relative(path)] = "ts" if suffix in TS_SUFFIXES else "py"
             elif os.access(path, os.X_OK):
                 found[relative(path)] = "executable"

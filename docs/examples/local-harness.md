@@ -74,7 +74,8 @@ Entrypoints are discovered from the tree, not from a hand-maintained list:
 
 - `examples/**/*.go` that declares `func main` is a Go entrypoint (`func main`
   is the marker; path conventions do not apply to Go);
-- `examples/**/*.sh` is a shell runner;
+- a `.sh` file under `examples/`, `ts/examples/` or `py/examples/` is a shell
+  runner;
 - files under `examples/`, `ts/examples/` and `py/examples/` with a runtime
   suffix (`.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`, `.py`) are runtime
   entrypoints, so a `.ts` or `.py` file under `examples/` cannot hide from
@@ -104,7 +105,8 @@ executed inside another row. Unknown or reused runner ids fail as well.
 `make examples-local` runs `make examples-local-selftest` first. The self-tests
 build throwaway repository trees and assert that validation fails when:
 
-- a rogue `.ts` or `.py` file under `examples/` is unclassified;
+- a rogue `.ts` or `.py` file under `examples/` is unclassified, or a rogue
+  `.sh` runner under `ts/examples/` is unclassified;
 - a `pending` row names a file that does not exist, or one discovery does not
   treat as an entrypoint.
 
