@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import warnings
 from collections.abc import Callable
 from dataclasses import is_dataclass
 from decimal import Decimal
@@ -39,12 +40,15 @@ def create_table(
         provisioned_throughput=provisioned_throughput,
     )
 
+    created = True
     try:
         client.create_table(**req)
     except ClientError as err:
         code = str(err.response.get("Error", {}).get("Code", ""))
         if code != "ResourceInUseException":
             raise _map_schema_error(err) from err
+        # The table existed before this call, so its TTL is only verified below.
+        created = False
 
     if wait_for_active or ttl_attribute is not None:
         _wait_for_table_active(
@@ -56,13 +60,22 @@ def create_table(
         )
 
     if ttl_attribute is not None:
-        update_time_to_live(
-            model,
-            client=client,
-            table_name=req["TableName"],
-            attribute_name=ttl_attribute,
-            enabled=True,
-        )
+        if created:
+            # This call created the table, so enabling TTL cannot expire existing data.
+            update_time_to_live(
+                model,
+                client=client,
+                table_name=req["TableName"],
+                attribute_name=ttl_attribute,
+                enabled=True,
+            )
+        else:
+            verify_time_to_live(
+                model,
+                client=client,
+                table_name=req["TableName"],
+                attribute_name=ttl_attribute,
+            )
 
 
 def ensure_table(
@@ -114,12 +127,12 @@ def ensure_table(
         )
 
     if ttl_attribute is not None:
-        update_time_to_live(
+        # The table already existed, so TTL is verified but never enabled.
+        verify_time_to_live(
             model,
             client=client,
             table_name=resolved_table,
             attribute_name=ttl_attribute,
-            enabled=True,
         )
 
 
@@ -221,12 +234,68 @@ def update_time_to_live(
                     if current_attribute == resolved_attribute:
                         return
                     raise ValidationError(
-                        "failed to enable ttl on table "
-                        f"{resolved_table} using attribute {resolved_attribute}: "
-                        "ttl is already enabled on a different attribute "
-                        f"{current_attribute}"
+                        _ttl_mismatch_message(resolved_table, resolved_attribute, current_attribute)
                     ) from err
         raise _map_schema_error(err) from err
+
+
+def verify_time_to_live(
+    model: ModelDefinition[Any],
+    *,
+    client: Any | None = None,
+    table_name: str | None = None,
+    attribute_name: str | None = None,
+) -> None:
+    """Inspect the TTL state of an existing table without changing it.
+
+    TTL already enabled on the model attribute is an idempotent success, TTL
+    enabled on a different attribute raises ``ValidationError``, and a disabled
+    TTL only emits a warning so provisioning keeps succeeding.
+    """
+    if client is None:
+        client = boto3.client("dynamodb")
+
+    resolved_table = table_name or model.table_name
+    if not resolved_table:
+        raise ValueError("table_name is required (or set ModelDefinition.table_name)")
+
+    resolved_attribute = attribute_name or resolve_ttl_attribute(model)
+    if resolved_attribute is None:
+        return
+
+    try:
+        response = client.describe_time_to_live(TableName=resolved_table)
+    except ClientError as err:
+        raise _map_schema_error(err) from err
+
+    description = response.get("TimeToLiveDescription") or {}
+    status = str(description.get("TimeToLiveStatus", ""))
+    current_attribute = str(description.get("AttributeName", ""))
+    if status in {"ENABLED", "ENABLING"}:
+        if current_attribute == resolved_attribute:
+            return
+        raise ValidationError(_ttl_mismatch_message(resolved_table, resolved_attribute, current_attribute))
+
+    warnings.warn(
+        f"TableTheory: table {resolved_table} exists with ttl disabled, but the model "
+        f"declares ttl attribute {resolved_attribute}; leaving ttl disabled because "
+        "enabling it would make DynamoDB expire items that are already past their expiry. "
+        "Enable ttl deliberately with update_time_to_live or your infrastructure-as-code "
+        "if that expiry is intended.",
+        UserWarning,
+        stacklevel=2,
+    )
+
+
+def _ttl_mismatch_message(
+    table_name: str,
+    attribute_name: str,
+    current_attribute: str,
+) -> str:
+    return (
+        f"table {table_name} has ttl enabled on a different attribute {current_attribute}, "
+        f"but the model declares ttl attribute {attribute_name}"
+    )
 
 
 def _is_validation_exception(err: ClientError) -> bool:

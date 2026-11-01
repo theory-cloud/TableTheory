@@ -100,6 +100,7 @@ if TYPE_CHECKING:
         ensure_table,
         resolve_ttl_attribute,
         update_time_to_live,
+        verify_time_to_live,
     )
     from .schema_migration import (
         add_field,
@@ -217,6 +218,7 @@ def __getattr__(name: str) -> Any:
         "ensure_table",
         "resolve_ttl_attribute",
         "update_time_to_live",
+        "verify_time_to_live",
     }:
         from . import schema
 
@@ -436,6 +438,7 @@ __all__ = [
     "unmarshal_stream_image",
     "unmarshal_stream_record",
     "update_time_to_live",
+    "verify_time_to_live",
     "validate_expression",
     "validate_field_name",
     "validate_index_name",

@@ -17,6 +17,7 @@ from tabletheory_py.schema import (
     ensure_table,
     resolve_ttl_attribute,
     update_time_to_live,
+    verify_time_to_live,
 )
 
 
@@ -379,20 +380,83 @@ def test_create_table_syncs_ttl_for_models_with_ttl_role(ttl_model: ModelDefinit
     client.assert_no_pending()
 
 
-def test_ensure_table_syncs_ttl_for_existing_tables(ttl_model: ModelDefinition[object]) -> None:
+def test_ensure_table_verifies_without_enabling_ttl_on_existing_tables(
+    ttl_model: ModelDefinition[object],
+) -> None:
     client = FakeDynamoDBClient()
     client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
     client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
     client.expect(
-        "update_time_to_live",
-        {
-            "TableName": "ttl_tbl",
-            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
-        },
-        response={"TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True}},
+        "describe_time_to_live",
+        {"TableName": "ttl_tbl"},
+        response={"TimeToLiveDescription": {"TimeToLiveStatus": "DISABLED"}},
     )
 
-    ensure_table(ttl_model, client=client, wait_for_active=False, sleep=lambda _: None)
+    with pytest.warns(UserWarning, match="leaving ttl disabled"):
+        ensure_table(ttl_model, client=client, wait_for_active=False, sleep=lambda _: None)
+    client.assert_no_pending()
+
+
+def test_create_table_existing_table_with_disabled_ttl_does_not_enable(
+    ttl_model: ModelDefinition[object],
+) -> None:
+    client = FakeDynamoDBClient()
+    client.expect(
+        "create_table",
+        {"TableName": "ttl_tbl", "BillingMode": "PAY_PER_REQUEST"},
+        error=ClientError({"Error": {"Code": "ResourceInUseException", "Message": "exists"}}, "CreateTable"),
+    )
+    client.expect("describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}})
+    client.expect(
+        "describe_time_to_live",
+        {"TableName": "ttl_tbl"},
+        response={"TimeToLiveDescription": {"TimeToLiveStatus": "DISABLED"}},
+    )
+
+    with pytest.warns(UserWarning, match="leaving ttl disabled"):
+        create_table(ttl_model, client=client, wait_for_active=False, sleep=lambda _: None)
+    client.assert_no_pending()
+
+
+def test_verify_time_to_live_same_attribute_is_idempotent(ttl_model: ModelDefinition[object]) -> None:
+    client = FakeDynamoDBClient()
+    client.expect(
+        "describe_time_to_live",
+        {"TableName": "ttl_tbl"},
+        response={
+            "TimeToLiveDescription": {
+                "TimeToLiveStatus": "ENABLED",
+                "AttributeName": "expires_at",
+            }
+        },
+    )
+
+    verify_time_to_live(ttl_model, client=client)
+    client.assert_no_pending()
+
+
+def test_verify_time_to_live_different_attribute_raises_clear_error(
+    ttl_model: ModelDefinition[object],
+) -> None:
+    client = FakeDynamoDBClient()
+    client.expect(
+        "describe_time_to_live",
+        {"TableName": "ttl_tbl"},
+        response={
+            "TimeToLiveDescription": {
+                "TimeToLiveStatus": "ENABLED",
+                "AttributeName": "legacy_ttl",
+            }
+        },
+    )
+
+    with pytest.raises(ValidationError) as excinfo:
+        verify_time_to_live(ttl_model, client=client)
+
+    message = str(excinfo.value)
+    assert "different attribute" in message
+    assert "expires_at" in message
+    assert "legacy_ttl" in message
     client.assert_no_pending()
 
 
@@ -465,12 +529,9 @@ def test_schema_helpers_use_default_boto3_client(
         "describe_table", {"TableName": "ttl_tbl"}, response={"Table": {"TableStatus": "ACTIVE"}}
     )
     ensure_client.expect(
-        "update_time_to_live",
-        {
-            "TableName": "ttl_tbl",
-            "TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True},
-        },
-        response={"TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True}},
+        "describe_time_to_live",
+        {"TableName": "ttl_tbl"},
+        response={"TimeToLiveDescription": {"TimeToLiveStatus": "DISABLED"}},
     )
 
     delete_client = FakeDynamoDBClient()
@@ -495,7 +556,8 @@ def test_schema_helpers_use_default_boto3_client(
     monkeypatch.setattr(schema_module.boto3, "client", lambda service: next(clients))
 
     create_table(model, wait_for_active=False)
-    ensure_table(ttl_model, wait_for_active=False, sleep=lambda _: None)
+    with pytest.warns(UserWarning, match="leaving ttl disabled"):
+        ensure_table(ttl_model, wait_for_active=False, sleep=lambda _: None)
     delete_table(model, wait_for_delete=False)
     assert describe_table(model)["Table"]["TableStatus"] == "ACTIVE"
     update_time_to_live(ttl_model)

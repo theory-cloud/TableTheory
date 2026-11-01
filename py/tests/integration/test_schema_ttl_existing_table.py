@@ -91,7 +91,7 @@ def test_create_table_existing_table_ttl_on_different_attribute_raises_clear_err
         delete_table(MODEL, client=client, ignore_missing=True)
 
 
-def test_ensure_table_existing_table_without_ttl_enables_model_ttl() -> None:
+def test_provisioning_existing_table_without_ttl_leaves_ttl_disabled() -> None:
     client = _client()
     delete_table(MODEL, client=client, ignore_missing=True)
     try:
@@ -103,10 +103,20 @@ def test_ensure_table_existing_table_without_ttl_enables_model_ttl() -> None:
         )
         client.get_waiter("table_exists").wait(TableName=MODEL.table_name)
 
-        ensure_table(MODEL, client=client)
+        # Provisioning must never enable TTL on an existing table: enabling it
+        # would make DynamoDB expire items that are already past their expiry.
+        with pytest.warns(UserWarning, match="leaving ttl disabled"):
+            ensure_table(MODEL, client=client)
 
         description = client.describe_time_to_live(TableName=MODEL.table_name)["TimeToLiveDescription"]
-        assert description["TimeToLiveStatus"] == "ENABLED"
-        assert description["AttributeName"] == "expiresAt"
+        assert description["TimeToLiveStatus"] == "DISABLED"
+        assert "AttributeName" not in description
+
+        with pytest.warns(UserWarning, match="leaving ttl disabled"):
+            create_table(MODEL, client=client)
+
+        description = client.describe_time_to_live(TableName=MODEL.table_name)["TimeToLiveDescription"]
+        assert description["TimeToLiveStatus"] == "DISABLED"
+        assert "AttributeName" not in description
     finally:
         delete_table(MODEL, client=client, ignore_missing=True)

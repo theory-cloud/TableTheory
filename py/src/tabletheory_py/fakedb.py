@@ -17,6 +17,7 @@ class _TableState:
     sk: str | None = "SK"
     items: dict[str, Item] = field(default_factory=dict)
     ttl_attr: str | None = None
+    ttl_enabled: bool = False
 
 
 class StatefulDynamoDBClient:
@@ -109,8 +110,30 @@ class StatefulDynamoDBClient:
         spec = dict(kwargs.get("TimeToLiveSpecification") or {})
         attr = spec.get("AttributeName")
         if attr:
-            table.ttl_attr = str(attr)
+            attr = str(attr)
+            if spec.get("Enabled") and table.ttl_enabled and table.ttl_attr != attr:
+                raise _client_error(
+                    "ValidationException",
+                    f"TimeToLive is active on a different AttributeName: {table.ttl_attr}",
+                )
+            table.ttl_attr = attr
+            table.ttl_enabled = bool(spec.get("Enabled"))
         return {"TimeToLiveSpecification": spec}
+
+    def describe_time_to_live(self, **kwargs: Any) -> dict[str, Any]:
+        self._record("describe_time_to_live", kwargs)
+        table_name = str(kwargs.get("TableName") or "default")
+        table = self._tables.get(table_name)
+        if table is None:
+            raise _client_error("ResourceNotFoundException", f"table not found: {table_name}")
+        if not table.ttl_enabled:
+            return {"TimeToLiveDescription": {"TimeToLiveStatus": "DISABLED"}}
+        return {
+            "TimeToLiveDescription": {
+                "TimeToLiveStatus": "ENABLED",
+                "AttributeName": table.ttl_attr,
+            }
+        }
 
     def put_item(self, **kwargs: Any) -> dict[str, Any]:
         self._record("put_item", kwargs)
