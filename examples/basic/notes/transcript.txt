@@ -1,0 +1,16 @@
+add
+TableTheory local notes
+work
+Local notes content with six words
+golang, harness
+add
+Personal note
+personal
+Short personal note
+life
+category work
+tag golang
+recent 1
+stats
+list
+quit

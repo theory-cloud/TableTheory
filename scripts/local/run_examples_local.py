@@ -123,6 +123,7 @@ class Harness:
         cwd: Path | None = None,
         env: dict | None = None,
         timeout: int | None = None,
+        input: str | None = None,
         check: bool = True,
     ) -> subprocess.CompletedProcess:
         child_env = dict(self.env)
@@ -133,6 +134,7 @@ class Harness:
                 argv,
                 cwd=str(cwd or ROOT),
                 env=child_env,
+                input=input,
                 capture_output=True,
                 text=True,
                 timeout=timeout or self.timeout,
@@ -738,6 +740,122 @@ def run_ts_local(harness: Harness) -> str:
     return "create/get/query/update/delete checks"
 
 
+def _run_scripted_cli(
+    harness: Harness,
+    example: str,
+    expected: list[str],
+    *,
+    env: dict | None = None,
+) -> str:
+    transcript_path = ROOT / "examples" / "basic" / example / "transcript.txt"
+    if not transcript_path.is_file():
+        raise HarnessFailure(f"missing scripted transcript: {transcript_path}")
+    transcript = transcript_path.read_text(encoding="utf-8")
+    result = harness.run(
+        ["go", "run", "."],
+        cwd=ROOT / "examples" / "basic" / example,
+        input=transcript,
+        env=env,
+    )
+    output = _combined_output(result)
+    label = f"examples/basic/{example}"
+    expect_output(output, expected, label)
+    reject_output(
+        output,
+        ["Error:", "panic:", "exit status", "Failed to initialize app"],
+        label,
+    )
+    return output
+
+
+def run_basic_todo(harness: Harness) -> str:
+    output = _run_scripted_cli(
+        harness,
+        "todo",
+        [
+            "🚀 Welcome to TableTheory Todo App!",
+            "✅ Created todo: Ship the local harness",
+            "✅ Created todo: Verify GSIs in notes and contacts",
+            "1. [ ] Ship the local harness",
+            "1. [✓] Ship the local harness",
+            "2. [ ] Verify GSIs in notes and contacts",
+            "✅ Todo deleted successfully",
+            "👋 Goodbye!",
+        ],
+    )
+    deleted_tail = _after(output, "✅ Todo deleted successfully", "todo transcript")
+    expect_output(
+        deleted_tail,
+        ["1. [✓] Ship the local harness"],
+        "todo transcript after delete",
+    )
+    reject_output(
+        deleted_tail,
+        ["Verify GSIs in notes and contacts"],
+        "todo transcript after delete",
+    )
+    return "8 transcript checks (create/list/update/delete)"
+
+
+def run_basic_notes(harness: Harness) -> str:
+    output = _run_scripted_cli(
+        harness,
+        "notes",
+        [
+            "🗒️  Welcome to TableTheory Notes App!",
+            "Logged in as: harness-user",
+            "✅ Created note: TableTheory local notes",
+            "✅ Created note: Personal note",
+            "Notes in 'work' (1 notes):",
+            "TableTheory local notes (work)",
+            "Notes tagged 'golang' (1 notes):",
+            "Notes from last 1 days (2 notes):",
+            "Total Notes: 2",
+            "Total Words: 9",
+            "Average Words/Note: 4",
+            "Your Notes (2 notes):",
+            "👋 Goodbye!",
+        ],
+        env={"USER": "harness-user"},
+    )
+    # The gsi-user and gsi-category reads must not bring the personal note into
+    # the work category listing.
+    work_section = output.split("Notes in 'work'", 1)[1].split("Notes tagged", 1)[0]
+    expect_output(work_section, ["TableTheory local notes"], "notes work category")
+    reject_output(work_section, ["Personal note"], "notes work category")
+    return "13 transcript checks (CRUD + gsi-user + gsi-category)"
+
+
+def run_basic_contacts(harness: Harness) -> str:
+    output = _run_scripted_cli(
+        harness,
+        "contacts",
+        [
+            "📇 Welcome to TableTheory Contacts App!",
+            "Organization: org-harness",
+            "✅ Created contact: Jane Doe",
+            "Contact found (1 contacts):",
+            "   📧 jane@example.com | 📱 5550101",
+            "Contacts with phone 555-0101 (1 contacts):",
+            "Contacts named 'Doe Jane' (1 contacts):",
+            "1. ⭐ Jane Doe at Acme Corp",
+            "Favorite Contacts (1 contacts):",
+            "✅ Contact deleted successfully",
+        ],
+        env={"ORG_ID": "org-harness"},
+    )
+    deleted_tail = _after(output, "✅ Contact deleted successfully", "contacts transcript")
+    expect_output(deleted_tail, ["No contacts found"], "contacts transcript after delete")
+    reject_output(deleted_tail, ["jane@example.com"], "contacts transcript after delete")
+    return "11 transcript checks (CRUD + gsi-email + gsi-phone + gsi-name)"
+
+
+def _after(output: str, marker: str, label: str) -> str:
+    if marker not in output:
+        raise HarnessFailure(f"{label}: expected marker not observed: {marker!r}", output)
+    return output.split(marker, 1)[1]
+
+
 def run_py_local_crud(harness: Harness) -> str:
     result = harness.run(
         ["uv", "--directory", "py", "run", "python", "examples/local_crud.py"]
@@ -1023,6 +1141,9 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "shell-cdk-multilang-local": run_shell_cdk_multilang_local,
     "ts-local": run_ts_local,
     "py-local-crud": run_py_local_crud,
+    "go-basic-todo": run_basic_todo,
+    "go-basic-notes": run_basic_notes,
+    "go-basic-contacts": run_basic_contacts,
     "multi-tenant-token": run_multi_tenant_token,
     "multi-tenant-lambda": run_multi_tenant_lambda,
     "multi-tenant-module-tests": run_multi_tenant_module_tests,
