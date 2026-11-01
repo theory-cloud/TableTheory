@@ -518,6 +518,11 @@ def build_env(port: int) -> dict:
         "DEMO_TABLE_NAME",
     ):
         env.pop(key, None)
+    # Proxy variables are cleared in both cases for the same reason: no child
+    # request may be routed anywhere the harness did not choose.
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"):
+        env.pop(key, None)
+        env.pop(key.lower(), None)
     env.update(
         {
             "AWS_REGION": "us-east-1",
