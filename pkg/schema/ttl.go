@@ -30,8 +30,17 @@ func (e *ttlAttributeMismatchError) Error() string {
 	return e.message
 }
 
-func (e *ttlAttributeMismatchError) Unwrap() []error {
-	return []error{ErrTTLAttributeMismatch, e.cause}
+// Unwrap returns the DynamoDB cause as a single step, exactly like the
+// fmt.Errorf("%w") error this type replaced, so errors.Unwrap and manual unwrap
+// loops keep their previous depth.
+func (e *ttlAttributeMismatchError) Unwrap() error {
+	return e.cause
+}
+
+// Is matches the exported sentinel without a multi-error Unwrap, so errors.Is
+// keeps working alongside the single-step Unwrap chain.
+func (e *ttlAttributeMismatchError) Is(target error) bool {
+	return target == ErrTTLAttributeMismatch
 }
 
 // timeToLiveDescriber is satisfied by the real DynamoDB client. It is kept

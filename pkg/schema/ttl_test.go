@@ -2,8 +2,11 @@ package schema
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/require"
 
 	"github.com/theory-cloud/tabletheory/v6/pkg/model"
@@ -189,6 +192,51 @@ func TestManager_EnableTTL_AlreadyEnabledOnDifferentAttribute_Errors_COV6(t *tes
 	require.ErrorContains(t, err, "expiresAt")
 	require.ErrorContains(t, err, "legacyTtl")
 	require.ErrorContains(t, err, "TimeToLive is active on a different AttributeName")
+}
+
+func TestManager_EnableTTL_ConflictErrorKeepsSingleStepUnwrap_COV6(t *testing.T) {
+	httpClient := newCapturingHTTPClient(nil)
+	httpClient.SetResponseSequence("DynamoDB_20120810.UpdateTimeToLive", []stubbedResponse{
+		stubbedAWSError("ValidationException", "TimeToLive is active on a different AttributeName"),
+	})
+	httpClient.SetResponseSequence("DynamoDB_20120810.DescribeTimeToLive", []stubbedResponse{
+		{body: `{"TimeToLiveDescription":{"TimeToLiveStatus":"ENABLED","AttributeName":"legacyTtl"}}`},
+	})
+
+	mgr := newTestManager(t, httpClient)
+	require.NoError(t, mgr.registry.Register(&ttlSchemaModel{}))
+
+	err := mgr.EnableTTL(&ttlSchemaModel{})
+	require.Error(t, err)
+
+	cause := errors.Unwrap(err)
+	require.IsType(t, &smithy.OperationError{}, cause, "errors.Unwrap must return the AWS cause in one step")
+	require.Same(t, cause, errors.Unwrap(err))
+
+	require.ErrorIs(t, err, ErrTTLAttributeMismatch)
+	require.ErrorIs(t, err, cause)
+
+	var operationErr *smithy.OperationError
+	require.ErrorAs(t, err, &operationErr)
+	require.Same(t, cause, operationErr)
+
+	var validationErr smithy.APIError
+	require.ErrorAs(t, err, &validationErr)
+	require.Equal(t, "ValidationException", validationErr.ErrorCode())
+
+	conflictChain := unwrapChain(err)
+	baseChain := unwrapChain(fmt.Errorf("%w", cause))
+	require.Equal(t, len(baseChain), len(conflictChain), "manual unwrap depth must match the pre-typed fmt.Errorf chain")
+	require.Equal(t, baseChain[1:], conflictChain[1:])
+}
+
+func unwrapChain(err error) []error {
+	var chain []error
+	for err != nil {
+		chain = append(chain, err)
+		err = errors.Unwrap(err)
+	}
+	return chain
 }
 
 func TestManager_EnableTTL_DescribeFailureKeepsOriginalError_COV6(t *testing.T) {
