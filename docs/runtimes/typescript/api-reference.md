@@ -962,6 +962,13 @@ export declare function deleteTable(ddb: DynamoDBClient, model: Model, opts?: De
 export declare function describeTable(ddb: DynamoDBClient, model: Model, opts?: DescribeTableOptions): Promise<TableDescription>;
 export declare function resolveTimeToLiveAttribute(model: Model): string | undefined;
 export declare function updateTimeToLive(ddb: DynamoDBClient, model: Model, opts?: UpdateTimeToLiveOptions): Promise<void>;
+/**
+ * verifyTimeToLive inspects the TTL state of an existing table without changing
+ * it. TTL already enabled on the model attribute is an idempotent success, TTL
+ * enabled on a different attribute is a typed conflict, and a disabled TTL only
+ * emits a warning so provisioning keeps succeeding.
+ */
+export declare function verifyTimeToLive(ddb: DynamoDBClient, model: Model, opts?: UpdateTimeToLiveOptions): Promise<void>;
 ```
 
 ### `schema-migration`

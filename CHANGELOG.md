@@ -50,6 +50,14 @@
   outlive the invocation that asked for it. The removed API had no consumers in this repository, and TypeScript and
   Python never had a counterpart. Semver decision: this removed-API change is release-major material and must not ship
   as a patch/minor.
+* **ts/py/go:** TTL provisioning no longer enables TTL on an existing table. `ensureTable` (TypeScript) and
+  `ensure_table` (Python) previously turned TTL on when the table had it disabled; they now leave it alone and report a
+  warning, because enabling TTL makes DynamoDB delete items whose TTL attribute is already in the past. Go's
+  `DB.EnsureTable` already left existing tables untouched, but now returns the typed
+  `errors.ErrTTLAttributeMismatch` when TTL is enabled on a different attribute instead of returning `nil`. Consumers
+  that relied on provisioning to turn TTL on must call `updateTimeToLive`, `update_time_to_live`, or
+  `schema.Manager.EnableTTL`. Semver decision: this behavior change is release-major material and must not ship as a
+  patch/minor.
 
 ### Features
 
@@ -69,11 +77,14 @@
 
 ### Bug Fixes
 
-* **go:** make `DB.EnsureTable` converge TTL on an existing table and return the exported
-  `errors.ErrTTLAttributeMismatch` when TTL is enabled on a different attribute; `CreateTable` now returns the same
-  typed error instead of a plain wrapped service error, matching TypeScript's `ErrInvalidModel` and Python's
-  `ValidationError`. The exported sentinel also matches `errors.ErrInvalidModel` via `errors.Is`, and the shared P0
-  contract now enforces the conflict in all three runtimes
+* **go/ts/py:** schema provisioning now detects TTL instead of enabling it. `CreateTable`/`EnsureTable` (Go),
+  `createTable`/`ensureTable` (TypeScript), and `create_table`/`ensure_table` (Python) still enable TTL on a table the
+  call itself creates, but they leave an existing table's TTL untouched and emit a warning when the model declares a
+  `ttl` role while the table has TTL disabled. Enabling TTL makes DynamoDB expire items that are already past their
+  expiry, so it stays an explicit step (`schema.Manager.EnableTTL`, `updateTimeToLive`, `update_time_to_live`). TTL
+  enabled on a different attribute remains a typed conflict enforced by the shared P0 contract
+  (`p0/22-ttl-different-attribute-error.yml`): Go's exported `errors.ErrTTLAttributeMismatch`, which also matches
+  `errors.ErrInvalidModel` via `errors.Is`, TypeScript's `ErrInvalidModel`, and Python's `ValidationError`
 * **go:** refuse data-copying `AutoMigrateWithOptions` migrations that would write plaintext into a target
   `theorydb:"encrypted"` field, before any table is created or any row is copied, and encrypt plaintext through the
   configured session KMS key when one is present

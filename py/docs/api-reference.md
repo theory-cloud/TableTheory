@@ -261,6 +261,7 @@ def create_table(self, **kwargs: Any) -> dict[str, Any]
 def describe_table(self, **kwargs: Any) -> dict[str, Any]
 def delete_table(self, **kwargs: Any) -> dict[str, Any]
 def update_time_to_live(self, **kwargs: Any) -> dict[str, Any]
+def describe_time_to_live(self, **kwargs: Any) -> dict[str, Any]
 def put_item(self, **kwargs: Any) -> dict[str, Any]
 def get_item(self, **kwargs: Any) -> dict[str, Any]
 def update_item(self, **kwargs: Any) -> dict[str, Any]
@@ -703,6 +704,12 @@ def resolve_ttl_attribute(model: ModelDefinition[Any]) -> str | None
 
 ```python
 def update_time_to_live(model: ModelDefinition[Any], *, client: Any | None=None, table_name: str | None=None, attribute_name: str | None=None, enabled: bool=True) -> None
+```
+
+#### `verify_time_to_live`
+
+```python
+def verify_time_to_live(model: ModelDefinition[Any], *, client: Any | None=None, table_name: str | None=None, attribute_name: str | None=None) -> None
 ```
 
 ### `tabletheory_py.schema_migration`

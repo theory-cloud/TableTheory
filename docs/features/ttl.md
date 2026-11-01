@@ -72,21 +72,36 @@ class Session:
     expires_at: int = theorydb_field(roles=["ttl"])  # epoch seconds
 ```
 
-## Schema provisioning is idempotent
+## Provisioning detects TTL; it never enables TTL on an existing table
 
-Creating a table from a model also enables TTL for the model's `ttl` role. That
-provisioning step is idempotent: calling it again against an existing table whose
-TTL is already enabled on the model attribute succeeds with the same
-already-exists outcome the call returns for a table without TTL. Repeating a
-local provisioning step (or a multi-tenant test that recreates its schema) must
-not fail.
+Creating a table from a model also enables TTL for the model's `ttl` role.
+Enabling TTL on a table the call just created is safe: there is no existing
+data, so nothing can expire.
 
-- **Go:** `DB.CreateTable`, `DB.EnsureTable`, `schema.Manager.EnableTTL`, and
-  `schema.Manager.UpdateTable` sync TTL. `DB.EnsureTable` creates a missing
-  table and, when the table already exists and the model defines a `ttl` role,
-  enables TTL on that attribute.
-- **TypeScript:** `createTable`, `ensureTable`, `updateTimeToLive`
-- **Python:** `create_table`, `ensure_table`, `update_time_to_live`
+Provisioning against a table that **already exists** only inspects TTL. It never
+turns TTL on, because enabling TTL makes DynamoDB delete items whose TTL
+attribute is already in the past — a forced data change on upgrade.
+
+| Existing table state | Provisioning outcome |
+| --- | --- |
+| TTL enabled on the model's `ttl` attribute | idempotent success |
+| TTL enabled on a **different** attribute | typed validation error naming both attributes |
+| TTL disabled, or never configured | success plus a warning; TTL stays disabled |
+
+The warning is non-fatal by design: a schema bootstrap that reuses an existing
+table keeps working, while the operator sees that the model's expiry is not
+active. Each runtime reports the same message on its native warning channel.
+
+- **Go:** `DB.CreateTable`, `DB.EnsureTable`, and `schema.Manager.UpdateTable`
+  detect only; `schema.Manager.VerifyTTL` is the detection helper, and
+  `log.Printf` carries the warning. `schema.Manager.EnableTTL` is the explicit
+  opt-in that turns TTL on.
+- **TypeScript:** `createTable`, `ensureTable`, and `verifyTimeToLive` detect
+  only; `console.warn` carries the warning. `updateTimeToLive` is the explicit
+  opt-in.
+- **Python:** `create_table`, `ensure_table`, and `verify_time_to_live` detect
+  only; `warnings.warn` carries the warning. `update_time_to_live` is the
+  explicit opt-in.
 
 If the table's TTL is already enabled on a **different** attribute, the call
 fails with a validation error that names both the model attribute and the
@@ -106,12 +121,25 @@ The error is typed in every runtime:
 this conflict; the shared contract scenario
 `p0/22-ttl-different-attribute-error.yml` enforces it.
 
-> **Go behavior change:** before this alignment, `DB.EnsureTable` returned `nil`
-> for an existing table and never touched TTL. It now enables TTL on an existing
-> table whose TTL is disabled, and returns `ErrTTLAttributeMismatch` when TTL is
-> enabled on a different attribute. Callers that intentionally manage TTL outside
-> TableTheory and rely on `EnsureTable` leaving it untouched should provision with
-> `CreateTable` or call `EnsureTable` only for tables without a `ttl` role.
+### Enabling TTL deliberately
+
+Because provisioning leaves an existing table untouched, enabling TTL is an
+explicit step. Use the runtime helper, the DynamoDB `UpdateTimeToLive` API, or
+your infrastructure-as-code:
+
+- Go: `schema.Manager.EnableTTL(model)`
+- TypeScript: `updateTimeToLive(ddb, model)`
+- Python: `update_time_to_live(model)`
+
+Enabling TTL on a table that already holds items is a data-affecting change:
+DynamoDB starts deleting items whose tagged attribute is in the past. That is
+why it is never implicit.
+
+> **Go behavior change:** `DB.EnsureTable` still leaves an existing table's TTL
+> alone, but it can now return `errors.ErrTTLAttributeMismatch` when the table's
+> TTL is enabled on a different attribute than the model's `ttl` role, where it
+> previously returned `nil`. Callers that relied on `EnsureTable` succeeding
+> regardless of TTL state must handle that typed error.
 
 ## DynamoDB's TTL behavior
 
