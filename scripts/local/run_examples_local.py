@@ -45,15 +45,21 @@ MANIFEST_PATH = HARNESS_DIR / "examples-local.json"
 
 CLASSES = ("L1", "L2", "L3", "I")
 MILESTONES = ("T2", "T3", "T4a", "T4b")
+# Dependency trees and build output: never entrypoints.
 EXCLUDED_DIR_PARTS = {
     "node_modules",
     "cdk.out",
     "dist",
     "vendor",
-    "bin",
     "__pycache__",
     ".venv",
 }
+# Support modules and test trees inside an example: real code, no entrypoint.
+NON_ENTRYPOINT_DIR_PARTS = {"lib", "test", "tests"}
+TS_SUFFIXES = frozenset({".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"})
+RUNTIME_SUFFIXES = TS_SUFFIXES | {".py"}
+TEST_FILE_MARKERS = (".test.", ".spec.", "_test.")
+GENERATED_MARKER_RE = re.compile(r"Code generated .*\bDO NOT EDIT\b")
 GO_MAIN_RE = re.compile(r"^func main\(\)", re.MULTILINE)
 MULTI_TENANT = ROOT / "examples" / "multi-tenant"
 JWT_SECRET = "tabletheory-local-harness-secret"
@@ -267,42 +273,96 @@ def expect_status(actual: int, expected: int, label: str, body: str = "") -> Non
 def discover(root: Path) -> dict[str, str]:
     """Return every example entrypoint discovered from the tree.
 
-    The rules are deliberately structural rather than a directory list:
+    The rules are structural, so an example cannot hide from the manifest:
 
-    * ``examples/**/*.go`` that declares ``func main`` is a Go entrypoint;
+    * ``examples/**/*.go`` that declares ``func main`` is a Go entrypoint
+      (``func main`` is the entrypoint marker; path conventions do not apply);
     * ``examples/**/*.sh`` is a shell runner;
-    * ``ts/examples/**/*.ts`` and ``py/examples/**/*.py`` are runtime entrypoints.
+    * files under ``examples/``, ``ts/examples/`` and ``py/examples/`` with a
+      runtime suffix (``.ts``, ``.mts``, ``.cts``, ``.js``, ``.mjs``, ``.cjs``,
+      ``.py``) are runtime entrypoints;
+    * any other executable file under those trees is a runner.
 
-    Directory names that hold dependency trees or build output are skipped.
+    Non-entrypoint files are skipped by a documented convention:
+
+    * dependency trees and build output (``node_modules``, ``cdk.out``,
+      ``dist``, ``vendor``, ``__pycache__``, ``.venv``);
+    * support modules and test trees inside an example (``lib/``, ``test/``,
+      ``tests/``) and test files (``*.test.*``, ``*.spec.*``, ``*_test.*``);
+    * generated output, marked ``Code generated ... DO NOT EDIT`` in its first
+      lines (``examples/cdk-multilang/local/generated-table.ts``).
+
+    ``bin/`` is deliberately *not* excluded: a CDK app entrypoint such as
+    ``examples/cdk-multilang/bin/app.ts`` is a real entrypoint that must be
+    classified like any other runtime file.
     """
     found: dict[str, str] = {}
 
-    def excluded(path: Path) -> bool:
+    def relative(path: Path) -> str:
+        return path.relative_to(root).as_posix()
+
+    def excluded_dir(path: Path) -> bool:
         return any(part in EXCLUDED_DIR_PARTS for part in path.relative_to(root).parts)
 
+    def excluded_runtime_file(path: Path) -> bool:
+        parts = path.relative_to(root).parts
+        if any(part in EXCLUDED_DIR_PARTS for part in parts):
+            return True
+        if any(part in NON_ENTRYPOINT_DIR_PARTS for part in parts[:-1]):
+            return True
+        if any(marker in path.name for marker in TEST_FILE_MARKERS):
+            return True
+        return generated_output(path)
+
     for path in sorted((root / "examples").rglob("*.go")):
-        if excluded(path):
+        if excluded_dir(path):
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         if GO_MAIN_RE.search(text):
-            found[path.relative_to(root).as_posix()] = "go-main"
+            found[relative(path)] = "go-main"
 
     for path in sorted((root / "examples").rglob("*.sh")):
-        if excluded(path):
+        if excluded_runtime_file(path):
             continue
-        found[path.relative_to(root).as_posix()] = "shell-runner"
+        found[relative(path)] = "shell-runner"
 
-    for base_parts, suffix, kind in (
-        (("ts", "examples"), "*.ts", "ts"),
-        (("py", "examples"), "*.py", "py"),
-    ):
+    for base_parts in (("examples",), ("ts", "examples"), ("py", "examples")):
         base = root.joinpath(*base_parts)
-        for path in sorted(base.rglob(suffix)):
-            if excluded(path):
+        if not base.is_dir():
+            continue
+        for path in _walk_files(base):
+            if excluded_runtime_file(path):
                 continue
-            found[path.relative_to(root).as_posix()] = kind
+            suffix = path.suffix.lower()
+            if suffix == ".sh":
+                continue  # already classified by the shell pass above
+            if suffix in RUNTIME_SUFFIXES:
+                found[relative(path)] = "ts" if suffix in TS_SUFFIXES else "py"
+            elif os.access(path, os.X_OK):
+                found[relative(path)] = "executable"
 
     return found
+
+
+def _walk_files(base: Path):
+    """Yield files below ``base`` without descending into excluded trees."""
+    for current, dirnames, filenames in os.walk(base):
+        dirnames[:] = sorted(
+            name
+            for name in dirnames
+            if name not in EXCLUDED_DIR_PARTS and name not in NON_ENTRYPOINT_DIR_PARTS
+        )
+        for name in sorted(filenames):
+            yield Path(current) / name
+
+
+def generated_output(path: Path) -> bool:
+    """True when the file carries the ``Code generated ... DO NOT EDIT`` marker."""
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace").splitlines()[:5]
+    except OSError:
+        return False
+    return any(GENERATED_MARKER_RE.search(line) for line in head)
 
 
 def load_manifest(path: Path) -> tuple[dict, list[Entry]]:

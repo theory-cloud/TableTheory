@@ -24,6 +24,16 @@
       "class": "L1",
       "description": "Go writer half of the cross-language no-drift check; executed inside run-local.sh."
     },
+    "examples/cdk-multilang/local/read.mts": {
+      "coveredBy": "examples/cdk-multilang/local/run-local.sh",
+      "class": "L1",
+      "description": "Node.js reader half of the cross-language no-drift check; executed inside run-local.sh."
+    },
+    "examples/cdk-multilang/local/read.py": {
+      "coveredBy": "examples/cdk-multilang/local/run-local.sh",
+      "class": "L1",
+      "description": "Python reader half of the cross-language no-drift check; executed inside run-local.sh."
+    },
     "examples/multi-tenant/cmd/local/main.go": {
       "run": "multi-tenant-http",
       "class": "L1",
@@ -132,6 +142,22 @@
     "examples/cdk-multilang/lambdas/go/main.go": {
       "pending": "T4b",
       "description": "Deployed cdk-multilang Go handler; T4b runs it locally with the T3 KMS/S3 emulators."
+    },
+    "examples/cdk-multilang/bin/app.ts": {
+      "pending": "T4b",
+      "description": "CDK app entrypoint; T4b synthesizes it as the infrastructure-only row for this example and asserts the stack shape."
+    },
+    "examples/cdk-multilang/lambdas/node/handler.ts": {
+      "pending": "T4b",
+      "description": "Deployed cdk-multilang Node handler; T4b runs the real handler locally with the T3 KMS/S3 emulators."
+    },
+    "examples/cdk-multilang/lambdas/archive/handler.ts": {
+      "pending": "T4b",
+      "description": "Deployed cdk-multilang archive handler; T4b drives it with generated archive events against local backends."
+    },
+    "examples/cdk-multilang/lambdas/python/handler.py": {
+      "pending": "T4b",
+      "description": "Deployed cdk-multilang Python handler; T4b runs the real handler locally with the T3 KMS/S3 emulators."
     },
     "examples/cdk-multilang/scripts/smoke.sh": {
       "pending": "T4b",
