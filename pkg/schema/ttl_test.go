@@ -182,6 +182,9 @@ func TestManager_EnableTTL_AlreadyEnabledOnDifferentAttribute_Errors_COV6(t *tes
 	require.NoError(t, mgr.registry.Register(&ttlSchemaModel{}))
 
 	err := mgr.EnableTTL(&ttlSchemaModel{})
+	require.ErrorIs(t, err, ErrTTLAttributeMismatch)
+	require.EqualError(t, err,
+		"failed to enable ttl on table ttl_records using attribute expiresAt: ttl is already enabled on a different attribute legacyTtl: operation error DynamoDB: UpdateTimeToLive, https response error StatusCode: 400, RequestID: , api error ValidationException: TimeToLive is active on a different AttributeName")
 	require.ErrorContains(t, err, "different attribute")
 	require.ErrorContains(t, err, "expiresAt")
 	require.ErrorContains(t, err, "legacyTtl")

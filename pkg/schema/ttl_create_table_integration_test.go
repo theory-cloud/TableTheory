@@ -109,6 +109,7 @@ func TestCreateTable_ExistingTableWithTTLOnDifferentAttribute_ReturnsClearError(
 
 	err = mgr.CreateTable(&ttlCreateTableModel{})
 	require.Error(t, err)
+	require.ErrorIs(t, err, ErrTTLAttributeMismatch)
 	require.Contains(t, err.Error(), "expiresAt")
 	require.Contains(t, err.Error(), "LegacyTtl")
 	require.Contains(t, err.Error(), "different attribute")
