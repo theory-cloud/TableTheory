@@ -329,7 +329,8 @@ type TestDBFactory struct{ ... }
 
 ```go
 type Fake struct{ ... }
-    func New(options ...Option) *Fake
+    func New() *Fake
+    func NewWithOptions(options ...Option) *Fake
 type Option func(*Fake)
     func WithDynamoDBTTLValidation() Option
 ```

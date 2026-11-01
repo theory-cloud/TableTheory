@@ -90,7 +90,7 @@ func TestNewWithClientRejectsNilClient(t *testing.T) {
 
 func TestFakeTimeToLiveTracksState(t *testing.T) {
 	ctx := context.Background()
-	fake := fakedb.New(fakedb.WithDynamoDBTTLValidation())
+	fake := fakedb.NewWithOptions(fakedb.WithDynamoDBTTLValidation())
 	tableName := "ttl_fake"
 
 	_, err := fake.CreateTable(ctx, &dynamodb.CreateTableInput{

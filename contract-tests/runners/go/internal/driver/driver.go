@@ -386,7 +386,7 @@ func NewFakeTheorydbDriver(options ...Options) (*TheorydbDriver, *fakedb.Fake, e
 		deterministicEncryption = true
 	}
 
-	fake := fakedb.New(fakedb.WithDynamoDBTTLValidation())
+	fake := fakedb.NewWithOptions(fakedb.WithDynamoDBTTLValidation())
 	ttlCalls := &atomic.Int64{}
 	db, err := tabletheory.NewWithClient(cfg, &countingDynamoDB{
 		DynamoDBAPI: fake,
