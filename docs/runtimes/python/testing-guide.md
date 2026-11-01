@@ -33,7 +33,13 @@ fake_ddb.expect("put_item", {"TableName": "notes", "Item": {"PK": ANY, "SK": ANY
 For tests involving encryption, inject deterministic `rand_bytes`:
 
 ```python
-table = Table(model, client=fake_ddb, kms_key_arn="arn:aws:kms:...", kms_client=fake_kms, rand_bytes=lambda n: b"\x01" * n)
+table = Table(
+    model,
+    client=fake_ddb,
+    kms_key_arn="arn:aws:kms:...",
+    kms_client=fake_kms,
+    rand_bytes=lambda n: b"\x01" * n,
+)
 ```
 
 ## Stateful fake for behavioral unit tests

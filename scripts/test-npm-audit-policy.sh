@@ -162,7 +162,7 @@ expect_failure_contains \
   node "${checker}" "${tmpdir}/empty-report.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang
 
 # Positive fixed-graph guard for the retired AWS-bundled brace-expansion exception.
-# examples/cdk-multilang now pins aws-cdk-lib 2.274.0, which bundles brace-expansion
+# examples/cdk-multilang now pins aws-cdk-lib 2.275.0, which bundles brace-expansion
 # 5.0.12 (the fixed version for GHSA-q2hr-2g5m-vwhr / qhr7-859c-m2p7 / 6j4f-fj2g-mc7p).
 # This guard keeps that state honest: it asserts the actual bundled graph, proves the
 # bundled minimatch still accepts the bundled brace-expansion, refuses any vulnerable
@@ -262,7 +262,7 @@ if (!packages || typeof packages !== 'object' || Array.isArray(packages)) {
 const CDK_LIB_PATH = 'node_modules/aws-cdk-lib';
 const BRACE_PATH = 'node_modules/aws-cdk-lib/node_modules/brace-expansion';
 const MINIMATCH_PATH = 'node_modules/aws-cdk-lib/node_modules/minimatch';
-const CDK_LIB_FLOOR = '2.273.0';
+const CDK_LIB_FLOOR = '2.275.0';
 const BRACE_FLOOR = '5.0.12';
 const RETIRED_ADVISORIES = ['GHSA-q2hr-2g5m-vwhr', 'GHSA-qhr7-859c-m2p7', 'GHSA-6j4f-fj2g-mc7p'];
 
@@ -508,9 +508,9 @@ expect_failure_contains \
   node "${graph_checker}" "${graph_lock}" "${tmpdir}/policy-malformed.json" negative
 
 # Active guard for the AWS-bundled minimatch exception (GHSA-g3hv-75wg-m249).
-# examples/cdk-multilang pins aws-cdk-lib 2.274.0, which bundles minimatch
-# 10.2.6 (vulnerable; fixed in 11.0.1). aws-cdk-lib 2.275.0, the latest
-# release, still declares and bundles minimatch ^10.2.6, so no aws-cdk-lib
+# examples/cdk-multilang pins aws-cdk-lib 2.275.0, which bundles minimatch
+# 10.2.6 (vulnerable; fixed in 11.0.1). aws-cdk-lib 2.275.0, still the latest
+# release at review time (2026-11-01), declares and bundles minimatch ^10.2.6, so no aws-cdk-lib
 # release fixes it and npm overrides cannot replace a bundled dependency.
 # The exception is exactly two visible, expiring policy entries (the bundled
 # leaf and npm's derived aws-cdk-lib parent entry) under the operator ruling
@@ -536,7 +536,7 @@ const tag = label ? `${label}: ` : '';
 
 const CDK_LIB_PATH = 'node_modules/aws-cdk-lib';
 const BUNDLED_PATH = 'node_modules/aws-cdk-lib/node_modules/minimatch';
-const CDK_LIB_FLOOR = '2.274.0';
+const CDK_LIB_FLOOR = '2.275.0';
 const FIXED_MINIMATCH = '11.0.1';
 const BUNDLED_PINNED = '10.2.6';
 const PROJECT = 'examples/cdk-multilang';
