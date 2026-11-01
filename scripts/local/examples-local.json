@@ -92,6 +92,31 @@
       "class": "L1",
       "description": "Typed generic API driver: table creation, typed create/get/update and a begins_with query on DynamoDB Local, with read-back assertions."
     },
+    "examples/drivers/main.go": {
+      "run": "go-loose-examples",
+      "class": "L1",
+      "description": "Driver for the loose examples/*.go snippets: seeds each table, runs the real snippet functions and asserts the conditional, transaction, batch-get, list-operation, embedded-struct and FaceTheory TTL outcomes."
+    },
+    "examples/feature_spotlight.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "Conditional helpers, transaction builder and batch-get builder snippets; executed inside examples/drivers."
+    },
+    "examples/list_operations_example.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "List and set update snippets; executed inside examples/drivers."
+    },
+    "examples/embedded_structs_example.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "Embedded-struct single-table snippets; executed inside examples/drivers."
+    },
+    "examples/facetheory_ttl_cache_example.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "FaceTheory ISR cache metadata shape and freshness helpers; executed inside examples/drivers."
+    },
     "ts/examples/release-state.ts": {
       "pending": "T2",
       "description": "TypeScript release-state registry; T2 adds the DynamoDB Local driver."

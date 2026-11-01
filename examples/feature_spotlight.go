@@ -3,14 +3,11 @@ package examples
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/theory-cloud/tabletheory/v6"
 	core "github.com/theory-cloud/tabletheory/v6/pkg/core"
-	customerrors "github.com/theory-cloud/tabletheory/v6/pkg/errors"
 )
 
 // Bookmark models a bookmark stored in a single-table design.
@@ -23,12 +20,20 @@ type Bookmark struct {
 	Category string    `json:"category"`
 }
 
+// TableName keeps this example's table distinct when examples share one local
+// DynamoDB instance.
+func (Bookmark) TableName() string { return "example_conditional_bookmarks" }
+
 // BookmarkQuota tracks how many writes a user can make in a window.
 type BookmarkQuota struct {
 	PK        string `theorydb:"pk" json:"pk"`
 	SK        string `theorydb:"sk" json:"sk"`
 	Remaining int    `json:"remaining"`
 }
+
+// TableName keeps this example's table distinct when examples share one local
+// DynamoDB instance.
+func (BookmarkQuota) TableName() string { return "example_conditional_bookmark_quotas" }
 
 // BookmarkAudit is written alongside bookmark mutations.
 type BookmarkAudit struct {
@@ -39,6 +44,10 @@ type BookmarkAudit struct {
 	ActorID   string    `json:"actor_id"`
 }
 
+// TableName keeps this example's table distinct when examples share one local
+// DynamoDB instance.
+func (BookmarkAudit) TableName() string { return "example_conditional_bookmark_audits" }
+
 // Session demonstrates optimistic updates with conditional helpers.
 type Session struct {
 	LastSeen time.Time `json:"last_seen"`
@@ -47,6 +56,10 @@ type Session struct {
 	Status   string    `json:"status"`
 	Version  int64     `json:"version"`
 }
+
+// TableName keeps this example's table distinct when examples share one local
+// DynamoDB instance.
+func (Session) TableName() string { return "example_conditional_sessions" }
 
 // Invoice is used for batch retrieval demos.
 type Invoice struct {
@@ -57,16 +70,13 @@ type Invoice struct {
 	Balance int64  `json:"balance"`
 }
 
-// DemonstrateConditionalHelpers shows insert-only creates, optimistic updates, and guarded deletes.
-func DemonstrateConditionalHelpers() {
-	db, err := tabletheory.New(tabletheory.Config{
-		Region: "us-east-1",
-	})
-	if err != nil {
-		log.Fatalf("init theorydb: %v", err)
-	}
+// TableName keeps this example's table distinct when examples share one local
+// DynamoDB instance.
+func (Invoice) TableName() string { return "example_conditional_invoices" }
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// DemonstrateConditionalHelpers shows insert-only creates, optimistic updates, and guarded deletes.
+func DemonstrateConditionalHelpers(db core.ExtendedDB) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	session := &Session{
@@ -79,47 +89,35 @@ func DemonstrateConditionalHelpers() {
 
 	// Insert-only create
 	if err := db.WithContext(ctx).Model(session).IfNotExists().Create(); err != nil {
-		if errors.Is(err, customerrors.ErrConditionFailed) {
-			log.Println("session already exists, skipping")
-		} else {
-			log.Printf("create session failed: %v", err)
-		}
+		return fmt.Errorf("insert-only create: %w", err)
 	}
 
 	// Optimistic update guarded by status + version
 	session.LastSeen = time.Now()
 	session.Version++
-	if err := db.Model(session).
+	if err := db.WithContext(ctx).Model(session).
 		WithCondition("Status", "=", "active").
 		WithCondition("Version", "=", session.Version-1).
 		Update("LastSeen", "Version"); err != nil {
-		if errors.Is(err, customerrors.ErrConditionFailed) {
-			log.Println("session mutated concurrently, retrying fetch")
-		} else {
-			log.Printf("conditional update failed: %v", err)
-		}
+		return fmt.Errorf("conditional update: %w", err)
 	}
 
-	// Guarded delete via raw expression
-	if err := db.Model(session).
-		WithConditionExpression("attribute_exists(PK) AND Version = :v", map[string]any{
+	// Guarded delete via raw expression. The raw expression uses the stored
+	// attribute name, which is the lower-camel "version" here.
+	if err := db.WithContext(ctx).Model(session).
+		WithConditionExpression("attribute_exists(PK) AND version = :v", map[string]any{
 			":v": session.Version,
 		}).
-		Delete(); err != nil && !errors.Is(err, customerrors.ErrConditionFailed) {
-		log.Printf("conditional delete failed: %v", err)
+		Delete(); err != nil {
+		return fmt.Errorf("conditional delete: %w", err)
 	}
+
+	return nil
 }
 
 // DemonstrateTransactionBuilder composes a dual-write with quota checks.
-func DemonstrateTransactionBuilder() {
-	db, err := tabletheory.New(tabletheory.Config{
-		Region: "us-east-1",
-	})
-	if err != nil {
-		log.Fatalf("init theorydb: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+func DemonstrateTransactionBuilder(db core.ExtendedDB) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	bookmark := &Bookmark{
@@ -135,7 +133,7 @@ func DemonstrateTransactionBuilder() {
 		Remaining: 3,
 	}
 
-	err = db.Transact().
+	err := db.Transact().
 		Create(bookmark, tabletheory.IfNotExists()).
 		UpdateWithBuilder(quota, func(ub core.UpdateBuilder) error {
 			ub.Decrement("Remaining")
@@ -150,15 +148,7 @@ func DemonstrateTransactionBuilder() {
 		}).
 		Execute()
 	if err != nil {
-		var txErr *customerrors.TransactionError
-		if errors.As(err, &txErr) {
-			log.Printf("transaction canceled at op %d (%s): %s", txErr.OperationIndex, txErr.Operation, txErr.Reason)
-		}
-		if errors.Is(err, customerrors.ErrConditionFailed) {
-			log.Println("bookmark already exists or quota exhausted")
-		} else {
-			log.Printf("transact builder failed: %v", err)
-		}
+		return fmt.Errorf("transaction builder: %w", err)
 	}
 
 	// Context-aware helper automatically wires Execute.
@@ -168,19 +158,14 @@ func DemonstrateTransactionBuilder() {
 		return nil
 	})
 	if err != nil {
-		log.Printf("transact write cleanup failed: %v", err)
+		return fmt.Errorf("transaction cleanup: %w", err)
 	}
+
+	return nil
 }
 
 // DemonstrateBatchGetBuilder fetches invoices with chunking, retries, and callbacks.
-func DemonstrateBatchGetBuilder() {
-	db, err := tabletheory.New(tabletheory.Config{
-		Region: "us-east-1",
-	})
-	if err != nil {
-		log.Fatalf("init theorydb: %v", err)
-	}
-
+func DemonstrateBatchGetBuilder(db core.ExtendedDB) ([]Invoice, error) {
 	keys := []any{
 		tabletheory.NewKeyPair("ORG#42", "INVOICE#2024-01"),
 		tabletheory.NewKeyPair("ORG#42", "INVOICE#2024-02"),
@@ -197,21 +182,22 @@ func DemonstrateBatchGetBuilder() {
 	}
 
 	var invoices []Invoice
-	err = db.Model(&Invoice{}).
+	err := db.Model(&Invoice{}).
 		BatchGetBuilder().
 		Keys(keys).
 		Select("PK", "SK", "Status", "Balance").
 		Parallel(4).
 		WithRetry(policy).
 		OnProgress(func(done, total int) {
-			log.Printf("retrieved %d/%d invoices", done, total)
+			fmt.Printf("batch get progress: %d/%d\n", done, total)
 		}).
 		OnError(func(chunk []any, chunkErr error) error {
-			log.Printf("chunk failed (%d keys): %v", len(chunk), chunkErr)
-			return chunkErr
+			return fmt.Errorf("chunk of %d keys failed: %w", len(chunk), chunkErr)
 		}).
 		Execute(&invoices)
 	if err != nil {
-		log.Printf("batch get builder failed: %v", err)
+		return nil, fmt.Errorf("batch get builder: %w", err)
 	}
+
+	return invoices, nil
 }

@@ -522,6 +522,9 @@ def build_env(port: int) -> dict:
         "MULTI_TENANT_LISTEN_ADDR",
         "CDK_LOCAL_PORT",
         "DEMO_TABLE_NAME",
+        "FACETHEORY_CACHE_TABLE_NAME",
+        "ORG_ID",
+        "USER",
     ):
         env.pop(key, None)
     # Proxy variables are cleared in both cases for the same reason: no child
@@ -916,6 +919,23 @@ def run_go_typed(harness: Harness) -> str:
     return "create/get/update/query through the typed API"
 
 
+def run_go_loose_examples(harness: Harness) -> str:
+    result = harness.run(["go", "run", "./examples/drivers"])
+    expect_output(
+        result.stdout,
+        [
+            "List operations demonstrated successfully!",
+            "Found 1 customers for tenant",
+            "Customer has 1 orders",
+            "OK: loose examples drove conditional helpers, transaction builder, "
+            "batch get (4 invoices), list operations (5 tags), embedded structs "
+            "(1 orders) and the FaceTheory TTL cache on DynamoDB Local",
+        ],
+        "examples/drivers",
+    )
+    return "6 loose snippets with seeded rows and read-back assertions"
+
+
 def run_multi_tenant_token(harness: Harness) -> str:
     token = mint_token(harness, "user#token-row", "org#token-row")
     header, payload = decode_jwt(token)
@@ -1180,6 +1200,7 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "go-basic-contacts": run_basic_contacts,
     "go-initialization-local": run_go_initialization_local,
     "go-typed-go": run_go_typed,
+    "go-loose-examples": run_go_loose_examples,
     "multi-tenant-token": run_multi_tenant_token,
     "multi-tenant-lambda": run_multi_tenant_lambda,
     "multi-tenant-module-tests": run_multi_tenant_module_tests,
