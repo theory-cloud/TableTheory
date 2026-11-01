@@ -936,6 +936,36 @@ def run_go_loose_examples(harness: Harness) -> str:
     return "6 loose snippets with seeded rows and read-back assertions"
 
 
+RELEASE_STATE_LINE = (
+    "release-state: actual=RELEASE#service-a/ACTUAL version=8 status=active "
+    "event=EVENT#2026-04-24T19:00:00Z#rel_002 outbox=OUTBOX#lambda-alias#rel_002"
+)
+
+
+def _expect_release_state(output: str, label: str) -> str:
+    expect_output(output, [RELEASE_STATE_LINE], label)
+    reject_output(output, ["want ", "Error", "panic"], label)
+    return "real TransactWrite + read-back + stale-version refusal"
+
+
+def run_go_release_state(harness: Harness) -> str:
+    result = harness.run(["go", "run", "./examples/release-state"])
+    return _expect_release_state(result.stdout, "examples/release-state")
+
+
+def run_ts_release_state(harness: Harness) -> str:
+    tsx = ROOT / "ts" / "node_modules" / ".bin" / "tsx"
+    result = harness.run([str(tsx), "ts/examples/release-state.ts"])
+    return _expect_release_state(result.stdout, "ts/examples/release-state.ts")
+
+
+def run_py_release_state(harness: Harness) -> str:
+    result = harness.run(
+        ["uv", "--directory", "py", "run", "python", "examples/release_state.py"]
+    )
+    return _expect_release_state(result.stdout, "py/examples/release_state.py")
+
+
 def run_multi_tenant_token(harness: Harness) -> str:
     token = mint_token(harness, "user#token-row", "org#token-row")
     header, payload = decode_jwt(token)
@@ -1201,6 +1231,9 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "go-initialization-local": run_go_initialization_local,
     "go-typed-go": run_go_typed,
     "go-loose-examples": run_go_loose_examples,
+    "go-release-state": run_go_release_state,
+    "ts-release-state": run_ts_release_state,
+    "py-release-state": run_py_release_state,
     "multi-tenant-token": run_multi_tenant_token,
     "multi-tenant-lambda": run_multi_tenant_lambda,
     "multi-tenant-module-tests": run_multi_tenant_module_tests,

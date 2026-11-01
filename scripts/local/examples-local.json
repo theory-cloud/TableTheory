@@ -84,8 +84,9 @@
       "description": "Query-planner demo; T2 classifies it as a library demo that runs without DynamoDB."
     },
     "examples/release-state/main.go": {
-      "pending": "T2",
-      "description": "Release-state registry; T2 adds a real TransactWrite driver on DynamoDB Local."
+      "run": "go-release-state",
+      "class": "L1",
+      "description": "Real TransactWrite on DynamoDB Local: actual-state update, event append and conditional outbox create, read-back assertions, plus refusal of a stale expected version."
     },
     "examples/typed-go/main.go": {
       "run": "go-typed-go",
@@ -118,16 +119,18 @@
       "description": "FaceTheory ISR cache metadata shape and freshness helpers; executed inside examples/drivers."
     },
     "ts/examples/release-state.ts": {
-      "pending": "T2",
-      "description": "TypeScript release-state registry; T2 adds the DynamoDB Local driver."
+      "run": "ts-release-state",
+      "class": "L1",
+      "description": "TypeScript release-state driver: the same real TransactWrite, read-back and stale-version refusal as the Go and Python rows, with an identical parity line."
     },
     "py/examples/gsi_query.py": {
       "pending": "T2",
       "description": "Python GSI query demo; T2 runs it against DynamoDB Local."
     },
     "py/examples/release_state.py": {
-      "pending": "T2",
-      "description": "Python release-state registry; T2 adds the DynamoDB Local driver."
+      "run": "py-release-state",
+      "class": "L1",
+      "description": "Python release-state driver: the same real TransactWrite, read-back and stale-version refusal as the Go and TypeScript rows, with an identical parity line."
     },
     "examples/encryption/main.go": {
       "pending": "T3",

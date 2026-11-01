@@ -1,6 +1,8 @@
 import {
-  TransactWriteItemsCommand,
-  type DynamoDBClient,
+  CreateTableCommand,
+  DescribeTableCommand,
+  DynamoDBClient,
+  ResourceInUseException,
 } from '@aws-sdk/client-dynamodb';
 
 import { TheorydbClient, defineModel } from '../src/index.js';
@@ -9,7 +11,12 @@ import {
   validateDeployAuthorityMetadata,
 } from '../src/release-state.js';
 
-const tableName = 'release_state_contract';
+// The runtime-specific table keeps the Go, TypeScript and Python rows from
+// sharing seed state in one harness database; their assertions and printed
+// parity line are identical.
+const tableName = 'release_state_contract_ts';
+const endpoint = process.env.DYNAMODB_ENDPOINT ?? 'http://localhost:8000';
+const region = process.env.AWS_REGION ?? 'us-east-1';
 
 const ReleaseStateActual = defineModel({
   name: 'ReleaseStateActual',
@@ -73,14 +80,22 @@ const ReleaseStateOutbox = defineModel({
   ],
 });
 
-class RecordingDdb {
-  sent: unknown[] = [];
+const ddb = new DynamoDBClient({
+  region,
+  endpoint,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'dummy',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'dummy',
+  },
+});
 
-  async send(cmd: unknown): Promise<Record<string, never>> {
-    this.sent.push(cmd);
-    return {};
-  }
-}
+await ensureReleaseStateTable(ddb);
+
+const db = new TheorydbClient(ddb).register(
+  ReleaseStateActual,
+  ReleaseStateEvent,
+  ReleaseStateOutbox,
+);
 
 const observedAt = '2026-04-24T19:00:00Z';
 const recordedAt = '2026-04-24T19:00:01Z';
@@ -112,25 +127,30 @@ const confidence = {
 
 validateDeployAuthorityMetadata({ provenance, confidence });
 
-const ddb = new RecordingDdb();
-const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
-  ReleaseStateActual,
-  ReleaseStateEvent,
-  ReleaseStateOutbox,
-);
-
-const outbox = {
+const actualKey = { PK: `RELEASE#${service}`, SK: 'ACTUAL' };
+const eventKey = {
+  PK: `RELEASE#${service}`,
+  SK: `EVENT#${observedAt}#${releaseId}`,
+};
+const outboxKey = {
   PK: `RELEASE#${service}`,
   SK: `OUTBOX#lambda-alias#${releaseId}`,
-  operation: 'lambda_alias_update',
-  idempotencyKey: `${service}:${releaseId}`,
-  requestedState: 'active',
-  nextAttemptAt: observedAt,
 };
 
-await transitionReleaseState(client, {
+await db.create(
+  'ReleaseStateActual',
+  {
+    ...actualKey,
+    service,
+    status: 'idle',
+    version: 7,
+  },
+  { ifNotExists: true },
+);
+
+const transition = {
   actualModel: 'ReleaseStateActual',
-  actualKey: { PK: `RELEASE#${service}`, SK: 'ACTUAL' },
+  actualKey,
   expectedVersion: 7,
   set: {
     status: 'active',
@@ -140,8 +160,7 @@ await transitionReleaseState(client, {
   },
   eventModel: 'ReleaseStateEvent',
   eventItem: {
-    PK: `RELEASE#${service}`,
-    SK: `EVENT#${observedAt}#${releaseId}`,
+    ...eventKey,
     service,
     releaseId,
     eventType: 'promoted',
@@ -150,19 +169,111 @@ await transitionReleaseState(client, {
     evidence: provenance,
   },
   outboxModel: 'ReleaseStateOutbox',
-  outboxItem: outbox,
-});
+  outboxItem: {
+    ...outboxKey,
+    operation: 'lambda_alias_update',
+    idempotencyKey: `${service}:${releaseId}`,
+    requestedState: 'active',
+    nextAttemptAt: observedAt,
+  },
+};
 
-const command = ddb.sent[0];
-if (!(command instanceof TransactWriteItemsCommand)) {
-  throw new Error('expected release-state helper to emit TransactWriteItems');
+await transitionReleaseState(db, transition);
+
+const actual = await db.get('ReleaseStateActual', actualKey);
+const version = Number(actual.version);
+if (actual.status !== 'active' || actual.previousReleaseId !== 'rel_001') {
+  throw new Error(
+    `actual row status=${String(actual.status)} previousReleaseId=${String(
+      actual.previousReleaseId,
+    )}; want status=active previousReleaseId=rel_001`,
+  );
+}
+if (version !== 8) {
+  throw new Error(`actual version=${version}; want 8`);
 }
 
-const items = command.input.TransactItems ?? [];
-if (items.length !== 3) {
+const event = await db.get('ReleaseStateEvent', eventKey);
+if (event.eventType !== 'promoted' || event.releaseId !== releaseId) {
   throw new Error(
-    `expected actual update, event append, and outbox create in one transaction, got ${items.length}`,
+    `event row eventType=${String(event.eventType)} releaseId=${String(
+      event.releaseId,
+    )}; want promoted/${releaseId}`,
   );
 }
 
-console.log(`transactionItems=${items.length} outbox=${outbox.SK}`);
+const outbox = await db.get('ReleaseStateOutbox', outboxKey);
+if (outbox.operation !== 'lambda_alias_update') {
+  throw new Error(
+    `outbox operation=${String(outbox.operation)}; want lambda_alias_update`,
+  );
+}
+
+let staleRejected = false;
+try {
+  await transitionReleaseState(db, transition);
+} catch {
+  staleRejected = true;
+}
+if (!staleRejected) {
+  throw new Error(
+    'stale expectedVersion transition succeeded; want a condition failure',
+  );
+}
+
+console.log(
+  `release-state: actual=${actualKey.PK}/${actualKey.SK} version=${version} status=${String(
+    actual.status,
+  )} event=${eventKey.SK} outbox=${outboxKey.SK}`,
+);
+
+ddb.destroy();
+
+async function ensureReleaseStateTable(
+  client: DynamoDBClient,
+): Promise<void> {
+  try {
+    await client.send(new DescribeTableCommand({ TableName: tableName }));
+    return;
+  } catch {
+    // continue
+  }
+
+  try {
+    await client.send(
+      new CreateTableCommand({
+        TableName: tableName,
+        AttributeDefinitions: [
+          { AttributeName: 'PK', AttributeType: 'S' },
+          { AttributeName: 'SK', AttributeType: 'S' },
+        ],
+        KeySchema: [
+          { AttributeName: 'PK', KeyType: 'HASH' },
+          { AttributeName: 'SK', KeyType: 'RANGE' },
+        ],
+        BillingMode: 'PAY_PER_REQUEST',
+      }),
+    );
+  } catch (err) {
+    if (err instanceof ResourceInUseException) return;
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      'name' in err &&
+      (err as { name?: unknown }).name === 'ResourceInUseException'
+    ) {
+      return;
+    }
+    throw err;
+  }
+
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const described = await client.send(
+      new DescribeTableCommand({ TableName: tableName }),
+    );
+    if (described.Table?.TableStatus === 'ACTIVE') return;
+    await new Promise((resolve) => {
+      setTimeout(resolve, 200);
+    });
+  }
+}
