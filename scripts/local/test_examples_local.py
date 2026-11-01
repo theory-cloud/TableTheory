@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """Mutation self-tests for the local examples harness (``make examples-local-selftest``).
 
-The harness only holds if its classification fails closed, so these tests build
-throwaway repository trees, mutate them, and assert that validation notices:
+The harness only holds if its classification and its local profile fail closed,
+so these tests build throwaway repository trees, mutate them, and assert that
+validation notices:
 
 * a rogue ``.ts`` and a rogue ``.py`` under ``examples/`` that nothing classifies;
 * a rogue ``.sh`` under ``ts/examples/`` that nothing classifies;
 * a pending row that names a file which does not exist;
-* a pending row that names a file discovery does not treat as an entrypoint.
+* a pending row that names a file discovery does not treat as an entrypoint;
+* a profile image that is not digest-pinned, a fixed host port, a fixed
+  container name, or an endpoint that omits the AWS-standard override.
 
 They also pin the documented exclusions, so ``bin/app.ts`` stays visible while
 ``lib/``, ``test/`` and generated output stay out of the entrypoint set.
+
+``ConcurrencyIsolationTests`` starts two real profiles at once and proves the
+second run cannot recreate or remove the first run's containers: the container
+ids stay stable, the endpoints differ, and the first database still answers
+after the second stack is torn down.
 """
 
 from __future__ import annotations
@@ -27,17 +35,50 @@ sys.path.insert(0, str(HARNESS_DIR))
 
 import run_examples_local as harness  # noqa: E402
 
-COMPOSE = """\
+DIGEST = "a" * 64
+DIGEST_B = "b" * 64
+DIGEST_C = "c" * 64
+DIGEST_D = "d" * 64
+
+COMPOSE = f"""\
 services:
   dynamodb-local:
-    image: amazon/dynamodb-local:3.1.0
+    image: amazon/dynamodb-local@sha256:{DIGEST}
     ports:
-      - 127.0.0.1:8123:8000
+      - 127.0.0.1::8000
+  moto:
+    image: motoserver/moto@sha256:{DIGEST_B}
+    ports:
+      - 127.0.0.1::5000
+  s3proxy:
+    image: andrewgaul/s3proxy@sha256:{DIGEST_C}
+    ports:
+      - 127.0.0.1::80
+  elasticmq:
+    image: softwaremill/elasticmq-native@sha256:{DIGEST_D}
+    ports:
+      - 127.0.0.1::9324
 """
 
 PROFILE = {
+    "name": "tabletheory-examples-local",
     "composeFile": "scripts/local/docker-compose.yml",
-    "dynamodbLocal": {"image": "amazon/dynamodb-local:3.1.0", "port": 8123},
+    "containers": {
+        "dynamodb-local": {"image": f"amazon/dynamodb-local@sha256:{DIGEST}", "containerPort": 8000},
+        "moto": {"image": f"motoserver/moto@sha256:{DIGEST_B}", "containerPort": 5000},
+        "s3proxy": {"image": f"andrewgaul/s3proxy@sha256:{DIGEST_C}", "containerPort": 80},
+        "elasticmq": {"image": f"softwaremill/elasticmq-native@sha256:{DIGEST_D}", "containerPort": 9324},
+    },
+    "endpoints": {
+        "dynamodb": {
+            "container": "dynamodb-local",
+            "env": ["AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_DYNAMODB", "DYNAMODB_ENDPOINT"],
+        },
+        "kms": {"container": "moto", "env": ["AWS_ENDPOINT_URL_KMS", "KMS_ENDPOINT"]},
+        "sts": {"container": "moto", "env": ["AWS_ENDPOINT_URL_STS", "STS_ENDPOINT"]},
+        "s3": {"container": "s3proxy", "env": ["AWS_ENDPOINT_URL_S3", "S3_ENDPOINT"]},
+        "sqs": {"container": "elasticmq", "env": ["AWS_ENDPOINT_URL_SQS", "SQS_ENDPOINT"]},
+    },
 }
 
 GO_MAIN = "package main\n\nfunc main() {}\n"
@@ -62,7 +103,7 @@ class HarnessTree:
         write(root, "examples/quickstart/main.go", GO_MAIN)
         self.entries = {"examples/quickstart/main.go": {"run": "noop", "class": "L1"}}
 
-    def validate(self, entries: dict | None = None) -> list[str]:
+    def validate(self, entries: dict | None = None, profile: dict | None = None) -> list[str]:
         rows = [
             harness.Entry(key, "entrypoint", dict(data))
             for key, data in (entries if entries is not None else self.entries).items()
@@ -70,7 +111,7 @@ class HarnessTree:
         return harness.validate_manifest(
             self.root,
             self.root / "scripts/local/examples-local.json",
-            PROFILE,
+            profile if profile is not None else PROFILE,
             rows,
             harness.discover(self.root),
             NOOP_RUNNERS,
@@ -300,6 +341,89 @@ class ManifestRowTests(unittest.TestCase):
             self.assertEqual(tree.validate(entries), [])
 
 
+class ProfileValidationTests(unittest.TestCase):
+    def mutate(self, mutate) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = HarnessTree(Path(tmp))
+            profile = {
+                "name": PROFILE["name"],
+                "composeFile": PROFILE["composeFile"],
+                "containers": {
+                    name: dict(spec) for name, spec in PROFILE["containers"].items()
+                },
+                "endpoints": {
+                    name: {**spec, "env": list(spec["env"])}
+                    for name, spec in PROFILE["endpoints"].items()
+                },
+            }
+            mutate(profile, tree.root)
+            return tree.validate(profile=profile)
+
+    def test_tag_only_image_fails_digest_pinning(self) -> None:
+        def mutate(profile, root):
+            profile["containers"]["moto"]["image"] = "motoserver/moto:5.2.5"
+
+        errors = self.mutate(mutate)
+        self.assertTrue(
+            any("pinned by digest" in error and "moto" in error for error in errors), errors
+        )
+
+    def test_fixed_host_port_fails_ephemeral_isolation(self) -> None:
+        def mutate(profile, root):
+            write(
+                root,
+                "scripts/local/docker-compose.yml",
+                COMPOSE.replace("127.0.0.1::8000", "127.0.0.1:8123:8000"),
+            )
+
+        errors = self.mutate(mutate)
+        self.assertTrue(
+            any("ephemeral loopback port" in error and "dynamodb-local" in error for error in errors),
+            errors,
+        )
+
+    def test_fixed_container_name_fails(self) -> None:
+        def mutate(profile, root):
+            write(
+                root,
+                "scripts/local/docker-compose.yml",
+                COMPOSE.replace("  moto:\n", "  moto:\n    container_name: tabletheory-moto\n"),
+            )
+
+        errors = self.mutate(mutate)
+        self.assertTrue(any("container_name is fixed" in error for error in errors), errors)
+
+    def test_fixed_compose_project_name_fails(self) -> None:
+        def mutate(profile, root):
+            write(root, "scripts/local/docker-compose.yml", "name: fixed\n" + COMPOSE)
+
+        errors = self.mutate(mutate)
+        self.assertTrue(any("top-level name fixes" in error for error in errors), errors)
+
+    def test_missing_standard_endpoint_override_fails(self) -> None:
+        def mutate(profile, root):
+            profile["endpoints"]["kms"]["env"] = ["KMS_ENDPOINT"]
+
+        errors = self.mutate(mutate)
+        self.assertTrue(
+            any("AWS_ENDPOINT_URL_KMS" in error for error in errors), errors
+        )
+
+    def test_missing_endpoint_service_fails(self) -> None:
+        def mutate(profile, root):
+            del profile["endpoints"]["sqs"]
+
+        errors = self.mutate(mutate)
+        self.assertTrue(any("endpoints.sqs is required" in error for error in errors), errors)
+
+    def test_endpoint_variable_cannot_be_shared(self) -> None:
+        def mutate(profile, root):
+            profile["endpoints"]["sts"]["env"] = ["AWS_ENDPOINT_URL_KMS"]
+
+        errors = self.mutate(mutate)
+        self.assertTrue(any("used by both" in error for error in errors), errors)
+
+
 class EnvironmentTests(unittest.TestCase):
     def test_build_env_clears_proxy_and_aws_variables(self) -> None:
         injected = {
@@ -314,20 +438,112 @@ class EnvironmentTests(unittest.TestCase):
             "AWS_PROFILE": "production",
             "AWS_ACCESS_KEY_ID": "AKIAREALCREDENTIAL",
             "AWS_ENDPOINT_URL": "https://dynamodb.us-east-1.amazonaws.com",
+            "AWS_ENDPOINT_URL_KMS": "https://kms.us-east-1.amazonaws.com",
+            "AWS_ENDPOINT_URL_SQS": "https://sqs.us-east-1.amazonaws.com",
             "JWT_SECRET": "leaked",
+            "KMS_KEY_ARN": "arn:aws:kms:us-east-1:1:key/leaked",
         }
 
+        profile = harness.build_profile(PROFILE, Path("/tmp/checkout"), "run-1")
+        profile.host_ports = {
+            "dynamodb-local": 9001,
+            "moto": 9002,
+            "s3proxy": 9003,
+            "elasticmq": 9004,
+        }
         with unittest.mock.patch.dict(os.environ, injected):
-            env = harness.build_env(8123)
+            env = harness.build_env(profile)
 
-        cleared = set(injected) - {"AWS_ACCESS_KEY_ID", "AWS_ENDPOINT_URL"}
+        cleared = set(injected) - {
+            "AWS_ACCESS_KEY_ID",
+            "AWS_ENDPOINT_URL",
+            "AWS_ENDPOINT_URL_KMS",
+            "AWS_ENDPOINT_URL_SQS",
+        }
         for name in sorted(cleared):
             self.assertNotIn(name, env)
         self.assertEqual(env["AWS_ACCESS_KEY_ID"], "dummy")
         self.assertEqual(env["AWS_SECRET_ACCESS_KEY"], "dummy")
-        self.assertEqual(env["AWS_ENDPOINT_URL"], "http://127.0.0.1:8123")
-        self.assertEqual(env["AWS_ENDPOINT_URL_DYNAMODB"], "http://127.0.0.1:8123")
-        self.assertEqual(env["DYNAMODB_ENDPOINT"], "http://127.0.0.1:8123")
+        self.assertEqual(env["AWS_ENDPOINT_URL"], "http://127.0.0.1:9001")
+        self.assertEqual(env["AWS_ENDPOINT_URL_DYNAMODB"], "http://127.0.0.1:9001")
+        self.assertEqual(env["DYNAMODB_ENDPOINT"], "http://127.0.0.1:9001")
+        self.assertEqual(env["AWS_ENDPOINT_URL_KMS"], "http://127.0.0.1:9002")
+        self.assertEqual(env["KMS_ENDPOINT"], "http://127.0.0.1:9002")
+        self.assertEqual(env["AWS_ENDPOINT_URL_STS"], "http://127.0.0.1:9002")
+        self.assertEqual(env["AWS_ENDPOINT_URL_S3"], "http://127.0.0.1:9003")
+        self.assertEqual(env["AWS_ENDPOINT_URL_SQS"], "http://127.0.0.1:9004")
+
+    def test_kms_and_sts_share_the_moto_endpoint(self) -> None:
+        profile = harness.build_profile(PROFILE, Path("/tmp/checkout"), "run-1")
+        profile.host_ports = {"moto": 9002, "dynamodb-local": 9001, "s3proxy": 9003, "elasticmq": 9004}
+        self.assertEqual(profile.url("kms"), profile.url("sts"))
+
+
+class ProjectIsolationTests(unittest.TestCase):
+    def test_project_name_is_unique_per_checkout_and_run(self) -> None:
+        a = harness.project_name("tabletheory-examples-local", Path("/tmp/checkout-a"), "run-1")
+        b = harness.project_name("tabletheory-examples-local", Path("/tmp/checkout-b"), "run-1")
+        c = harness.project_name("tabletheory-examples-local", Path("/tmp/checkout-a"), "run-2")
+        d = harness.project_name("tabletheory-examples-local", Path("/tmp/checkout-a"), "run-1")
+
+        self.assertNotEqual(a, b)
+        self.assertNotEqual(a, c)
+        self.assertEqual(a, d)
+        self.assertTrue(a.startswith("tabletheory-examples-local-"))
+
+
+class ConcurrencyIsolationTests(unittest.TestCase):
+    """Two harness instances must not recreate, remove or share each other.
+
+    This is the regression test for the fixed-project/fixed-port failure: run B
+    starts while run A is live, and A's container id, endpoint and database must
+    survive B's startup and B's teardown.
+    """
+
+    def setUp(self) -> None:
+        probe = harness.Harness(env=dict(os.environ), ports={})
+        if not harness._docker_available(probe):
+            self.fail(
+                "Docker is required to prove harness concurrency isolation; start Colima/Docker first"
+            )
+        raw, _ = harness.load_manifest(harness.MANIFEST_PATH)
+        self.profile_a = harness.build_profile(raw, harness.ROOT, "selftest-a")
+        self.profile_b = harness.build_profile(raw, harness.ROOT, "selftest-b")
+        self.harness_a = harness.Harness(env=dict(os.environ), ports={})
+        self.harness_b = harness.Harness(env=dict(os.environ), ports={})
+
+    def tearDown(self) -> None:
+        for hs, profile in ((self.harness_a, self.profile_a), (self.harness_b, self.profile_b)):
+            harness.stop_profile(hs, profile)
+
+    def test_two_concurrent_profiles_do_not_collide(self) -> None:
+        self.assertNotEqual(self.profile_a.project, self.profile_b.project)
+
+        harness.start_profile(self.harness_a, self.profile_a)
+        container_a = harness.container_id(self.harness_a, self.profile_a, "dynamodb-local")
+        self.assertNotEqual(container_a, "")
+        harness.wait_for_dynamodb_local(self.harness_a, self.profile_a.url("dynamodb"))
+
+        harness.start_profile(self.harness_b, self.profile_b)
+        self.assertNotEqual(self.profile_a.url("dynamodb"), self.profile_b.url("dynamodb"))
+        self.assertNotEqual(self.profile_a.url("kms"), self.profile_b.url("kms"))
+
+        # B's startup must not have recreated A's container.
+        self.assertEqual(
+            harness.container_id(self.harness_a, self.profile_a, "dynamodb-local"), container_a
+        )
+        harness.wait_for_dynamodb_local(self.harness_a, self.profile_a.url("dynamodb"))
+
+        # B's teardown must not remove A's container or network.
+        harness.stop_profile(self.harness_b, self.profile_b)
+        self.assertEqual(
+            harness.compose(self.harness_b, self.profile_b, "ps", "-q", check=False).stdout.strip(),
+            "",
+        )
+        self.assertEqual(
+            harness.container_id(self.harness_a, self.profile_a, "dynamodb-local"), container_a
+        )
+        harness.wait_for_dynamodb_local(self.harness_a, self.profile_a.url("dynamodb"))
 
 
 if __name__ == "__main__":

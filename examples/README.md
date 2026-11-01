@@ -140,19 +140,22 @@ From the repository root:
 make examples-local
 ```
 
-The harness starts `amazon/dynamodb-local:3.1.0` from the checked-in profile in
-`scripts/local/docker-compose.yml` on its own loopback port (8123, never the
-shared `:8000`), sets the endpoint and dummy-credential environment itself, runs
-every wired example, and asserts each one's real outcome. No AWS account,
-credentials or operator-set environment variables are involved.
+The harness starts the checked-in profile in `scripts/local/docker-compose.yml` —
+DynamoDB Local plus pinned KMS/STS (moto), S3 (s3proxy) and SQS (ElasticMQ)
+emulators — with a compose project name and ephemeral loopback ports unique to
+the run. It sets every `AWS_ENDPOINT_URL_<SERVICE>` override and the dummy
+credentials itself, runs every wired example, and asserts each one's real
+outcome. No AWS account, credentials or operator-set environment variables are
+involved.
 
 The command prints one line per example with its class and result, reports
 examples owned by later milestones as `PENDING-MILESTONE`, and exits non-zero if
 any example fails, if a test is skipped, or if the tree contains an entrypoint
 that the manifest does not classify.
 
-`make examples-local-down` stops the profile container. A full description of
-the harness, the classes and the manifest rules is in
+`make examples-local-down` removes leftover profile containers and networks from
+any run. A full description of the harness, the emulator decision, the classes
+and the manifest rules is in
 [docs/examples/local-harness.md](../docs/examples/local-harness.md).
 
 ### Fidelity classes
@@ -163,7 +166,7 @@ the harness, the classes and the manifest rules is in
 | `L2` | Local with an AWS-API emulator; the emulator's fidelity limits are documented. |
 | `L3` | Every locally executable part runs for real, plus a named cloud gap that is never faked. |
 | `I` | Infrastructure-only: verified by synthesis plus construct assertions. |
-| `PENDING-MILESTONE` | Not wired yet; the manifest names the milestone that owns it (T3, T4a or T4b). It is reported, never counted as pass. |
+| `PENDING-MILESTONE` | Not wired yet; the manifest names the milestone that owns it (T4a or T4b). It is reported, never counted as pass. |
 
 `optimization` and `testing` are classified as **library demos**: the query
 planner and the mock-based unit-test examples run locally without DynamoDB by
@@ -197,9 +200,13 @@ values yourself when using `make examples-local`:
 AWS_REGION=us-east-1
 AWS_ACCESS_KEY_ID=dummy
 AWS_SECRET_ACCESS_KEY=dummy
-AWS_ENDPOINT_URL_DYNAMODB=http://127.0.0.1:8123
-DYNAMODB_ENDPOINT=http://127.0.0.1:8123
-AWS_ENDPOINT_URL=http://127.0.0.1:8123
+AWS_ENDPOINT_URL_DYNAMODB=http://127.0.0.1:<port>
+DYNAMODB_ENDPOINT=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL_KMS=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL_S3=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL_STS=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL_SQS=http://127.0.0.1:<port>
 ```
 
 ## Learning Path

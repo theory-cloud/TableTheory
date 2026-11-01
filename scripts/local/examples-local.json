@@ -3,9 +3,61 @@
   "profile": {
     "name": "tabletheory-examples-local",
     "composeFile": "scripts/local/docker-compose.yml",
-    "dynamodbLocal": {
-      "image": "amazon/dynamodb-local:3.1.0",
-      "port": 8123
+    "containers": {
+      "dynamodb-local": {
+        "image": "amazon/dynamodb-local@sha256:7ef4a2c45b58c2901e70a4f28e0953a422c2c631baaaf5e2c15e0805740c7752",
+        "containerPort": 8000
+      },
+      "moto": {
+        "image": "motoserver/moto@sha256:59a1965d845249b04def37a0e2565f9cc6c44543cb89b68e90f28f344b3b0d1a",
+        "containerPort": 5000
+      },
+      "s3proxy": {
+        "image": "andrewgaul/s3proxy@sha256:1f8915c2b4a8af22bf1fc191500f242974a458c457391b5788f9107544273dc3",
+        "containerPort": 80
+      },
+      "elasticmq": {
+        "image": "softwaremill/elasticmq-native@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c",
+        "containerPort": 9324
+      }
+    },
+    "endpoints": {
+      "dynamodb": {
+        "container": "dynamodb-local",
+        "env": [
+          "AWS_ENDPOINT_URL",
+          "AWS_ENDPOINT_URL_DYNAMODB",
+          "DYNAMODB_ENDPOINT"
+        ]
+      },
+      "kms": {
+        "container": "moto",
+        "env": [
+          "AWS_ENDPOINT_URL_KMS",
+          "KMS_ENDPOINT"
+        ]
+      },
+      "sts": {
+        "container": "moto",
+        "env": [
+          "AWS_ENDPOINT_URL_STS",
+          "STS_ENDPOINT"
+        ]
+      },
+      "s3": {
+        "container": "s3proxy",
+        "env": [
+          "AWS_ENDPOINT_URL_S3",
+          "S3_ENDPOINT"
+        ]
+      },
+      "sqs": {
+        "container": "elasticmq",
+        "env": [
+          "AWS_ENDPOINT_URL_SQS",
+          "SQS_ENDPOINT"
+        ]
+      }
     }
   },
   "entrypoints": {
@@ -16,23 +68,23 @@
     },
     "examples/cdk-multilang/local/run-local.sh": {
       "run": "shell-cdk-multilang-local",
-      "class": "L1",
-      "description": "Cross-language no-drift check: Go writes one item, TypeScript and Python read the same shape back, and the generated CDK construct is drift-checked."
+      "class": "L2",
+      "description": "Cross-language no-drift check with encryption: Go writes one item whose secret is encrypted through the local KMS, then TypeScript and Python read the same item and decrypt the secret, and the generated CDK construct is drift-checked. Gap: the KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS calls are real."
     },
     "examples/cdk-multilang/local/go/writer.go": {
       "coveredBy": "examples/cdk-multilang/local/run-local.sh",
-      "class": "L1",
-      "description": "Go writer half of the cross-language no-drift check; executed inside run-local.sh."
+      "class": "L2",
+      "description": "Go writer half of the cross-language no-drift check: writes the shared item with a KMS-encrypted secret and asserts it decrypts on read; executed inside run-local.sh. Gap: the KMS is emulated."
     },
     "examples/cdk-multilang/local/read.mts": {
       "coveredBy": "examples/cdk-multilang/local/run-local.sh",
-      "class": "L1",
-      "description": "Node.js reader half of the cross-language no-drift check; executed inside run-local.sh."
+      "class": "L2",
+      "description": "Node.js reader half of the cross-language no-drift check; decrypts the KMS-encrypted secret through the local KMS; executed inside run-local.sh."
     },
     "examples/cdk-multilang/local/read.py": {
       "coveredBy": "examples/cdk-multilang/local/run-local.sh",
-      "class": "L1",
-      "description": "Python reader half of the cross-language no-drift check; executed inside run-local.sh."
+      "class": "L2",
+      "description": "Python reader half of the cross-language no-drift check; decrypts the KMS-encrypted secret through the local KMS; executed inside run-local.sh."
     },
     "examples/multi-tenant/cmd/local/main.go": {
       "run": "multi-tenant-http",
@@ -140,8 +192,9 @@
       "description": "Python release-state driver: the same real TransactWrite, read-back and stale-version refusal as the Go and TypeScript rows, with an identical parity line."
     },
     "examples/encryption/main.go": {
-      "pending": "T3",
-      "description": "KMS envelope round-trip; T3 selects a KMS emulator or records the named cloud gap."
+      "run": "go-encryption",
+      "class": "L2",
+      "description": "KMS envelope round-trip through TableTheory on DynamoDB Local and the local KMS emulator: the plaintext field round-trips on read, and a raw GetItem proves the stored attribute is a v2 envelope whose ciphertext does not contain the plaintext. Gap: the KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS GenerateDataKey/Decrypt calls are real."
     },
     "examples/lambda/main.go": {
       "pending": "T4a",
