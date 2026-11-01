@@ -72,26 +72,48 @@ class Session:
     expires_at: int = theorydb_field(roles=["ttl"])  # epoch seconds
 ```
 
-## Schema provisioning is idempotent
+## Schema provisioning
 
-Creating a table from a model also enables TTL for the model's `ttl` role. That
-provisioning step is idempotent: calling it again against an existing table whose
-TTL is already enabled on the model attribute succeeds with the same
-already-exists outcome the call returns for a table without TTL. Repeating a
+Go is the reference implementation. The three runtimes share these outcomes:
+
+| Call | New table | Existing table |
+|------|-----------|----------------|
+| Go `DB.EnsureTable` | creates the table with TTL enabled | returns nil; never reads or updates TTL |
+| Go `DB.CreateTable` / `schema.Manager.CreateTable` | creates with TTL | converges TTL |
+| Go `DB.UpdateTable`, auto-migration | — | converges TTL |
+| TypeScript `createTable` | creates with TTL | converges TTL |
+| TypeScript `ensureTable` | creates with TTL | returns without reading or updating TTL |
+| Python `create_table` | creates with TTL | converges TTL |
+| Python `ensure_table` | creates with TTL | returns without reading or updating TTL |
+
+"Converges" means the existing table's TTL is made to match the model:
+
+- TTL disabled or absent → TTL is enabled on the model attribute.
+- TTL already enabled on the model attribute → idempotent success, with the same
+  already-exists outcome the call returns for a table without TTL.
+- TTL enabled on a **different** attribute → a conflict error that names both
+  the model attribute and the attribute that is currently enabled. TableTheory
+  never silently switches the TTL attribute: disable TTL on the existing
+  attribute first if the change is intended.
+
+Go exposes the conflict as `schema.ErrTTLAttributeMismatch`, matchable with
+`errors.Is`. TypeScript exposes `TTLAttributeMismatchError` (still a
+`TheorydbError` with code `ErrInvalidModel`) and Python exposes
+`TTLAttributeMismatchError` (still a `ValidationError`), so handlers that match
+the broader type keep working.
+
+Explicit enable APIs remain available: Go `schema.Manager.EnableTTL`,
+TypeScript `updateTimeToLive`, and Python `update_time_to_live`. Repeating a
 local provisioning step (or a multi-tenant test that recreates its schema) must
 not fail.
 
-- **Go:** `DB.CreateTable`, `schema.Manager.EnableTTL`, and
-  `schema.Manager.UpdateTable` sync TTL; `DB.EnsureTable` creates only when the
-  table is missing.
-- **TypeScript:** `createTable`, `ensureTable`, `updateTimeToLive`
-- **Python:** `create_table`, `ensure_table`, `update_time_to_live`
-
-If the table's TTL is already enabled on a **different** attribute, the call
-fails with a validation error that names both the model attribute and the
-attribute that is currently enabled. TableTheory never silently switches the TTL
-attribute: disable TTL on the existing attribute first if the change is
-intended. Item storage is unchanged by this provisioning behavior.
+> **TypeScript/Python behavior change:** `ensureTable` / `ensure_table` no
+> longer enables TTL on a table that already exists. Previously it called
+> `UpdateTimeToLive`. Callers that relied on that behavior should call
+> `createTable` / `create_table`, `updateTimeToLive` /
+> `update_time_to_live`, or manage TTL in infrastructure as code. New tables
+> are still created with TTL. This change adds **no IAM permission** and does
+> not change Go behavior; item storage is unchanged by provisioning.
 
 ## DynamoDB's TTL behavior
 

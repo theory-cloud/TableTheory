@@ -336,6 +336,7 @@ type Fake struct{ ... }
 
 ```go
 var ErrMigrationEncryptionRequired = errors.New("schema migration encryption required")
+var ErrTTLAttributeMismatch = errors.New("ttl attribute mismatch")
 func TransformWithValidation(item map[string]types.AttributeValue, transform TransformFunc, ...) (map[string]types.AttributeValue, error)
 type AutoMigrateOption func(*AutoMigrateOptions)
     func WithBackupTable(tableName string) AutoMigrateOption

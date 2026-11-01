@@ -914,6 +914,7 @@ export declare class AwsKmsEncryptionProvider implements EncryptionProvider {
 
 ```ts
 import { type DynamoDBClient, type TableDescription } from '@aws-sdk/client-dynamodb';
+import { TheorydbError } from './errors.js';
 import type { Model } from './model.js';
 export type BillingMode = 'PAY_PER_REQUEST' | 'PROVISIONED';
 export interface ProvisionedThroughput {
@@ -948,6 +949,18 @@ export declare function ensureTable(ddb: DynamoDBClient, model: Model, opts?: Cr
 export declare function deleteTable(ddb: DynamoDBClient, model: Model, opts?: DeleteTableOptions): Promise<void>;
 export declare function describeTable(ddb: DynamoDBClient, model: Model, opts?: DescribeTableOptions): Promise<TableDescription>;
 export declare function resolveTimeToLiveAttribute(model: Model): string | undefined;
+/**
+ * Raised when a table's TTL is already enabled on a different attribute than
+ * the model declares. It remains an `ErrInvalidModel` `TheorydbError` so
+ * existing handlers keep matching; `instanceof TTLAttributeMismatchError`
+ * matches the conflict specifically, mirroring Go's
+ * `errors.Is(err, schema.ErrTTLAttributeMismatch)`.
+ */
+export declare class TTLAttributeMismatchError extends TheorydbError {
+    constructor(message: string, options?: {
+        cause?: unknown;
+    });
+}
 export declare function updateTimeToLive(ddb: DynamoDBClient, model: Model, opts?: UpdateTimeToLiveOptions): Promise<void>;
 ```
 
