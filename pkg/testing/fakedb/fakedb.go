@@ -33,11 +33,12 @@ var _ session.DynamoDBAPI = (*Fake)(nil)
 
 // Fake is an in-memory implementation of the TableTheory DynamoDBAPI seam.
 type Fake struct {
-	transactErr  error
-	tables       map[string]*tableState
-	cancelReason []types.CancellationReason
-	cancelQueued bool
-	mu           sync.RWMutex
+	transactErr   error
+	tables        map[string]*tableState
+	cancelReason  []types.CancellationReason
+	cancelQueued  bool
+	ttlValidation bool
+	mu            sync.RWMutex
 }
 
 type tableState struct {
@@ -57,9 +58,31 @@ type indexState struct {
 
 // New returns an empty in-memory DynamoDB fake. Use it for tests whose outcome
 // depends on stored state or supported condition expressions; pkg/mocks does
-// not evaluate those conditions.
-func New() *Fake {
-	return &Fake{tables: make(map[string]*tableState)}
+// not evaluate those conditions. With no options the fake keeps its historical
+// permissive TTL behaviour; pass WithDynamoDBTTLValidation to make
+// UpdateTimeToLive reject what DynamoDB rejects.
+func New(options ...Option) *Fake {
+	fake := &Fake{tables: make(map[string]*tableState)}
+	for _, option := range options {
+		if option != nil {
+			option(fake)
+		}
+	}
+	return fake
+}
+
+// Option configures a Fake at construction time.
+type Option func(*Fake)
+
+// WithDynamoDBTTLValidation makes UpdateTimeToLive reject the requests DynamoDB
+// rejects: a missing TimeToLiveSpecification.AttributeName, enabling TTL on the
+// attribute that is already enabled, and enabling TTL while another attribute is
+// enabled. The default fake accepts all three, matching the behaviour existing
+// consumer tests rely on.
+func WithDynamoDBTTLValidation() Option {
+	return func(fake *Fake) {
+		fake.ttlValidation = true
+	}
 }
 
 // Reset removes all fake tables and items and clears any queued transaction
@@ -256,11 +279,14 @@ func (f *Fake) UpdateTimeToLive(_ context.Context, params *dynamodb.UpdateTimeTo
 		return nil, resourceNotFound(tableName)
 	}
 	if params.TimeToLiveSpecification == nil || params.TimeToLiveSpecification.AttributeName == nil {
-		return nil, errors.New("UpdateTimeToLive requires TimeToLiveSpecification.AttributeName")
+		if f.ttlValidation {
+			return nil, errors.New("UpdateTimeToLive requires TimeToLiveSpecification.AttributeName")
+		}
+		return &dynamodb.UpdateTimeToLiveOutput{TimeToLiveSpecification: params.TimeToLiveSpecification}, nil
 	}
 
 	attributeName := aws.ToString(params.TimeToLiveSpecification.AttributeName)
-	if aws.ToBool(params.TimeToLiveSpecification.Enabled) && table.ttlEnabled {
+	if f.ttlValidation && aws.ToBool(params.TimeToLiveSpecification.Enabled) && table.ttlEnabled {
 		if table.ttlAttr == attributeName {
 			return nil, &smithy.GenericAPIError{Code: "ValidationException", Message: "TimeToLive is already enabled"}
 		}

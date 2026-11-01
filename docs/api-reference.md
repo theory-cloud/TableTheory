@@ -329,7 +329,9 @@ type TestDBFactory struct{ ... }
 
 ```go
 type Fake struct{ ... }
-    func New() *Fake
+    func New(options ...Option) *Fake
+type Option func(*Fake)
+    func WithDynamoDBTTLValidation() Option
 ```
 
 ### `github.com/theory-cloud/tabletheory/v6/pkg/schema`
