@@ -25,8 +25,10 @@ make examples-local-down   # stop the profile container
 | CI job | `.github/workflows/examples-local.yml` |
 
 The harness sets this environment for every child process and unsets anything
-that could redirect it (`AWS_PROFILE`, `AWS_SESSION_TOKEN`, an inherited
-`AWS_ENDPOINT_URL`, and so on):
+that could redirect it: every inherited `AWS_*` variable (`AWS_PROFILE`,
+`AWS_SESSION_TOKEN`, an inherited `AWS_ENDPOINT_URL`, and so on) and the proxy
+variables `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` in both cases,
+so no child request can be routed through an inherited proxy.
 
 ```bash
 AWS_REGION=us-east-1
@@ -70,16 +72,45 @@ from that example's own dependency tree).
 
 Entrypoints are discovered from the tree, not from a hand-maintained list:
 
-- `examples/**/*.go` that declares `func main` is a Go entrypoint;
+- `examples/**/*.go` that declares `func main` is a Go entrypoint (`func main`
+  is the marker; path conventions do not apply to Go);
 - `examples/**/*.sh` is a shell runner;
-- `ts/examples/**/*.ts` and `py/examples/**/*.py` are runtime entrypoints;
-- dependency trees and build output (`node_modules`, `cdk.out`, `dist`, `vendor`,
-  `bin`, `__pycache__`, `.venv`) are skipped.
+- files under `examples/`, `ts/examples/` and `py/examples/` with a runtime
+  suffix (`.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`, `.py`) are runtime
+  entrypoints, so a `.ts` or `.py` file under `examples/` cannot hide from
+  classification;
+- any other executable file under those trees is a runner.
+
+These are not entrypoints, and discovery skips them by documented convention:
+
+| Rule | Covers |
+| --- | --- |
+| `node_modules`, `cdk.out`, `dist`, `vendor`, `__pycache__`, `.venv` | dependency trees and build output |
+| `lib/` | support modules inside an example, such as the CDK constructs in `examples/cdk-multilang/lib` |
+| `test/`, `tests/`, `*.test.*`, `*.spec.*`, `*_test.*` | tests and test fixtures |
+| first lines contain `Code generated ... DO NOT EDIT` | generated output such as `examples/cdk-multilang/local/generated-table.ts` |
+
+`bin/` is deliberately not excluded: `examples/cdk-multilang/bin/app.ts` is the
+CDK app entrypoint and is classified like any other runtime file.
 
 The run fails when the tree contains an entrypoint that the manifest does not
-classify. It also fails when a manifest entry names a file that no longer exists
-(unless the entry is marked as covered by another row) and when a runner id is
-unknown or reused.
+classify. It also fails when a `pending` or classified row names a file that does
+not exist in the tree or that discovery does not treat as an entrypoint; only a
+`coveredBy` row may point at a non-entrypoint file, because it documents a helper
+executed inside another row. Unknown or reused runner ids fail as well.
+
+## Self-tests
+
+`make examples-local` runs `make examples-local-selftest` first. The self-tests
+build throwaway repository trees and assert that validation fails when:
+
+- a rogue `.ts` or `.py` file under `examples/` is unclassified;
+- a `pending` row names a file that does not exist, or one discovery does not
+  treat as an entrypoint.
+
+They also pin the documented exclusions against the real tree, so `bin/app.ts`
+stays visible while `lib/`, `test/` and generated output stay out. Run them alone
+with `make examples-local-selftest`.
 
 ## Classes
 
@@ -139,8 +170,12 @@ missing expected output as a failure.
 - `run` names a runner implemented in `scripts/local/run_examples_local.py`.
   Each runner is used by exactly one entry.
 - `coveredBy` points at another executed entry; the covered row inherits its
-  result and is not run a second time. It is how a helper entrypoint (`writer.go`,
-  the Go half of the cross-language check) stays visible without duplicating work.
+  result and is not run a second time. It is how a helper entrypoint
+  (`local/go/writer.go`, `local/read.mts`, `local/read.py` — the halves of the
+  cross-language check) stays visible without duplicating work.
+- `pending` names a milestone, not a runner. A pending row still has to name a
+  file that exists in the tree and that discovery treats as an entrypoint; it is
+  printed on every run and never counted as pass.
 - `suites` cover separate Go modules. A root `go test ./...` never reaches
   `examples/multi-tenant`, so its module test suite is a first-class row.
 - The manifest's `port` and `image` are checked against the compose file during
@@ -154,6 +189,9 @@ The T1 harness wires:
 | --- | --- | --- |
 | `examples/local-quickstart/main.go` | `L1` | `go run`; five print/CRUD outcome checks |
 | `examples/cdk-multilang/local/run-local.sh` | `L1` | Real script; construct drift check plus Go → TypeScript → Python round-trip |
+| `examples/cdk-multilang/local/go/writer.go` | `L1` | `coveredBy` the `run-local.sh` row: the Go writer half of the round-trip |
+| `examples/cdk-multilang/local/read.mts` | `L1` | `coveredBy` the `run-local.sh` row: the Node reader validates the written shape |
+| `examples/cdk-multilang/local/read.py` | `L1` | `coveredBy` the `run-local.sh` row: the Python reader validates the written shape |
 | `examples/multi-tenant/cmd/local/main.go` | `L1` | Real HTTP server; health, 401 refusals, signed-JWT signup, authenticated reads, cross-tenant 404 |
 | `examples/multi-tenant/cmd/lambda/main.go` | `L1` | Route-matrix tests through API Gateway events and a loopback HTTP server |
 | `examples/multi-tenant/cmd/token/main.go` | `L1` | Minted JWT claims plus refusal of incomplete arguments |
@@ -162,7 +200,11 @@ The T1 harness wires:
 | `py/examples/local_crud.py` | `L1` | `uv run`; put/get/`begins_with` output checks |
 
 Every other entrypoint in the tree is listed in the manifest as
-`pending` for T2, T3, T4a or T4b. Those rows are printed on every run and are
+`pending` for T2, T3, T4a or T4b. That includes the `examples/cdk-multilang`
+runtime files that local execution does not reach yet: `bin/app.ts`,
+`lambdas/node/handler.ts`, `lambdas/archive/handler.ts` and
+`lambdas/python/handler.py` are T4b rows, alongside the deployed `lambdas/go`
+handler and `scripts/smoke.sh`. Pending rows are printed on every run and are
 never counted as pass.
 
 ## Adding an example
