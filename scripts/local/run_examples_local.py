@@ -2777,8 +2777,8 @@ def _verify_envelope(harness: Harness, pk: str, sk: str, plaintext: str) -> dict
         "stored secret is not a versioned envelope",
         envelope,
     )
-    for field in ("edk_bytes", "nonce_bytes", "ct_bytes"):
-        _require(int(envelope.get(field, 0)) > 0, f"envelope {field} is empty", envelope)
+    for metric in ("edk_bytes", "nonce_bytes", "ct_bytes"):
+        _require(int(envelope.get(metric, 0)) > 0, f"envelope {metric} is empty", envelope)
     return envelope
 
 

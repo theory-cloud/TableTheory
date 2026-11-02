@@ -306,6 +306,10 @@ class LambdaRuntime:
         if not dependencies:
             return
         install = " ".join(shlex.quote(dependency) for dependency in dependencies)
+        install_command = (
+            "python -m pip install --quiet --no-input --disable-pip-version-check "
+            f"--no-warn-script-location -t /var/task {install}"
+        )
         self.harness.run(
             [
                 "docker",
@@ -317,8 +321,7 @@ class LambdaRuntime:
                 "/bin/bash",
                 self.image_for("python"),
                 "-c",
-                "python -m pip install --quiet --no-input --disable-pip-version-check "
-                f"--no-warn-script-location -t /var/task {install}",
+                install_command,
             ],
             timeout=900,
         )
