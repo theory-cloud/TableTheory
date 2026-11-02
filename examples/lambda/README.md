@@ -68,7 +68,7 @@ Your Lambda execution role needs:
       "Action": [
         "dynamodb:*"
       ],
-      "Resource": "arn:aws:dynamodb:*:*:table/payments*"
+      "Resource": "arn:aws:dynamodb:*:*:table/lambda_payments"
     },
     {
       "Effect": "Allow",
@@ -216,6 +216,17 @@ aws lambda update-function-configuration \
 ```
 
 ## Testing
+
+### Local harness
+
+`make examples-local` runs this handler as a real Lambda function in the official
+`public.ecr.aws/lambda/provided:al2023` runtime image (Runtime Interface Emulator)
+against DynamoDB Local. It invokes the base account path and the partner
+AssumeRole path with real event payloads.
+
+- Base path: `L1` (DynamoDB Local).
+- Partner path: `L2` on the local STS emulator. Gap: moto accepts `AssumeRole` but
+  does not enforce IAM trust policies, external-ID matching, or role permissions.
 
 ### Local Testing
 

@@ -17,14 +17,18 @@ import (
 
 // Payment model
 type Payment struct {
-	CreatedAt time.Time `dynamodb:"created_at"`
-	UpdatedAt time.Time `dynamodb:"updated_at"`
-	ID        string    `dynamodb:"id,hash"`
-	PartnerID string    `dynamodb:"partner_id" index:"partner-index,hash"`
-	Currency  string    `dynamodb:"currency"`
-	Status    string    `dynamodb:"status"`
-	Amount    int64     `dynamodb:"amount"`
+	CreatedAt time.Time `theorydb:"created_at" json:"created_at"`
+	UpdatedAt time.Time `theorydb:"updated_at" json:"updated_at"`
+	ID        string    `theorydb:"pk" json:"id"`
+	PartnerID string    `theorydb:"index:partner-index,pk" json:"partner_id"`
+	Currency  string    `json:"currency"`
+	Status    string    `json:"status"`
+	Amount    int64     `json:"amount"`
 }
+
+// TableName keeps this example's table separate from the payment example,
+// whose Payment model has a different index schema.
+func (Payment) TableName() string { return "lambda_payments" }
 
 var (
 	db   *tabletheory.MultiAccountDB
@@ -141,7 +145,7 @@ func handleCreatePayment(db core.DB, data map[string]any) (Response, error) {
 	}
 
 	payment := Payment{
-		ID:        fmt.Sprintf("pay_%d", time.Now().Unix()),
+		ID:        fmt.Sprintf("pay_%d", time.Now().UnixNano()),
 		PartnerID: data["partnerId"].(string),
 		Amount:    int64(amount * 100), // Convert to cents
 		Currency:  currency,

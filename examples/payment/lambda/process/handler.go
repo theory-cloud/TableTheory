@@ -71,7 +71,8 @@ type Handler struct {
 // NewHandler creates a new payment handler
 func NewHandler() (*Handler, error) {
 	db, err := tabletheory.New(tabletheory.Config{
-		Region: os.Getenv("AWS_REGION"),
+		Region:    os.Getenv("AWS_REGION"),
+		KMSKeyARN: os.Getenv("KMS_KEY_ARN"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize DynamoDB: %w", err)

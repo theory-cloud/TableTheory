@@ -15,7 +15,7 @@ type Payment struct {
 	Currency       string            `json:"currency"`
 	Status         string            `theorydb:"index:gsi-merchant,sk,prefix:status" json:"status"`
 	ID             string            `theorydb:"pk" json:"id"`
-	CustomerID     string            `theorydb:"index:gsi-customer" json:"customer_id,omitempty"`
+	CustomerID     string            `theorydb:"index:gsi-customer,omitempty" json:"customer_id,omitempty"`
 	Description    string            `json:"description,omitempty"`
 	MerchantID     string            `theorydb:"index:gsi-merchant,pk" json:"merchant_id"`
 	IdempotencyKey string            `theorydb:"index:gsi-idempotency" json:"idempotency_key"`
