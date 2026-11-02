@@ -197,28 +197,34 @@
       "description": "KMS envelope round-trip through TableTheory on DynamoDB Local and the local KMS emulator: the plaintext field round-trips on read, and a raw GetItem proves the stored attribute is a v2 envelope whose ciphertext does not contain the plaintext. Gap: the KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS GenerateDataKey/Decrypt calls are real."
     },
     "examples/lambda/main.go": {
-      "pending": "T4a",
-      "description": "Lambda handler example; T4a runs it through the Lambda runtime interface with real event payloads."
+      "run": "lambda-go",
+      "class": "L2",
+      "description": "Lambda handler through the provided.al2023 runtime interface: base-account create/get on DynamoDB Local plus partner AssumeRole create/get. Gap: the STS is emulated (moto) and has no authorization fidelity - no trust policy, external-ID or IAM enforcement; the AssumeRole call itself is real."
     },
     "examples/payment/lambda/process/handler.go": {
-      "pending": "T4a",
-      "description": "Payment processing handler; T4a provisions tables and invokes it through API Gateway events."
+      "run": "payment-process",
+      "class": "L2",
+      "description": "Payment processing through a real API Gateway proxy event on DynamoDB Local: merchant policy, idempotency and the atomic payment/transaction/counter transaction. The merchant's encrypted fields are decrypted through the local KMS. Gap: KMS is emulated (no HSM, key policies or grants). The webhook HTTPS/public-IP rule refuses a local target and no webhook record is written."
     },
     "examples/payment/lambda/query/handler.go": {
-      "pending": "T4a",
-      "description": "Payment query handler; T4a invokes it through API Gateway events."
+      "run": "payment-query",
+      "class": "L1",
+      "description": "Payment query handler through real API Gateway proxy events on DynamoDB Local: list, single payment with transactions, summary and export-job creation, plus an unauthenticated refusal."
     },
     "examples/payment/lambda/reconcile/handler.go": {
-      "pending": "T4a",
-      "description": "Payment reconcile handler; T4a runs it with generated S3 events on the T3 emulator."
+      "run": "payment-reconcile",
+      "class": "L3",
+      "description": "Reconcile handler with generated S3 events and real object reads on s3proxy, writing settlement and audit rows to DynamoDB Local. Gap: managed S3 event delivery - s3proxy has no bucket notifications, so the event payload is generated while the object read is real."
     },
     "ts/examples/lambda/handler.ts": {
-      "pending": "T4a",
-      "description": "TypeScript Lambda handler; T4a runs it as a real handler through the runtime interface."
+      "run": "ts-lambda",
+      "class": "L1",
+      "description": "TypeScript Lambda handler in the Node 24 runtime image: reads a seeded item from DynamoDB Local through the real client."
     },
     "py/examples/lambda_stream_handler.py": {
-      "pending": "T4a",
-      "description": "Python stream handler; T4a feeds it stream events generated from real local writes (L3: managed stream delivery)."
+      "run": "py-lambda-stream",
+      "class": "L3",
+      "description": "Python stream handler in the Python 3.14 runtime image, fed a DynamoDB stream record generated from a real local write and read back. Gap: managed stream delivery - DynamoDB Local has no Streams, so the record is generated while the write and stored image are real."
     },
     "examples/blog/authorizer/main.go": {
       "pending": "T4b",

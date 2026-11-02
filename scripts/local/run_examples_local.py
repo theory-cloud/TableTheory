@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -42,6 +43,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+
+import lambda_runtime
 
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS_DIR = Path(__file__).resolve().parent
@@ -212,6 +215,7 @@ class Harness:
     env: dict
     ports: dict
     timeout: int = DEFAULT_TIMEOUT
+    runtime: object | None = None
 
     def run(
         self,
@@ -1602,6 +1606,469 @@ def _stop_process(process: subprocess.Popen) -> None:
         process.wait(timeout=15)
 
 
+# --- Lambda runtime rows -----------------------------------------------------
+
+
+PAYMENT_JWT_SECRET = "tabletheory-local-payment-secret"
+PAYMENT_MERCHANT = "merchant_local"
+PAYMENT_QUERY_MERCHANT = "merchant_query"
+PAYMENT_WEBHOOK_URL = "https://127.0.0.1:8443/hook"
+LAMBDA_PARTNER_ROLE = "arn:aws:iam::123456789012:role/TableTheoryPartner1Role"
+LAMBDA_PARTNER_EXTERNAL_ID = "tabletheory-local-external-id"
+
+
+def _lambda_runtime(harness: Harness) -> lambda_runtime.LambdaRuntime:
+    runtime = harness.runtime
+    if not isinstance(runtime, lambda_runtime.LambdaRuntime):
+        raise HarnessFailure("the Lambda runtime was not started")
+    return runtime
+
+
+def _fixture(harness: Harness, mode: str, **options: str) -> str:
+    argv = ["go", "run", "./scripts/local/cmd/examples-local-payment-fixtures", "-mode", mode]
+    for key, value in options.items():
+        argv.extend([f"-{key.replace('_', '-')}", str(value)])
+    result = harness.run(argv, timeout=300)
+    return result.stdout.strip()
+
+
+def _fixture_json(harness: Harness, mode: str, **options: str) -> dict:
+    output = _fixture(harness, mode, **options)
+    lines = [line for line in output.splitlines() if line.strip()]
+    if not lines:
+        raise HarnessFailure(f"fixture {mode} produced no output")
+    try:
+        return json.loads(lines[-1])
+    except json.JSONDecodeError as exc:
+        raise HarnessFailure(f"fixture {mode} output is not JSON: {exc}", output) from exc
+
+
+def _stream_event(harness: Harness, pk: str) -> dict:
+    result = harness.run(
+        [
+            "go",
+            "run",
+            "./scripts/local/cmd/examples-local-stream-event",
+            "-pk",
+            pk,
+            "-sk",
+            "META",
+            "-value",
+            "42",
+        ],
+        timeout=300,
+    )
+    output = result.stdout.strip()
+    try:
+        return json.loads(output.splitlines()[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise HarnessFailure(f"stream event tool did not print JSON: {exc}", output) from exc
+
+
+def _api_event(
+    path: str,
+    method: str,
+    token: str | None = None,
+    body: dict | None = None,
+    query: dict | None = None,
+) -> dict:
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return {
+        "resource": path,
+        "path": path,
+        "httpMethod": method,
+        "headers": headers,
+        "queryStringParameters": query,
+        "body": json.dumps(body) if body is not None else "",
+        "isBase64Encoded": False,
+    }
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _claim_token(merchant_id: str, permissions: list[str]) -> str:
+    now = int(time.time())
+    header = _b64url_encode(
+        json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode()
+    )
+    claims = {
+        "merchant_id": merchant_id,
+        "permissions": permissions,
+        "iat": now,
+        "exp": now + 3600,
+    }
+    payload = _b64url_encode(json.dumps(claims, separators=(",", ":")).encode())
+    signature = hmac.new(
+        PAYMENT_JWT_SECRET.encode(), f"{header}.{payload}".encode(), hashlib.sha256
+    ).digest()
+    return f"{header}.{payload}.{_b64url_encode(signature)}"
+
+
+def _response_body(response: object, label: str) -> dict:
+    if not isinstance(response, dict):
+        raise HarnessFailure(f"{label}: response is not an object", json.dumps(response))
+    body = response.get("body")
+    if not isinstance(body, str):
+        raise HarnessFailure(f"{label}: response has no string body", json.dumps(response))
+    try:
+        decoded = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HarnessFailure(f"{label}: response body is not JSON: {exc}", body) from exc
+    if not isinstance(decoded, dict):
+        raise HarnessFailure(f"{label}: response body is not an object", body)
+    return decoded
+
+
+def _expect_status_code(response: object, expected: int, label: str) -> None:
+    actual = response.get("statusCode") if isinstance(response, dict) else None
+    if actual != expected:
+        raise HarnessFailure(
+            f"{label}: expected statusCode {expected}, got {actual}", json.dumps(response)
+        )
+
+
+def _require(condition: object, message: str, output: object = "") -> None:
+    if not condition:
+        raise HarnessFailure(message, output if isinstance(output, str) else json.dumps(output))
+
+
+def run_lambda_go(harness: Harness) -> str:
+    _fixture(harness, "provision")
+    function = _lambda_runtime(harness).start_go(
+        "lambda-go",
+        "./examples/lambda",
+        {
+            "PARTNER1_ROLE_ARN": LAMBDA_PARTNER_ROLE,
+            "PARTNER1_EXTERNAL_ID": LAMBDA_PARTNER_EXTERNAL_ID,
+            "PARTNER1_REGION": "us-east-1",
+            "PARTNER2_ROLE_ARN": LAMBDA_PARTNER_ROLE,
+            "PARTNER2_EXTERNAL_ID": LAMBDA_PARTNER_EXTERNAL_ID,
+            "PARTNER2_REGION": "us-east-1",
+        },
+    )
+
+    base = function.invoke(
+        {
+            "partnerId": "",
+            "action": "createPayment",
+            "data": {"amount": 100.5, "currency": "USD", "partnerId": "base-partner"},
+        }
+    )
+    _require(base.get("success") is True, "base createPayment failed", base)
+    base_payment = base.get("data") or {}
+    _require(base_payment.get("partner_id") == "base-partner", "base payment partner mismatch", base)
+    _require(base_payment.get("amount") == 10050, "base payment amount mismatch", base)
+
+    base_get = function.invoke(
+        {
+            "partnerId": "",
+            "action": "getPayment",
+            "data": {"paymentId": base_payment.get("id")},
+        }
+    )
+    _require(base_get.get("success") is True, "base getPayment failed", base_get)
+    _require((base_get.get("data") or {}).get("id") == base_payment.get("id"), "base get mismatch", base_get)
+
+    partner = function.invoke(
+        {
+            "partnerId": "partner1",
+            "action": "createPayment",
+            "data": {"amount": 42.25, "currency": "EUR", "partnerId": "partner1"},
+        }
+    )
+    _require(partner.get("success") is True, "partner createPayment failed", partner)
+    partner_payment = partner.get("data") or {}
+    _require(partner_payment.get("partner_id") == "partner1", "partner payment mismatch", partner)
+
+    partner_get = function.invoke(
+        {
+            "partnerId": "partner1",
+            "action": "getPayment",
+            "data": {"paymentId": partner_payment.get("id")},
+        }
+    )
+    _require(partner_get.get("success") is True, "partner getPayment failed", partner_get)
+    _require(
+        (partner_get.get("data") or {}).get("id") == partner_payment.get("id"),
+        "partner get mismatch",
+        partner_get,
+    )
+
+    unknown_action = function.invoke({"partnerId": "", "action": "deleteEverything", "data": {}})
+    _require(unknown_action.get("success") is False, "unknown action was accepted", unknown_action)
+    _require(unknown_action.get("error") == "unknown action", "unknown action error mismatch", unknown_action)
+
+    unknown_partner = function.invoke(
+        {"partnerId": "not-a-partner", "action": "getPayment", "data": {"paymentId": "missing"}}
+    )
+    _require(unknown_partner.get("success") is False, "unknown partner was accepted", unknown_partner)
+    _require(
+        "invalid partner" in str(unknown_partner.get("error", "")),
+        "unknown partner error mismatch",
+        unknown_partner,
+    )
+
+    return "base create/get + partner AssumeRole create/get + 2 refusals"
+
+
+def run_payment_process(harness: Harness) -> str:
+    _fixture(harness, "seed-merchant", merchant=PAYMENT_MERCHANT, webhook_url=PAYMENT_WEBHOOK_URL)
+    function = _lambda_runtime(harness).start_go(
+        "payment-process",
+        "./examples/payment/lambda/process",
+        {"JWT_SECRET": PAYMENT_JWT_SECRET},
+    )
+    token = _claim_token(PAYMENT_MERCHANT, ["payments:write"])
+
+    function.mark_logs()
+    response = function.invoke(
+        _api_event(
+            "/payments",
+            "POST",
+            token,
+            {
+                "amount": 12500,
+                "currency": "USD",
+                "payment_method": "card",
+                "user_id": "user_local",
+                "idempotency_key": f"idem-{uuid.uuid4().hex[:12]}",
+            },
+        )
+    )
+    _expect_status_code(response, 201, "process payment")
+    body = _response_body(response, "process payment")
+    _require(body.get("success") is True, "process payment did not succeed", body)
+    payment = body.get("data") or {}
+    _require(payment.get("status") == "succeeded", "payment status is not succeeded", body)
+    _require(payment.get("amount") == 12500, "payment amount mismatch", body)
+    _require(payment.get("merchant_id") == PAYMENT_MERCHANT, "payment merchant mismatch", body)
+
+    logs = function.new_logs()
+    expect_output(
+        logs,
+        ["refusing webhook destination", "address 127.0.0.1 is not public"],
+        "payment webhook destination refusal",
+    )
+
+    denied = function.invoke(
+        _api_event(
+            "/payments",
+            "POST",
+            _claim_token(PAYMENT_MERCHANT, ["payments:read"]),
+            {
+                "amount": 12500,
+                "currency": "USD",
+                "payment_method": "card",
+                "user_id": "user_local",
+                "idempotency_key": f"idem-{uuid.uuid4().hex[:12]}",
+            },
+        )
+    )
+    _expect_status_code(denied, 403, "payment without the write permission")
+    _require(
+        _response_body(denied, "payment without the write permission").get("error") == "Payment not permitted",
+        "permission denial message mismatch",
+        denied,
+    )
+
+    unauthenticated = function.invoke(
+        _api_event(
+            "/payments",
+            "POST",
+            None,
+            {
+                "amount": 12500,
+                "currency": "USD",
+                "payment_method": "card",
+                "user_id": "user_local",
+            },
+        )
+    )
+    _expect_status_code(unauthenticated, 401, "payment without a token")
+
+    verify = _fixture_json(harness, "verify-payment", merchant=PAYMENT_MERCHANT)
+    _require(verify.get("payments") == 1, "a refused request left a payment behind", verify)
+    _require(verify.get("transactions") == 1, "transaction count mismatch", verify)
+    _require(verify.get("webhooks") == 0, "a refused webhook destination left a record", verify)
+    _require(verify.get("usage_counters") == 2, "usage counters were not written", verify)
+    _require(sorted(verify.get("usage_counts") or []) == [1, 1], "usage counts mismatch", verify)
+    _require(verify.get("idempotency_records") == 1, "idempotency record count mismatch", verify)
+
+    return "201 process + 403/401 refusals + webhook refusal + atomic counters"
+
+
+def run_payment_query(harness: Harness) -> str:
+    _fixture(
+        harness,
+        "seed-merchant",
+        merchant=PAYMENT_QUERY_MERCHANT,
+        webhook_url=PAYMENT_WEBHOOK_URL,
+    )
+    runtime = _lambda_runtime(harness)
+    seed = runtime.start_go(
+        "payment-query-seed",
+        "./examples/payment/lambda/process",
+        {"JWT_SECRET": PAYMENT_JWT_SECRET},
+    )
+    token = _claim_token(PAYMENT_QUERY_MERCHANT, ["payments:write"])
+    created = seed.invoke(
+        _api_event(
+            "/payments",
+            "POST",
+            token,
+            {
+                "amount": 12500,
+                "currency": "USD",
+                "payment_method": "card",
+                "user_id": "user_local",
+                "idempotency_key": f"idem-{uuid.uuid4().hex[:12]}",
+            },
+        )
+    )
+    _expect_status_code(created, 201, "query seed payment")
+    payment_id = (_response_body(created, "query seed payment").get("data") or {}).get("id")
+    _require(payment_id, "query seed payment has no id", created)
+    seed.stop()
+    runtime.functions.pop("payment-query-seed", None)
+
+    query = runtime.start_go(
+        "payment-query",
+        "./examples/payment/lambda/query",
+        {"JWT_SECRET": PAYMENT_JWT_SECRET},
+    )
+
+    listed = query.invoke(_api_event("/payments", "GET", token, query={"limit": "20"}))
+    _expect_status_code(listed, 200, "list payments")
+    listing = _response_body(listed, "list payments").get("data") or {}
+    _require(listing.get("total") == 1, "list payments total mismatch", listed)
+    _require(
+        any(item.get("id") == payment_id for item in listing.get("payments") or []),
+        "list payments does not contain the payment",
+        listed,
+    )
+
+    fetched = query.invoke(_api_event(f"/payments/{payment_id}", "GET", token))
+    _expect_status_code(fetched, 200, "get payment")
+    detail = _response_body(fetched, "get payment").get("data") or {}
+    _require((detail.get("payment") or {}).get("id") == payment_id, "get payment id mismatch", fetched)
+    _require(len(detail.get("transactions") or []) == 1, "get payment transactions mismatch", fetched)
+
+    summary_response = query.invoke(_api_event("/payments/summary", "GET", token))
+    _expect_status_code(summary_response, 200, "payment summary")
+    summary = _response_body(summary_response, "payment summary").get("data") or {}
+    _require(summary.get("total_count") == 1, "summary total_count mismatch", summary_response)
+    _require(summary.get("total_amount") == 12500, "summary total_amount mismatch", summary_response)
+    _require((summary.get("by_status") or {}).get("succeeded") == 1, "summary by_status mismatch", summary_response)
+
+    export = query.invoke(_api_event("/payments/export", "POST", token))
+    _expect_status_code(export, 202, "payment export")
+    export_data = _response_body(export, "payment export").get("data") or {}
+    _require(str(export_data.get("export_id", "")).startswith("export-"), "export id mismatch", export)
+    _require(export_data.get("status") == "pending", "export status mismatch", export)
+
+    _expect_status_code(
+        query.invoke(_api_event("/payments", "GET", None)), 401, "query without a token"
+    )
+
+    verify = _fixture_json(harness, "verify-payment", merchant=PAYMENT_QUERY_MERCHANT)
+    _require(verify.get("export_jobs") == 1, "export job was not stored", verify)
+    _require(verify.get("payments") == 1, "unexpected payment count", verify)
+
+    return "list/get/summary/export + 401 refusal"
+
+
+def run_payment_reconcile(harness: Harness) -> str:
+    _fixture(harness, "provision")
+    published = _fixture_json(harness, "publish-reconcile")
+    function = _lambda_runtime(harness).start_go(
+        "payment-reconcile", "./examples/payment/lambda/reconcile"
+    )
+
+    event = {
+        "Records": [
+            {
+                "eventVersion": "2.1",
+                "eventSource": "aws:s3",
+                "awsRegion": "us-east-1",
+                "eventTime": "2026-11-02T00:00:00.000Z",
+                "eventName": "ObjectCreated:Put",
+                "s3": {
+                    "s3SchemaVersion": "1.0",
+                    "configurationId": "tabletheory-local-harness",
+                    "bucket": {
+                        "name": published.get("bucket"),
+                        "ownerIdentity": {"principalId": "local"},
+                        "arn": f"arn:aws:s3:::{published.get('bucket')}",
+                    },
+                    "object": {
+                        "key": published.get("key"),
+                        "size": published.get("size"),
+                        "eTag": published.get("etag"),
+                        "sequencer": "0001",
+                    },
+                },
+            }
+        ]
+    }
+
+    function.mark_logs()
+    result = function.invoke(event)
+    _require(result is None, "reconcile handler returned a value", result)
+    logs = function.new_logs()
+    expect_output(logs, ["Reconciliation completed: 2 processed, 0 errors"], "reconcile")
+    reject_output(logs, ["Error processing"], "reconcile")
+
+    verify = _fixture_json(harness, "verify-payment", merchant="merchant-1")
+    _require(verify.get("settlements", 0) >= 1, "reconcile stored no settlement", verify)
+    _require(verify.get("audit_logs", 0) >= 2, "reconcile stored no audit entries", verify)
+
+    return "real S3 object read + 2 rows + settlement/audit writes"
+
+
+def run_ts_lambda(harness: Harness) -> str:
+    _fixture(harness, "seed-user")
+    seeded = _fixture_json(harness, "verify-user")
+    _require(seeded.get("found") is True, "lambda_users seed is missing", seeded)
+    _require(seeded.get("nickname") == "Alice", "lambda_users seed has the wrong nickname", seeded)
+    function = _lambda_runtime(harness).start_node(
+        "ts-lambda",
+        ROOT / "ts" / "examples" / "lambda" / "handler.ts",
+        {"USERS_TABLE": "lambda_users"},
+    )
+
+    response = function.invoke({"pk": "USER#local", "sk": "PROFILE"})
+    _require(response.get("ok") is True, "TypeScript handler did not report ok", response)
+    item = response.get("item") or {}
+    _require(item.get("nickname") == "Alice", "TypeScript handler read the wrong item", response)
+    _require(item.get("PK") == "USER#local", "TypeScript handler read the wrong key", response)
+
+    return "real handler read"
+
+
+def run_py_lambda_stream(harness: Harness) -> str:
+    pk = f"NOTE#{uuid.uuid4().hex[:12]}"
+    event = _stream_event(harness, pk)
+    function = _lambda_runtime(harness).start_python(
+        "py-lambda-stream", ROOT / "py" / "examples" / "lambda_stream_handler.py"
+    )
+
+    function.mark_logs()
+    result = function.invoke(event)
+    _require(result is None, "Python stream handler returned a value", result)
+    logs = function.new_logs()
+    expect_output(
+        logs,
+        [f"note: Note(pk='{pk}', sk='META', value=Decimal('42'))"],
+        "Python stream handler",
+    )
+
+    return "generated stream record from a real local write"
+
+
 RUNNERS: dict[str, Callable[[Harness], str]] = {
     "go-local-quickstart": run_go_local_quickstart,
     "go-encryption": run_go_encryption,
@@ -1623,6 +2090,12 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "multi-tenant-lambda": run_multi_tenant_lambda,
     "multi-tenant-module-tests": run_multi_tenant_module_tests,
     "multi-tenant-http": run_multi_tenant_http,
+    "lambda-go": run_lambda_go,
+    "payment-process": run_payment_process,
+    "payment-query": run_payment_query,
+    "payment-reconcile": run_payment_reconcile,
+    "ts-lambda": run_ts_lambda,
+    "py-lambda-stream": run_py_lambda_stream,
 }
 
 
@@ -1698,6 +2171,19 @@ def main(argv: list[str] | None = None) -> int:
         try:
             preflight(harness, profile)
             prepare(harness)
+            harness.runtime = lambda_runtime.LambdaRuntime(
+                harness, profile, ROOT / "tmp" / "examples-local" / profile.project
+            )
+            harness.runtime.preflight()
+            print(
+                "  PASS  Lambda function preflight: DynamoDB, KMS, STS, S3 and SQS "
+                "resolve to the profile and real AWS DNS is blocked"
+            )
+        except lambda_runtime.LambdaFailure as failure:
+            print_failure("preflight", HarnessFailure(failure.message, failure.output))
+            print()
+            print("RESULT: FAIL (preflight)")
+            return 1
         except HarnessFailure as failure:
             print_failure("preflight", failure)
             print()
@@ -1720,6 +2206,12 @@ def main(argv: list[str] | None = None) -> int:
                 results[entry.key] = ("PASS", detail)
                 print(f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} PASS  {detail}")
             except HarnessFailure as failure:
+                results[entry.key] = ("FAIL", failure.message)
+                failures.append((entry, failure))
+                print(f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} FAIL")
+                print_failure(entry.label, failure)
+            except lambda_runtime.LambdaFailure as failure:
+                failure = HarnessFailure(failure.message, failure.output)
                 results[entry.key] = ("FAIL", failure.message)
                 failures.append((entry, failure))
                 print(f"  [{index:>2}/{total}] {entry.label:<58} {entry.class_name:<3} FAIL")
@@ -1777,6 +2269,13 @@ def main(argv: list[str] | None = None) -> int:
         print("RESULT: PASS")
         return 0
     finally:
+        if harness.runtime is not None:
+            try:
+                harness.runtime.close()
+            except lambda_runtime.LambdaFailure as exc:
+                print(f"  WARN  could not remove Lambda function containers: {exc.message}")
+            except OSError as exc:
+                print(f"  WARN  could not remove Lambda scratch files: {exc}")
         try:
             stop_profile(harness, profile)
         except HarnessFailure as exc:
