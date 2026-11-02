@@ -2569,6 +2569,11 @@ def run_blog_comments(harness: Harness) -> str:
             "an anonymous comment must await moderation",
             anonymous,
         )
+        _require(
+            "parent_id" not in anonymous,
+            "a root comment must not expose the stored parent sentinel",
+            anonymous,
+        )
 
         response = comments.invoke(
             _blog_event("GET", path, path_params={"postId": post_id})
@@ -2668,6 +2673,28 @@ def run_blog_comments(harness: Harness) -> str:
         _expect_status_code(response, 200, "public comment list after delete")
         listed = _response_body(response, "public comment list after delete")["data"]
         _require(listed.get("total_count") == 1, "deleted comment is still listed", listed)
+
+        response = comments.invoke(
+            _blog_event(
+                "POST",
+                path,
+                authorizer=owner,
+                path_params={"postId": post_id},
+                body={
+                    "author_name": "Author",
+                    "author_email": "author@example.com",
+                    "content": "reply comment",
+                    "parent_id": anonymous.get("id"),
+                },
+            )
+        )
+        _expect_status_code(response, 201, "reply comment")
+        reply = _response_body(response, "reply comment")["data"]["comment"]
+        _require(
+            reply.get("parent_id") == anonymous.get("id"),
+            "a reply must keep its real parent comment id",
+            reply,
+        )
     finally:
         runtime.stop("blog-comments")
 

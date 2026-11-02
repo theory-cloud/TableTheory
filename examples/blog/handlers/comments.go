@@ -60,6 +60,18 @@ func publicCommentOf(comment *models.Comment) *publicComment {
 	}
 }
 
+// commentForClient is the comment a write endpoint returns. It keeps the whole
+// recorded comment (the commenter needs its id and moderation status) but
+// replaces the stored root sentinel with the empty parent a client understands.
+// The public list projection is stricter: it also drops commenter PII.
+func commentForClient(comment *models.Comment) *models.Comment {
+	response := *comment
+	if response.ParentID == rootCommentParentID {
+		response.ParentID = ""
+	}
+	return &response
+}
+
 // commentNode represents a comment with its children
 type commentNode struct {
 	*publicComment
@@ -349,7 +361,7 @@ func (h *CommentHandler) createComment(ctx context.Context, postID string, reque
 	}
 
 	response := map[string]any{
-		"comment": comment,
+		"comment": commentForClient(comment),
 		"message": "Comment submitted successfully",
 	}
 
