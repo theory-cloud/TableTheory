@@ -63,6 +63,10 @@ STANDARD_ENDPOINT_ENV = {
     "sqs": "AWS_ENDPOINT_URL_SQS",
 }
 DIGEST_PIN_RE = re.compile(r"@sha256:[0-9a-f]{64}$")
+PINNED_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# Lambda runtime images the harness starts. The manifest carries one entry per
+# runtime so the image reference is pinned in exactly one place.
+LAMBDA_RUNTIMES = ("go", "node", "python")
 # Dependency trees and build output: never entrypoints.
 EXCLUDED_DIR_PARTS = {
     "node_modules",
@@ -153,6 +157,7 @@ class LocalProfile:
     compose_file: Path
     containers: dict[str, Container]
     endpoints: dict[str, Endpoint]
+    lambda_images: dict[str, str]
     run_id: str
     project: str
     host_ports: dict[str, int] = field(default_factory=dict)
@@ -183,6 +188,11 @@ def project_name(profile_name: str, root: Path, run_id: str) -> str:
     return f"{profile_name}-{hashlib.sha256(material).hexdigest()[:10]}"
 
 
+def lambda_image(spec: dict) -> str:
+    """Return the ``tag@sha256:...`` reference a Lambda runtime image pin names."""
+    return f"{spec.get('tag', '')}@{spec.get('digest', '')}"
+
+
 def build_profile(profile: dict, root: Path, run_id: str) -> LocalProfile:
     containers = {
         name: Container(
@@ -200,11 +210,15 @@ def build_profile(profile: dict, root: Path, run_id: str) -> LocalProfile:
         )
         for name, spec in profile["endpoints"].items()
     }
+    lambda_images = {
+        name: lambda_image(spec) for name, spec in profile["lambda"]["images"].items()
+    }
     return LocalProfile(
         name=str(profile["name"]),
         compose_file=root / str(profile["composeFile"]),
         containers=containers,
         endpoints=endpoints,
+        lambda_images=lambda_images,
         run_id=run_id,
         project=project_name(str(profile["name"]), root, run_id),
     )
@@ -626,6 +640,42 @@ def validate_manifest(
             )
         if not isinstance(port, int) or port <= 0:
             errors.append(f"profile.containers.{name}.containerPort must be a positive integer")
+
+    # Lambda runtime images are declared once, in the manifest, and must be as
+    # pinned as the emulator images: a moving tag cannot decide what the harness
+    # runs.
+    lambda_spec = profile.get("lambda")
+    lambda_images = lambda_spec.get("images") if isinstance(lambda_spec, dict) else None
+    if not isinstance(lambda_spec, dict):
+        errors.append("profile.lambda must declare the Lambda runtime image pins")
+    elif not isinstance(lambda_images, dict) or not lambda_images:
+        errors.append("profile.lambda.images must be a non-empty object")
+    else:
+        for runtime in LAMBDA_RUNTIMES:
+            if runtime not in lambda_images:
+                errors.append(f"profile.lambda.images.{runtime} is required")
+        for runtime, spec in lambda_images.items():
+            if not isinstance(spec, dict):
+                errors.append(f"profile.lambda.images.{runtime} must be an object")
+                continue
+            tag = str(spec.get("tag", ""))
+            pinned = str(spec.get("pinned", ""))
+            reference = lambda_image(spec)
+            repository, _, tag_name = tag.rpartition(":")
+            if not DIGEST_PIN_RE.search(reference):
+                errors.append(
+                    f"profile.lambda.images.{runtime} must be pinned by digest "
+                    f"(tag@sha256:...), got {reference!r}"
+                )
+            if not repository or not tag_name or "/" in tag_name or "@" in tag_name:
+                errors.append(
+                    f"profile.lambda.images.{runtime}.tag must be a tagged image reference, got {tag!r}"
+                )
+            if not PINNED_DATE_RE.match(pinned):
+                errors.append(
+                    f"profile.lambda.images.{runtime}.pinned must be an ISO date (YYYY-MM-DD), "
+                    f"got {pinned!r}"
+                )
 
     if not compose_path.is_file():
         errors.append(f"profile compose file is missing: {profile.get('composeFile')}")

@@ -10,12 +10,17 @@ profile services through ``/etc/hosts``, and gets a closed DNS server so a real
 AWS hostname cannot resolve. That, the static dummy credentials and the endpoint
 overrides together keep every request local; the in-container preflight proves
 it before any example runs.
+
+Runtime images are not named here. The manifest (``examples-local.json``) pins
+each one by multi-arch index digest, and this module refuses an image that is
+not digest-pinned, so a moved tag cannot silently change what the harness runs.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import time
@@ -25,11 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-IMAGES = {
-    "go": "public.ecr.aws/lambda/provided:al2023",
-    "node": "public.ecr.aws/lambda/nodejs:24",
-    "python": "public.ecr.aws/lambda/python:3.14",
-}
+DIGEST_PIN_RE = re.compile(r"@sha256:[0-9a-f]{64}$")
 PREFLIGHT_PACKAGE = "./scripts/local/cmd/examples-local-lambda-preflight"
 RIE_PORT = 8080
 DEFAULT_TIMEOUT = 120
@@ -204,6 +205,22 @@ class LambdaRuntime:
 
     # --- builds -------------------------------------------------------------
 
+    def image_for(self, runtime: str) -> str:
+        """Return the manifest's digest-pinned image for one runtime.
+
+        Fail closed: an absent pin, a moved tag or a literal image is a harness
+        bug, not something to guess around.
+        """
+        try:
+            image = self.profile.lambda_images[runtime]
+        except KeyError as exc:
+            raise LambdaFailure(f"profile has no Lambda image pin for runtime {runtime!r}") from exc
+        if not DIGEST_PIN_RE.search(image):
+            raise LambdaFailure(
+                f"Lambda runtime image for {runtime!r} is not pinned by digest: {image!r}"
+            )
+        return image
+
     def _task_dir(self, name: str) -> Path:
         path = self.scratch / name
         if path.exists():
@@ -347,17 +364,17 @@ class LambdaRuntime:
 
     def start_go(self, name: str, package: str, extra_env: dict[str, str] | None = None) -> LambdaFunction:
         return self._start(
-            name, IMAGES["go"], self.build_go(name, package), "bootstrap", extra_env
+            name, self.image_for("go"), self.build_go(name, package), "bootstrap", extra_env
         )
 
     def start_node(self, name: str, entry: Path, extra_env: dict[str, str] | None = None) -> LambdaFunction:
         return self._start(
-            name, IMAGES["node"], self.build_node(name, entry), HANDLER_NAME, extra_env
+            name, self.image_for("node"), self.build_node(name, entry), HANDLER_NAME, extra_env
         )
 
     def start_python(self, name: str, handler: Path, extra_env: dict[str, str] | None = None) -> LambdaFunction:
         return self._start(
-            name, IMAGES["python"], self.build_python(name, handler), HANDLER_NAME, extra_env
+            name, self.image_for("python"), self.build_python(name, handler), HANDLER_NAME, extra_env
         )
 
     def preflight(self) -> dict:

@@ -19,7 +19,7 @@ make examples-local-down   # remove leftover containers/networks from any run
 
 | Piece | Where it lives |
 | --- | --- |
-| Local profile | `scripts/local/docker-compose.yml` — digest-pinned DynamoDB Local, moto (KMS + STS), s3proxy and ElasticMQ |
+| Local profile | `scripts/local/docker-compose.yml` — digest-pinned DynamoDB Local, moto (KMS + STS), s3proxy and ElasticMQ; the Lambda runtime image pins live in the manifest under `profile.lambda.images` |
 | Classification manifest | `scripts/local/examples-local.json` |
 | Harness | `scripts/local/run_examples_local.py` |
 | Endpoint-resolution preflight | `scripts/local/cmd/examples-local-preflight` |
@@ -161,7 +161,9 @@ Every image in the profile is pinned by digest, and the manifest validation
 fails if a tag-only image, a fixed host port, a fixed container name or a fixed
 compose project name is introduced. The tags that produced the current digests
 are `amazon/dynamodb-local:3.1.0`, `motoserver/moto:5.2.5`,
-`andrewgaul/s3proxy:master` and `softwaremill/elasticmq-native:1.7.1`.
+`andrewgaul/s3proxy:master` and `softwaremill/elasticmq-native:1.7.1`. The
+Lambda runtime images follow the same rule and are pinned in the manifest too;
+their tags, digests and refresh procedure are in the next section.
 
 ## Lambda handlers (T4a)
 
@@ -170,11 +172,35 @@ Lambda runtime image, which embeds the Runtime Interface Emulator (RIE). The
 harness invokes `POST /2015-03-31/functions/function/invocations` with a real
 event payload; no handler is called in process.
 
-| Runtime | Image | Handler build |
-| --- | --- | --- |
-| Go | `public.ecr.aws/lambda/provided:al2023` | `GOOS=linux GOARCH=<docker server arch> CGO_ENABLED=0 go build`, mounted as `/var/task/bootstrap` |
-| Node | `public.ecr.aws/lambda/nodejs:24` | esbuild bundle of the `.ts` entrypoint, mounted as `/var/task/handler.js` |
-| Python | `public.ecr.aws/lambda/python:3.14` | the checked-in handler plus a verbatim copy of `py/src/tabletheory_py`, mounted at `/var/task` |
+| Runtime | Image | Tag | Digest (multi-arch index) | Pinned | Handler build |
+| --- | --- | --- | --- | --- | --- |
+| Go | `public.ecr.aws/lambda/provided` | `al2023` | `public.ecr.aws/lambda/provided:al2023@sha256:2dc0f1f26731018b369932201d1dac295edd1730d1280f194486ae093ac39798` | 2026-11-01 | `GOOS=linux GOARCH=<docker server arch> CGO_ENABLED=0 go build`, mounted as `/var/task/bootstrap` |
+| Node | `public.ecr.aws/lambda/nodejs` | `24` | `public.ecr.aws/lambda/nodejs:24@sha256:8466f17dcfbec19afcfefff53964fac7bc3f7975fa132d5fd74dce53004827d0` | 2026-11-01 | esbuild bundle of the `.ts` entrypoint, mounted as `/var/task/handler.js` |
+| Python | `public.ecr.aws/lambda/python` | `3.14` | `public.ecr.aws/lambda/python:3.14@sha256:51985f11b2fb1949619bda27d121f38ef7d4db64423ca6189ab1d7e632527d27` | 2026-11-01 | the checked-in handler plus a verbatim copy of `py/src/tabletheory_py`, mounted at `/var/task` |
+
+These are the multi-arch (index) digests: the same pin resolves the arm64 and
+amd64 child manifests, so an Apple-silicon host and the Linux CI runner run the
+same published image. The reference exists in exactly one place:
+`scripts/local/examples-local.json` under `profile.lambda.images`, as `tag`,
+`digest` and `pinned`. `lambda_runtime.py` names no image itself and refuses a
+reference that is not `tag@sha256:...`, and the manifest validation rejects a
+tag-only image, a malformed tag or a missing pin date. The mutation self-test
+also fails if this table and the manifest disagree.
+
+To refresh a digest deliberately:
+
+1. Confirm the tag still names the runtime the examples target (`provided:al2023`,
+   `nodejs:24`, `python:3.14`); a runtime-version bump is a separate change that
+   also updates the examples and this table.
+2. Resolve the multi-arch index digest, not an architecture child digest:
+   `docker buildx imagetools inspect public.ecr.aws/lambda/provided:al2023` and
+   read the top-level `Digest:` line.
+3. Update `profile.lambda.images.<runtime>.digest` and `pinned` (the date) in
+   `scripts/local/examples-local.json`, then update this table in the same
+   commit.
+4. Run `make examples-local` on a Docker/Colima host: the preflight and the T4a
+   rows start all three runtime images, so a bad digest fails before any example
+   row claims a pass.
 
 The function container joins the run's private compose network, gets a hosts
 entry for every profile service, and is started with a closed DNS server
@@ -252,7 +278,11 @@ stays visible while `lib/`, `test/` and generated output stay out.
 The profile itself is tested the same way: a tag-only image, a fixed host port,
 a fixed `container_name`, a fixed compose project name, a missing logical
 endpoint, or an endpoint that omits its `AWS_ENDPOINT_URL_<SERVICE>` override
-all fail validation. `ConcurrencyIsolationTests` starts two real profiles at
+all fail validation. The Lambda runtime pins are covered from both ends: a
+tag-only or missing `profile.lambda.images` entry fails validation, the runtime
+refuses an unpinned reference, the runtime module may not name an image literal,
+and the documented table must match the manifest's pins and dates.
+`ConcurrencyIsolationTests` starts two real profiles at
 once and asserts that the second run neither recreates nor removes the first
 run's container, that the endpoints differ, and that the first database still
 answers after the second stack is torn down. That test needs Docker and fails
@@ -303,6 +333,15 @@ missing expected output as a failure.
         "container": "moto",
         "env": ["AWS_ENDPOINT_URL_KMS", "KMS_ENDPOINT"]
       }
+    },
+    "lambda": {
+      "images": {
+        "go": {
+          "tag": "public.ecr.aws/lambda/provided:al2023",
+          "digest": "sha256:...",
+          "pinned": "2026-11-01"
+        }
+      }
     }
   },
   "entrypoints": {
@@ -335,12 +374,17 @@ missing expected output as a failure.
 - `containers` declares every compose service with its digest-pinned image and
   container port; `endpoints` maps each logical service (`dynamodb`, `kms`,
   `sts`, `s3`, `sqs`; the example above abbreviates the last three) to a
-  container and the environment variables that must point at it.
+  container and the environment variables that must point at it. `lambda.images`
+  declares the three runtime images (`go`, `node`, `python`; one shown) as a
+  `tag`, a multi-arch `digest` and the `pinned` date; the runtime composes
+  `tag@digest`, so a moving tag cannot change what runs.
 - Validation checks that every container image is digest-pinned, that the
   compose file declares the same image and publishes an ephemeral loopback port
   (`127.0.0.1::<containerPort>`), that no `container_name` or top-level compose
   `name` fixes an identity, that all five logical services exist, and that each
-  one exposes its `AWS_ENDPOINT_URL_<SERVICE>` override.
+  one exposes its `AWS_ENDPOINT_URL_<SERVICE>` override. It also checks that all
+  three Lambda runtime pins exist, carry a digest, a tagged image reference and
+  an ISO pin date.
 - `run` names a runner implemented in `scripts/local/run_examples_local.py`.
   Each runner is used by exactly one entry.
 - `coveredBy` points at another executed entry; the covered row inherits its

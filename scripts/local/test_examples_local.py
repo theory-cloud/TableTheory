@@ -24,6 +24,7 @@ after the second stack is torn down.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -34,11 +35,15 @@ HARNESS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(HARNESS_DIR))
 
 import run_examples_local as harness  # noqa: E402
+import lambda_runtime  # noqa: E402
 
 DIGEST = "a" * 64
 DIGEST_B = "b" * 64
 DIGEST_C = "c" * 64
 DIGEST_D = "d" * 64
+DIGEST_E = "e" * 64
+DIGEST_F = "f" * 64
+DIGEST_0 = "0" * 64
 
 COMPOSE = f"""\
 services:
@@ -78,6 +83,25 @@ PROFILE = {
         "sts": {"container": "moto", "env": ["AWS_ENDPOINT_URL_STS", "STS_ENDPOINT"]},
         "s3": {"container": "s3proxy", "env": ["AWS_ENDPOINT_URL_S3", "S3_ENDPOINT"]},
         "sqs": {"container": "elasticmq", "env": ["AWS_ENDPOINT_URL_SQS", "SQS_ENDPOINT"]},
+    },
+    "lambda": {
+        "images": {
+            "go": {
+                "tag": "public.ecr.aws/lambda/provided:al2023",
+                "digest": f"sha256:{DIGEST_E}",
+                "pinned": "2026-11-01",
+            },
+            "node": {
+                "tag": "public.ecr.aws/lambda/nodejs:24",
+                "digest": f"sha256:{DIGEST_F}",
+                "pinned": "2026-11-01",
+            },
+            "python": {
+                "tag": "public.ecr.aws/lambda/python:3.14",
+                "digest": f"sha256:{DIGEST_0}",
+                "pinned": "2026-11-01",
+            },
+        }
     },
 }
 
@@ -355,6 +379,11 @@ class ProfileValidationTests(unittest.TestCase):
                     name: {**spec, "env": list(spec["env"])}
                     for name, spec in PROFILE["endpoints"].items()
                 },
+                "lambda": {
+                    "images": {
+                        name: dict(spec) for name, spec in PROFILE["lambda"]["images"].items()
+                    }
+                },
             }
             mutate(profile, tree.root)
             return tree.validate(profile=profile)
@@ -366,6 +395,41 @@ class ProfileValidationTests(unittest.TestCase):
         errors = self.mutate(mutate)
         self.assertTrue(
             any("pinned by digest" in error and "moto" in error for error in errors), errors
+        )
+
+    def test_tag_only_lambda_image_fails_digest_pinning(self) -> None:
+        def mutate(profile, root):
+            profile["lambda"]["images"]["node"]["digest"] = ""
+
+        errors = self.mutate(mutate)
+        self.assertTrue(
+            any("pinned by digest" in error and "lambda.images.node" in error for error in errors),
+            errors,
+        )
+
+    def test_lambda_runtime_pin_cannot_be_dropped(self) -> None:
+        def mutate(profile, root):
+            del profile["lambda"]["images"]["python"]
+
+        errors = self.mutate(mutate)
+        self.assertTrue(
+            any("lambda.images.python is required" in error for error in errors), errors
+        )
+
+    def test_lambda_pin_records_the_date(self) -> None:
+        def mutate(profile, root):
+            profile["lambda"]["images"]["go"]["pinned"] = "whenever"
+
+        errors = self.mutate(mutate)
+        self.assertTrue(any("ISO date" in error and "go" in error for error in errors), errors)
+
+    def test_lambda_tag_must_name_a_tag(self) -> None:
+        def mutate(profile, root):
+            profile["lambda"]["images"]["go"]["tag"] = "public.ecr.aws/lambda/provided"
+
+        errors = self.mutate(mutate)
+        self.assertTrue(
+            any("tagged image reference" in error and "go" in error for error in errors), errors
         )
 
     def test_fixed_host_port_fails_ephemeral_isolation(self) -> None:
@@ -422,6 +486,84 @@ class ProfileValidationTests(unittest.TestCase):
 
         errors = self.mutate(mutate)
         self.assertTrue(any("used by both" in error for error in errors), errors)
+
+
+class LambdaImagePinTests(unittest.TestCase):
+    """Lambda runtime images must be digest-pinned in one place and nowhere else.
+
+    A moving tag in the runtime module is exactly the supply-chain hole these
+    tests close: the image reference may only come from the manifest, and the
+    runtime must refuse a pin that is not ``tag@sha256:...``.
+    """
+
+    def profile(self) -> object:
+        return harness.build_profile(PROFILE, Path("/tmp/checkout"), "run-1")
+
+    def runtime(self, profile) -> lambda_runtime.LambdaRuntime:
+        return lambda_runtime.LambdaRuntime(
+            harness.Harness(env={}, ports={}), profile, Path("/tmp/scratch")
+        )
+
+    def test_runtime_module_names_no_image_literal(self) -> None:
+        source = (HARNESS_DIR / "lambda_runtime.py").read_text(encoding="utf-8")
+        literals = re.findall(
+            r"public\.ecr\.aws/lambda/[a-z0-9-]+:[a-z0-9.]+(?:@sha256:[0-9a-f]{64})?", source
+        )
+        self.assertEqual(literals, [])
+        for marker in ("al2023", "nodejs:24", "python:3.14"):
+            self.assertNotIn(
+                marker, source, f"lambda_runtime.py must not name an image literal: {marker!r}"
+            )
+
+    def test_runtime_rejects_a_tag_only_pin(self) -> None:
+        profile = self.profile()
+        profile.lambda_images["node"] = "public.ecr.aws/lambda/nodejs:24"
+        with self.assertRaises(lambda_runtime.LambdaFailure):
+            self.runtime(profile).image_for("node")
+
+    def test_runtime_rejects_a_missing_pin(self) -> None:
+        profile = self.profile()
+        del profile.lambda_images["python"]
+        with self.assertRaises(lambda_runtime.LambdaFailure):
+            self.runtime(profile).image_for("python")
+
+    def test_every_runtime_starts_the_pinned_image(self) -> None:
+        profile = self.profile()
+        runtime = self.runtime(profile)
+        runtime.build_go = lambda name, package: Path("/tmp/task")
+        runtime.build_node = lambda name, entry: Path("/tmp/task")
+        runtime.build_python = lambda name, handler: Path("/tmp/task")
+        images: dict[str, str] = {}
+
+        def fake_start(name, image, task_dir, handler_arg, extra_env):
+            images[name] = image
+
+        runtime._start = fake_start
+        runtime.start_go("go-row", "./x")
+        runtime.start_node("node-row", Path("/tmp/handler.ts"))
+        runtime.start_python("python-row", Path("/tmp/handler.py"))
+
+        self.assertEqual(
+            images["go-row"], f"public.ecr.aws/lambda/provided:al2023@sha256:{DIGEST_E}"
+        )
+        self.assertEqual(images["node-row"], f"public.ecr.aws/lambda/nodejs:24@sha256:{DIGEST_F}")
+        self.assertEqual(
+            images["python-row"], f"public.ecr.aws/lambda/python:3.14@sha256:{DIGEST_0}"
+        )
+
+    def test_documented_pins_match_the_manifest(self) -> None:
+        profile, _ = harness.load_manifest(harness.MANIFEST_PATH)
+        document = (harness.ROOT / "docs/examples/local-harness.md").read_text(encoding="utf-8")
+        for runtime, spec in profile["lambda"]["images"].items():
+            reference = f"{spec['tag']}@{spec['digest']}"
+            rows = [line for line in document.splitlines() if reference in line]
+            self.assertTrue(
+                rows, f"docs/examples/local-harness.md does not document {runtime}: {reference}"
+            )
+            self.assertTrue(
+                any(spec["pinned"] in line for line in rows),
+                f"docs/examples/local-harness.md does not record the pin date {spec['pinned']} for {runtime}",
+            )
 
 
 class EnvironmentTests(unittest.TestCase):

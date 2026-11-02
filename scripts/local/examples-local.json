@@ -58,6 +58,25 @@
           "SQS_ENDPOINT"
         ]
       }
+    },
+    "lambda": {
+      "images": {
+        "go": {
+          "tag": "public.ecr.aws/lambda/provided:al2023",
+          "digest": "sha256:2dc0f1f26731018b369932201d1dac295edd1730d1280f194486ae093ac39798",
+          "pinned": "2026-11-01"
+        },
+        "node": {
+          "tag": "public.ecr.aws/lambda/nodejs:24",
+          "digest": "sha256:8466f17dcfbec19afcfefff53964fac7bc3f7975fa132d5fd74dce53004827d0",
+          "pinned": "2026-11-01"
+        },
+        "python": {
+          "tag": "public.ecr.aws/lambda/python:3.14",
+          "digest": "sha256:51985f11b2fb1949619bda27d121f38ef7d4db64423ca6189ab1d7e632527d27",
+          "pinned": "2026-11-01"
+        }
+      }
     }
   },
   "entrypoints": {
