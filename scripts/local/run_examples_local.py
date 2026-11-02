@@ -29,6 +29,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -84,6 +85,21 @@ TEST_FILE_MARKERS = (".test.", ".spec.", "_test.")
 GENERATED_MARKER_RE = re.compile(r"Code generated .*\bDO NOT EDIT\b")
 GO_MAIN_RE = re.compile(r"^func main\(\)", re.MULTILINE)
 MULTI_TENANT = ROOT / "examples" / "multi-tenant"
+BLOG = ROOT / "examples" / "blog"
+CDK_MULTILANG = ROOT / "examples" / "cdk-multilang"
+BLOG_JWT_SECRET = "tabletheory-local-blog-secret"
+BLOG_ENVIRONMENT = "dev"
+BLOG_TABLES = (
+    "dev-blog-posts",
+    "dev-blog-comments",
+    "dev-blog-authors",
+    "dev-blog-search",
+)
+CDK_DEMO_TABLE = "multilang_local"
+CDK_EVIDENCE_TABLE = "multilang_evidence_local"
+CDK_ARCHIVE_BUCKET = "multilang-archive-local"
+CDK_ARCHIVE_PREFIX = "evidence-snapshots"
+CDK_TTL_ATTRIBUTE = "expires_at"
 JWT_SECRET = "tabletheory-local-harness-secret"
 DEFAULT_TIMEOUT = 900
 FAILURE_OUTPUT_LINES = 60
@@ -739,6 +755,19 @@ def build_env(profile: LocalProfile) -> dict:
         "S3_ENDPOINT",
         "STS_ENDPOINT",
         "SQS_ENDPOINT",
+        "ENVIRONMENT",
+        "BLOG_ALLOW_HEADER_IDENTITY",
+        "TABLE_NAME",
+        "EVIDENCE_TABLE_NAME",
+        "DMS_MODEL_B64",
+        "ARCHIVE_BUCKET_NAME",
+        "ARCHIVE_PREFIX",
+        "TTL_ATTRIBUTE_NAME",
+        "CDK_OUTDIR",
+        "CDK_SYNTH_NO_BUNDLING",
+        "CDK_DEFAULT_ACCOUNT",
+        "CDK_DEFAULT_REGION",
+        "CDK_CONTEXT_JSON",
     ):
         env.pop(key, None)
     # Proxy variables are cleared in both cases for the same reason: no child
@@ -1008,6 +1037,16 @@ def prepare(harness: Harness) -> None:
         harness.run(["npm", "--prefix", "ts", "ci", "--ignore-scripts"], timeout=1800)
     if not tsx.exists():
         raise HarnessFailure(f"TypeScript runner is still missing after npm ci: {tsx}")
+
+    # The cdk-multilang Node and archive handlers import the built TypeScript
+    # runtime (ts/dist), exactly as the deployed bundles do. A clean checkout has
+    # only the sources, so build the package before any handler is bundled.
+    ts_dist = ROOT / "ts" / "dist" / "index.js"
+    if not ts_dist.exists():
+        print("  ... building the TypeScript runtime (npm run build)")
+        harness.run(["npm", "--prefix", "ts", "run", "build"], timeout=1800)
+    if not ts_dist.exists():
+        raise HarnessFailure(f"TypeScript runtime build produced no {ts_dist}")
 
     # The cdk-multilang Node reader resolves @aws-sdk/client-dynamodb from the
     # example's own dependency tree, which a clean checkout does not have.
@@ -2119,6 +2158,1190 @@ def run_py_lambda_stream(harness: Harness) -> str:
     return "generated stream record from a real local write"
 
 
+# --- Blog rows --------------------------------------------------------------
+
+BLOG_METHOD_ARN = "arn:aws:execute-api:us-east-1:123456789012:blog-api/dev/POST/posts"
+
+
+def _blog_token(
+    subject: str,
+    role: str = "author",
+    *,
+    secret: str = BLOG_JWT_SECRET,
+    expires_in: int = 3600,
+    algorithm: str = "HS256",
+) -> str:
+    """Mint the HS256 bearer token the example's authorizer verifies."""
+    header = _b64url_encode(
+        json.dumps({"alg": algorithm, "typ": "JWT"}, separators=(",", ":")).encode()
+    )
+    claims = {
+        "sub": subject,
+        "role": role,
+        "exp": int(time.time()) + expires_in,
+    }
+    payload = _b64url_encode(json.dumps(claims, separators=(",", ":")).encode())
+    if algorithm != "HS256":
+        return f"{header}.{payload}.{_b64url_encode(b'invalid-signature')}"
+    signature = hmac.new(secret.encode(), f"{header}.{payload}".encode(), hashlib.sha256).digest()
+    return f"{header}.{payload}.{_b64url_encode(signature)}"
+
+
+def _blog_authorizer_event(
+    token: str | None,
+    *,
+    method_arn: str = BLOG_METHOD_ARN,
+    headers: dict | None = None,
+) -> dict:
+    request_headers = {"Content-Type": "application/json"}
+    if token:
+        request_headers["Authorization"] = f"Bearer {token}"
+    if headers:
+        request_headers.update(headers)
+    return {
+        "type": "REQUEST",
+        "methodArn": method_arn,
+        "resource": "/posts",
+        "path": "/posts",
+        "httpMethod": "POST",
+        "headers": request_headers,
+        "queryStringParameters": {},
+        "pathParameters": {},
+        "stageVariables": {},
+        "requestContext": {},
+    }
+
+
+def _blog_event(
+    method: str,
+    path: str,
+    *,
+    authorizer: dict | None = None,
+    body: dict | None = None,
+    path_params: dict | None = None,
+    query: dict | None = None,
+    headers: dict | None = None,
+) -> dict:
+    return {
+        "resource": path,
+        "path": path,
+        "httpMethod": method,
+        "headers": headers or {"Content-Type": "application/json"},
+        "queryStringParameters": query,
+        "pathParameters": path_params,
+        "body": json.dumps(body) if body is not None else "",
+        "isBase64Encoded": False,
+        "requestContext": {"authorizer": authorizer or {}},
+    }
+
+
+def _assert_container_env_unset(function, name: str, label: str) -> None:
+    """Prove a security-off switch is absent from the running container."""
+    result = function.runtime.harness.run(
+        ["docker", "inspect", "--format", "{{json .Config.Env}}", function.container],
+        timeout=60,
+    )
+    values = json.loads(result.stdout)
+    _require(
+        isinstance(values, list) and all(not item.startswith(f"{name}=") for item in values),
+        f"{label}: {name} must be unset in the function container",
+        values,
+    )
+
+
+def _blog_setup(harness: Harness) -> None:
+    result = harness.run(
+        ["go", "run", "./cmd/local", "-mode", "setup"],
+        cwd=BLOG,
+        env={"ENVIRONMENT": BLOG_ENVIRONMENT},
+        timeout=300,
+    )
+    output = _combined_output(result)
+    for table in BLOG_TABLES:
+        expect_output(output, [f"table: {table}"], "blog setup")
+    expect_output(output, ['"ok":true'], "blog setup")
+
+
+def _blog_authorizer_contexts(
+    harness: Harness,
+    identities: list[tuple[str, str]],
+    *,
+    name: str = "blog-authorizer",
+    secret: str = BLOG_JWT_SECRET,
+) -> list[dict]:
+    """Run the real authorizer and return the contexts it emits."""
+    runtime = _lambda_runtime(harness)
+    function = runtime.start_go(
+        name,
+        "./authorizer",
+        {"JWT_SECRET": secret, "ENVIRONMENT": BLOG_ENVIRONMENT},
+        cwd=BLOG,
+    )
+    try:
+        contexts = []
+        for subject, role in identities:
+            response = function.invoke(
+                _blog_authorizer_event(_blog_token(subject, role, secret=secret))
+            )
+            _require(isinstance(response, dict), "authorizer response is not an object", response)
+            _require(
+                response.get("principalId") == subject,
+                f"authorizer principal mismatch for {subject}",
+                response,
+            )
+            context = response.get("context") or {}
+            _require(
+                context.get("authorId") == subject,
+                f"authorizer context authorId mismatch for {subject}",
+                response,
+            )
+            _require(
+                context.get("role") == role,
+                f"authorizer context role mismatch for {subject}",
+                response,
+            )
+            contexts.append(context)
+        return contexts
+    finally:
+        runtime.stop(name)
+
+
+def _expect_authorizer_denied(function, event: dict, label: str) -> None:
+    try:
+        response = function.invoke(event)
+    except lambda_runtime.LambdaFailure as failure:
+        expect_output(failure.output, ["Unauthorized"], label)
+        return
+    raise HarnessFailure(f"{label}: authorizer accepted the request", json.dumps(response))
+
+
+def run_blog_authorizer(harness: Harness) -> str:
+    _blog_setup(harness)
+    runtime = _lambda_runtime(harness)
+    function = runtime.start_go(
+        "blog-authorizer",
+        "./authorizer",
+        {"JWT_SECRET": BLOG_JWT_SECRET, "ENVIRONMENT": BLOG_ENVIRONMENT},
+        cwd=BLOG,
+    )
+    try:
+        token = _blog_token("author#1", "admin")
+        response = function.invoke(_blog_authorizer_event(token))
+        _require(isinstance(response, dict), "authorizer response is not an object", response)
+        _require(response.get("principalId") == "author#1", "authorizer principal mismatch", response)
+        context = response.get("context") or {}
+        _require(context.get("authorId") == "author#1", "authorizer authorId mismatch", response)
+        _require(context.get("role") == "admin", "authorizer role mismatch", response)
+        policy = response.get("policyDocument") or {}
+        statements = policy.get("Statement") or []
+        _require(len(statements) == 1, "authorizer policy statement count mismatch", response)
+        _require(statements[0].get("Effect") == "Allow", "authorizer policy is not Allow", response)
+        _require(
+            statements[0].get("Resource") == [BLOG_METHOD_ARN],
+            "authorizer policy resource mismatch",
+            response,
+        )
+
+        _expect_authorizer_denied(
+            function, _blog_authorizer_event(None), "authorizer without a credential"
+        )
+        _expect_authorizer_denied(
+            function,
+            _blog_authorizer_event(_blog_token("author#1", "author", secret="wrong-secret")),
+            "authorizer with a tampered signature",
+        )
+        _expect_authorizer_denied(
+            function,
+            _blog_authorizer_event(_blog_token("author#1", "author", expires_in=-60)),
+            "authorizer with an expired token",
+        )
+        _expect_authorizer_denied(
+            function,
+            _blog_authorizer_event(_blog_token("author#1", "author", algorithm="none")),
+            "authorizer with alg=none",
+        )
+        _expect_authorizer_denied(
+            function,
+            _blog_authorizer_event(_blog_token("", "author")),
+            "authorizer without a subject",
+        )
+    finally:
+        runtime.stop("blog-authorizer")
+
+    no_secret = runtime.start_go(
+        "blog-authorizer-no-secret",
+        "./authorizer",
+        {"JWT_SECRET": "", "ENVIRONMENT": BLOG_ENVIRONMENT},
+        cwd=BLOG,
+    )
+    try:
+        _expect_authorizer_denied(
+            no_secret,
+            _blog_authorizer_event(_blog_token("author#1", "author")),
+            "authorizer without a configured secret",
+        )
+    finally:
+        runtime.stop("blog-authorizer-no-secret")
+
+    return "HS256 allow + 6 refusal paths through the real authorizer"
+
+
+def run_blog_posts(harness: Harness) -> str:
+    _blog_setup(harness)
+    owner, other = _blog_authorizer_contexts(
+        harness, [("author#1", "author"), ("author#2", "author")]
+    )
+    runtime = _lambda_runtime(harness)
+    function = runtime.start_go(
+        "blog-posts", "./cmd/posts", {"ENVIRONMENT": BLOG_ENVIRONMENT}, cwd=BLOG
+    )
+    try:
+        _assert_container_env_unset(function, "BLOG_ALLOW_HEADER_IDENTITY", "blog posts")
+        response = function.invoke(
+            _blog_event("POST", "/posts", body={"title": "No auth", "content": "x"})
+        )
+        _expect_status_code(response, 401, "create post without a credential")
+        response = function.invoke(
+            _blog_event(
+                "POST",
+                "/posts",
+                body={"title": "Spoofed", "content": "x"},
+                headers={"X-Author-ID": "author#1", "X-Author-Role": "admin"},
+            )
+        )
+        _expect_status_code(response, 401, "create post with spoofed identity headers")
+
+        response = function.invoke(
+            _blog_event(
+                "POST",
+                "/posts",
+                authorizer=owner,
+                body={
+                    "title": "Local Harness Post",
+                    "content": "published body",
+                    "excerpt": "published excerpt",
+                    "status": "published",
+                    "tags": ["local", "harness"],
+                },
+            )
+        )
+        _expect_status_code(response, 201, "create published post")
+        published = _response_body(response, "create published post")["data"]
+        _require(published.get("status") == "published", "created post is not published", published)
+
+        response = function.invoke(
+            _blog_event(
+                "POST",
+                "/posts",
+                authorizer=owner,
+                body={"title": "Local Draft Post", "content": "draft body", "status": "draft"},
+            )
+        )
+        _expect_status_code(response, 201, "create draft post")
+        draft = _response_body(response, "create draft post")["data"]
+        _require(draft.get("status") == "draft", "created draft is not a draft", draft)
+
+        response = function.invoke(_blog_event("GET", "/posts", query={"limit": "20"}))
+        _expect_status_code(response, 200, "public list")
+        listed = _response_body(response, "public list")["data"]
+        ids = {post.get("id") for post in listed.get("posts") or []}
+        _require(published.get("id") in ids, "published post missing from the public list", listed)
+        _require(draft.get("id") not in ids, "draft post leaked into the public list", listed)
+
+        response = function.invoke(
+            _blog_event("GET", "/posts/{slug}", path_params={"slug": published.get("slug")})
+        )
+        _expect_status_code(response, 200, "public post by slug")
+        fetched = _response_body(response, "public post by slug")["data"]
+        _require(fetched["post"].get("id") == published.get("id"), "slug read mismatch", fetched)
+        response = function.invoke(
+            _blog_event("GET", "/posts/{slug}", path_params={"slug": draft.get("slug")})
+        )
+        _expect_status_code(response, 404, "draft post by slug")
+
+        response = function.invoke(
+            _blog_event(
+                "PUT",
+                "/posts/{id}",
+                path_params={"id": published.get("id")},
+                body={"content": "spoofed update"},
+                headers={"X-Author-ID": "author#1", "X-Author-Role": "admin"},
+            )
+        )
+        _expect_status_code(response, 401, "update with spoofed identity headers")
+        response = function.invoke(
+            _blog_event(
+                "PUT",
+                "/posts/{id}",
+                authorizer=other,
+                path_params={"id": published.get("id")},
+                body={"content": "not the owner"},
+            )
+        )
+        _expect_status_code(response, 403, "update by a non-owner")
+        response = function.invoke(
+            _blog_event(
+                "PUT",
+                "/posts/{id}",
+                authorizer=owner,
+                path_params={"id": published.get("id")},
+                body={"content": "updated body"},
+            )
+        )
+        _expect_status_code(response, 200, "update by the owner")
+        updated = _response_body(response, "update by the owner")["data"]
+        _require(updated.get("content") == "updated body", "update did not change content", updated)
+
+        response = function.invoke(
+            _blog_event(
+                "DELETE",
+                "/posts/{id}",
+                authorizer=other,
+                path_params={"id": draft.get("id")},
+            )
+        )
+        _expect_status_code(response, 403, "delete by a non-owner")
+        for post_id, label in ((draft.get("id"), "delete the draft"), (published.get("id"), "delete the post")):
+            response = function.invoke(
+                _blog_event("DELETE", "/posts/{id}", authorizer=owner, path_params={"id": post_id})
+            )
+            _expect_status_code(response, 200, label)
+        response = function.invoke(
+            _blog_event("GET", "/posts/{slug}", path_params={"slug": published.get("slug")})
+        )
+        _expect_status_code(response, 404, "deleted post by slug")
+    finally:
+        runtime.stop("blog-posts")
+
+    return "create/get/list/update/delete + public draft hiding + 4 refusals"
+
+
+def run_blog_comments(harness: Harness) -> str:
+    _blog_setup(harness)
+    owner, other, admin = _blog_authorizer_contexts(
+        harness,
+        [("author#1", "author"), ("author#2", "author"), ("admin#9", "admin")],
+    )
+    runtime = _lambda_runtime(harness)
+    posts = runtime.start_go(
+        "blog-comments-posts", "./cmd/posts", {"ENVIRONMENT": BLOG_ENVIRONMENT}, cwd=BLOG
+    )
+    try:
+        response = posts.invoke(
+            _blog_event(
+                "POST",
+                "/posts",
+                authorizer=owner,
+                body={
+                    "title": "Commented Local Post",
+                    "content": "body",
+                    "status": "published",
+                },
+            )
+        )
+        _expect_status_code(response, 201, "create commented post")
+        post_id = _response_body(response, "create commented post")["data"]["id"]
+    finally:
+        runtime.stop("blog-comments-posts")
+
+    comments = runtime.start_go(
+        "blog-comments", "./cmd/comments", {"ENVIRONMENT": BLOG_ENVIRONMENT}, cwd=BLOG
+    )
+    try:
+        _assert_container_env_unset(comments, "BLOG_ALLOW_HEADER_IDENTITY", "blog comments")
+        path = "/posts/{postId}/comments"
+        response = comments.invoke(
+            _blog_event(
+                "POST",
+                path,
+                path_params={"postId": post_id},
+                body={
+                    "author_name": "Reader",
+                    "author_email": "reader@example.com",
+                    "content": "anonymous comment",
+                },
+            )
+        )
+        _expect_status_code(response, 201, "anonymous comment")
+        anonymous = _response_body(response, "anonymous comment")["data"]["comment"]
+        _require(
+            anonymous.get("status") == "pending",
+            "an anonymous comment must await moderation",
+            anonymous,
+        )
+
+        response = comments.invoke(
+            _blog_event("GET", path, path_params={"postId": post_id})
+        )
+        _expect_status_code(response, 200, "public comment list")
+        listed = _response_body(response, "public comment list")["data"]
+        _require(listed.get("total_count") == 0, "pending comment leaked into the public list", listed)
+
+        response = comments.invoke(
+            _blog_event(
+                "POST",
+                path,
+                authorizer=owner,
+                path_params={"postId": post_id},
+                body={
+                    "author_name": "Author",
+                    "author_email": "author@example.com",
+                    "content": "authenticated comment",
+                },
+            )
+        )
+        _expect_status_code(response, 201, "authenticated comment")
+        authenticated = _response_body(response, "authenticated comment")["data"]["comment"]
+        _require(
+            authenticated.get("status") == "approved",
+            "an authenticated comment must be auto-approved",
+            authenticated,
+        )
+        _require(
+            authenticated.get("author_id") == "author#1",
+            "comment identity did not come from the authorizer context",
+            authenticated,
+        )
+
+        moderate_path = "/comments/{commentId}/moderate"
+        response = comments.invoke(
+            _blog_event(
+                "PUT",
+                moderate_path,
+                path_params={"commentId": anonymous.get("id")},
+                body={"status": "approved"},
+                headers={"X-Author-Role": "admin"},
+            )
+        )
+        _expect_status_code(response, 403, "moderate with a spoofed role header")
+        response = comments.invoke(
+            _blog_event(
+                "PUT",
+                moderate_path,
+                authorizer=owner,
+                path_params={"commentId": anonymous.get("id")},
+                body={"status": "approved"},
+            )
+        )
+        _expect_status_code(response, 403, "moderate as a non-admin")
+        response = comments.invoke(
+            _blog_event(
+                "PUT",
+                moderate_path,
+                authorizer=admin,
+                path_params={"commentId": anonymous.get("id")},
+                body={"status": "approved"},
+            )
+        )
+        _expect_status_code(response, 200, "moderate as an admin")
+
+        response = comments.invoke(
+            _blog_event("GET", path, path_params={"postId": post_id})
+        )
+        _expect_status_code(response, 200, "public comment list after moderation")
+        listed = _response_body(response, "public comment list after moderation")["data"]
+        _require(listed.get("total_count") == 2, "approved comments missing from the public list", listed)
+        _require(listed.get("comment_count") == 2, "comment count mismatch", listed)
+
+        delete_path = "/comments/{commentId}"
+        response = comments.invoke(
+            _blog_event(
+                "DELETE",
+                delete_path,
+                authorizer=other,
+                path_params={"commentId": authenticated.get("id")},
+            )
+        )
+        _expect_status_code(response, 403, "delete a comment as a non-owner")
+        response = comments.invoke(
+            _blog_event(
+                "DELETE",
+                delete_path,
+                authorizer=owner,
+                path_params={"commentId": authenticated.get("id")},
+            )
+        )
+        _expect_status_code(response, 200, "delete a comment as the owner")
+        response = comments.invoke(
+            _blog_event("GET", path, path_params={"postId": post_id})
+        )
+        _expect_status_code(response, 200, "public comment list after delete")
+        listed = _response_body(response, "public comment list after delete")["data"]
+        _require(listed.get("total_count") == 1, "deleted comment is still listed", listed)
+    finally:
+        runtime.stop("blog-comments")
+
+    return "anonymous pending + authenticated approved + admin moderation + 3 refusals"
+
+
+# --- cdk-multilang rows -----------------------------------------------------
+
+
+def _cdk_fixture(harness: Harness, mode: str, **options: str) -> dict:
+    argv = ["go", "run", "./scripts/local/cmd/examples-local-cdk-fixtures", "-mode", mode]
+    for key, value in options.items():
+        argv.extend([f"-{key}", str(value)])
+    result = harness.run(argv, timeout=300)
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    if not lines:
+        raise HarnessFailure(f"cdk fixture {mode} produced no output")
+    try:
+        return json.loads(lines[-1])
+    except json.JSONDecodeError as exc:
+        raise HarnessFailure(f"cdk fixture {mode} output is not JSON: {exc}", result.stdout) from exc
+
+
+def _cdk_provision(harness: Harness) -> dict:
+    provisioned = _cdk_fixture(harness, "provision")
+    _require(
+        provisioned.get("demo_table") == CDK_DEMO_TABLE,
+        "demo table name drifted from the harness constant",
+        provisioned,
+    )
+    _require(
+        provisioned.get("evidence_table") == CDK_EVIDENCE_TABLE,
+        "evidence table name drifted from the harness constant",
+        provisioned,
+    )
+    _require(
+        provisioned.get("archive_bucket") == CDK_ARCHIVE_BUCKET,
+        "archive bucket name drifted from the harness constant",
+        provisioned,
+    )
+    return provisioned
+
+
+def _cdk_dms_b64() -> str:
+    demo = CDK_MULTILANG / "dms" / "demo.yml"
+    return base64.b64encode(demo.read_bytes()).decode()
+
+
+def _cdk_env() -> dict:
+    return {
+        "TABLE_NAME": CDK_DEMO_TABLE,
+        "DMS_MODEL_B64": _cdk_dms_b64(),
+    }
+
+
+def _function_url_event(
+    method: str,
+    path: str,
+    *,
+    body: dict | None = None,
+    query: dict | None = None,
+) -> dict:
+    event = {
+        "rawPath": path,
+        "headers": {"content-type": "application/json"},
+        "requestContext": {"http": {"method": method, "path": path}},
+    }
+    if body is not None:
+        event["body"] = json.dumps(body)
+    if query is not None:
+        event["queryStringParameters"] = query
+    return event
+
+
+def _function_response(response: object, label: str) -> tuple[int, dict]:
+    if not isinstance(response, dict):
+        raise HarnessFailure(f"{label}: response is not an object", json.dumps(response))
+    status = response.get("statusCode")
+    body = response.get("body")
+    if not isinstance(body, str):
+        raise HarnessFailure(f"{label}: response has no string body", json.dumps(response))
+    try:
+        decoded = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HarnessFailure(f"{label}: response body is not JSON: {exc}", body) from exc
+    if not isinstance(decoded, dict):
+        raise HarnessFailure(f"{label}: response body is not an object", body)
+    return int(status or 0), decoded
+
+
+def _expect_function_status(response: object, expected: int, label: str) -> dict:
+    status, body = _function_response(response, label)
+    if status != expected:
+        raise HarnessFailure(
+            f"{label}: expected statusCode {expected}, got {status}", json.dumps(body)
+        )
+    return body
+
+
+def _verify_envelope(harness: Harness, pk: str, sk: str, plaintext: str) -> dict:
+    envelope = _cdk_fixture(
+        harness, "verify-envelope", pk=pk, sk=sk, plaintext=plaintext
+    )
+    _require(envelope.get("found") is True, f"stored item {pk}/{sk} is missing", envelope)
+    _require(
+        envelope.get("envelope_version") in (1, 2),
+        "stored secret is not a versioned envelope",
+        envelope,
+    )
+    for field in ("edk_bytes", "nonce_bytes", "ct_bytes"):
+        _require(int(envelope.get(field, 0)) > 0, f"envelope {field} is empty", envelope)
+    return envelope
+
+
+def run_cdk_multilang_go(harness: Harness) -> str:
+    _cdk_provision(harness)
+    runtime = _lambda_runtime(harness)
+    function = runtime.start_go(
+        "cdk-go", "./examples/cdk-multilang/lambdas/go", _cdk_env()
+    )
+    pk, sk, secret = "demo#go", "v1", "go-secret"
+    try:
+        body = _expect_function_status(
+            function.invoke(
+                _function_url_event(
+                    "PUT", "/", body={"pk": pk, "sk": sk, "value": "go-value", "secret": secret}
+                )
+            ),
+            200,
+            "Go PUT /",
+        )
+        item = body.get("item") or {}
+        _require(item.get("secret") == secret, "Go write did not return the decrypted secret", body)
+        _require(item.get("lang") == "go", "Go write did not set lang=go", body)
+
+        body = _expect_function_status(
+            function.invoke(_function_url_event("GET", "/", query={"pk": pk, "sk": sk})),
+            200,
+            "Go GET /",
+        )
+        _require((body.get("item") or {}).get("secret") == secret, "Go read lost the secret", body)
+
+        _expect_function_status(
+            function.invoke(_function_url_event("GET", "/batch")), 405, "Go GET /batch"
+        )
+        _expect_function_status(
+            function.invoke(_function_url_event("GET", "/", query={"pk": pk})),
+            400,
+            "Go GET without a sort key",
+        )
+        _expect_function_status(
+            function.invoke(
+                _function_url_event("GET", "/", query={"pk": "demo#missing", "sk": "v1"})
+            ),
+            404,
+            "Go GET a missing item",
+        )
+
+        body = _expect_function_status(
+            function.invoke(
+                _function_url_event(
+                    "POST",
+                    "/batch",
+                    body={"pk": "demo#go-batch", "count": 3, "value": "batch", "secret": "batch-secret"},
+                )
+            ),
+            200,
+            "Go POST /batch",
+        )
+        _require(body.get("count") == 3, "Go batch write count mismatch", body)
+        _require(len(body.get("items") or []) == 3, "Go batch read count mismatch", body)
+
+        body = _expect_function_status(
+            function.invoke(
+                _function_url_event(
+                    "POST",
+                    "/tx",
+                    body={"pk": "demo#go-tx", "value": "tx", "secret": "tx-secret"},
+                )
+            ),
+            200,
+            "Go POST /tx",
+        )
+        _require(body.get("count") == 2, "Go transaction write count mismatch", body)
+    finally:
+        runtime.stop("cdk-go")
+
+    envelope = _verify_envelope(harness, pk, sk, secret)
+    return (
+        "Function URL PUT/GET + batch + transaction + 3 refusals; "
+        f"stored envelope v{envelope.get('envelope_version')}"
+    )
+
+
+def run_cdk_multilang_node(harness: Harness) -> str:
+    _cdk_provision(harness)
+    runtime = _lambda_runtime(harness)
+    pk, sk, secret = "demo#cross", "v1", "cross-secret"
+
+    go_function = runtime.start_go(
+        "cdk-node-go", "./examples/cdk-multilang/lambdas/go", _cdk_env()
+    )
+    try:
+        _expect_function_status(
+            go_function.invoke(
+                _function_url_event(
+                    "PUT", "/", body={"pk": pk, "sk": sk, "value": "cross-value", "secret": secret}
+                )
+            ),
+            200,
+            "Go PUT the cross-language item",
+        )
+    finally:
+        runtime.stop("cdk-node-go")
+
+    function = runtime.start_node(
+        "cdk-node", CDK_MULTILANG / "lambdas" / "node" / "handler.ts", _cdk_env()
+    )
+    try:
+        body = _expect_function_status(
+            function.invoke(_function_url_event("GET", "/", query={"pk": pk, "sk": sk})),
+            200,
+            "Node GET the Go item",
+        )
+        item = body.get("item") or {}
+        _require(item.get("secret") == secret, "Node did not decrypt the Go secret", body)
+        _require(item.get("lang") == "go", "Node read the wrong item", body)
+
+        body = _expect_function_status(
+            function.invoke(
+                _function_url_event(
+                    "POST",
+                    "/batch",
+                    body={"pk": "demo#node-batch", "count": 3, "value": "batch", "secret": "batch-secret"},
+                )
+            ),
+            200,
+            "Node POST /batch",
+        )
+        _require(body.get("count") == 3, "Node batch write count mismatch", body)
+        _require(
+            all((entry.get("lang") == "ts") for entry in body.get("items") or []),
+            "Node batch items did not record lang=ts",
+            body,
+        )
+
+        body = _expect_function_status(
+            function.invoke(
+                _function_url_event(
+                    "POST",
+                    "/tx",
+                    body={"pk": "demo#node-tx", "value": "tx", "secret": "tx-secret"},
+                )
+            ),
+            200,
+            "Node POST /tx",
+        )
+        _require(body.get("count") == 2, "Node transaction write count mismatch", body)
+
+        _expect_function_status(
+            function.invoke(_function_url_event("GET", "/batch")), 405, "Node GET /batch"
+        )
+        _expect_function_status(
+            function.invoke(_function_url_event("GET", "/", query={"pk": pk})),
+            400,
+            "Node GET without a sort key",
+        )
+        _expect_function_status(
+            function.invoke(
+                _function_url_event("GET", "/", query={"pk": "demo#missing", "sk": "v1"})
+            ),
+            404,
+            "Node GET a missing item",
+        )
+    finally:
+        runtime.stop("cdk-node")
+
+    envelope = _verify_envelope(harness, "demo#node-batch", "BATCH#1", "batch-secret")
+    return (
+        "cross-language GET + batch + transaction + 3 refusals; "
+        f"stored envelope v{envelope.get('envelope_version')}"
+    )
+
+
+def run_cdk_multilang_python(harness: Harness) -> str:
+    _cdk_provision(harness)
+    runtime = _lambda_runtime(harness)
+    function = runtime.start_python(
+        "cdk-python",
+        CDK_MULTILANG / "lambdas" / "python" / "handler.py",
+        _cdk_env(),
+        requirements=CDK_MULTILANG / "lambdas" / "python",
+    )
+    pk, sk, secret = "demo#py", "v1", "py-secret"
+    try:
+        body = _expect_function_status(
+            function.invoke(
+                _function_url_event(
+                    "PUT", "/", body={"pk": pk, "sk": sk, "value": "py-value", "secret": secret}
+                )
+            ),
+            200,
+            "Python PUT /",
+        )
+        _require(
+            (body.get("item") or {}).get("secret") == secret,
+            "Python write did not return the decrypted secret",
+            body,
+        )
+        _require((body.get("item") or {}).get("lang") == "py", "Python did not set lang=py", body)
+
+        body = _expect_function_status(
+            function.invoke(_function_url_event("GET", "/", query={"pk": pk, "sk": sk})),
+            200,
+            "Python GET /",
+        )
+        item = body.get("item") or {}
+        _require(item.get("secret") == secret, "Python read lost the secret", body)
+        _require(item.get("lang") == "py", "Python read the wrong item", body)
+
+        body = _expect_function_status(
+            function.invoke(
+                _function_url_event(
+                    "POST",
+                    "/batch",
+                    body={"pk": "demo#py-batch", "count": 3, "value": "batch", "secret": "batch-secret"},
+                )
+            ),
+            200,
+            "Python POST /batch",
+        )
+        _require(body.get("count") == 3, "Python batch write count mismatch", body)
+        _require(
+            all((entry.get("lang") == "py") for entry in body.get("items") or []),
+            "Python batch items did not record lang=py",
+            body,
+        )
+
+        body = _expect_function_status(
+            function.invoke(
+                _function_url_event(
+                    "POST",
+                    "/tx",
+                    body={"pk": "demo#py-tx", "value": "tx", "secret": "tx-secret"},
+                )
+            ),
+            200,
+            "Python POST /tx",
+        )
+        _require(body.get("count") == 2, "Python transaction write count mismatch", body)
+
+        _expect_function_status(
+            function.invoke(_function_url_event("GET", "/batch")), 405, "Python GET /batch"
+        )
+        _expect_function_status(
+            function.invoke(_function_url_event("GET", "/", query={"pk": pk})),
+            400,
+            "Python GET without a sort key",
+        )
+        _expect_function_status(
+            function.invoke(
+                _function_url_event("GET", "/", query={"pk": "demo#missing", "sk": "v1"})
+            ),
+            404,
+            "Python GET a missing item",
+        )
+    finally:
+        runtime.stop("cdk-python")
+
+    envelope = _verify_envelope(harness, pk, sk, secret)
+    return (
+        "Python PUT/GET + batch + transaction + 3 refusals; "
+        f"stored envelope v{envelope.get('envelope_version')}"
+    )
+
+
+def run_cdk_multilang_archive(harness: Harness) -> str:
+    _cdk_provision(harness)
+    generated = _cdk_fixture(
+        harness, "stream-event", pk="evidence#local", sk="ttl-1", ttl=CDK_TTL_ATTRIBUTE
+    )
+    event = generated.get("event") or {}
+    _require(
+        len(event.get("Records") or []) == 1,
+        "stream event generator did not produce one record",
+        generated,
+    )
+
+    runtime = _lambda_runtime(harness)
+    function = runtime.start_node(
+        "cdk-archive",
+        CDK_MULTILANG / "lambdas" / "archive" / "handler.ts",
+        {
+            "ARCHIVE_BUCKET_NAME": CDK_ARCHIVE_BUCKET,
+            "ARCHIVE_PREFIX": CDK_ARCHIVE_PREFIX,
+            "TTL_ATTRIBUTE_NAME": CDK_TTL_ATTRIBUTE,
+        },
+    )
+    try:
+        response = function.invoke(event)
+        _require(
+            response == {"batchItemFailures": []},
+            "archive handler reported a batch item failure",
+            response,
+        )
+        non_ttl = json.loads(json.dumps(event))
+        non_ttl["Records"][0]["eventName"] = "MODIFY"
+        non_ttl["Records"][0]["userIdentity"] = {"type": "Service", "principalId": "unknown"}
+        response = function.invoke(non_ttl)
+        _require(response == {"batchItemFailures": []}, "non-TTL record was not skipped", response)
+    finally:
+        runtime.stop("cdk-archive")
+
+    archived = _cdk_fixture(
+        harness, "verify-archive", bucket=CDK_ARCHIVE_BUCKET, prefix=CDK_ARCHIVE_PREFIX
+    )
+    _require(int(archived.get("objects", 0)) == 1, "archive wrote an unexpected object count", archived)
+    _require(
+        archived.get("event_id") == generated.get("event_id"),
+        "archived event id does not match the generated record",
+        archived,
+    )
+    _require(
+        archived.get("ttl_value") == generated.get("old_ttl_value"),
+        "archived TTL value does not match the real stored image",
+        archived,
+    )
+    _require(
+        archived.get("ttl_attribute") == CDK_TTL_ATTRIBUTE,
+        "archived TTL attribute mismatch",
+        archived,
+    )
+    return "generated TTL REMOVE record from a real write/read/delete + real S3 PutObject/GetObject"
+
+
+def run_cdk_multilang_smoke_local(harness: Harness) -> str:
+    _cdk_provision(harness)
+    runtime = _lambda_runtime(harness)
+    functions = {
+        "go": runtime.start_go("cdk-smoke-go", "./examples/cdk-multilang/lambdas/go", _cdk_env()),
+        "node": runtime.start_node(
+            "cdk-smoke-node", CDK_MULTILANG / "lambdas" / "node" / "handler.ts", _cdk_env()
+        ),
+        "python": runtime.start_python(
+            "cdk-smoke-python",
+            CDK_MULTILANG / "lambdas" / "python" / "handler.py",
+            _cdk_env(),
+            requirements=CDK_MULTILANG / "lambdas" / "python",
+        ),
+    }
+    try:
+        result = harness.run(
+            ["bash", "examples/cdk-multilang/scripts/smoke-local.sh"],
+            env={
+                "CDK_GO_URL": functions["go"].url,
+                "CDK_NODE_URL": functions["node"].url,
+                "CDK_PY_URL": functions["python"].url,
+                "TABLE_NAME": CDK_DEMO_TABLE,
+            },
+            timeout=300,
+        )
+        output = _combined_output(result)
+        expect_output(output, ["smoke-local: PASS"], "cdk-multilang smoke-local")
+        reject_output(output, ["smoke-local: FAIL", "FAIL:"], "cdk-multilang smoke-local")
+    finally:
+        for name in ("cdk-smoke-go", "cdk-smoke-node", "cdk-smoke-python"):
+            runtime.stop(name)
+    return "smoke.sh journeys (encryption, raw envelope, batch, tx) against the local handlers"
+
+
+def _synth_assertions(template: dict, repo_root: Path) -> dict:
+    text = json.dumps(template, sort_keys=True)
+    for needle in (str(repo_root), "/Users/", "/home/", "/private/", "file://"):
+        _require(needle not in text, f"synthesized template contains a host path: {needle}", text[:2000])
+    _require(
+        re.search(r"\b\d{12}\b", text) is None,
+        "synthesized template contains a fixed account id",
+        text[:2000],
+    )
+
+    resources = template.get("Resources") or {}
+    counts: dict[str, int] = {}
+    functions: list[dict] = []
+    tables: list[dict] = []
+    urls: list[dict] = []
+    buckets: list[dict] = []
+    keys: list[dict] = []
+    for resource in resources.values():
+        kind = resource.get("Type")
+        counts[kind] = counts.get(kind, 0) + 1
+        properties = resource.get("Properties") or {}
+        if kind == "AWS::Lambda::Function":
+            functions.append(properties)
+        elif kind == "AWS::DynamoDB::Table":
+            tables.append(properties)
+        elif kind == "AWS::Lambda::Url":
+            urls.append(properties)
+        elif kind == "AWS::S3::Bucket":
+            buckets.append(properties)
+        elif kind == "AWS::KMS::Key":
+            keys.append(properties)
+
+    expected_counts = {
+        "AWS::Lambda::Function": 5,
+        "AWS::Lambda::Url": 3,
+        "AWS::DynamoDB::Table": 2,
+        "AWS::S3::Bucket": 1,
+        "AWS::KMS::Key": 1,
+        "AWS::Lambda::EventSourceMapping": 1,
+    }
+    for kind, expected in expected_counts.items():
+        _require(
+            counts.get(kind) == expected,
+            f"synthesized stack has {counts.get(kind)} {kind}, want {expected}",
+            counts,
+        )
+
+    handlers = sorted(
+        (properties.get("Runtime"), properties.get("Handler")) for properties in functions
+    )
+    _require(
+        handlers.count(("provided.al2023", "bootstrap")) == 1,
+        "the Go function is not a provided.al2023 bootstrap",
+        handlers,
+    )
+    _require(
+        handlers.count(("python3.14", "handler.handler")) == 1,
+        "the Python function is not python3.14 handler.handler",
+        handlers,
+    )
+    _require(
+        sum(1 for runtime, handler in handlers if runtime == "nodejs24.x" and handler == "index.handler") == 3,
+        "the Node, archive and custom-resource functions are not nodejs24.x",
+        handlers,
+    )
+    _require(
+        all(properties.get("AuthType") == "AWS_IAM" for properties in urls),
+        "a Function URL is not IAM-authenticated",
+        urls,
+    )
+    _require(
+        any(
+            (properties.get("TimeToLiveSpecification") or {}).get("AttributeName") == "expires_at"
+            and (properties.get("StreamSpecification") or {}).get("StreamViewType")
+            == "NEW_AND_OLD_IMAGES"
+            for properties in tables
+        ),
+        "the evidence table is missing its TTL attribute or stream",
+        tables,
+    )
+    _require(
+        all(
+            (properties.get("KeySchema") or [])[:1] == [{"AttributeName": "PK", "KeyType": "HASH"}]
+            for properties in tables
+        ),
+        "a demo table does not use PK as its partition key",
+        tables,
+    )
+    _require(
+        any(
+            len(properties.get("KeySchema") or []) > 1
+            and (properties.get("KeySchema") or [])[1].get("AttributeName") == "SK"
+            for properties in tables
+        ),
+        "a demo table does not use SK as its sort key",
+        tables,
+    )
+    _require(
+        any(properties.get("LifecycleConfiguration") for properties in buckets),
+        "the archive bucket has no lifecycle configuration",
+        buckets,
+    )
+    _require(
+        all(properties.get("EnableKeyRotation") is True for properties in keys),
+        "the KMS key does not enable rotation",
+        keys,
+    )
+    outputs = set((template.get("Outputs") or {}).keys())
+    _require(
+        outputs
+        == {
+            "TableName",
+            "EvidenceArchiveTableName",
+            "EvidenceArchiveBucketName",
+            "KmsKeyArn",
+            "GoFunctionUrl",
+            "NodeFunctionUrl",
+            "PythonFunctionUrl",
+        },
+        "stack outputs changed",
+        sorted(outputs),
+    )
+    return counts
+
+
+def run_cdk_multilang_synth(harness: Harness) -> str:
+    tsx = CDK_MULTILANG / "node_modules" / ".bin" / "tsx"
+    if not tsx.exists():
+        raise HarnessFailure(f"the cdk-multilang toolchain is missing {tsx}")
+    scratch = ROOT / "tmp" / "examples-local" / f"cdk-synth-{os.getpid()}"
+    templates: list[dict] = []
+    try:
+        for index, cwd in enumerate((CDK_MULTILANG, ROOT), start=1):
+            outdir = scratch / f"run-{index}"
+            shutil.rmtree(outdir, ignore_errors=True)
+            harness.run(
+                [str(tsx), str(CDK_MULTILANG / "bin" / "app.ts")],
+                cwd=cwd,
+                env={
+                    "CDK_OUTDIR": str(outdir),
+                    "CDK_SYNTH_NO_BUNDLING": "1",
+                    # Any SDK call during synth must fail fast: no AWS is reachable.
+                    "AWS_ENDPOINT_URL": "http://127.0.0.1:1",
+                },
+                timeout=300,
+            )
+            template_path = outdir / "TheorydbMultilangDemoStack.template.json"
+            if not template_path.is_file():
+                raise HarnessFailure(f"synth produced no template at {template_path}")
+            templates.append(json.loads(template_path.read_text(encoding="utf-8")))
+        _require(
+            templates[0] == templates[1],
+            "the synthesized template depends on the working directory",
+        )
+        counts = _synth_assertions(templates[0], ROOT)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    return (
+        "synth from two working directories is identical and path-free; "
+        f"{counts['AWS::Lambda::Function']} functions, {counts['AWS::DynamoDB::Table']} tables, "
+        f"{counts['AWS::Lambda::Url']} IAM Function URLs"
+    )
+
+
+def run_blog_module_tests(harness: Harness) -> str:
+    for required in ("authorizer", "cmd/posts", "cmd/comments", "handlers", "models", "tests"):
+        if not (BLOG / required).exists():
+            raise HarnessFailure(f"blog module is missing {required}")
+    _, passed, _ = _go_test_json(harness, ["./..."], cwd=BLOG, label="blog module tests")
+    required_tests = {
+        "TestModelTableNamesMatchTemplate",
+        "TestDeclaredAuthorizerAcceptsDeliveredREQUESTEvent",
+        "TestDeclaredAuthorizerDeniesTamperedDeliveredREQUESTEvent",
+        "TestProtectedPostUpdateRejectsSpoofedIdentityHeaders",
+        "TestCommentAuthorIdentityComesOnlyFromAuthorizerContext",
+    }
+    missing = sorted(required_tests - passed)
+    if missing:
+        raise HarnessFailure(f"blog module tests: tests did not run: {', '.join(missing)}")
+    return f"{len(passed)} tests passed across the module"
+
+
+def run_blog_local_tables(harness: Harness) -> str:
+    _blog_setup(harness)
+    result = harness.run(
+        ["go", "run", "./cmd/local", "-mode", "verify"],
+        cwd=BLOG,
+        env={"ENVIRONMENT": BLOG_ENVIRONMENT},
+        timeout=300,
+    )
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    try:
+        verified = json.loads(lines[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise HarnessFailure(f"blog verify did not print JSON: {exc}", result.stdout) from exc
+    counts = verified.get("counts") or {}
+    _require(
+        set(counts) == set(BLOG_TABLES),
+        "blog verify did not report every template table",
+        verified,
+    )
+    return f"template-named tables provisioned and counted ({', '.join(BLOG_TABLES)})"
+
+
 RUNNERS: dict[str, Callable[[Harness], str]] = {
     "go-local-quickstart": run_go_local_quickstart,
     "go-encryption": run_go_encryption,
@@ -2146,6 +3369,17 @@ RUNNERS: dict[str, Callable[[Harness], str]] = {
     "payment-reconcile": run_payment_reconcile,
     "ts-lambda": run_ts_lambda,
     "py-lambda-stream": run_py_lambda_stream,
+    "blog-authorizer": run_blog_authorizer,
+    "blog-posts": run_blog_posts,
+    "blog-comments": run_blog_comments,
+    "blog-local-tables": run_blog_local_tables,
+    "blog-module-tests": run_blog_module_tests,
+    "cdk-multilang-go": run_cdk_multilang_go,
+    "cdk-multilang-node": run_cdk_multilang_node,
+    "cdk-multilang-python": run_cdk_multilang_python,
+    "cdk-multilang-archive": run_cdk_multilang_archive,
+    "cdk-multilang-smoke-local": run_cdk_multilang_smoke_local,
+    "cdk-multilang-synth": run_cdk_multilang_synth,
 }
 
 

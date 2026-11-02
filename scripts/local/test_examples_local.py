@@ -217,12 +217,19 @@ class DiscoveryTests(unittest.TestCase):
     def test_repository_runtime_files_are_discovered_and_classified(self) -> None:
         discovered = harness.discover(harness.ROOT)
         expected = {
+            "examples/blog/authorizer/main.go",
+            "examples/blog/cmd/comments/main.go",
+            "examples/blog/cmd/local/main.go",
+            "examples/blog/cmd/posts/main.go",
             "examples/cdk-multilang/bin/app.ts",
             "examples/cdk-multilang/lambdas/archive/handler.ts",
+            "examples/cdk-multilang/lambdas/go/main.go",
             "examples/cdk-multilang/lambdas/node/handler.ts",
             "examples/cdk-multilang/lambdas/python/handler.py",
             "examples/cdk-multilang/local/read.mts",
             "examples/cdk-multilang/local/read.py",
+            "examples/cdk-multilang/scripts/smoke-local.sh",
+            "examples/cdk-multilang/scripts/smoke.sh",
         }
         self.assertEqual(sorted(expected - set(discovered)), [])
         for path in (
@@ -530,9 +537,9 @@ class LambdaImagePinTests(unittest.TestCase):
     def test_every_runtime_starts_the_pinned_image(self) -> None:
         profile = self.profile()
         runtime = self.runtime(profile)
-        runtime.build_go = lambda name, package: Path("/tmp/task")
+        runtime.build_go = lambda name, package, cwd=None: Path("/tmp/task")
         runtime.build_node = lambda name, entry: Path("/tmp/task")
-        runtime.build_python = lambda name, handler: Path("/tmp/task")
+        runtime.build_python = lambda name, handler, requirements=None: Path("/tmp/task")
         images: dict[str, str] = {}
 
         def fake_start(name, image, task_dir, handler_arg, extra_env):

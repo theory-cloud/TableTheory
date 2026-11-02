@@ -246,43 +246,67 @@
       "description": "Python stream handler in the Python 3.14 runtime image, fed a DynamoDB stream record generated from a real local write and read back. Gap: managed stream delivery - DynamoDB Local has no Streams, so the record is generated while the write and stored image are real."
     },
     "examples/blog/authorizer/main.go": {
-      "pending": "T4b",
-      "description": "Blog authorizer Lambda; T4b runs the real authorizer locally with the identity-bypass flag unset."
+      "run": "blog-authorizer",
+      "class": "L1",
+      "description": "Blog REQUEST authorizer through the Lambda runtime interface: an HS256 token minted by the harness is allowed with the authorId/role context and the methodArn policy, then a missing credential, a tampered signature, an expired token, alg=none, a missing subject and a missing JWT_SECRET are all refused. The harness never sets BLOG_ALLOW_HEADER_IDENTITY."
     },
     "examples/blog/cmd/comments/main.go": {
-      "pending": "T4b",
-      "description": "Blog comments Lambda; T4b runs it through the runtime interface against local models."
+      "run": "blog-comments",
+      "class": "L1",
+      "description": "Blog comments handler through the Lambda runtime interface on DynamoDB Local with the template table names: anonymous comments stay pending and out of the public list, an authenticated comment is auto-approved with the authorizer's authorId, admin moderation is required, and spoofed role headers, non-admin moderation, non-owner deletion and pending-comment leakage are refused."
     },
     "examples/blog/cmd/posts/main.go": {
-      "pending": "T4b",
-      "description": "Blog posts Lambda; T4b runs it through the runtime interface against local models."
+      "run": "blog-posts",
+      "class": "L1",
+      "description": "Blog posts handler through the Lambda runtime interface on DynamoDB Local with the template table names: create/read/list/update/delete of published and draft posts, public draft hiding and 404 after deletion, plus refusals for a missing credential, spoofed X-Author-ID headers and non-owner updates/deletes."
+    },
+    "examples/blog/cmd/local/main.go": {
+      "run": "blog-local-tables",
+      "class": "L1",
+      "description": "Local table tool through the real models: creates and counts the four tables the SAM template declares, using the same <environment>-blog-* names the models resolve. This is the local counterpart of the template table resources; every blog row depends on it."
     },
     "examples/cdk-multilang/lambdas/go/main.go": {
-      "pending": "T4b",
-      "description": "Deployed cdk-multilang Go handler; T4b runs it locally with the T3 KMS/S3 emulators."
+      "run": "cdk-multilang-go",
+      "class": "L2",
+      "description": "Deployed cdk-multilang Go handler through the Lambda runtime interface against DynamoDB Local and the local KMS: Function URL PUT/GET, batch write/read, transaction write/read, 405/400/404 refusals, and a raw GetItem proving the secret is stored as an envelope. Gap: the KMS is emulated (no HSM, key policies or grants)."
     },
     "examples/cdk-multilang/bin/app.ts": {
-      "pending": "T4b",
-      "description": "CDK app entrypoint; T4b synthesizes it as the infrastructure-only row for this example and asserts the stack shape."
+      "run": "cdk-multilang-synth",
+      "class": "I",
+      "description": "The CDK app is synthesized from two different working directories with dummy credentials and a dead AWS endpoint: both templates are identical, contain no host path or fixed account id, and assert five functions (provided.al2023, nodejs24.x x3, python3.14), two PK/SK tables with the evidence TTL and stream, three IAM Function URLs, the KMS key and the archive bucket lifecycle."
     },
     "examples/cdk-multilang/lambdas/node/handler.ts": {
-      "pending": "T4b",
-      "description": "Deployed cdk-multilang Node handler; T4b runs the real handler locally with the T3 KMS/S3 emulators."
+      "run": "cdk-multilang-node",
+      "class": "L2",
+      "description": "Deployed cdk-multilang Node handler through the Node 24 runtime interface against DynamoDB Local and the local KMS: reads the Go-written encrypted item and decrypts it, batch write/read with lang=ts, transaction write/read, 405/400/404 refusals, and a raw envelope check on a Node-written item. Gap: the KMS is emulated."
     },
     "examples/cdk-multilang/lambdas/archive/handler.ts": {
-      "pending": "T4b",
-      "description": "Deployed cdk-multilang archive handler; T4b drives it with generated archive events against local backends."
+      "run": "cdk-multilang-archive",
+      "class": "L3",
+      "description": "Deployed cdk-multilang archive handler through the Node 24 runtime interface: a DynamoDB stream REMOVE record generated from a real local write, read-back and delete drives the handler, which writes the archive object to s3proxy and the harness reads it back and asserts the event id, TTL value and image. Gap: managed stream delivery - DynamoDB Local has no Streams, so the TTL expiry record is generated while the write, stored image, delete and S3 object are real."
     },
     "examples/cdk-multilang/lambdas/python/handler.py": {
-      "pending": "T4b",
-      "description": "Deployed cdk-multilang Python handler; T4b runs the real handler locally with the T3 KMS/S3 emulators."
+      "run": "cdk-multilang-python",
+      "class": "L2",
+      "description": "Deployed cdk-multilang Python handler through the Python 3.14 runtime interface against DynamoDB Local and the local KMS: Function URL PUT/GET of an encrypted field, batch write/read with lang=py, transaction write/read, 405/400/404 refusals, and a raw envelope check. Gap: the KMS is emulated."
     },
     "examples/cdk-multilang/scripts/smoke.sh": {
-      "pending": "T4b",
-      "description": "Deployed-AWS smoke script: it requires a deployed stack and real credentials, so T4b owns its local replacement."
+      "run": "cdk-multilang-smoke-local",
+      "class": "L3",
+      "description": "The deployed smoke script needs a deployed stack, IAM-signed Function URLs and an AWS profile, so it never runs here. scripts/smoke-local.sh drives the same journeys (encrypted PUT via Go, GET via Node and Python, raw envelope, batch, transaction) against the locally run handlers through the runtime interface. Gap: deployed AWS stack smoke - Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised."
+    },
+    "examples/cdk-multilang/scripts/smoke-local.sh": {
+      "coveredBy": "examples/cdk-multilang/scripts/smoke.sh",
+      "class": "L3",
+      "description": "Local replacement for scripts/smoke.sh; executed inside the smoke.sh row against the RIE-hosted Go, Node and Python handlers."
     }
   },
   "suites": {
+    "examples/blog": {
+      "run": "blog-module-tests",
+      "class": "L1",
+      "description": "The blog example's separate Go module: authorizer refusal/template tests, handler authorization tests and the model/table-name alignment test against the SAM template. The harness runs the module suite because the root test targets exclude examples."
+    },
     "examples/multi-tenant": {
       "run": "multi-tenant-module-tests",
       "class": "L1",
