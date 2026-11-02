@@ -19,13 +19,18 @@ type AuditLog struct {
 	Metadata   map[string]any `theorydb:"json" json:"metadata,omitempty"`
 	ID         string         `theorydb:"pk" json:"id"`
 	EntityType string         `theorydb:"index:gsi-entity,pk" json:"entity_type"`
-	EntityID   string         `theorydb:"index:gsi-entity,sk" json:"entity_id"`
+	EntityID   string         `theorydb:"index:gsi-entity,sk,omitempty" json:"entity_id"`
 	Action     string         `json:"action"`
 	UserID     string         `json:"user_id,omitempty"`
-	MerchantID string         `theorydb:"index:gsi-merchant" json:"merchant_id"`
+	MerchantID string         `theorydb:"index:gsi-merchant,omitempty" json:"merchant_id"`
 	IPAddress  string         `json:"ip_address,omitempty"`
 	UserAgent  string         `json:"user_agent,omitempty"`
 }
+
+// TableName keeps this example's audit rows out of the shared "AuditLogs"
+// name the multi-tenant example derives, whose gsi-user-audit index would
+// reject an audit row without a user id.
+func (AuditLog) TableName() string { return "payment_audit_logs" }
 
 // AuditTracker provides audit trail functionality
 type AuditTracker struct {

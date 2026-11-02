@@ -55,9 +55,33 @@ def _get_table() -> Table[DemoItem]:
 
     model = ModelDefinition.from_dataclass(DemoItem, table_name=table_name)
     assert_model_definition_equivalent_to_dms(model, dms_model, ignore_table_name=True)
-    client = boto3.client("dynamodb")
-    _table = Table(model, client=client, kms_key_arn=kms_key_arn)
+    client = _endpoint_client("dynamodb", ("AWS_ENDPOINT_URL_DYNAMODB", "DYNAMODB_ENDPOINT"))
+    kms_client = _endpoint_client(
+        "kms", ("AWS_ENDPOINT_URL_KMS", "KMS_ENDPOINT")
+    )
+    _table = Table(
+        model,
+        client=client,
+        kms_key_arn=kms_key_arn,
+        kms_client=kms_client,
+    )
     return _table
+
+
+def _endpoint_client(service: str, env_names: tuple[str, ...]) -> Any:
+    """Create a boto3 client, honouring the local profile's endpoint overrides.
+
+    On AWS none of these variables is set and the client keeps the default
+    endpoint resolution. Locally the examples harness points them at the
+    profile's DynamoDB Local and KMS emulator.
+    """
+    endpoint = next(
+        (os.environ[name] for name in env_names if os.environ.get(name)),
+        "",
+    )
+    if endpoint:
+        return boto3.client(service, endpoint_url=endpoint)
+    return boto3.client(service)
 
 
 def _json_response(status_code: int, body: Any) -> dict[str, Any]:

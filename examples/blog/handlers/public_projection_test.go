@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/theory-cloud/tabletheory/v6"
 	"github.com/theory-cloud/tabletheory/v6/examples/blog/models"
+	"github.com/theory-cloud/tabletheory/v6/examples/blog/services"
 	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 	"github.com/theory-cloud/tabletheory/v6/pkg/testing/fakedb"
@@ -137,4 +139,55 @@ func TestListCommentsOnlyReturnsApprovedAndOmitsPII(t *testing.T) {
 	require.NotContains(t, response.Body, "commenter@example.com")
 	require.NotContains(t, response.Body, "203.0.113.10")
 	require.NotContains(t, response.Body, "test-agent")
+}
+
+func TestCreateCommentNeverExposesTheRootSentinel(t *testing.T) {
+	db := newBlogTestDB(t)
+	seedBlogPosts(t, db)
+	handler := &CommentHandler{db: db, notificationService: services.NewNotificationService()}
+
+	createComment := func(body string, authorizer map[string]any) map[string]any {
+		t.Helper()
+		response, err := handler.createComment(context.Background(), "post#published", events.APIGatewayProxyRequest{
+			HTTPMethod:     "POST",
+			PathParameters: map[string]string{"postId": "post#published"},
+			Body:           body,
+			RequestContext: events.APIGatewayProxyRequestContext{Authorizer: authorizer},
+		})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusCreated, response.StatusCode)
+
+		var payload struct {
+			Data struct {
+				Comment map[string]any `json:"comment"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(response.Body), &payload))
+		return payload.Data.Comment
+	}
+
+	root := createComment(
+		`{"author_name":"Reader","author_email":"reader@example.com","content":"root comment"}`,
+		nil,
+	)
+	_, exposedParent := root["parent_id"]
+	require.False(t, exposedParent, "a root create response must not carry a parent_id: %v", root["parent_id"])
+	require.Equal(t, models.CommentStatusPending, root["status"],
+		"the create response must keep its moderation status")
+
+	rootID, ok := root["id"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, rootID)
+
+	var stored models.Comment
+	require.NoError(t, db.Model(&models.Comment{}).Where("ID", "=", rootID).First(&stored))
+	require.Equal(t, rootCommentParentID, stored.ParentID,
+		"the GSI sort key sentinel must stay stored")
+
+	reply := createComment(
+		fmt.Sprintf(`{"parent_id":%q,"author_name":"Jane","author_email":"jane@example.com","content":"reply"}`,
+			rootID),
+		authorizerContext("author#1", models.RoleAuthor),
+	)
+	require.Equal(t, rootID, reply["parent_id"], "a reply must keep its real parent id")
 }

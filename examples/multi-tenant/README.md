@@ -91,6 +91,54 @@ signature with `JWT_SECRET` and derives the caller's user and organization from
 it. A caller may only reach the organization its token is bound to, so a token
 for one organization cannot read or change another organization's resources.
 
+### Authorization model
+
+Authentication only proves who signed the request. Every organization-scoped
+route then resolves the caller against the store before a handler reads tenant
+data:
+
+- **Active stored principal.** A user route loads the caller's user row in the
+  organization its token is bound to and requires `status: active`. Suspended,
+  invited, deleted, and missing users receive `403` before any organization,
+  user, project, or usage data is read. `GET /organizations` (the tenant
+  listing) requires an active stored user too.
+- **Allowlisted authorizer context.** The Lambda adapter copies only
+  `user_id`, `org_id`, and `api_key_id` from the API Gateway authorizer. A
+  request that carries a user identity is evaluated only as that user, so a
+  suspended user cannot fall back to an API key on the same request.
+- **Directory reads.** Owners and admins may list the organization directory.
+  Every other active user may read only their own user record. Members and
+  viewers cannot enumerate users.
+- **Organization usage.** Organization-wide usage and usage reports stay with
+  the existing owner/admin authority. Project-scoped usage keeps the existing
+  project rule: owners/admins, assigned users, and an API key bound to that
+  project.
+- **API-key identity.** `POST /organizations/{org_id}/resources` is an API-key
+  route. The key must still be active, unexpired, bound to the URL
+  organization, and — if project-scoped — bound to the requested project. A
+  request without `api_key_id` is refused with `403`; a wrong or missing
+  project is `404`. Neither path creates a usage row.
+
+### Warm failure history versus persistent limits
+
+API-key verification has two different state boundaries:
+
+- **Warm execution environment (process-local).** The verifier bounds how many
+  bcrypt comparisons run at once and tracks recent wrong-secret failures per
+  key identifier. Five failures inside the window cause later attempts to be
+  rejected before another bcrypt comparison. The Lambda authorizer caches one
+  handler alongside its database handle, so this history and the bcrypt slots
+  survive warm invocations. A cold start, a new deployment, or a parallel
+  execution environment starts with empty history; that is a deliberate
+  process-local bound, not a distributed lock.
+- **Persistent (DynamoDB-backed).** The per-key hourly rate limit counts
+  recorded usage in DynamoDB and remains authoritative across cold starts and
+  parallel environments. The warm failure history narrows pre-authentication
+  CPU work; it does not replace the persistent rate limit.
+
+Successful verifications are never cached. Revocation, rotation, and expiry take
+effect on the next record lookup, in every environment.
+
 ## API Reference
 
 ### Organization Management
@@ -291,10 +339,15 @@ sam deploy --guided
 ### Security Considerations
 
 1. **Tenant Isolation**: Every query includes org_id in composite key
-2. **API Authentication**: JWT tokens with org context
-3. **Rate Limiting**: Per-organization and per-API key
-4. **Audit Trail**: All actions logged with 90-day retention
-5. **MFA Support**: Optional two-factor authentication
+2. **API Authentication**: JWT tokens or API keys, both bound to an organization
+3. **Active Principal Authorization**: Every protected route requires an active
+   stored user or an active, unexpired API key; directory and organization
+   usage reads are limited to owners/admins and self as described above
+4. **Two Rate-Limit Boundaries**: Process-local wrong-secret throttling and
+   bcrypt slot bounds for a warm environment, plus the persistent
+   DynamoDB-backed per-key hourly limit
+5. **Audit Trail**: All actions logged with 90-day retention
+6. **MFA Support**: Optional two-factor authentication
 
 ## Cost Model
 

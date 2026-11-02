@@ -161,8 +161,41 @@ TypeScript uses `eventBinding` / `outboxBinding`; Python uses `event_binding` /
 disagrees with the transition, is rejected before anything is submitted. Each
 entry is enforced exactly when it is named: a partial map checks only the
 attributes it declares, and an empty map declares nothing. The always-on
-partition check still runs regardless of the map. Numeric identity comparisons
-do not coerce strings, so a stored `"007"` cannot satisfy `nextVersion=7`.
+partition check still runs regardless of the map.
+
+### Binding values compare by exact DynamoDB identity
+
+A binding is an integrity control, so the comparison preserves the stored type
+and value exactly:
+
+- A DynamoDB `S` value compares lexically and never equals an `N` value. A
+  stored `"007"` cannot satisfy `nextVersion=7`, and `"001"` is not `"1"`.
+- `N` values compare as exact integers/decimals. No runtime routes the
+  comparison through binary64, JavaScript `Number`, or Python `float`, so
+  adjacent integers above 2^53 such as `9007199254740992` and
+  `9007199254740993` remain distinct.
+- `nextVersion` is computed exactly as `expectedVersion + 1`, including above
+  2^53, and still requires the caller to declare the expected version.
+- Nested `M`/`L` values compare structurally with the same rules instead of
+  falling back to a scalar comparison.
+
+Every disagreement is rejected before the transaction is submitted, so a
+rejected transition cannot update the actual row or append the event/outbox
+row. Exact matching values still commit atomically. Existing rows written
+through the former lossy comparison are not rewritten: consumers that may have
+accepted a collided identity need a separate audit of their immutable
+event/outbox history.
+
+**Evidence index (R12 / R49).** R12 is occurrence
+`occ_052d49887890ae1e21218e11`; R49 is the duplicate `commit:2c5d1d8b...`.
+Both are covered by the same positive and negative evidence:
+
+| Evidence | Covers |
+| --- | --- |
+| `contract-tests/scenarios/p0/18-release-state-binding-exactness.yml` | Exact S/N, `nextVersion`, nested values, and >2^53 values commit; S-vs-N, `"001"` vs `"1"`, and adjacent >2^53 values reject before any write, in Go, TypeScript, and Python |
+| `pkg/releasestate/binding_test.go` (`TestBindingValuesEqualComparesNumbersExactly`, `TestTransitionNextVersionRejectsAdjacentLargeIntegers`) | Go exact numeric/type-directed comparison and nested recursion |
+| `ts/test/unit/release-state.test.ts` (adjacent-large-integer, nested-document, and lexical-string binding cases) | TypeScript bigint/number exactness without `Number()` coercion |
+| `py/tests/unit/test_release_state.py` (`test_binding_values_equal_preserves_dynamodb_discriminators`, `test_transition_release_state_rejects_adjacent_large_next_version_binding`) | Python AttributeValue discriminator preservation and exact `Decimal`/integer comparison |
 
 Omitting the maps preserves the previous behavior, so existing callers keep
 working; consumers that need a release-identity or version guarantee should

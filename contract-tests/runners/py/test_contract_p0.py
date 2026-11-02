@@ -4,11 +4,12 @@ import base64
 import hashlib
 import hmac
 import os
+import re
 import time
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Mapping, cast
 
 import boto3
 import pytest
@@ -56,6 +57,8 @@ from tabletheory_py import (
     FilterCondition,
     FilterGroup,
     ImmutableModelMutationError,
+    InvalidEncryptedEnvelopeError,
+    MigrationEncryptionError,
     ModelDefinition,
     NotFoundError,
     ProtectedFieldMutationError,
@@ -67,12 +70,18 @@ from tabletheory_py import (
     TransactPut,
     TransactUpdate,
     TransactWriteAction,
+    TTLAttributeMismatchError,
     ValidationError,
     VersionConflictError,
+    auto_migrate,
+    create_table,
+    ensure_table,
     theorydb_field,
     transition_release_state,
     validate_deploy_authority_metadata,
 )
+
+from tabletheory_py.encryption import RecordBinding, encrypt_attribute_value
 
 
 @dataclass(frozen=True)
@@ -154,6 +163,7 @@ _EXPECTATION_MAP_KEYS = {
     "item_equals",
     "raw_item_contains",
     "raw_attribute_types",
+    "raw_envelope_versions",
     "item_field_equals_var",
     "item_field_not_equals_var",
 }
@@ -172,6 +182,7 @@ _ITEM_ASSERTION_KEYS = {
     "item_missing_fields",
     "raw_attribute_types",
     "raw_item_contains",
+    "raw_envelope_versions",
     "item_field_equals_var",
     "item_field_not_equals_var",
 }
@@ -320,20 +331,91 @@ def _deterministic_encryption_material(
     return _DeterministicEncryptionMaterial(seed, model="EncryptedRecord", attribute="secret")
 
 
+_CONTRACT_KMS_KEY_ARN = "arn:aws:kms:us-east-1:111111111111:key/contract-deterministic"
+
+
+class _FailingKMS:
+    def generate_data_key(self, **kwargs: Any) -> dict[str, bytes]:
+        del kwargs
+        raise RuntimeError("contract failing KMS provider")
+
+    def decrypt(self, **kwargs: Any) -> dict[str, bytes]:
+        del kwargs
+        raise RuntimeError("contract failing KMS provider")
+
+
+def _decode_raw_attribute_value(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, Mapping):
+        raise ValidationError("raw value must be a map/object")
+    if "s" in raw:
+        return {"S": str(raw["s"])}
+    if "n" in raw:
+        return {"N": str(raw["n"])}
+    if "b64" in raw:
+        return {"B": base64.b64decode(str(raw["b64"]))}
+    if "bool" in raw:
+        return {"BOOL": bool(raw["bool"])}
+    if raw.get("null") is True:
+        return {"NULL": True}
+    if "envelope" in raw:
+        envelope = raw["envelope"]
+        if not isinstance(envelope, Mapping):
+            raise ValidationError("raw envelope must be a map/object")
+        return {
+            "M": {
+                "v": {"N": str(envelope["version"])},
+                "edk": {"B": base64.b64decode(str(envelope.get("edk_b64", "")))},
+                "nonce": {"B": base64.b64decode(str(envelope.get("nonce_b64", "")))},
+                "ct": {"B": base64.b64decode(str(envelope.get("ct_b64", "")))},
+            }
+        }
+    raise ValidationError("unsupported raw value shape")
+
+
+class _CountingTimeToLiveClient:
+    """Delegating client that records TTL API calls made through it."""
+
+    def __init__(self, client: Any, counter: list[int]) -> None:
+        self._client = client
+        self._counter = counter
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def update_time_to_live(self, **kwargs: Any) -> Any:
+        self._counter[0] += 1
+        return self._client.update_time_to_live(**kwargs)
+
+    def describe_time_to_live(self, **kwargs: Any) -> Any:
+        self._counter[0] += 1
+        return self._client.describe_time_to_live(**kwargs)
+
+
 class _TheorydbPyDriver:
     def __init__(self, client: Any, *, encryption: dict[str, Any] | None = None) -> None:
         self.client = client
+        self._ttl_calls = [0]
         self.encryption = _deterministic_encryption_material(encryption)
+        self.step_encryption = ""
         self.tables: dict[str, Table[Any]] = {
             name: Table(definition, client=client)
             for name, definition in _MODEL_DEFINITIONS.items()
             if name != "EncryptedRecord"
         }
 
+    def set_step_encryption(self, mode: str | None) -> None:
+        if mode in (None, "", "deterministic"):
+            self.step_encryption = ""
+            return
+        if mode == "none":
+            self.step_encryption = "none"
+            return
+        raise ValidationError(f"unsupported step encryption mode: {mode!r}")
+
     def _table(self, model: str) -> Table[Any]:
         if model == "EncryptedRecord":
             kwargs: dict[str, Any] = {}
-            if self.encryption is not None:
+            if self.encryption is not None and self.step_encryption != "none":
                 kwargs = {
                     "kms_key_arn": "arn:aws:kms:us-east-1:111111111111:key/contract-deterministic",
                     "kms_client": self.encryption,
@@ -345,6 +427,28 @@ class _TheorydbPyDriver:
                 **kwargs,
             )
         return self.tables[model]
+
+    def create_table(self, model: str) -> None:
+        create_table(_MODEL_DEFINITIONS[model], client=self.client)
+
+    def ensure_table(self, model: str) -> None:
+        ensure_table(
+            _MODEL_DEFINITIONS[model],
+            client=_CountingTimeToLiveClient(self.client, self._ttl_calls),
+        )
+
+    def ttl_call_count(self) -> int:
+        return self._ttl_calls[0]
+
+    def update_ttl(self, table_name: str, attribute: str, *, enabled: bool = True) -> None:
+        self.client.update_time_to_live(
+            TableName=table_name,
+            TimeToLiveSpecification={"AttributeName": attribute, "Enabled": enabled},
+        )
+
+    def describe_ttl(self, table_name: str) -> dict[str, Any]:
+        response = self.client.describe_time_to_live(TableName=table_name)
+        return dict(response.get("TimeToLiveDescription") or {})
 
     def create(self, model: str, item: dict[str, Any], *, if_not_exists: bool = False) -> None:
         self._validate_release_state_metadata_if_present(model, item)
@@ -522,7 +626,12 @@ class _TheorydbPyDriver:
             )
         raise ValidationError(f"unsupported transact_write action: {kind}")
 
-    def transition_append_event(self, actual: dict[str, Any], event: dict[str, Any]) -> None:
+    def transition_append_event(
+        self,
+        actual: dict[str, Any],
+        event: dict[str, Any],
+        event_binding: Mapping[str, str] | None = None,
+    ) -> None:
         transition_release_state(
             self._table(actual["model"]),
             self._table(event["model"]),
@@ -530,12 +639,159 @@ class _TheorydbPyDriver:
             expected_version=actual.get("expected_version"),
             set_values=actual["set"],
             event_item=self._item(event["model"], event["item"]),
+            event_binding=event_binding,
         )
 
     def validate_provenance(self, model: str, item: dict[str, Any]) -> None:
         if model != "ReleaseStateActual":
             raise ValidationError(f"validate_provenance unsupported for {model}")
         validate_deploy_authority_metadata(item)
+
+    def raw_put(self, table: str, raw_item: Mapping[str, Any]) -> None:
+        item = {name: _decode_raw_attribute_value(raw) for name, raw in raw_item.items()}
+        self.client.put_item(TableName=table, Item=item)
+
+    def seed_encrypted(
+        self,
+        table: str,
+        item: Mapping[str, Any],
+        envelope_version: int,
+        corrupt: str | None,
+        reset: bool = False,
+    ) -> None:
+        definition = replace(EncryptedRecordDefinition, table_name=table)
+        if reset:
+            try:
+                self.client.delete_table(TableName=table)
+            except ClientError as err:
+                if err.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
+                    raise
+        self._ensure_table(definition)
+        values = {
+            attribute.python_name: item[attribute.attribute_name]
+            for attribute in definition.attributes.values()
+            if attribute.attribute_name in item
+        }
+        key = {
+            "PK": {"S": str(item["PK"])},
+            "SK": {"S": str(item["SK"])},
+        }
+        if envelope_version == 2:
+            if self.encryption is None:
+                raise MigrationEncryptionError(
+                    "seed_encrypted v2 requires the deterministic encryption provider"
+                )
+            table_client = Table(
+                definition,
+                client=self.client,
+                kms_key_arn=_CONTRACT_KMS_KEY_ARN,
+                kms_client=self.encryption,
+                rand_bytes=self.encryption.rand_bytes,
+            )
+            table_client.put(definition.model_type(**values))
+        else:
+            if self.encryption is None:
+                raise MigrationEncryptionError(
+                    "seed_encrypted v1 requires the deterministic encryption provider"
+                )
+            envelope = encrypt_attribute_value(
+                {"S": str(item["secret"])},
+                attr_name="secret",
+                kms_key_arn=_CONTRACT_KMS_KEY_ARN,
+                kms_client=self.encryption,
+                rand_bytes=self.encryption.rand_bytes,
+            )
+            self.client.put_item(
+                TableName=table,
+                Item={
+                    **key,
+                    "secret": {
+                        "M": {
+                            "v": {"N": str(envelope["v"])},
+                            "edk": {"B": envelope["edk"]},
+                            "nonce": {"B": envelope["nonce"]},
+                            "ct": {"B": envelope["ct"]},
+                        }
+                    },
+                },
+            )
+        if corrupt:
+            self._corrupt_stored_envelope(table, key, corrupt)
+
+    def migrate(
+        self,
+        source_table: str,
+        target_table: str,
+        batch_size: int,
+        encryption_mode: str | None,
+    ) -> None:
+        if target_table != EncryptedRecordDefinition.table_name:
+            raise ValidationError(f"migrate supports target table {EncryptedRecordDefinition.table_name!r} only")
+        source = replace(EncryptedRecordDefinition, table_name=source_table)
+        kwargs: dict[str, Any] = {}
+        if encryption_mode == "failing":
+            kwargs = {
+                "kms_key_arn": _CONTRACT_KMS_KEY_ARN,
+                "kms_client": _FailingKMS(),
+                "rand_bytes": lambda n: b"\x00" * n,
+            }
+        elif encryption_mode != "none":
+            if self.encryption is None:
+                raise MigrationEncryptionError(
+                    "migrate requires the deterministic encryption provider"
+                )
+            kwargs = {
+                "kms_key_arn": _CONTRACT_KMS_KEY_ARN,
+                "kms_client": self.encryption,
+                "rand_bytes": self.encryption.rand_bytes,
+            }
+        auto_migrate(
+            source,
+            client=self.client,
+            target_model=EncryptedRecordDefinition,
+            data_copy=True,
+            batch_size=batch_size,
+            **kwargs,
+        )
+
+    def _ensure_table(self, definition: ModelDefinition[Any]) -> None:
+        try:
+            self.client.describe_table(TableName=definition.table_name)
+            return
+        except ClientError as err:
+            if err.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
+                raise
+        key_schema = [{"AttributeName": definition.pk.attribute_name, "KeyType": "HASH"}]
+        attribute_definitions = [
+            {"AttributeName": definition.pk.attribute_name, "AttributeType": "S"}
+        ]
+        if definition.sk is not None:
+            key_schema.append({"AttributeName": definition.sk.attribute_name, "KeyType": "RANGE"})
+            attribute_definitions.append(
+                {"AttributeName": definition.sk.attribute_name, "AttributeType": "S"}
+            )
+        self.client.create_table(
+            TableName=definition.table_name,
+            AttributeDefinitions=attribute_definitions,
+            KeySchema=key_schema,
+            BillingMode="PAY_PER_REQUEST",
+        )
+
+    def _corrupt_stored_envelope(self, table: str, key: dict[str, Any], mode: str) -> None:
+        out = self.client.get_item(TableName=table, Key=key, ConsistentRead=True)
+        item = out.get("Item")
+        if item is None:
+            raise AssertionError("stored migration row is missing")
+        envelope = item["secret"]["M"]
+        if mode == "nonce":
+            envelope["nonce"] = {"B": b"badnonce"}
+        elif mode == "ciphertext":
+            ciphertext = bytearray(envelope["ct"]["B"])
+            ciphertext[-1] ^= 0xFF
+            envelope["ct"] = {"B": bytes(ciphertext)}
+        else:
+            raise ValidationError(f"unsupported corrupt mode: {mode!r}")
+        self.client.put_item(TableName=table, Item=item)
 
     @staticmethod
     def _validate_release_state_metadata_if_present(model: str, item: dict[str, Any]) -> None:
@@ -577,7 +833,19 @@ class _TheorydbPyDriver:
                 }
         if model not in _MODEL_CLASSES:
             raise AssertionError(f"unknown model: {model}")
-        return _MODEL_CLASSES[model](**_to_python_kwargs(model, kwargs))
+        python_kwargs = _to_python_kwargs(model, kwargs)
+        # Scenario YAML keeps integers above 2^53 as quoted decimal strings so
+        # every parser stays exact. Convert only N-typed attributes; S values
+        # stay strings and keep their DynamoDB type discriminator.
+        for attr in _MODEL_DEFINITIONS[model].attributes.values():
+            value = python_kwargs.get(attr.python_name)
+            if attr.storage_type != "N" or not isinstance(value, str):
+                continue
+            if re.fullmatch(r"-?\d+", value):
+                python_kwargs[attr.python_name] = int(value)
+            else:
+                python_kwargs[attr.python_name] = Decimal(value)
+        return _MODEL_CLASSES[model](**python_kwargs)
 
 
 @pytest.mark.parametrize("scenario", _load_scenarios(), ids=lambda scenario: str(scenario["name"]))
@@ -681,6 +949,8 @@ def _supported_capabilities() -> list[str]:
         "release_state.provenance_confidence",
         "encryption.fail_closed",
         "encryption.deterministic_interop",
+        "encryption.migration_rebinding",
+        "schema.ttl",
     ]
 
 
@@ -846,6 +1116,76 @@ def _run_step(
     model_name = step.get("model") or scenario["model"]
     model = models[model_name]
 
+    driver.set_step_encryption(step.get("encryption"))
+
+    if step["op"] == "raw_put":
+        error = _capture_error(lambda: driver.raw_put(table_name, step["raw_item"]))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "seed_encrypted":
+        table = step.get("table") or table_name
+        error = _capture_error(
+            lambda: driver.seed_encrypted(
+                table,
+                step["item"],
+                int(step["envelope_version"]),
+                step.get("corrupt"),
+                bool(step.get("reset", False)),
+            )
+        )
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "migrate":
+        request = step["migrate"]
+        error = _capture_error(
+            lambda: driver.migrate(
+                request["source_table"],
+                table_name,
+                int(request.get("batch_size", 25)),
+                request.get("encryption"),
+            )
+        )
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "create_table":
+        error = _capture_error(lambda: driver.create_table(model_name))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "ensure_table":
+        ttl_calls_before = driver.ttl_call_count()
+        error = _capture_error(lambda: driver.ensure_table(model_name))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        if step.get("forbid_ttl_calls") and error is None:
+            assert driver.ttl_call_count() == ttl_calls_before, "ensure_table must not make TTL calls"
+        return
+
+    if step["op"] == "update_ttl":
+        enabled = bool(step.get("ttl_enabled", True))
+        error = _capture_error(lambda: driver.update_ttl(table_name, step["ttl_attribute"], enabled=enabled))
+        _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
+        return
+
+    if step["op"] == "describe_ttl":
+        description: dict[str, Any] = {}
+        error: Exception | None = None
+        try:
+            description = driver.describe_ttl(table_name)
+        except Exception as exc:
+            error = exc
+        expect = step.get("expect", {})
+        _assert_expectation(expect, error=error, model=model, variables=variables)
+        if error is not None:
+            return
+        if "ttl_status" in expect:
+            assert description.get("TimeToLiveStatus") == expect["ttl_status"]
+        if "ttl_attribute" in expect:
+            assert description.get("AttributeName") == expect["ttl_attribute"]
+        return
+
     if step["op"] == "create":
         error = _capture_error(
             lambda: driver.create(model_name, step["item"], if_not_exists=step.get("if_not_exists", False))
@@ -946,7 +1286,13 @@ def _run_step(
         return
 
     if step["op"] == "transition_append_event":
-        error = _capture_error(lambda: driver.transition_append_event(step["actual"], step["event"]))
+        error = _capture_error(
+            lambda: driver.transition_append_event(
+                step["actual"],
+                step["event"],
+                step.get("event_binding"),
+            )
+        )
         _assert_expectation(step.get("expect", {}), error=error, model=model, variables=variables)
         return
 
@@ -1076,6 +1422,16 @@ def _assert_expectation(
         for attr, want_type in expect["raw_attribute_types"].items():
             assert attr in raw
             assert _attribute_value_type_name(raw[attr]) == want_type
+
+    if "raw_envelope_versions" in expect:
+        assert raw is not None
+        for attr, want_version in expect["raw_envelope_versions"].items():
+            assert attr in raw
+            envelope = raw[attr]
+            assert isinstance(envelope, dict) and "M" in envelope, (
+                f"raw field {attr} is not an encrypted envelope"
+            )
+            assert envelope["M"]["v"]["N"] == want_version, f"envelope version for {attr}"
 
     if "item_field_equals_var" in expect:
         assert item is not None
@@ -1401,6 +1757,10 @@ def _map_errors(error: Exception) -> list[str]:
         return ["ErrItemNotFound"]
     if isinstance(error, EncryptionNotConfiguredError):
         return ["ErrEncryptionNotConfigured"]
+    if isinstance(error, MigrationEncryptionError):
+        return ["ErrMigrationEncryptionRequired"]
+    if isinstance(error, InvalidEncryptedEnvelopeError):
+        return ["ErrInvalidEncryptedEnvelope"]
     if isinstance(error, VersionConflictError):
         return ["ErrConditionFailed", "ErrVersionConflict"]
     if isinstance(error, ConditionFailedError):
@@ -1411,6 +1771,8 @@ def _map_errors(error: Exception) -> list[str]:
         return ["ErrProtectedFieldMutation"]
     if isinstance(error, RejectedDeployAuthorityEvidenceError):
         return ["ErrRejectedDeployAuthorityEvidence"]
+    if isinstance(error, TTLAttributeMismatchError):
+        return ["ErrTTLAttributeMismatch"]
     if isinstance(error, ValidationError):
         if (
             "consistent_read" in str(error)

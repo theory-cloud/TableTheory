@@ -8,6 +8,7 @@ Use these examples when you want a runnable proof before adapting a model to you
 
 ## Local onboarding
 
+- [Local examples harness](./local-harness.md) — one command, `make examples-local`, runs every classified example against DynamoDB Local and the pinned KMS/STS/S3/SQS emulators, and fails on skips.
 - [Go local quickstart](./go-local-quickstart.md) — two commands, DynamoDB Local, verified CRUD write.
 - [TypeScript local example](https://github.com/theory-cloud/TableTheory/blob/main/ts/examples/local.ts) — package-local `npm run example:local` flow.
 - [Python getting started](../runtimes/python/getting-started.md) — runtime-native first CRUD flow.

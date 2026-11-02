@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -183,4 +184,158 @@ func TestWithContext_ReplacesCancellationLayer(t *testing.T) {
 	canceler.Cancel()
 	require.NoError(t, q.ctx.Err(),
 		"a canceler from a replaced cancellation layer must not affect the live context")
+}
+
+// TestNewWithConditions_ConstructorDeadlineSurvivesQueryTimeout proves the
+// constructor caller's context is a retained root rather than a value that only
+// lives on q.ctx: a later QueryTimeout must compose with the constructor
+// deadline instead of replacing it with a fresh one derived from Background.
+func TestNewWithConditions_ConstructorDeadlineSurvivesQueryTimeout(t *testing.T) {
+	constructorCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	q := NewWithConditions(
+		&cov6BatchCreateItem{},
+		cov6Metadata{table: "tbl"},
+		&contextCapturingScanExecutor{},
+		nil,
+		constructorCtx,
+	)
+	q.QueryTimeout(time.Hour)
+
+	require.NoError(t, q.ctx.Err())
+	deadline, ok := q.ctx.Deadline()
+	require.True(t, ok)
+	require.WithinDuration(t, time.Now().Add(50*time.Millisecond), deadline, 100*time.Millisecond,
+		"QueryTimeout must not discard the constructor caller's deadline")
+
+	<-q.ctx.Done()
+	require.ErrorIs(t, q.ctx.Err(), context.DeadlineExceeded)
+}
+
+// TestNewWithConditions_ConstructorCancellationSurvivesDerivations proves the
+// constructor caller's cancellation still reaches the live context after both
+// WithCancellation and QueryTimeout, in either order.
+func TestNewWithConditions_ConstructorCancellationSurvivesDerivations(t *testing.T) {
+	for _, order := range []string{"cancel-then-timeout", "timeout-after-cancellation"} {
+		t.Run(order, func(t *testing.T) {
+			constructorCtx, cancel := context.WithCancel(context.Background())
+
+			q := NewWithConditions(
+				&cov6BatchCreateItem{},
+				cov6Metadata{table: "tbl"},
+				&contextCapturingScanExecutor{},
+				nil,
+				constructorCtx,
+			)
+			if order == "cancel-then-timeout" {
+				_, queryCanceler := q.WithCancellation()
+				defer queryCanceler.Cancel()
+				q.QueryTimeout(time.Hour)
+			} else {
+				q.QueryTimeout(time.Hour)
+				_, queryCanceler := q.WithCancellation()
+				defer queryCanceler.Cancel()
+			}
+
+			require.NoError(t, q.ctx.Err())
+			cancel()
+			require.ErrorIs(t, q.ctx.Err(), context.Canceled,
+				"the constructor caller's cancellation must reach the live context")
+		})
+	}
+}
+
+// recordingScanExecutor records the context result observed by every segment
+// worker and returns it, so a test can prove caller cancellation propagated to
+// the scan workers rather than being replaced by a background root.
+type recordingScanExecutor struct {
+	ctx   context.Context
+	seen  []error
+	calls int
+	mu    sync.Mutex
+}
+
+func (e *recordingScanExecutor) SetContext(ctx context.Context) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.ctx = ctx
+}
+
+func (e *recordingScanExecutor) ExecuteQuery(*core.CompiledQuery, any) error { return nil }
+
+func (e *recordingScanExecutor) ExecuteScan(*core.CompiledQuery, any) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.calls++
+	err := e.ctx.Err()
+	e.seen = append(e.seen, err)
+	return err
+}
+
+func (e *recordingScanExecutor) observed() (int, []error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.calls, append([]error(nil), e.seen...)
+}
+
+// TestNewWithConditions_ConstructorCancellationReachesEverySegment is the
+// negative control for the constructor fix: canceling the caller context before
+// a parallel scan must be visible to the segment workers, never replaced by a
+// background root. The scan joins every worker before returning.
+func TestNewWithConditions_ConstructorCancellationReachesEverySegment(t *testing.T) {
+	constructorCtx, cancel := context.WithCancel(context.Background())
+	exec := &recordingScanExecutor{}
+
+	q := NewWithConditions(&cov6BatchCreateItem{}, cov6Metadata{table: "tbl"}, exec, nil, constructorCtx)
+	q.QueryTimeout(time.Hour)
+	cancel()
+
+	var dest []cov6BatchCreateItem
+	err := q.ScanAllSegments(&dest, 3)
+	require.ErrorIs(t, err, context.Canceled,
+		"the scan must observe the constructor caller's cancellation")
+
+	calls, seen := exec.observed()
+	require.Positive(t, calls, "at least one segment worker must have run")
+	for i, observed := range seen {
+		require.ErrorIs(t, observed, context.Canceled,
+			"segment worker %d did not observe the constructor cancellation", i)
+	}
+}
+
+// TestNewWithConditions_OrdinaryScanStillSucceeds is the positive control: a
+// live constructor context keeps ordinary non-cancellation behavior unchanged.
+func TestNewWithConditions_OrdinaryScanStillSucceeds(t *testing.T) {
+	exec := &recordingScanExecutor{}
+	q := NewWithConditions(
+		&cov6BatchCreateItem{},
+		cov6Metadata{table: "tbl"},
+		exec,
+		nil,
+		context.Background(),
+	)
+	q.QueryTimeout(time.Hour)
+
+	var dest []cov6BatchCreateItem
+	require.NoError(t, q.ScanAllSegments(&dest, 2))
+
+	calls, seen := exec.observed()
+	require.Positive(t, calls)
+	for i, observed := range seen {
+		require.NoError(t, observed, "segment worker %d must not see a cancellation", i)
+	}
+}
+
+// TestApplyContext_FallsBackToExistingContextWhenRootsAreNil pins the last
+// non-nil fallback: when neither retained root is set, the existing q.ctx must
+// be kept instead of silently replacing it with Background.
+func TestApplyContext_FallsBackToExistingContextWhenRootsAreNil(t *testing.T) {
+	type key struct{}
+	existing := context.WithValue(context.Background(), key{}, "caller")
+
+	q := &Query{ctx: existing}
+	q.applyContext()
+
+	require.True(t, existing == q.ctx, "an existing q.ctx must survive when both retained roots are nil")
 }

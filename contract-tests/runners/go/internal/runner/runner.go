@@ -122,12 +122,76 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 	modelName := stepModelName(s, step)
 	model, ok := models[modelName]
 	require.True(t, ok, "unknown model %s", modelName)
+	require.NoError(t, r.driver.SetStepEncryption(step.Encryption))
 
 	switch step.Op {
 	case "sleep":
 		if step.Ms > 0 {
 			time.Sleep(time.Duration(step.Ms) * time.Millisecond)
 		}
+		return
+
+	case "raw_put":
+		err := r.driver.RawPut(ctx, tableName, step.RawItem)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "seed_encrypted":
+		table := step.Table
+		if table == "" {
+			table = tableName
+		}
+		err := r.driver.SeedEncrypted(ctx, table, step.Item, step.EnvelopeVersion, step.Corrupt, step.Reset)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "migrate":
+		require.NotNil(t, step.Migrate, "migrate request is required")
+		err := r.driver.Migrate(ctx, driver.MigrateRequest{
+			SourceTable: step.Migrate.SourceTable,
+			BatchSize:   step.Migrate.BatchSize,
+			Encryption:  step.Migrate.Encryption,
+		}, tableName)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "create_table":
+		err := r.driver.CreateTable(ctx, modelName)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "ensure_table":
+		ttlCallsBefore := r.driver.TTLCallCount()
+		err := r.driver.EnsureTable(ctx, modelName)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		if step.ForbidTTLCalls && err == nil {
+			require.Equal(t, ttlCallsBefore, r.driver.TTLCallCount(), "ensure_table must not make TTL calls")
+		}
+		return
+
+	case "update_ttl":
+		enabled := true
+		if step.TTLEnabled != nil {
+			enabled = *step.TTLEnabled
+		}
+		err := r.updateTimeToLive(ctx, tableName, step.TTLAttribute, enabled)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "describe_ttl":
+		status, attribute, err := r.describeTimeToLive(ctx, tableName)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		if err != nil {
+			return
+		}
+		require.Equal(t, step.Expect.TTLStatus, status, "ttl status")
+		if step.Expect.TTLAttribute != "" {
+			require.Equal(t, step.Expect.TTLAttribute, attribute, "ttl attribute")
+		}
+		return
+
+	case "dms_parse", "dms_get":
+		require.FailNow(t, "DMS scenario op is not supported by the Go runtime")
 		return
 
 	case "create":
@@ -244,8 +308,9 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 			Set:             step.Actual.Set,
 			ExpectedVersion: step.Actual.ExpectedVersion,
 		}, driver.TransitionEvent{
-			Model: step.Event.Model,
-			Item:  step.Event.Item,
+			Model:   step.Event.Model,
+			Item:    step.Event.Item,
+			Binding: step.EventBinding,
 		})
 		r.assertStepResult(t, step.Expect, nil, err, nil, model)
 		return
@@ -461,6 +526,18 @@ func (r *Runner) assertStepResult(t require.TestingT, expect scenario.Expectatio
 		}
 	}
 
+	if len(expect.RawEnvelopeVersions) > 0 {
+		for attr, wantVersion := range expect.RawEnvelopeVersions {
+			av, ok := raw[attr]
+			require.True(t, ok, "expected raw field %s", attr)
+			envelope, ok := av.(*types.AttributeValueMemberM)
+			require.True(t, ok, "raw field %s is not an encrypted envelope (%T)", attr, av)
+			version, ok := envelope.Value["v"].(*types.AttributeValueMemberN)
+			require.True(t, ok, "raw field %s has no envelope version", attr)
+			require.Equal(t, wantVersion, version.Value, "envelope version for %s", attr)
+		}
+	}
+
 	if len(expect.ItemFieldEqualsVar) > 0 {
 		for attr, varName := range expect.ItemFieldEqualsVar {
 			require.Equal(t, r.vars[varName], item[attr], "field %s should equal var %s", attr, varName)
@@ -585,6 +662,7 @@ func expectationHasItemAssertion(expect scenario.Expectation) bool {
 		len(expect.ItemHasFields) > 0 ||
 		len(expect.ItemMissingFields) > 0 ||
 		len(expect.RawAttributeTypes) > 0 ||
+		len(expect.RawEnvelopeVersions) > 0 ||
 		len(expect.ItemFieldEqualsVar) > 0 ||
 		len(expect.ItemFieldNotEqualsVar) > 0
 }
@@ -592,6 +670,7 @@ func expectationHasItemAssertion(expect scenario.Expectation) bool {
 func expectationHasRawItemAssertion(expect scenario.Expectation) bool {
 	return len(expect.ItemMissingFields) > 0 ||
 		len(expect.RawAttributeTypes) > 0 ||
+		len(expect.RawEnvelopeVersions) > 0 ||
 		len(expect.RawItemContains) > 0
 }
 
@@ -1008,6 +1087,38 @@ func (r *Runner) getRawItem(ctx context.Context, tableName string, model spec.Mo
 		return nil, theorydbErrors.ErrItemNotFound
 	}
 	return out.Item, nil
+}
+
+type timeToLiveDescriber interface {
+	DescribeTimeToLive(context.Context, *dynamodb.DescribeTimeToLiveInput, ...func(*dynamodb.Options)) (*dynamodb.DescribeTimeToLiveOutput, error)
+}
+
+func (r *Runner) describeTimeToLive(ctx context.Context, tableName string) (string, string, error) {
+	describer, ok := r.ddb.(timeToLiveDescriber)
+	if !ok {
+		return "", "", fmt.Errorf("DescribeTimeToLive is not supported by the runner client")
+	}
+	out, err := describer.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if out == nil || out.TimeToLiveDescription == nil {
+		return "", "", fmt.Errorf("DescribeTimeToLive returned no description")
+	}
+	return string(out.TimeToLiveDescription.TimeToLiveStatus), aws.ToString(out.TimeToLiveDescription.AttributeName), nil
+}
+
+func (r *Runner) updateTimeToLive(ctx context.Context, tableName, attribute string, enabled bool) error {
+	_, err := r.ddb.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String(attribute),
+			Enabled:       aws.Bool(enabled),
+		},
+	})
+	return err
 }
 
 func (r *Runner) recreateTable(ctx context.Context, tableName string, model spec.Model) error {

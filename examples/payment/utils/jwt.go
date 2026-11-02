@@ -187,6 +187,17 @@ func ValidateAndExtractMerchantID(authHeader string, validator *SimpleJWTValidat
 	return validator.ExtractMerchantID(token)
 }
 
+// ValidateAndExtractClaims validates the bearer token and returns its claims so
+// callers can enforce merchant-scoped permissions, not just the merchant ID.
+func ValidateAndExtractClaims(authHeader string, validator *SimpleJWTValidator) (*JWTClaims, error) {
+	token, err := ExtractTokenFromHeader(authHeader)
+	if err != nil {
+		return nil, err
+	}
+
+	return validator.ValidateToken(token)
+}
+
 // TokenError represents a JWT validation error with details
 type TokenError struct {
 	Code    string `json:"code"`

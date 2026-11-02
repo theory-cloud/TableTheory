@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,14 +18,14 @@ import (
 )
 
 type fakeKMS struct {
+	generateErr         error
+	decryptErr          error
 	lastGenerateContext map[string]string
 	lastDecryptContext  map[string]string
-
-	generateErr error
-	decryptErr  error
-	keyARN      string
-	plaintext   []byte
-	edk         []byte
+	keyARN              string
+	plaintext           []byte
+	edk                 []byte
+	decryptCalls        int
 }
 
 func (f *fakeKMS) GenerateDataKey(ctx context.Context, params *kms.GenerateDataKeyInput, optFns ...func(*kms.Options)) (*kms.GenerateDataKeyOutput, error) {
@@ -48,6 +49,7 @@ func (f *fakeKMS) GenerateDataKey(ctx context.Context, params *kms.GenerateDataK
 }
 
 func (f *fakeKMS) Decrypt(ctx context.Context, params *kms.DecryptInput, optFns ...func(*kms.Options)) (*kms.DecryptOutput, error) {
+	f.decryptCalls++
 	if f.decryptErr != nil {
 		return nil, f.decryptErr
 	}
@@ -597,4 +599,69 @@ func TestEncryptAttributeValueRejectsShortRandomSource(t *testing.T) {
 
 	_, err := svc.EncryptAttributeValue(context.Background(), "secret", &types.AttributeValueMemberS{Value: "x"})
 	require.Error(t, err)
+}
+
+func TestDecryptAttributeValueRejectsMalformedNonce(t *testing.T) {
+	ctx := context.Background()
+
+	binding, err := NewRecordBinding(
+		"encrypted_records_contract",
+		&types.AttributeValueMemberS{Value: "PK#1"},
+		&types.AttributeValueMemberS{Value: "SK#1"},
+	)
+	require.NoError(t, err)
+
+	svc := newTestService(t)
+	fake, ok := svc.kms.(*fakeKMS)
+	require.True(t, ok)
+
+	v2Envelope, err := svc.EncryptAttributeValueWithBinding(ctx, binding, "secret", &types.AttributeValueMemberS{Value: "top-secret"})
+	require.NoError(t, err)
+
+	cloneEnvelope := func(av types.AttributeValue) *types.AttributeValueMemberM {
+		env, ok := av.(*types.AttributeValueMemberM)
+		require.True(t, ok)
+		values := make(map[string]types.AttributeValue, len(env.Value))
+		for key, value := range env.Value {
+			values[key] = value
+		}
+		return &types.AttributeValueMemberM{Value: values}
+	}
+
+	for _, size := range []int{0, 1, 8, 11, 13, 16} {
+		t.Run("v2_nonce_length_"+strconv.Itoa(size), func(t *testing.T) {
+			envelope := cloneEnvelope(v2Envelope)
+			if size == 0 {
+				delete(envelope.Value, "nonce")
+			} else {
+				envelope.Value["nonce"] = &types.AttributeValueMemberB{Value: bytes.Repeat([]byte{0x04}, size)}
+			}
+
+			fake.decryptCalls = 0
+			require.NotPanics(t, func() {
+				_, decryptErr := svc.DecryptAttributeValueWithBinding(ctx, binding, "secret", envelope)
+				require.ErrorIs(t, decryptErr, theorydbErrors.ErrInvalidEncryptedEnvelope)
+			})
+			require.Zero(t, fake.decryptCalls, "nonce length must be rejected before KMS work")
+		})
+	}
+
+	t.Run("v1_nonce_length", func(t *testing.T) {
+		envelope := cloneEnvelope(v2Envelope)
+		envelope.Value["v"] = &types.AttributeValueMemberN{Value: "1"}
+		envelope.Value["nonce"] = &types.AttributeValueMemberB{Value: bytes.Repeat([]byte{0x05}, 7)}
+
+		fake.decryptCalls = 0
+		require.NotPanics(t, func() {
+			_, decryptErr := svc.DecryptAttributeValue(ctx, "secret", envelope)
+			require.ErrorIs(t, decryptErr, theorydbErrors.ErrInvalidEncryptedEnvelope)
+		})
+		require.Zero(t, fake.decryptCalls)
+	})
+
+	t.Run("matching_nonce_still_decrypts", func(t *testing.T) {
+		decrypted, decryptErr := svc.DecryptAttributeValueWithBinding(ctx, binding, "secret", v2Envelope)
+		require.NoError(t, decryptErr)
+		require.Equal(t, &types.AttributeValueMemberS{Value: "top-secret"}, decrypted)
+	})
 }

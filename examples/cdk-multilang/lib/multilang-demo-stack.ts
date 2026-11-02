@@ -126,6 +126,7 @@ export class MultilangDemoStack extends Stack {
     });
 
     const nodeEntry = path.join(repoRoot, 'examples/cdk-multilang/lambdas/node/handler.ts');
+    const nodeProjectRoot = path.join(repoRoot, 'examples/cdk-multilang');
     const nodeFn = new NodejsFunction(this, 'NodeDemoFn', {
       runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.X86_64,
@@ -133,6 +134,10 @@ export class MultilangDemoStack extends Stack {
       handler: 'handler',
       memorySize: 256,
       timeout: Duration.seconds(10),
+      // Pin the lockfile and project root so the bundled asset hash cannot
+      // depend on the directory `cdk synth` happens to run from.
+      projectRoot: nodeProjectRoot,
+      depsLockFilePath: path.join(nodeProjectRoot, 'package-lock.json'),
       bundling: {
         target: 'node24',
       },

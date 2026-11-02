@@ -51,6 +51,19 @@
   Python never had a counterpart. Semver decision: this removed-API change is release-major material and must not ship
   as a patch/minor.
 
+### Behavior Changes
+
+* **ts, py:** `ensureTable` / `ensure_table` no longer enables TTL on a table that already exists. This matches Go's
+  `DB.EnsureTable`, which is the reference: an existing table is left exactly as it is, with no `UpdateTimeToLive` or
+  `DescribeTimeToLive` call. New tables are still created with TTL, and `createTable` / `create_table` still converges
+  TTL on an existing table. Callers that relied on `ensureTable` / `ensure_table` to enable TTL for an existing table
+  should call `createTable` / `create_table`, `updateTimeToLive` / `update_time_to_live`, or manage TTL in
+  infrastructure as code. TypeScript/Python auto-migration inherits this through `ensureTable` / `ensure_table`, so
+  an existing migration target keeps its current TTL state, matching Go. The different-attribute conflict is now
+  `TTLAttributeMismatchError` (still an
+  `ErrInvalidModel` `TheorydbError` / `ValidationError`), matching Go's `errors.Is(err, schema.ErrTTLAttributeMismatch)`.
+  No new IAM permissions are required and Go behavior is unchanged.
+
 ### Features
 
 * **go:** add `NewWithClient` and a state-backed `pkg/testing/fakedb` consumer test fake
@@ -142,6 +155,11 @@
 * **go:** release `pkg/protection.SecureBodyReader`'s request-concurrency slot before its timeout cleanup instead of after it. A client that declares a body and withholds it leaves a Go HTTP/1 request body whose reader and `Close` both wait on the stalled socket; the timeout path previously closed the body and joined the reader before releasing the slot, so the slot was held until the client disconnected and `MaxConcurrentReq` stalled connections rejected every other request. The slot is now released no later than `MaxRequestTimeout`, ahead of the close and join, which can still block the calling handler (the reader is joined, not abandoned) until the client disconnects or a transport deadline fires; a server- or upstream-level body-read deadline remains the robust fix for live HTTP/1 requests. A regression test drives a real HTTP/1 server and a client that withholds its declared body, alongside a complete-body success control
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
+
+## [6.1.1](https://github.com/theory-cloud/TableTheory/compare/v6.1.1-rc...v6.1.1) (2026-10-21)
+
+Stable promotion of `v6.1.1-rc`.
+
 
 ## [6.1.1-rc](https://github.com/theory-cloud/TableTheory/compare/v6.1.0...v6.1.1-rc) (2026-10-21)
 

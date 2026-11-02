@@ -8,6 +8,7 @@ import {
   modelToDmsModel,
   parseDmsDocument,
 } from '../../src/dms.js';
+import { unmarshalItem } from '../../src/marshal.js';
 import { defineModel } from '../../src/model.js';
 import {
   DMSNoteModel,
@@ -283,4 +284,80 @@ models:
     (attr) => attr.attribute === 'createdAt',
   );
   assert.equal(createdAt?.format, 'rfc3339nano');
+}
+
+{
+  const directSchema = {
+    name: 'DirectJsonMode',
+    table: { name: 'tbl' },
+    keys: { partition: { attribute: 'PK', type: 'S' as const } },
+    attributes: [
+      { attribute: 'PK', type: 'S' as const, roles: ['pk'] },
+      {
+        attribute: 'roles',
+        type: 'S' as const,
+        json: true,
+        jsonStringMode: 'parse' as const,
+        optional: true,
+      },
+    ],
+  };
+  const model = defineModel(directSchema);
+  const item = unmarshalItem(model, {
+    PK: { S: 'ROLE#1' },
+    roles: { S: '["not-admin"]' },
+  });
+  assert.deepEqual(item.roles, ['not-admin']);
+  assert.equal((item.roles as string[]).includes('admin'), false);
+}
+
+{
+  const raw = `
+dms_version: "0.2"
+models:
+  - name: "ConflictJsonMode"
+    table: { name: "tbl" }
+    keys:
+      partition: { attribute: "PK", type: "S" }
+    attributes:
+      - attribute: "PK"
+        type: "S"
+        roles: ["pk"]
+      - attribute: "roles"
+        type: "S"
+        json: true
+        jsonStringMode: "parse"
+        json_string_mode: "carrier"
+`;
+
+  assert.throws(
+    () => parseDmsDocument(raw),
+    (err) =>
+      err instanceof TheorydbError &&
+      err.code === 'ErrInvalidModel' &&
+      /conflict/.test(String(err.message)),
+  );
+
+  assert.throws(
+    () =>
+      defineModel({
+        name: 'ConflictJsonMode',
+        table: { name: 'tbl' },
+        keys: { partition: { attribute: 'PK', type: 'S' } },
+        attributes: [
+          { attribute: 'PK', type: 'S', roles: ['pk'] },
+          {
+            attribute: 'roles',
+            type: 'S',
+            json: true,
+            jsonStringMode: 'parse',
+            json_string_mode: 'carrier',
+          },
+        ],
+      }),
+    (err) =>
+      err instanceof TheorydbError &&
+      err.code === 'ErrInvalidModel' &&
+      /conflict/.test(String(err.message)),
+  );
 }

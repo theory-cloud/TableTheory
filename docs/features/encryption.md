@@ -99,12 +99,34 @@ theorydb:encrypted:v2|attr=<len>:<attribute>|table=<len>:<table>|pk=<len>:<key>|
 The AAD string and canonical key encoding are a cross-runtime contract shared
 by Go, TypeScript, and Python.
 
+## Migrating encrypted attributes
+
+A data-copying schema migration between tables does **not** copy an encrypted
+envelope verbatim. Same-name encrypted attributes are opened with the source
+record binding and re-sealed with the target record binding (table, partition
+key, sort key), and legacy v1 envelopes are upgraded to v2 in the process:
+
+- The migrated row decrypts at the target record. Copying the source envelope
+  unchanged would produce a target row that fails authentication.
+- The source table remains authoritative; a migration reads it and never
+  deletes, retags, or rewrites it. Re-running the migration re-reads the source.
+- A page is validated in full before the batch write. A source decrypt failure,
+  a missing provider, or a target encrypt failure returns a typed error and the
+  failing page is not written. Target pages already written keep their v2
+  envelopes; they are current data, not something to retag.
+- The migration refuses to start, before creating the target table, when the
+  target model declares encrypted attributes and no KMS provider is configured.
+
+Go, TypeScript, and Python implement the same rebinding behavior. The envelope
+format itself is unchanged: v2 remains the current write version, with no v3.
+
 ## What "fail-closed" actually means
 
 - **No KMS key configured + encrypted field write**: write fails before touching DynamoDB.
 - **KMS key revoked / inaccessible + encrypted field read**: read fails, returning a typed encryption error.
 - **Decryption fails (wrong key, corrupted ciphertext)**: read fails. The plaintext is never inferred or guessed.
 - **A v2 envelope is replayed onto another record or table**: read fails; the additional authenticated data does not match.
+- **An envelope carries a malformed nonce**: the envelope parser rejects any nonce length other than the 12-byte AES-GCM nonce before `Open` (and before KMS work) with `ErrInvalidEncryptedEnvelope`. A corrupted nonce cannot panic a read process.
 - **Cross-region replication**: the consumer must configure the encryption key in the target region; otherwise reads from that region fail closed.
 
 ## Local development

@@ -29,6 +29,17 @@ type TestContext struct {
 	cleanup        []func() error
 }
 
+// TestEndpoint resolves the DynamoDB endpoint for integration tests. It keeps
+// the historical localhost default while letting a caller run the suite against
+// DynamoDB Local on another port through DYNAMODB_ENDPOINT.
+func TestEndpoint() string {
+	endpoint := os.Getenv("DYNAMODB_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "http://localhost:8000"
+	}
+	return endpoint
+}
+
 // InitTestDB creates a test database instance with proper cleanup setup
 func InitTestDB(t *testing.T) *TestContext {
 	t.Helper()
@@ -39,10 +50,7 @@ func InitTestDB(t *testing.T) *TestContext {
 
 	// Always check for DynamoDB Local availability first
 	// This will skip the test with a clear message if DynamoDB Local is not running
-	endpoint := os.Getenv("DYNAMODB_ENDPOINT")
-	if endpoint == "" {
-		endpoint = "http://localhost:8000"
-	}
+	endpoint := TestEndpoint()
 
 	// Check if DynamoDB Local is running
 	if !isDynamoDBLocalRunning(endpoint) {

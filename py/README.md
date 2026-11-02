@@ -103,6 +103,7 @@ table.transact_write(
 ```python
 from tabletheory_py import unmarshal_stream_record
 
+
 def handler(event, context):
     for record in event.get("Records", []):
         note = unmarshal_stream_record(model, record, image="NewImage")
@@ -122,6 +123,7 @@ class SecretNote:
     pk: str = theorydb_field(roles=["pk"])
     sk: str = theorydb_field(roles=["sk"])
     secret: str = theorydb_field(encrypted=True)
+
 
 model = ModelDefinition.from_dataclass(SecretNote, table_name="notes")
 table = Table(model, client=client, kms_key_arn=os.environ["KMS_KEY_ARN"])

@@ -15,6 +15,8 @@ from tabletheory_py import (
     ModelDefinition,
     ModelDefinitionError,
     Projection,
+    StatefulDynamoDBClient,
+    Table,
     ValidationError,
     WritePolicy,
     assert_model_definition_equivalent_to_dms,
@@ -583,3 +585,70 @@ class _BadSetElement:
 def test_model_definition_to_dms_rejects_unsupported_set_element_type() -> None:
     with pytest.raises(ModelDefinitionError, match="unsupported set element type"):
         ModelDefinition.from_dataclass(_BadSetElement, table_name="tbl")
+
+
+def _hostile_document_shell() -> str:
+    return 'dms_version: "0.2"\nmodels: []\n'
+
+
+def test_parse_dms_document_rejects_recursive_alias() -> None:
+    raw = _hostile_document_shell() + "cycle: &cycle [*cycle]\n"
+    with pytest.raises(ValidationError, match="cyclic or shared reference"):
+        parse_dms_document(raw)
+
+
+def test_parse_dms_document_rejects_shared_alias_identity() -> None:
+    raw = _hostile_document_shell() + "shared: &shared { key: value }\nagain: *shared\n"
+    with pytest.raises(ValidationError, match="cyclic or shared reference"):
+        parse_dms_document(raw)
+
+
+def test_parse_dms_document_rejects_alias_amplification() -> None:
+    lines = ['a: &a ["x", "x", "x", "x", "x", "x", "x", "x", "x"]']
+    previous = "a"
+    for index in range(6):
+        current = f"b{index}"
+        lines.append(f"{current}: &{current} [" + ", ".join([f"*{previous}"] * 9) + "]")
+        previous = current
+    raw = _hostile_document_shell() + "\n".join(lines) + "\n"
+    with pytest.raises(ValidationError, match="invalid DMS YAML/JSON"):
+        parse_dms_document(raw)
+
+
+def test_parse_dms_document_rejects_over_deep_nesting() -> None:
+    raw = _hostile_document_shell() + "deep: " + "[" * 200 + "0" + "]" * 200 + "\n"
+    with pytest.raises(ValidationError, match="nesting exceeds"):
+        parse_dms_document(raw)
+
+
+def test_parse_dms_document_rejects_oversized_document() -> None:
+    from tabletheory_py.dms import MAX_DMS_DOCUMENT_BYTES
+
+    raw = _hostile_document_shell() + 'padding: "' + "x" * MAX_DMS_DOCUMENT_BYTES + '"\n'
+    with pytest.raises(ValidationError, match="too large"):
+        parse_dms_document(raw)
+
+
+def test_parse_dms_document_rejects_too_many_nodes() -> None:
+    values = ", ".join(f'"{index}"' for index in range(10_001))
+    raw = _hostile_document_shell() + f"many: [{values}]\n"
+    with pytest.raises(ValidationError, match="too many nodes"):
+        parse_dms_document(raw)
+
+
+@dataclass(frozen=True)
+class _DeclaredRoles:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    roles: list[str] = theorydb_field(name="roles", json=True, default_factory=list)
+
+
+def test_declared_list_type_reads_legacy_json_string_as_list() -> None:
+    client = StatefulDynamoDBClient()
+    client.seed(
+        "dms_declared_roles",
+        {"PK": {"S": "ROLE#1"}, "roles": {"S": '["not-admin"]'}},
+    )
+    model = ModelDefinition.from_dataclass(_DeclaredRoles, table_name="dms_declared_roles")
+    item = Table(model, client=client).get("ROLE#1")
+    assert item.roles == ["not-admin"]
+    assert "admin" not in item.roles

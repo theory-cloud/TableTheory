@@ -11,6 +11,16 @@ When DMS evolves, every runtime evolves with it. The discipline for managing tha
 
 The full canonical specification lives in the repository at [`docs/development/planning/theorydb-spec-dms-v0.2.md`](https://github.com/theory-cloud/tabletheory/blob/main/docs/development/planning/theorydb-spec-dms-v0.2.md). This page describes the public-facing shape; consult the canonical document for the precise semantics every runtime must implement.
 
+## Implementation notes
+
+`json_string_mode` is part of DMS v0.2 and does not change the envelope or wire
+format. The Go parser and code generators preserve it; generated TypeScript
+schemas emit it as `jsonStringMode`, which is also the spelling accepted on a
+directly authored schema. A schema that supplies both spellings with different
+values is refused with a model error. Runtimes that discriminate by declared
+language type (Go string fields, Python `str`/`list[str]` fields) already
+provide the equivalent behavior and may ignore the hint.
+
 ## Shape
 
 DMS is a YAML document describing one or more models:

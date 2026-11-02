@@ -14,8 +14,10 @@ name: TableTheory TheoryCloud subtree publish
 #     cover: re-running a publish that failed, or that a later push superseded,
 #     without re-running the old commit. It takes no inputs and no separate ref
 #     parameter; the run checks out and publishes the ref it is dispatched on,
-#     and the "Resolve publish target branch" step below fails closed on any ref
-#     outside premain/main before any checkout, install, or role assumption.
+#     and the "Resolve and validate publish target" step below requires a
+#     branch ref type plus the exact full refs/heads/premain or
+#     refs/heads/main. A same-named tag fails there, before any checkout,
+#     install, or role assumption.
 on:
   push:
     branches:
@@ -71,7 +73,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: tabletheory-theorycloud-subtree-publish-${{ github.ref_name }}
+  group: tabletheory-theorycloud-subtree-publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -85,35 +87,66 @@ jobs:
     runs-on: ubuntu-26.04
     env:
       AWS_REGION: us-east-1
-      THEORYCLOUD_STAGE: ${{ github.ref_name == 'premain' && 'lab' || github.ref_name == 'main' && 'live' || '' }}
-      AWS_ROLE_ARN: ${{ github.ref_name == 'premain' && 'arn:aws:iam::787107040121:role/KnowledgeTheory-TheoryCloud-TableTheory-lab-Publisher' || github.ref_name == 'main' && 'arn:aws:iam::787107040121:role/KnowledgeTheory-TheoryCloud-TableTheory-live-Publisher' || '' }}
       THEORYCLOUD_TABLETHEORY_SUBTREE_OUTPUT_DIR: /tmp/theorycloud-tabletheory-source
-      THEORYCLOUD_PUBLISH_REASON: ${{ format('github:{0}:{1}', github.repository, github.ref_name) }}
     steps:
-      - name: Resolve publish target branch
-        if: github.event_name == 'workflow_dispatch'
+      - name: Resolve and validate publish target
+        id: publish-target
         run: |
           set -euo pipefail
 
-          # A manual dispatch publishes the ref it is dispatched on, so only the
-          # protected release branches may publish; every other ref fails closed
-          # here, before the checkout, install, or role-assumption steps below.
-          target="${GITHUB_REF_NAME}"
-          case "${target}" in
-            premain|main)
+          # Publishing is a protected-branch action. A same-named tag (for
+          # example refs/tags/premain) must never reach the checkout, the
+          # pinned tooling install, or the OIDC role assumption below, so the
+          # ref TYPE and the exact full ref are both checked here, before any
+          # other step runs. The branch name alone is never sufficient.
+          ref_type="${GITHUB_REF_TYPE:-}"
+          ref="${GITHUB_REF:-}"
+          ref_name="${GITHUB_REF_NAME:-}"
+
+          if [[ "${ref_type}" != "branch" ]]; then
+            echo "theorycloud-publish: FAIL (publishing is limited to branch refs, got ${ref_type:-<empty>} ${ref:-<empty>})" >&2
+            exit 1
+          fi
+
+          case "${ref}" in
+            refs/heads/premain)
+              stage=lab
+              role_arn="arn:aws:iam::787107040121:role/KnowledgeTheory-TheoryCloud-TableTheory-lab-Publisher"
+              ;;
+            refs/heads/main)
+              stage=live
+              role_arn="arn:aws:iam::787107040121:role/KnowledgeTheory-TheoryCloud-TableTheory-live-Publisher"
               ;;
             *)
-              echo "theorycloud-publish: FAIL (manual dispatch is limited to premain/main, got ${target:-<empty>})" >&2
+              echo "theorycloud-publish: FAIL (publishing is limited to refs/heads/premain and refs/heads/main, got ${ref:-<empty>})" >&2
               exit 1
               ;;
           esac
 
+          branch="${ref#refs/heads/}"
+          if [[ "${ref_name}" != "${branch}" ]]; then
+            echo "theorycloud-publish: FAIL (ref name ${ref_name:-<empty>} does not match the validated full ref ${ref})" >&2
+            exit 1
+          fi
+
+          {
+            echo "ref=${ref}"
+            echo "branch=${branch}"
+            echo "stage=${stage}"
+            echo "role_arn=${role_arn}"
+            echo "reason=github:${GITHUB_REPOSITORY}:${branch}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Checkout protected branch head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ steps.publish-target.outputs.ref }}
           fetch-depth: 0
 
       - name: Validate publish workflow configuration
+        env:
+          THEORYCLOUD_STAGE: ${{ steps.publish-target.outputs.stage }}
+          AWS_ROLE_ARN: ${{ steps.publish-target.outputs.role_arn }}
         run: |
           set -euo pipefail
 
@@ -152,10 +185,12 @@ jobs:
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          role-session-name: tabletheory-${{ github.ref_name }}-${{ github.run_id }}
+          role-to-assume: ${{ steps.publish-target.outputs.role_arn }}
+          role-session-name: tabletheory-${{ steps.publish-target.outputs.branch }}-${{ github.run_id }}
 
       - name: Sync TableTheory subtree into shared theorycloud source state
+        env:
+          THEORYCLOUD_STAGE: ${{ steps.publish-target.outputs.stage }}
         run: |
           set -euo pipefail
 
@@ -165,6 +200,8 @@ jobs:
 
       - name: Trigger shared theorycloud publish
         env:
+          THEORYCLOUD_STAGE: ${{ steps.publish-target.outputs.stage }}
+          THEORYCLOUD_PUBLISH_REASON: ${{ steps.publish-target.outputs.reason }}
           SOURCE_REVISION: ${{ github.sha }}
         run: |
           set -euo pipefail

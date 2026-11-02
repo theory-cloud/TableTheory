@@ -30,12 +30,32 @@ type EncryptionConfig struct {
 	Seed     string `yaml:"seed"`
 }
 
+type MigrateRequest struct {
+	SourceTable string `yaml:"source_table"`
+	BatchSize   int    `yaml:"batch_size"`
+	Encryption  string `yaml:"encryption"`
+}
+
+type DmsRequest struct {
+	Model    string `yaml:"model"`
+	Document string `yaml:"document"`
+	Schema   string `yaml:"schema"`
+}
+
 type Step struct {
 	Op                  string                `yaml:"op"`
 	Model               string                `yaml:"model"`
 	IfNotExists         bool                  `yaml:"if_not_exists"`
 	Fields              []string              `yaml:"fields"`
 	ProtectedAttributes []string              `yaml:"protected_attributes"`
+	Encryption          string                `yaml:"encryption"`
+	Table               string                `yaml:"table"`
+	RawItem             map[string]any        `yaml:"raw_item"`
+	EnvelopeVersion     int                   `yaml:"envelope_version"`
+	Corrupt             string                `yaml:"corrupt"`
+	Reset               bool                  `yaml:"reset"`
+	Migrate             *MigrateRequest       `yaml:"migrate"`
+	Dms                 *DmsRequest           `yaml:"dms"`
 	Item                map[string]any        `yaml:"item"`
 	Key                 map[string]any        `yaml:"key"`
 	Query               *ReadRequest          `yaml:"query"`
@@ -47,8 +67,12 @@ type Step struct {
 	TransactWrite       *TransactWriteRequest `yaml:"transact_write"`
 	Actual              *TransitionActual     `yaml:"actual"`
 	Event               *TransitionEvent      `yaml:"event"`
+	EventBinding        map[string]string     `yaml:"event_binding"`
 	Ms                  int                   `yaml:"ms"`
 	Save                map[string]string     `yaml:"save"`
+	ForbidTTLCalls      bool                  `yaml:"forbid_ttl_calls"`
+	TTLAttribute        string                `yaml:"ttl_attribute"`
+	TTLEnabled          *bool                 `yaml:"ttl_enabled"`
 	Expect              Expectation           `yaml:"expect"`
 }
 
@@ -138,8 +162,11 @@ type Expectation struct {
 	ItemHasFields         []string          `yaml:"item_has_fields"`
 	ItemMissingFields     []string          `yaml:"item_missing_fields"`
 	RawAttributeTypes     map[string]string `yaml:"raw_attribute_types"`
+	RawEnvelopeVersions   map[string]string `yaml:"raw_envelope_versions"`
 	ItemFieldEqualsVar    map[string]string `yaml:"item_field_equals_var"`
 	ItemFieldNotEqualsVar map[string]string `yaml:"item_field_not_equals_var"`
+	TTLStatus             string            `yaml:"ttl_status"`
+	TTLAttribute          string            `yaml:"ttl_attribute"`
 }
 
 func LoadFile(path string) (*Scenario, error) {
@@ -289,6 +316,52 @@ func validateStep(label string, i int, step Step) error {
 		if len(step.Item) == 0 {
 			return fmt.Errorf("%s validate_provenance: item is required", prefix)
 		}
+	case "raw_put":
+		if len(step.RawItem) == 0 {
+			return fmt.Errorf("%s raw_put: raw_item is required", prefix)
+		}
+	case "seed_encrypted":
+		if len(step.Item) == 0 {
+			return fmt.Errorf("%s seed_encrypted: item is required", prefix)
+		}
+		if step.EnvelopeVersion != 1 && step.EnvelopeVersion != 2 {
+			return fmt.Errorf("%s seed_encrypted: envelope_version must be 1 or 2", prefix)
+		}
+		if step.Corrupt != "" && step.Corrupt != "ciphertext" && step.Corrupt != "nonce" {
+			return fmt.Errorf("%s seed_encrypted: unsupported corrupt mode %q", prefix, step.Corrupt)
+		}
+	case "migrate":
+		if step.Migrate == nil || step.Migrate.SourceTable == "" {
+			return fmt.Errorf("%s migrate: migrate.source_table is required", prefix)
+		}
+		switch step.Migrate.Encryption {
+		case "", "deterministic", "none", "failing":
+		default:
+			return fmt.Errorf("%s migrate: unsupported encryption %q", prefix, step.Migrate.Encryption)
+		}
+	case "create_table":
+	case "ensure_table":
+	case "update_ttl":
+		if step.TTLAttribute == "" {
+			return fmt.Errorf("%s update_ttl: ttl_attribute is required", prefix)
+		}
+	case "describe_ttl":
+		if step.Expect.TTLStatus == "" && step.Expect.TTLAttribute == "" {
+			return fmt.Errorf("%s describe_ttl: expect.ttl_status or expect.ttl_attribute is required", prefix)
+		}
+	case "dms_parse", "dms_get":
+		if step.Dms == nil {
+			return fmt.Errorf("%s %s: dms is required", prefix, step.Op)
+		}
+		if step.Dms.Model == "" {
+			return fmt.Errorf("%s %s: dms.model is required", prefix, step.Op)
+		}
+		if (step.Dms.Document == "") == (step.Dms.Schema == "") {
+			return fmt.Errorf("%s %s: exactly one of dms.document or dms.schema is required", prefix, step.Op)
+		}
+		if step.Op == "dms_get" && len(step.Key) == 0 {
+			return fmt.Errorf("%s dms_get: key is required", prefix)
+		}
 	default:
 		return fmt.Errorf("%s: unsupported op %q", prefix, step.Op)
 	}
@@ -313,6 +386,7 @@ func validateExpectation(prefix string, expect Expectation) error {
 		value map[string]string
 	}{
 		{name: "raw_attribute_types", value: expect.RawAttributeTypes},
+		{name: "raw_envelope_versions", value: expect.RawEnvelopeVersions},
 		{name: "item_field_equals_var", value: expect.ItemFieldEqualsVar},
 		{name: "item_field_not_equals_var", value: expect.ItemFieldNotEqualsVar},
 	} {
@@ -347,7 +421,9 @@ func validateExpectation(prefix string, expect Expectation) error {
 	hasErrorExpectation := expect.Error != "" || len(expect.Errors) > 0
 	hasDataAssertion := expectationHasItemAssertion(expect) ||
 		expectationHasRawItemAssertion(expect) ||
-		expectationHasReadAssertion(expect)
+		expectationHasReadAssertion(expect) ||
+		expect.TTLStatus != "" ||
+		expect.TTLAttribute != ""
 	if hasErrorExpectation && hasDataAssertion {
 		return fmt.Errorf("%s expect: item/read assertions cannot be combined with error expectations", prefix)
 	}

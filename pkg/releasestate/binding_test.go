@@ -2,6 +2,7 @@ package releasestate
 
 import (
 	"context"
+	"math"
 	"reflect"
 	"testing"
 
@@ -314,6 +315,89 @@ func TestBindingValuesEqualFloats(t *testing.T) {
 	require.True(t, bindingValuesEqual(float32(1.5), 1.5))
 }
 
+func TestBindingValuesEqualComparesNumbersExactly(t *testing.T) {
+	tests := map[string]struct {
+		left  any
+		right any
+		equal bool
+	}{
+		"equal int64 above 2^53": {
+			left: int64(9007199254740993), right: int64(9007199254740993), equal: true,
+		},
+		"adjacent int64 above 2^53": {
+			left: int64(9007199254740992), right: int64(9007199254740993), equal: false,
+		},
+		"adjacent uint64 above 2^53": {
+			left: uint64(9007199254740992), right: uint64(9007199254740993), equal: false,
+		},
+		"int64 equals the same exact float64": {
+			left: int64(9007199254740992), right: float64(9007199254740992), equal: true,
+		},
+		"int64 differs from a rounded float64": {
+			left: int64(9007199254740993), right: float64(9007199254740992), equal: false,
+		},
+		"uint64 equals int64": {
+			left: uint64(5), right: int64(5), equal: true,
+		},
+		"signed and unsigned differ": {
+			left: int64(-1), right: uint64(1), equal: false,
+		},
+		"string never matches a number": {
+			left: "5", right: int64(5), equal: false,
+		},
+		"lexical strings are distinct": {
+			left: "001", right: "1", equal: false,
+		},
+		"nested maps recurse exactly": {
+			left:  map[string]any{"ttl": int64(9007199254740992)},
+			right: map[string]any{"ttl": int64(9007199254740993)},
+			equal: false,
+		},
+		"nested numeric kinds match exactly": {
+			left:  map[string]any{"ttl": uint64(5)},
+			right: map[string]any{"ttl": float64(5)},
+			equal: true,
+		},
+		"nested lists recurse exactly": {
+			left:  []any{int64(9007199254740992)},
+			right: []any{int64(9007199254740993)},
+			equal: false,
+		},
+	}
+
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, testCase.equal, bindingValuesEqual(testCase.left, testCase.right))
+		})
+	}
+}
+
+func TestTransitionNextVersionRejectsAdjacentLargeIntegers(t *testing.T) {
+	expected := int64(9007199254740992)
+	input := bindingInput()
+	input.ExpectedVersion = &expected
+	input.EventBinding = map[string]string{"version": "nextVersion"}
+
+	bindingEventOf(t, input).Version = 9007199254740992
+	writer := &fakeTransactionWriter{}
+	err := TransitionAppendEvent(context.Background(), writer, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+	require.False(t, writer.called, "a lossy adjacent integer must not reach the transaction")
+
+	bindingEventOf(t, input).Version = 9007199254740993
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
+}
+
+func TestTransitionBindingRejectsStringNumberConfusion(t *testing.T) {
+	expected := int64(0)
+	input := bindingInput()
+	input.ExpectedVersion = &expected
+	input.EventBinding = map[string]string{"releaseId": "nextVersion"}
+	bindingEventOf(t, input).ReleaseID = "1"
+
+	require.ErrorIs(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input), theorydbErrors.ErrInvalidModel)
+}
+
 type bindingEmbeddedActual struct {
 	PK string `theorydb:"pk,attr:PK"`
 	SK string `theorydb:"sk,attr:SK"`
@@ -517,4 +601,102 @@ func TestDetectBindingNamingConvention(t *testing.T) {
 			require.Equal(t, tc.convention, detectBindingNamingConvention(tc.model))
 		})
 	}
+}
+
+type bindingNestedMapEvent struct {
+	Payload map[string]any `theorydb:"attr:payload"`
+	PK      string         `theorydb:"pk,attr:PK"`
+	SK      string         `theorydb:"sk,attr:SK"`
+}
+
+func TestTransitionNestedMapKeyTypeMismatchRejectsWithoutPanic(t *testing.T) {
+	input := TransitionAppendEventInput{
+		Actual: &bindingActual{PK: "RELEASE#service-a", SK: "ACTUAL"},
+		Event: &bindingNestedMapEvent{
+			PK:      "RELEASE#service-a",
+			SK:      "EVENT#1",
+			Payload: map[string]any{"1": "one"},
+		},
+		Set:          map[string]any{"payload": map[int]string{1: "one"}},
+		EventBinding: map[string]string{"payload": "set:payload"},
+	}
+
+	writer := &fakeTransactionWriter{}
+	var err error
+	require.NotPanics(t, func() {
+		err = TransitionAppendEvent(context.Background(), writer, input)
+	})
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel,
+		"incompatible nested map key types must reject, not compare")
+	require.False(t, writer.called, "a key-type mismatch must not reach the transaction")
+
+	input.Set["payload"] = map[string]any{"1": "one"}
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input),
+		"compatible nested map key types must keep comparing exactly")
+}
+
+func TestTransitionNextVersionRejectsMaxInt64Overflow(t *testing.T) {
+	expected := int64(math.MaxInt64)
+	input := bindingInput()
+	input.ExpectedVersion = &expected
+	input.EventBinding = map[string]string{"version": "nextVersion"}
+	// The defective addition wraps MaxInt64 to MinInt64, which would satisfy
+	// this binding and reach the writer.
+	bindingEventOf(t, input).Version = math.MinInt64
+
+	writer := &fakeTransactionWriter{}
+	err := TransitionAppendEvent(context.Background(), writer, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+	require.False(t, writer.called, "an overflowing nextVersion must not reach the transaction")
+}
+
+func TestTransitionNextVersionAcceptsMaxInt64MinusOne(t *testing.T) {
+	expected := int64(math.MaxInt64 - 1)
+	input := bindingInput()
+	input.ExpectedVersion = &expected
+	input.EventBinding = map[string]string{"version": "nextVersion"}
+	bindingEventOf(t, input).Version = math.MaxInt64
+
+	writer := &fakeTransactionWriter{}
+	require.NoError(t, TransitionAppendEvent(context.Background(), writer, input))
+	require.True(t, writer.called)
+}
+
+type bindingSliceEvent struct {
+	PK     string   `theorydb:"pk,attr:PK"`
+	SK     string   `theorydb:"sk,attr:SK"`
+	Events []string `theorydb:"attr:events"`
+}
+
+func TestBindingValuesDistinguishNilAndEmptySlices(t *testing.T) {
+	require.False(t, bindingValuesEqual([]string(nil), []string{}),
+		"a nil list and an empty list are different DynamoDB identities")
+	require.True(t, bindingValuesEqual([]string{}, []string{}))
+	require.False(t, bindingValuesEqual(
+		map[string]any{"events": []string(nil)},
+		map[string]any{"events": []string{}},
+	))
+	require.True(t, bindingValuesEqual(
+		map[string]any{"events": []string{}},
+		map[string]any{"events": []string{}},
+	))
+	require.True(t, bindingValuesEqual([0]string{}, [0]string{}),
+		"arrays are not slices and keep structural equality")
+}
+
+func TestTransitionBindingDistinguishesNilAndEmptySlices(t *testing.T) {
+	input := TransitionAppendEventInput{
+		Actual:       &bindingActual{PK: "RELEASE#service-a", SK: "ACTUAL"},
+		Event:        &bindingSliceEvent{PK: "RELEASE#service-a", SK: "EVENT#1", Events: []string{}},
+		Set:          map[string]any{"events": []string(nil)},
+		EventBinding: map[string]string{"events": "set:events"},
+	}
+
+	writer := &fakeTransactionWriter{}
+	err := TransitionAppendEvent(context.Background(), writer, input)
+	require.ErrorIs(t, err, theorydbErrors.ErrInvalidModel)
+	require.False(t, writer.called, "a nil list must not satisfy an empty list")
+
+	input.Set["events"] = []string{}
+	require.NoError(t, TransitionAppendEvent(context.Background(), &fakeTransactionWriter{}, input))
 }

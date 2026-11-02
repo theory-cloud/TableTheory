@@ -118,8 +118,14 @@ func (h *UserHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// ListUsers lists all users in an organization
+// ListUsers lists all users in an organization. Enumeration is a directory
+// read, so only an active owner or admin may call it; members and viewers can
+// still read their own record through GetUser.
 func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := requireOrganizationRole(w, h.db, r, models.RoleOwner, models.RoleAdmin); !ok {
+		return
+	}
+
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
 
@@ -154,7 +160,8 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(users)
 }
 
-// GetUser retrieves a specific user
+// GetUser retrieves a specific user. An active owner or admin may read any
+// directory entry; every other active user may read only their own record.
 func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	orgID := vars["org_id"]
@@ -166,6 +173,16 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if !strings.HasPrefix(userID, "user#") {
 		userID = fmt.Sprintf("user#%s", userID)
+	}
+
+	caller, callerID, ok := callerOrgUser(h.db, r.Context())
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !canReadDirectoryEntry(caller, callerID, userID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
 	}
 
 	var user models.User

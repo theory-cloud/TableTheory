@@ -30,6 +30,13 @@ The current P0 directory contains these scenarios:
 | [`07-release-state-protected-fields.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/07-release-state-protected-fields.yml) | Release-state protected-field enforcement. |
 | [`08-release-state-transactional-transition.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/08-release-state-transactional-transition.yml) | Release-state transition append performed transactionally. |
 | [`09-release-state-provenance-confidence.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/09-release-state-provenance-confidence.yml) | Release-state deploy-authority provenance and confidence validation. |
+| [`12-encryption-fail-closed.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/12-encryption-fail-closed.yml) | Encrypted writes and reads fail closed without KMS; a malformed envelope nonce is rejected with a typed error (never a panic) across get, query, scan, batch-get, and transaction-read. |
+| [`19-encryption-migration-rebinding.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/19-encryption-migration-rebinding.yml) | A data-copying migration re-seals same-name encrypted attributes with the target record binding; v1 rows are upgraded to v2; a failing source page or a missing provider writes no target page. |
+| [`20-dms-json-string-mode.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/20-dms-json-string-mode.yml) | DMS `json_string_mode: "parse"` and the generated `jsonStringMode` spelling restore structured values; conflicting spellings are rejected rather than silently preferred. Capability-gated to runtimes that advertise `dms.json_string_mode`. |
+| [`21-create-table-existing-ttl.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/21-create-table-existing-ttl.yml) | Repeating `CreateTable` on an existing table whose TTL is already enabled on the model attribute stays an already-exists success. |
+| [`22-ensure-table-existing-ttl-disabled.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/22-ensure-table-existing-ttl-disabled.yml) | `EnsureTable` on an existing table with TTL disabled leaves TTL disabled and makes no TTL API call, matching Go. |
+| [`23-create-table-existing-ttl-converges.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/23-create-table-existing-ttl-converges.yml) | `CreateTable` on an existing table enables TTL when disabled and remains idempotent when the model attribute is already enabled. |
+| [`24-create-table-ttl-attribute-conflict.yml`](https://github.com/theory-cloud/tabletheory/blob/main/contract-tests/scenarios/p0/24-create-table-ttl-attribute-conflict.yml) | TTL enabled on a different attribute is a typed `ErrTTLAttributeMismatch` conflict and the existing attribute is not switched. |
 
 ### CRUD
 
@@ -67,6 +74,9 @@ See: [Features · Optimistic Locking](../features/optimistic-locking.md)
 The TTL fixture pins the `ttl` role as a numeric epoch-seconds attribute. It does
 not assert read-time masking of still-present expired items. DynamoDB TTL deletion
 is eventual, and current read paths return any item DynamoDB physically returns.
+The schema scenarios pin provisioning parity with Go as the reference:
+`EnsureTable` never touches TTL on an existing table, `CreateTable` converges TTL,
+and a different enabled attribute is a typed conflict instead of a silent switch.
 
 See: [Features · TTL](../features/ttl.md)
 

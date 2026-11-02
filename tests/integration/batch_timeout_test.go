@@ -37,7 +37,7 @@ func TestBatchCreateTimeout(t *testing.T) {
 	// Create DB connection
 	sessionConfig := session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: TestEndpoint(),
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(
 				credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
@@ -114,7 +114,7 @@ func TestBatchCreateTimeoutCheck(t *testing.T) {
 	// Create DB connection
 	sessionConfig := session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: TestEndpoint(),
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(
 				credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
@@ -183,7 +183,7 @@ func TestBatchCreateReproduceIssue(t *testing.T) {
 	// Create DB connection
 	sessionConfig := session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: TestEndpoint(),
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(
 				credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),

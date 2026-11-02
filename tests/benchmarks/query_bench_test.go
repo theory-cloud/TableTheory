@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -25,6 +26,13 @@ var (
 	benchTableName = "BenchmarkTable"
 )
 
+func benchmarkEndpoint() string {
+	if endpoint := os.Getenv("DYNAMODB_ENDPOINT"); endpoint != "" {
+		return endpoint
+	}
+	return "http://localhost:8000"
+}
+
 func setupBenchDB(b *testing.B) (core.ExtendedDB, *dynamodb.Client) {
 	if benchDB != nil && benchDynamoDB != nil {
 		return benchDB, benchDynamoDB
@@ -45,14 +53,15 @@ func setupBenchDB(b *testing.B) (core.ExtendedDB, *dynamodb.Client) {
 	}
 
 	// Create DynamoDB client with endpoint override
+	benchmarkDynamoEndpoint := benchmarkEndpoint()
 	dynamoClient := dynamodb.NewFromConfig(awsCfg, func(o *dynamodb.Options) {
-		o.BaseEndpoint = aws.String("http://localhost:8000")
+		o.BaseEndpoint = aws.String(benchmarkDynamoEndpoint)
 	})
 
 	// Fixed initialization with session.Config for TableTheory
 	sessionConfig := session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: benchmarkDynamoEndpoint,
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(
 				credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),

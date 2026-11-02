@@ -63,9 +63,18 @@ func NewReconcileHandler() (*ReconcileHandler, error) {
 	db.Model(&payment.Transaction{})
 	db.Model(&payment.Payment{})
 
+	// A custom S3 endpoint (for example a local S3-compatible emulator) serves
+	// buckets path-style; production AWS keeps virtual-host addressing.
+	var s3Options []func(*s3.Options)
+	if os.Getenv("AWS_ENDPOINT_URL_S3") != "" || os.Getenv("S3_ENDPOINT") != "" {
+		s3Options = append(s3Options, func(o *s3.Options) {
+			o.UsePathStyle = true
+		})
+	}
+
 	return &ReconcileHandler{
 		db:           db,
-		s3Client:     s3.NewFromConfig(cfg),
+		s3Client:     s3.NewFromConfig(cfg, s3Options...),
 		auditTracker: utils.NewAuditTracker(db),
 	}, nil
 }

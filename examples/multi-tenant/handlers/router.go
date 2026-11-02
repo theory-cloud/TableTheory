@@ -23,44 +23,54 @@ func NewRouter(db core.ExtendedDB) *mux.Router {
 
 	r := mux.NewRouter()
 
+	// protected composes the two gates every organization-scoped route needs:
+	// the URL organization must match the caller's trusted binding, and the
+	// caller must resolve to an active stored principal.
+	protected := func(next http.HandlerFunc) http.HandlerFunc {
+		return requireOrgBinding(requireActivePrincipal(db, next))
+	}
+
 	// Health check
 	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	}).Methods("GET")
 
-	// Organization routes
+	// Organization routes. CreateOrganization is the public signup flow and
+	// ListOrganizations requires an active stored user but is not bound to one
+	// organization URL.
 	r.HandleFunc("/organizations", orgHandler.CreateOrganization).Methods("POST")
 	r.HandleFunc("/organizations", orgHandler.ListOrganizations).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}", requireOrgBinding(orgHandler.GetOrganization)).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/settings", requireOrgBinding(orgHandler.UpdateOrganizationSettings)).Methods("PUT")
+	r.HandleFunc("/organizations/{org_id}", protected(orgHandler.GetOrganization)).Methods("GET")
+	r.HandleFunc("/organizations/{org_id}/settings", protected(orgHandler.UpdateOrganizationSettings)).Methods("PUT")
 
-	// User routes
-	r.HandleFunc("/organizations/{org_id}/invitations", requireOrgBinding(userHandler.InviteUser)).Methods("POST")
+	// User routes. Invitation acceptance is a public token exchange.
+	r.HandleFunc("/organizations/{org_id}/invitations", protected(userHandler.InviteUser)).Methods("POST")
 	r.HandleFunc("/invitations/accept", userHandler.AcceptInvitation).Methods("POST")
-	r.HandleFunc("/organizations/{org_id}/users", requireOrgBinding(userHandler.ListUsers)).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/users/{user_id}", requireOrgBinding(userHandler.GetUser)).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/users/{user_id}", requireOrgBinding(userHandler.UpdateUser)).Methods("PUT")
-	r.HandleFunc("/organizations/{org_id}/users/{user_id}", requireOrgBinding(userHandler.DeleteUser)).Methods("DELETE")
+	r.HandleFunc("/organizations/{org_id}/users", protected(userHandler.ListUsers)).Methods("GET")
+	r.HandleFunc("/organizations/{org_id}/users/{user_id}", protected(userHandler.GetUser)).Methods("GET")
+	r.HandleFunc("/organizations/{org_id}/users/{user_id}", protected(userHandler.UpdateUser)).Methods("PUT")
+	r.HandleFunc("/organizations/{org_id}/users/{user_id}", protected(userHandler.DeleteUser)).Methods("DELETE")
 
 	// Project routes
-	r.HandleFunc("/organizations/{org_id}/projects", requireOrgBinding(projectHandler.CreateProject)).Methods("POST")
-	r.HandleFunc("/organizations/{org_id}/projects", requireOrgBinding(projectHandler.ListProjects)).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/projects/{project_id}", requireOrgBinding(projectHandler.GetProject)).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/projects/{project_id}", requireOrgBinding(projectHandler.UpdateProject)).Methods("PUT")
-	r.HandleFunc("/organizations/{org_id}/projects/{project_id}", requireOrgBinding(projectHandler.DeleteProject)).Methods("DELETE")
+	r.HandleFunc("/organizations/{org_id}/projects", protected(projectHandler.CreateProject)).Methods("POST")
+	r.HandleFunc("/organizations/{org_id}/projects", protected(projectHandler.ListProjects)).Methods("GET")
+	r.HandleFunc("/organizations/{org_id}/projects/{project_id}", protected(projectHandler.GetProject)).Methods("GET")
+	r.HandleFunc("/organizations/{org_id}/projects/{project_id}", protected(projectHandler.UpdateProject)).Methods("PUT")
+	r.HandleFunc("/organizations/{org_id}/projects/{project_id}", protected(projectHandler.DeleteProject)).Methods("DELETE")
 
-	// Resource tracking routes
-	r.HandleFunc("/organizations/{org_id}/resources", requireOrgBinding(resourceHandler.RecordUsage)).Methods("POST")
-	r.HandleFunc("/organizations/{org_id}/usage", requireOrgBinding(resourceHandler.GetUsageReport)).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/projects/{project_id}/usage", requireOrgBinding(resourceHandler.GetProjectUsage)).Methods("GET")
+	// Resource tracking routes. Usage recording is API-key authenticated; the
+	// other two are user routes.
+	r.HandleFunc("/organizations/{org_id}/resources", protected(resourceHandler.RecordUsage)).Methods("POST")
+	r.HandleFunc("/organizations/{org_id}/usage", protected(resourceHandler.GetUsageReport)).Methods("GET")
+	r.HandleFunc("/organizations/{org_id}/projects/{project_id}/usage", protected(resourceHandler.GetProjectUsage)).Methods("GET")
 
 	// API key routes
-	r.HandleFunc("/organizations/{org_id}/api-keys", requireOrgBinding(apiKeyHandler.CreateAPIKey)).Methods("POST")
-	r.HandleFunc("/organizations/{org_id}/api-keys", requireOrgBinding(apiKeyHandler.ListAPIKeys)).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/api-keys/{key_id}", requireOrgBinding(apiKeyHandler.GetAPIKey)).Methods("GET")
-	r.HandleFunc("/organizations/{org_id}/api-keys/{key_id}", requireOrgBinding(apiKeyHandler.UpdateAPIKey)).Methods("PUT")
-	r.HandleFunc("/organizations/{org_id}/api-keys/{key_id}", requireOrgBinding(apiKeyHandler.DeleteAPIKey)).Methods("DELETE")
+	r.HandleFunc("/organizations/{org_id}/api-keys", protected(apiKeyHandler.CreateAPIKey)).Methods("POST")
+	r.HandleFunc("/organizations/{org_id}/api-keys", protected(apiKeyHandler.ListAPIKeys)).Methods("GET")
+	r.HandleFunc("/organizations/{org_id}/api-keys/{key_id}", protected(apiKeyHandler.GetAPIKey)).Methods("GET")
+	r.HandleFunc("/organizations/{org_id}/api-keys/{key_id}", protected(apiKeyHandler.UpdateAPIKey)).Methods("PUT")
+	r.HandleFunc("/organizations/{org_id}/api-keys/{key_id}", protected(apiKeyHandler.DeleteAPIKey)).Methods("DELETE")
 
 	return r
 }

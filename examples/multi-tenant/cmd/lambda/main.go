@@ -44,6 +44,20 @@ var db = sync.OnceValues(func() (core.ExtendedDB, error) {
 	return tabletheory.New(config)
 })
 
+// apiKeyHandler builds the API-key handler once per execution environment,
+// alongside the database handle. The handler owns the process-local verifier:
+// its bcrypt slot bound and per-key failure history must survive invocations or
+// repeated wrong secrets would reset the warm threshold on every call. The
+// handler never caches a successful credential, so revocation and rotation are
+// still observed on the next record lookup.
+var apiKeyHandler = sync.OnceValues(func() (*handlers.APIKeyHandler, error) {
+	database, err := db()
+	if err != nil {
+		return nil, err
+	}
+	return handlers.NewAPIKeyHandler(database), nil
+})
+
 // region reads the deployed region, falling back to the standard AWS variable.
 func region() string {
 	if value := strings.TrimSpace(os.Getenv("REGION")); value != "" {
@@ -159,12 +173,14 @@ func httpRequest(ctx context.Context, event events.APIGatewayProxyRequest) (*htt
 	return request.WithContext(withAuthorizerContext(ctx, event.RequestContext.Authorizer)), nil
 }
 
-// withAuthorizerContext copies the tenant IDs an API Gateway authorizer placed
+// withAuthorizerContext copies the identities an API Gateway authorizer placed
 // on the invocation onto the request context, using the same string keys the
-// handlers read. Without this the Lambda path drops the authorizer context and
-// a handler could not tell which organization the caller is bound to.
+// handlers read. The field list is an explicit allowlist: only the tenant user,
+// organization, and API-key identity are trusted. Without this the Lambda path
+// drops the authorizer context and a handler could not tell which organization
+// or key the caller is bound to.
 func withAuthorizerContext(ctx context.Context, authorizer map[string]interface{}) context.Context {
-	for _, key := range []string{"user_id", "org_id"} {
+	for _, key := range []string{"user_id", "org_id", "api_key_id"} {
 		if value, ok := authorizer[key].(string); ok && value != "" {
 			ctx = context.WithValue(ctx, key, value)
 		}
@@ -276,12 +292,11 @@ func authorizeAPIKey(event events.APIGatewayCustomAuthorizerRequestTypeRequest) 
 		return events.APIGatewayCustomAuthorizerResponse{}, errors.New("Unauthorized")
 	}
 
-	database, err := db()
+	keyHandler, err := apiKeyHandler()
 	if err != nil {
 		return events.APIGatewayCustomAuthorizerResponse{}, fmt.Errorf("initialize TableTheory: %w", err)
 	}
 
-	keyHandler := handlers.NewAPIKeyHandler(database)
 	key, err := keyHandler.ValidateAPIKey(apiKey)
 	if err != nil {
 		return events.APIGatewayCustomAuthorizerResponse{}, errors.New("Unauthorized")

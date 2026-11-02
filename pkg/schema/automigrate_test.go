@@ -55,7 +55,7 @@ func TestAutoMigrateWithOptions(t *testing.T) {
 
 	config := session.Config{
 		Region:              "us-east-1",
-		Endpoint:            "http://localhost:8000", // DynamoDB Local
+		Endpoint:            tests.GetTestConfig().Endpoint, // DynamoDB Local
 		CredentialsProvider: credentials.NewStaticCredentialsProvider("dummy", "dummy", "dummy"),
 	}
 

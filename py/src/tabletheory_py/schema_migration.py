@@ -11,10 +11,12 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import boto3
 
+from .encryption import decrypt_attribute_value, encrypt_attribute_value
 from .errors import MigrationEncryptionError
 from .model import ModelDefinition
 from .schema import create_table, describe_table, ensure_table
@@ -74,30 +76,37 @@ def auto_migrate(
 
     target_enc = _encrypted_names(target)
     src_enc = _encrypted_names(source_model)
-    needs = sorted(target_enc - src_enc)
     encryption_configured = isinstance(kms_key_arn, str) and kms_key_arn != ""
 
-    # A migration that copies no data cannot write plaintext into the target, so
-    # the encryption preflight applies only when a copy will actually happen.
-    if will_copy_data and needs and not encryption_configured:
+    # Every target encrypted attribute needs the provider when data is copied:
+    # a new name must be encrypted, and a same-name attribute must be rebound to
+    # the target record instead of carrying the source binding unchanged.
+    if will_copy_data and target_enc and not encryption_configured:
         raise MigrationEncryptionError(
             'migration target model "'
             + _table_model_name(target)
             + '" requires encryption for attribute(s) '
-            + ", ".join(needs)
+            + ", ".join(sorted(target_enc))
             + "; supply kms_key_arn"
         )
 
-    encrypt: Callable[[Any, str, Mapping[str, Any]], MigrationItem] | None = None
-    if will_copy_data and encryption_configured and needs:
-        assert isinstance(kms_key_arn, str) and kms_key_arn != ""
-        resolved_kms_client = kms_client if kms_client is not None else boto3.client("kms")
-        encrypt = _make_encrypt(
-            kms_key_arn,
-            resolved_kms_client,
-            rand_bytes,
-            target_table,
-            target,
+    plan: _MigrationEncryptionPlan | None = None
+    if will_copy_data:
+        resolved_kms_client = None
+        if encryption_configured:
+            assert isinstance(kms_key_arn, str)
+            resolved_kms_client = kms_client if kms_client is not None else boto3.client("kms")
+        plan = _MigrationEncryptionPlan(
+            source_model=source_model,
+            source_table=source_table,
+            target_model=target,
+            target_table=target_table,
+            target_model_name=_table_model_name(target),
+            src_enc=frozenset(src_enc),
+            target_enc=frozenset(target_enc),
+            kms_key_arn=kms_key_arn if encryption_configured else None,
+            kms_client=resolved_kms_client,
+            rand_bytes=rand_bytes,
         )
 
     if backup_table:
@@ -113,10 +122,7 @@ def auto_migrate(
             transform,
             size,
             sleep,
-            src_enc=frozenset(src_enc),
-            target_enc=frozenset(target_enc),
-            target_model_name=_table_model_name(target),
-            encrypt=encrypt,
+            plan=plan,
         )
 
 
@@ -142,6 +148,34 @@ def _encrypted_names(model: ModelDefinition[Any]) -> set[str]:
         attribute.attribute_name
         for attribute in attributes.values()
         if getattr(attribute, "encrypted", False)
+    }
+
+
+def _envelope_from_wire_attribute_value(av: Any, *, name: str) -> dict[str, Any]:
+    inner = av.get("M") if isinstance(av, Mapping) else None
+    if not isinstance(inner, Mapping):
+        raise MigrationEncryptionError('migration attribute "' + name + '" is not an encrypted envelope')
+    try:
+        return {
+            "v": int(inner["v"]["N"]),
+            "edk": bytes(inner["edk"]["B"]),
+            "nonce": bytes(inner["nonce"]["B"]),
+            "ct": bytes(inner["ct"]["B"]),
+        }
+    except (KeyError, TypeError, ValueError) as err:
+        raise MigrationEncryptionError(
+            'migration attribute "' + name + '" is not a valid encrypted envelope'
+        ) from err
+
+
+def _envelope_to_attribute_value(envelope: Mapping[str, Any]) -> MigrationItem:
+    return {
+        "M": {
+            "v": {"N": str(envelope["v"])},
+            "edk": {"B": envelope["edk"]},
+            "nonce": {"B": envelope["nonce"]},
+            "ct": {"B": envelope["ct"]},
+        }
     }
 
 
@@ -211,76 +245,103 @@ def _binding_from_item(
     return RecordBinding(table=target_table, partition_key=partition_key, sort_key=sort_key)
 
 
-def _make_encrypt(
-    kms_key_arn: str,
-    kms_client: Any,
-    rand_bytes: Callable[[int], bytes] | None,
-    target_table: str,
-    target_model: ModelDefinition[Any],
-) -> Callable[[Any, str, Mapping[str, Any]], MigrationItem]:
-    def encrypt(av: Any, name: str, item: Mapping[str, Any]) -> MigrationItem:
-        from .encryption import encrypt_attribute_value
+@dataclass(frozen=True)
+class _MigrationEncryptionPlan:
+    """Per-item encryption decisions for a data-copying migration.
 
-        envelope = encrypt_attribute_value(
-            av,
-            attr_name=name,
-            kms_key_arn=kms_key_arn,
-            kms_client=kms_client,
-            rand_bytes=rand_bytes if rand_bytes is not None else os.urandom,
-            binding=_binding_from_item(item, target_model, target_table),
-        )
-        return {
-            "M": {
-                "v": {"N": str(envelope["v"])},
-                "edk": {"B": envelope["edk"]},
-                "nonce": {"B": envelope["nonce"]},
-                "ct": {"B": envelope["ct"]},
-            }
-        }
+    A same-name encrypted attribute is opened with the source record binding and
+    re-sealed with the target binding, so a copied envelope only decrypts at the
+    target record. Every decision runs before the page is handed to the batch
+    writer.
+    """
 
-    return encrypt
+    source_model: ModelDefinition[Any]
+    source_table: str
+    target_model: ModelDefinition[Any]
+    target_table: str
+    target_model_name: str
+    src_enc: frozenset[str]
+    target_enc: frozenset[str]
+    kms_key_arn: str | None
+    kms_client: Any | None
+    rand_bytes: Callable[[int], bytes] | None
 
+    def guard_item(self, item: MigrationItem) -> MigrationItem:
+        for name in sorted(self.src_enc):
+            if name in item and not _is_encrypted_envelope(item[name]):
+                raise MigrationEncryptionError(
+                    'migration attribute "'
+                    + name
+                    + '" is declared encrypted in the source model but the copied value is not an encrypted envelope'
+                )
+        for name in sorted(self.target_enc & self.src_enc):
+            if name in item:
+                self._rebind(item, name)
+        for name in sorted(self.src_enc - self.target_enc):
+            if name in item and _is_encrypted_envelope(item[name]):
+                raise MigrationEncryptionError(
+                    'migration cannot copy encrypted attribute "'
+                    + name
+                    + '" into a target attribute that is not encrypted'
+                )
+        for name in sorted(self.target_enc - self.src_enc):
+            if name not in item:
+                continue
+            if _is_encrypted_envelope(item[name]):
+                raise MigrationEncryptionError(
+                    'migration cannot re-encrypt attribute "'
+                    + name
+                    + '": the value is already an encrypted envelope under a different attribute name'
+                )
+            self._encrypt_new(item, name)
+        return item
 
-def _guard_migration_item(
-    item: MigrationItem,
-    src_enc: frozenset[str],
-    target_enc: frozenset[str],
-    target_model_name: str,
-    encrypt: Callable[[Any, str, Mapping[str, Any]], MigrationItem] | None,
-) -> MigrationItem:
-    for name in sorted(src_enc):
-        if name in item and not _is_encrypted_envelope(item[name]):
-            raise MigrationEncryptionError(
-                'migration attribute "'
-                + name
-                + '" is declared encrypted in the source model but the copied value is not an encrypted envelope'
-            )
-    for name in sorted(src_enc - target_enc):
-        if name in item and _is_encrypted_envelope(item[name]):
-            raise MigrationEncryptionError(
-                'migration cannot copy encrypted attribute "'
-                + name
-                + '" into a target attribute that is not encrypted'
-            )
-    for name in sorted(target_enc - src_enc):
-        if name not in item:
-            continue
-        if _is_encrypted_envelope(item[name]):
-            raise MigrationEncryptionError(
-                'migration cannot re-encrypt attribute "'
-                + name
-                + '": the value is already an encrypted envelope under a different attribute name'
-            )
-        if encrypt is None:
+    def _require_provider(self, name: str) -> tuple[str, Any]:
+        if self.kms_key_arn is None or self.kms_client is None:
             raise MigrationEncryptionError(
                 'migration target model "'
-                + target_model_name
+                + self.target_model_name
                 + '" requires encryption for attribute(s) '
                 + name
                 + "; supply kms_key_arn"
             )
-        item[name] = encrypt(item[name], name, item)
-    return item
+        return self.kms_key_arn, self.kms_client
+
+    def _rebind(self, item: MigrationItem, name: str) -> None:
+        key_arn, kms_client = self._require_provider(name)
+        source_binding = _binding_from_item(item, self.source_model, self.source_table)
+        target_binding = _binding_from_item(item, self.target_model, self.target_table)
+        plaintext = decrypt_attribute_value(
+            _envelope_from_wire_attribute_value(item[name], name=name),
+            attr_name=name,
+            kms_key_arn=key_arn,
+            kms_client=kms_client,
+            binding=source_binding,
+        )
+        item[name] = _envelope_to_attribute_value(
+            encrypt_attribute_value(
+                plaintext,
+                attr_name=name,
+                kms_key_arn=key_arn,
+                kms_client=kms_client,
+                rand_bytes=self.rand_bytes if self.rand_bytes is not None else os.urandom,
+                binding=target_binding,
+            )
+        )
+
+    def _encrypt_new(self, item: MigrationItem, name: str) -> None:
+        key_arn, kms_client = self._require_provider(name)
+        target_binding = _binding_from_item(item, self.target_model, self.target_table)
+        item[name] = _envelope_to_attribute_value(
+            encrypt_attribute_value(
+                item[name],
+                attr_name=name,
+                kms_key_arn=key_arn,
+                kms_client=kms_client,
+                rand_bytes=self.rand_bytes if self.rand_bytes is not None else os.urandom,
+                binding=target_binding,
+            )
+        )
 
 
 def _backup_source_table(
@@ -304,10 +365,7 @@ def _copy_data(
     batch_size: int,
     sleep: Callable[[float], None],
     *,
-    src_enc: frozenset[str] = frozenset(),
-    target_enc: frozenset[str] = frozenset(),
-    target_model_name: str = "",
-    encrypt: Callable[[Any, str, Mapping[str, Any]], MigrationItem] | None = None,
+    plan: _MigrationEncryptionPlan | None = None,
 ) -> None:
     start_key: MigrationItem | None = None
     while True:
@@ -321,7 +379,7 @@ def _copy_data(
             requests: list[dict[str, Any]] = []
             for item in items:
                 transformed = transform(item) if transform is not None else item
-                guarded = _guard_migration_item(transformed, src_enc, target_enc, target_model_name, encrypt)
+                guarded = plan.guard_item(transformed) if plan is not None else transformed
                 requests.append({"PutRequest": {"Item": guarded}})
             _batch_write_all(client, target_table, requests, sleep)
 

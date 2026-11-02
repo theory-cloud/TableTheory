@@ -234,6 +234,12 @@ def safe_dict(self) -> dict[str, object]
 class TransactionConflictError(TransactionCanceledError)
 ```
 
+#### `TTLAttributeMismatchError`
+
+```python
+class TTLAttributeMismatchError(ValidationError)
+```
+
 #### `ValidationError`
 
 ```python
@@ -485,7 +491,7 @@ class ItemWriterPath(StrEnum)
 #### `marshal_item_for_writer_path`
 
 ```python
-def marshal_item_for_writer_path(table: Table[T], item: T, path: ItemWriterPath) -> dict[str, Any]
+def marshal_item_for_writer_path(table: Table[T], item: T, path: ItemWriterPath, *, now: str | None=None) -> dict[str, Any]
 ```
 
 ### `tabletheory_py.protection`

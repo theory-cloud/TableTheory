@@ -56,29 +56,38 @@ This example demonstrates how to build a modern blog platform using TableTheory 
 ## Quick Start
 
 ### Prerequisites
-- Go toolchain `go1.27.2`
-- AWS CLI configured
+- Go toolchain `go1.27.3`
+- AWS CLI configured (only for `make deploy`)
 - Docker (for local DynamoDB)
+
+The example is its own Go module (`examples/blog/go.mod`) that replaces the
+library with `../..`, so `make` targets always build the current checkout.
 
 ### Local Development
 
-1. **Clone and setup**:
+1. **Start local DynamoDB and create the tables**:
 ```bash
 cd examples/blog
 make setup
 ```
 
-2. **Start local DynamoDB**:
+`make setup` creates the same `<environment>-blog-*` tables the SAM template
+creates (`ENVIRONMENT` defaults to `dev`), so model metadata and the deployed
+schema cannot drift. Override the host port with `BLOG_DYNAMODB_PORT` if `:8000`
+is taken.
+
+2. **Run the handlers locally through the Lambda runtime interface**:
 ```bash
-docker compose up -d
+cd ../..        # repository root
+make examples-local
 ```
 
-3. **Run locally**:
-```bash
-make run-local
-```
+That run provisions isolated local backends, invokes the real posts, comments
+and authorizer handlers through the Lambda runtime interface, and asserts the
+authorization refusal paths. There is no local HTTP server in this example:
+`make run-local` was removed rather than left as a target that could not work.
 
-4. **Run tests**:
+3. **Run tests**:
 ```bash
 make test
 ```

@@ -37,6 +37,7 @@ CANCELLATION_PATH = (
     / "cancellation"
     / "01-transaction-cancellation.yml"
 )
+LIFECYCLE_PATH = REPO_ROOT / "contract-tests" / "serialization" / "lifecycle-clocks.yml"
 
 # The vocabulary and shape both fixtures must keep. These are the contract the
 # three runtimes are written against; widening them is a deliberate change that
@@ -76,6 +77,22 @@ EXPECTED_CASE_NAMES = [
 EXPECTED_CASE_KEYS = {"name", "kind", "expect"}
 EXPECTED_CASE_KINDS = {"cancellation", "transport"}
 
+# The lifecycle-clock table pins stamping per writer path. Widening any of these
+# lists is a deliberate contract change that must update every runtime and this
+# pin together.
+EXPECTED_LIFECYCLE_NAME = "lifecycle-clocks"
+EXPECTED_LIFECYCLE_MODES = ["fixed", "advancing", "missing"]
+EXPECTED_LIFECYCLE_STAMPS = ["advancing_first", "advancing_second", "fixed"]
+EXPECTED_LIFECYCLE_EXPECTATIONS = {
+    "stamp_fixed",
+    "stamp_first",
+    "stamp_second",
+    "wall_clock",
+    "unstamped",
+}
+EXPECTED_LIFECYCLE_ROW_KEYS = {"mode", "expect", "exact_equality_supported"}
+OPTIONAL_LIFECYCLE_ROW_KEYS = {"put_equals_transact_write"}
+
 # Every runtime's consumer of each fixture, and the fixture name it must
 # reference. A runtime that stops reading its fixture drops out of the contract
 # silently; this pin makes that a hard failure.
@@ -97,6 +114,21 @@ CONSUMERS = [
         "py",
         CANCELLATION_PATH.name,
         "contract-tests/runners/py/test_contract_cancellation.py",
+    ),
+    (
+        "go",
+        LIFECYCLE_PATH.name,
+        "pkg/marshal/preflight_lifecycle_conformance_test.go",
+    ),
+    (
+        "ts",
+        LIFECYCLE_PATH.name,
+        "ts/test/unit/lifecycle-clock-conformance.test.ts",
+    ),
+    (
+        "py",
+        LIFECYCLE_PATH.name,
+        "py/tests/unit/test_lifecycle_clock_conformance.py",
     ),
 ]
 
@@ -227,6 +259,98 @@ def check_cancellation_fixture(problems: list[str]) -> None:
     print(f"cross-runtime-fixtures: cancellation cases={len(case_names)}")
 
 
+def check_lifecycle_table(problems: list[str]) -> None:
+    fixture = load_yaml(LIFECYCLE_PATH)
+    if not isinstance(fixture, dict):
+        problems.append(f"{LIFECYCLE_PATH.name}: not a mapping")
+        return
+
+    if fixture.get("version") != 1:
+        problems.append(f"{LIFECYCLE_PATH.name}: version must be 1")
+    if fixture.get("name") != EXPECTED_LIFECYCLE_NAME:
+        problems.append(f"{LIFECYCLE_PATH.name}: name must be {EXPECTED_LIFECYCLE_NAME}")
+    if fixture.get("runtimes") != EXPECTED_RUNTIMES:
+        problems.append(f"{LIFECYCLE_PATH.name}: runtimes must be {EXPECTED_RUNTIMES}")
+    if fixture.get("writer_paths") != EXPECTED_WRITER_PATHS:
+        problems.append(f"{LIFECYCLE_PATH.name}: writer_paths must be {EXPECTED_WRITER_PATHS}")
+    if fixture.get("clock_modes") != EXPECTED_LIFECYCLE_MODES:
+        problems.append(
+            f"{LIFECYCLE_PATH.name}: clock_modes must be {EXPECTED_LIFECYCLE_MODES}, "
+            f"got {fixture.get('clock_modes')!r}"
+        )
+
+    stamps = fixture.get("stamps")
+    if not isinstance(stamps, dict) or sorted(stamps) != EXPECTED_LIFECYCLE_STAMPS:
+        problems.append(
+            f"{LIFECYCLE_PATH.name}: stamps must be {EXPECTED_LIFECYCLE_STAMPS}, got {stamps!r}"
+        )
+
+    expectations = fixture.get("expectations")
+    if not isinstance(expectations, list) or set(expectations) != EXPECTED_LIFECYCLE_EXPECTATIONS:
+        problems.append(
+            f"{LIFECYCLE_PATH.name}: expectations must be "
+            f"{sorted(EXPECTED_LIFECYCLE_EXPECTATIONS)}, got {expectations!r}"
+        )
+
+    rows = fixture.get("rows")
+    if not isinstance(rows, list):
+        problems.append(f"{LIFECYCLE_PATH.name}: rows must be a list")
+        return
+    modes = [row.get("mode") for row in rows if isinstance(row, dict)]
+    if modes != EXPECTED_LIFECYCLE_MODES:
+        problems.append(
+            f"{LIFECYCLE_PATH.name}: rows changed; expected one per "
+            f"{EXPECTED_LIFECYCLE_MODES}, got {modes}"
+        )
+
+    for row in rows:
+        if not isinstance(row, dict):
+            problems.append(f"{LIFECYCLE_PATH.name}: row is not a mapping")
+            continue
+        mode = row.get("mode", "<unnamed>")
+        keys = set(row)
+        if not EXPECTED_LIFECYCLE_ROW_KEYS.issubset(keys) or keys - (
+            EXPECTED_LIFECYCLE_ROW_KEYS | OPTIONAL_LIFECYCLE_ROW_KEYS
+        ):
+            problems.append(
+                f"{LIFECYCLE_PATH.name}/{mode}: keys must be "
+                f"{sorted(EXPECTED_LIFECYCLE_ROW_KEYS)} plus optional "
+                f"{sorted(OPTIONAL_LIFECYCLE_ROW_KEYS)}"
+            )
+        expect = row.get("expect")
+        if not isinstance(expect, dict) or set(expect) != set(EXPECTED_WRITER_PATHS):
+            problems.append(f"{LIFECYCLE_PATH.name}/{mode}: expect must cover {EXPECTED_WRITER_PATHS}")
+            continue
+        for writer_path in EXPECTED_WRITER_PATHS:
+            column = expect[writer_path]
+            if not isinstance(column, dict) or list(column) != EXPECTED_RUNTIMES:
+                problems.append(
+                    f"{LIFECYCLE_PATH.name}/{mode}/{writer_path}: must have exactly "
+                    f"{EXPECTED_RUNTIMES}"
+                )
+                continue
+            for runtime in EXPECTED_RUNTIMES:
+                value = column[runtime]
+                if value not in EXPECTED_LIFECYCLE_EXPECTATIONS:
+                    problems.append(
+                        f"{LIFECYCLE_PATH.name}/{mode}/{writer_path}/{runtime}: "
+                        f"{value!r} is not an expectation"
+                    )
+        for key in EXPECTED_LIFECYCLE_ROW_KEYS | OPTIONAL_LIFECYCLE_ROW_KEYS:
+            if key == "mode" or key == "expect" or key not in row:
+                continue
+            column = row[key]
+            if not isinstance(column, dict) or sorted(column) != sorted(EXPECTED_RUNTIMES):
+                problems.append(
+                    f"{LIFECYCLE_PATH.name}/{mode}/{key}: must have exactly {EXPECTED_RUNTIMES}"
+                )
+                continue
+            if not all(isinstance(column[runtime], bool) for runtime in EXPECTED_RUNTIMES):
+                problems.append(f"{LIFECYCLE_PATH.name}/{mode}/{key}: values must be booleans")
+
+    print(f"cross-runtime-fixtures: lifecycle modes={len(modes)}")
+
+
 def check_consumers(problems: list[str]) -> None:
     for runtime, fixture_name, rel_path in CONSUMERS:
         path = REPO_ROOT / rel_path
@@ -244,6 +368,7 @@ def main() -> int:
     problems: list[str] = []
     check_serialization_table(problems)
     check_cancellation_fixture(problems)
+    check_lifecycle_table(problems)
     check_consumers(problems)
 
     if problems:

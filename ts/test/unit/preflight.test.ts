@@ -193,6 +193,26 @@ void test('marshalItemForWriterPath matches a captured create payload for lifecy
   assert.deepEqual(preflight.version, { N: '0' });
 });
 
+// The negative half: without the writer's clock the claim cannot be supported,
+// and a fresh stamp would silently disagree with what the writer stores. Both
+// writer paths in this runtime stamp lifecycle fields, so both refuse.
+void test('marshalItemForWriterPath refuses a lifecycle model without the writer clock', () => {
+  for (const path of ['put', 'transact_write'] as const) {
+    assert.throws(
+      () => marshalItemForWriterPath(StampedMatrix, { PK: 'P#1' }, path),
+      (err) =>
+        err instanceof TheorydbError &&
+        err.code === 'ErrInvalidModel' &&
+        err.message.includes('lifecycle clock'),
+    );
+  }
+
+  // A model with no lifecycle field keeps working without a clock.
+  assert.doesNotThrow(() =>
+    marshalItemForWriterPath(PreflightMatrix, { ...BASE_ITEM }, 'put'),
+  );
+});
+
 const BASE_ITEM = { PK: 'P#1', SK: 'S#1' };
 
 void test('marshalItemForWriterPath refuses an unknown writer path', () => {

@@ -4,8 +4,12 @@ requires_capabilities: ["encryption.fail_closed"]
 model: "EncryptedRecord"
 table:
   name: "encrypted_records_contract"
+encryption:
+  provider: "deterministic"
+  seed: "contract-encryption-fail-closed"
 steps:
   - op: create
+    encryption: "none"
     item:
       PK: "ENC#fail"
       SK: "PROFILE"
@@ -14,8 +18,57 @@ steps:
       error: "ErrEncryptionNotConfigured"
 
   - op: get
+    encryption: "none"
     key:
       PK: "ENC#fail"
       SK: "PROFILE"
     expect:
       error: "ErrEncryptionNotConfigured"
+
+  # A malformed nonce must be rejected before AES-GCM Open (Go panics on a
+  # nonce length other than the AEAD NonceSize) and before KMS work.
+  - op: raw_put
+    raw_item:
+      PK: {s: "ENC#nonce"}
+      SK: {s: "PROFILE"}
+      secret:
+        envelope:
+          version: 2
+          edk_b64: "AQIDBA=="
+          nonce_b64: "AQIDBAUGBwg="
+          ct_b64: "AQIDBA=="
+    expect:
+      ok: true
+
+  - op: get
+    key:
+      PK: "ENC#nonce"
+      SK: "PROFILE"
+    expect:
+      error: "ErrInvalidEncryptedEnvelope"
+
+  - op: query
+    query:
+      partition: { attribute: "PK", operator: "=", value: "ENC#nonce" }
+    expect:
+      error: "ErrInvalidEncryptedEnvelope"
+
+  - op: scan
+    scan:
+      limit: 10
+    expect:
+      error: "ErrInvalidEncryptedEnvelope"
+
+  - op: batch_get
+    batch_get:
+      keys:
+        - { PK: "ENC#nonce", SK: "PROFILE" }
+    expect:
+      error: "ErrInvalidEncryptedEnvelope"
+
+  - op: transact_get
+    transact_get:
+      items:
+        - key: { PK: "ENC#nonce", SK: "PROFILE" }
+    expect:
+      error: "ErrInvalidEncryptedEnvelope"
