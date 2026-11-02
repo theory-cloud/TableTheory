@@ -141,7 +141,14 @@ export async function handler(event: {
     25,
   );
 
-  const client = new S3Client({});
+  // The local S3 emulator has no virtual-host DNS, so a configured local
+  // endpoint must use path-style addressing. On AWS none of these variables is
+  // set and the client keeps the deployed virtual-host behaviour.
+  const localEndpoint =
+    process.env.AWS_ENDPOINT_URL_S3 ?? process.env.S3_ENDPOINT;
+  const client = localEndpoint
+    ? new S3Client({ endpoint: localEndpoint, forcePathStyle: true })
+    : new S3Client({});
   const writer: ArchiveWriter = {
     putObject: async (input) => {
       await client.send(new PutObjectCommand(input));

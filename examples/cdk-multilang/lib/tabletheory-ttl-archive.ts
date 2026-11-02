@@ -80,7 +80,12 @@ export class TableTheoryTtlArchive extends Construct {
       });
 
     const entry = path.resolve(__dirname, "../lambdas/archive/handler.ts");
+    const exampleRoot = path.resolve(__dirname, "..");
     const archiverFunction = new NodejsFunction(this, "ArchiverFunction", {
+      // Pin the lockfile and project root so the bundled asset hash cannot
+      // depend on the directory `cdk synth` happens to run from.
+      projectRoot: exampleRoot,
+      depsLockFilePath: path.join(exampleRoot, "package-lock.json"),
       bundling: {
         target: "node24",
       },
