@@ -11,7 +11,8 @@ The notification service provides a flexible and extensible system for sending n
 - **Context-Bounded**: The caller's context bounds the whole delivery, including the waits between retries, so a slow provider cannot outlive its invocation
 - **Retry Logic**: Bounded retry with an interruptible exponential backoff (3 attempts, 1 s doubling)
 - **Provider Interface**: Easy to extend with new notification providers
-- **Test Mode**: Built-in test mode for development and testing
+- **Secure SMTP Transport**: STARTTLS is required for every non-test delivery, and AUTH is required after TLS when credentials are configured
+- **Test Mode**: Built-in test mode for development and testing; it is the only bypass for production delivery behavior
 
 ## Architecture
 
@@ -83,10 +84,31 @@ notification := &Notification{
 err := notificationService.Send(ctx, notification)
 ```
 
+### Email Transport Policy
+
+Non-test email delivery is fail-closed:
+
+- The SMTP peer must advertise `STARTTLS`, and the upgrade must establish TLS
+  1.2 or newer with hostname verification. A plaintext relay, or an on-path
+  attacker that strips the extension, fails before `MAIL`, `RCPT`, or `DATA`.
+- When `SMTPUsername` and `SMTPPassword` are configured, the peer must advertise
+  `AUTH` after the TLS upgrade and authentication must succeed before any
+  envelope command. Configuring only one half of the credential pair is
+  refused before dialing.
+- `TestMode: true` logs the notification instead of delivering it. It is the
+  only bypass; there is no plaintext or unauthenticated fallback and no new
+  environment knob.
+
+A relay that cannot satisfy these requirements must be replaced with a
+compliant one. For local development, use `TestMode` rather than weakening the
+transport policy.
+
 ### Environment Variables
 
 ```bash
 # Email Provider Configuration
+# Use a relay that advertises STARTTLS. If SMTP_USERNAME is set,
+# SMTP_PASSWORD must also be set, and AUTH must be available after TLS.
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME=your-email@gmail.com

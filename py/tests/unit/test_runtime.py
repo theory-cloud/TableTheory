@@ -248,6 +248,186 @@ def test_scan_all_segments_joins_its_worker_threads_on_segment_error() -> None:
     assert _non_main_threads() == []
 
 
+class _CutoffContext:
+    """A thread-safe Lambda context whose remaining time can reach the buffer."""
+
+    def __init__(self, remaining_ms: int = 60_000, cutoff_ms: int = 100) -> None:
+        self._lock = threading.Lock()
+        self._remaining_ms = remaining_ms
+        self._cutoff_ms = cutoff_ms
+
+    def get_remaining_time_in_millis(self) -> int:
+        with self._lock:
+            return self._remaining_ms
+
+    def reach_cutoff(self) -> None:
+        with self._lock:
+            self._remaining_ms = self._cutoff_ms
+
+
+class _SegmentedScanClient:
+    """Deterministic, thread-safe scan double for parallel segment scans.
+
+    Pages are scripted per segment and claimed atomically, so a worker always
+    receives the next page for its own segment whatever the thread interleaving
+    is. Nothing here sleeps or depends on call ordering across segments.
+    """
+
+    def __init__(
+        self,
+        pages: dict[int, list[dict[str, Any]]],
+        *,
+        cutoff_context: _CutoffContext | None = None,
+        cutoff_after_segments: int = 0,
+        first_page_barrier: threading.Barrier | None = None,
+    ) -> None:
+        self._pages = pages
+        self._cutoff_context = cutoff_context
+        self._cutoff_after_segments = cutoff_after_segments
+        self._first_page_barrier = first_page_barrier
+        self._lock = threading.Lock()
+        self._served: dict[int, int] = {}
+        self.calls: list[dict[str, Any]] = []
+
+    def scan(self, **req: Any) -> dict[str, Any]:
+        segment = int(req["Segment"])
+        with self._lock:
+            self.calls.append(dict(req))
+            index = self._served.get(segment, 0)
+            self._served[segment] = index + 1
+            started_segments = len(self._served)
+            if (
+                index == 0
+                and self._cutoff_context is not None
+                and started_segments >= self._cutoff_after_segments
+            ):
+                self._cutoff_context.reach_cutoff()
+        if index == 0 and self._first_page_barrier is not None:
+            # Both segments must finish their first page before either one is
+            # allowed to ask for its next page, so the cutoff is observed by
+            # both workers rather than by whichever one loses a race.
+            self._first_page_barrier.wait(timeout=5)
+        pages = self._pages[segment]
+        return dict(pages[index] if index < len(pages) else {"Items": []})
+
+
+def _segment_pages(segments: int) -> dict[int, list[dict[str, Any]]]:
+    scripted: dict[int, list[dict[str, Any]]] = {}
+    for segment in range(segments):
+        pages: list[dict[str, Any]] = []
+        for page in range(2):
+            item = {
+                "PK": {"S": f"seg{segment}"},
+                "SK": {"S": f"s{page}"},
+                "value": {"N": str(segment * 10 + page)},
+            }
+            body: dict[str, Any] = {"Items": [item], "Count": 1, "ScannedCount": 1}
+            if page == 0:
+                body["LastEvaluatedKey"] = {
+                    "PK": {"S": f"seg{segment}"},
+                    "SK": {"S": f"s{page}"},
+                }
+            pages.append(body)
+        scripted[segment] = pages
+    return scripted
+
+
+def test_scan_all_segments_stops_before_raw_calls_when_already_expired() -> None:
+    model = ModelDefinition.from_dataclass(RuntimeItem, table_name="runtime_items")
+    context = _CutoffContext()
+    context.reach_cutoff()
+    client = _SegmentedScanClient(_segment_pages(2))
+    table = Table(model, client=client).with_lambda_timeout(context, buffer_seconds=1.0)
+
+    with pytest.raises(TimeoutError) as info:
+        table.scan_all_segments(total_segments=2, max_workers=2)
+
+    assert getattr(info.value, "_theorydb_lambda_timeout_imminent", False) is True
+    # The worker clone must submit nothing to the raw client, because the
+    # deadline guard has to run before every SDK operation.
+    assert client.calls == []
+    assert _non_main_threads() == []
+
+
+def test_scan_all_segments_blocks_continuation_after_cutoff() -> None:
+    model = ModelDefinition.from_dataclass(RuntimeItem, table_name="runtime_items")
+    context = _CutoffContext()
+    client = _SegmentedScanClient(
+        _segment_pages(2),
+        cutoff_context=context,
+        cutoff_after_segments=2,
+        first_page_barrier=threading.Barrier(2),
+    )
+    table = Table(model, client=client).with_lambda_timeout(context, buffer_seconds=1.0)
+
+    with pytest.raises(TimeoutError) as info:
+        table.scan_all_segments(total_segments=2, max_workers=2)
+
+    assert getattr(info.value, "_theorydb_lambda_timeout_imminent", False) is True
+    # Exactly the two first pages, and no continuation carrying a cursor.
+    assert len(client.calls) == 2
+    assert [call["Segment"] for call in client.calls].count(0) == 1
+    assert [call["Segment"] for call in client.calls].count(1) == 1
+    assert all("ExclusiveStartKey" not in call for call in client.calls)
+    assert _non_main_threads() == []
+
+
+def test_scan_all_segments_returns_every_page_in_segment_order() -> None:
+    model = ModelDefinition.from_dataclass(RuntimeItem, table_name="runtime_items")
+    client = _SegmentedScanClient(_segment_pages(2))
+    table: Table[RuntimeItem] = Table(model, client=client)
+
+    items = table.scan_all_segments(total_segments=2, max_workers=2)
+
+    assert [(item.pk, item.sk, item.value) for item in items] == [
+        ("seg0", "s0", 0),
+        ("seg0", "s1", 1),
+        ("seg1", "s0", 10),
+        ("seg1", "s1", 11),
+    ]
+    assert len(client.calls) == 4
+    assert {call["TotalSegments"] for call in client.calls} == {2}
+    for segment in (0, 1):
+        segment_calls = [call for call in client.calls if call["Segment"] == segment]
+        assert len(segment_calls) == 2
+        assert "ExclusiveStartKey" not in segment_calls[0]
+        assert segment_calls[1]["ExclusiveStartKey"] == {
+            "PK": {"S": f"seg{segment}"},
+            "SK": {"S": "s0"},
+        }
+    assert _non_main_threads() == []
+
+
+def test_segment_worker_inherits_operational_chain_and_clock() -> None:
+    model = ModelDefinition.from_dataclass(RuntimeItem, table_name="runtime_items")
+
+    def fixed_clock() -> str:
+        return "2026-01-02T03:04:05.000000000Z"
+
+    client = FakeDynamoDBClient()
+    table: Table[RuntimeItem] = Table(model, client=client, now=fixed_clock)
+    context = _LambdaContext(60_000)
+    derived = table.with_lambda_timeout(context, buffer_seconds=1.0)
+
+    worker = derived._segment_worker()
+
+    assert worker is not derived
+    # Canonical identity stays the caller's raw client.
+    assert worker._raw_client is client
+    # The complete operational chain is reused as-is: no raw fallback and no
+    # second timeout/redaction wrap.
+    assert worker._client is derived._client
+    assert worker._client is not client
+    # Every other piece of state the writer and readers depend on is inherited.
+    assert worker._model is derived._model
+    assert worker._table_name == derived._table_name
+    assert worker._kms_key_arn == derived._kms_key_arn
+    assert worker._kms_client is derived._kms_client
+    assert worker._rand_bytes is derived._rand_bytes
+    assert worker._now is fixed_clock
+    assert worker._redact_item_images == derived._redact_item_images
+
+
 def test_runtime_exposes_no_cold_start_prewarm() -> None:
     # TableTheory's Python Lambda surface deliberately has no pre-warm that runs
     # detached from the init that started it. A new one must be reviewed against

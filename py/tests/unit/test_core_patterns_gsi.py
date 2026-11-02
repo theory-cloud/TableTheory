@@ -52,6 +52,15 @@ def _load_example() -> ModuleType:
     return module
 
 
-def test_gsi_query_example_runs_offline() -> None:
+def test_gsi_query_example_defines_the_email_index() -> None:
     module = _load_example()
-    module.main()
+    model = module.ModelDefinition.from_dataclass(
+        module.User,
+        table_name=module.TABLE_NAME,
+        indexes=[module.gsi("gsi_email", partition="gsi1pk", sort="gsi1sk")],
+    )
+
+    index = model.indexes[0]
+    assert index.name == "gsi_email"
+    assert index.partition == "GSI1PK"
+    assert index.sort == "GSI1SK"

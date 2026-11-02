@@ -105,7 +105,7 @@ func (m *Manager) prepareMigrationPlan(opts *AutoMigrateOptions, sourceMetadata,
 	if err := preflightMigrationEncryption(sourceMetadata, targetMetadata, encryptor != nil, targetMetadata.TableName); err != nil {
 		return nil, err
 	}
-	return newMigrationEncryptionPlan(sourceMetadata, targetMetadata, encryptor, targetMetadata.TableName), nil
+	return newMigrationEncryptionPlan(sourceMetadata, targetMetadata, encryptor, sourceMetadata.TableName, targetMetadata.TableName), nil
 }
 
 func newAutoMigrateOptions(options []AutoMigrateOption) *AutoMigrateOptions {

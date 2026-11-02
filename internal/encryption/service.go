@@ -33,6 +33,11 @@ const (
 	// the context on decrypt, so a data key wrapped for one record cannot be
 	// unwrapped for another even before AES-GCM runs.
 	encryptionContextAADKey = "theorydb:encryption:aad"
+
+	// envelopeNonceSize is the AES-GCM nonce length every envelope must carry.
+	// cipher.NewGCM panics when Open receives any other length, so a corrupted
+	// nonce is rejected while parsing the envelope, before KMS or Open runs.
+	envelopeNonceSize = 12
 )
 
 type kmsAPI interface {
@@ -197,6 +202,12 @@ func (s *Service) decryptAttributeValue(ctx context.Context, attributeName strin
 	if err != nil {
 		return nil, err
 	}
+	if len(parts.nonce) != gcm.NonceSize() {
+		return nil, fmt.Errorf(
+			"%w: invalid nonce length %d (want %d)",
+			customerrors.ErrInvalidEncryptedEnvelope, len(parts.nonce), gcm.NonceSize(),
+		)
+	}
 
 	plaintext, err := gcm.Open(nil, parts.nonce, parts.ciphertext, aad)
 	if err != nil {
@@ -261,6 +272,12 @@ func parseEncryptedEnvelope(envelope types.AttributeValue) (encryptedEnvelopePar
 	nonceAV, ok := env.Value[envelopeKeyNonce].(*types.AttributeValueMemberB)
 	if !ok || nonceAV == nil || len(nonceAV.Value) == 0 {
 		return encryptedEnvelopeParts{}, fmt.Errorf("%w: missing nonce", customerrors.ErrInvalidEncryptedEnvelope)
+	}
+	if len(nonceAV.Value) != envelopeNonceSize {
+		return encryptedEnvelopeParts{}, fmt.Errorf(
+			"%w: invalid nonce length %d (want %d)",
+			customerrors.ErrInvalidEncryptedEnvelope, len(nonceAV.Value), envelopeNonceSize,
+		)
 	}
 
 	ctAV, ok := env.Value[envelopeKeyCiphertext].(*types.AttributeValueMemberB)

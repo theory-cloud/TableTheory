@@ -1,0 +1,23 @@
+name: "p0.schema.ensure_table_existing_ttl_disabled"
+dms_version: "0.2"
+requires_capabilities:
+  - "schema.ttl"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  # The runner provisions the table before the steps, without TTL.
+  - op: describe_ttl
+    expect:
+      ttl_status: "DISABLED"
+
+  # Go's EnsureTable is the reference: an existing table is left exactly as it
+  # is. The scenario fails if the runtime makes any TTL API call here.
+  - op: ensure_table
+    forbid_ttl_calls: true
+    expect:
+      ok: true
+
+  - op: describe_ttl
+    expect:
+      ttl_status: "DISABLED"

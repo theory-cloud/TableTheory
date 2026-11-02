@@ -9,7 +9,10 @@ import {
   type DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 
-import { decodeEncryptedPayload } from '../../src/encryption-avjson.js';
+import {
+  decodeEncryptedPayload,
+  encodeEncryptedPayload,
+} from '../../src/encryption-avjson.js';
 import type { EncryptionProvider } from '../../src/encryption.js';
 import { TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
@@ -35,7 +38,7 @@ const envelope = (): AttributeValue => ({
   M: {
     v: { N: '1' },
     edk: { B: new Uint8Array([1, 2, 3]) },
-    nonce: { B: new Uint8Array([4, 5, 6]) },
+    nonce: { B: new Uint8Array([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) },
     ct: { B: new Uint8Array([7, 8, 9]) },
   },
 });
@@ -373,6 +376,167 @@ void test('S4: an encrypted target without a data copy is not refused', async ()
   assert.ok(
     ddb.commands.some((cmd) => cmd instanceof DescribeTableCommand),
     'ensureTable must still run for a table-only migration',
+  );
+  assert.equal(
+    ddb.commands.filter((cmd) => cmd instanceof BatchWriteItemCommand).length,
+    0,
+  );
+});
+
+const sharedSource = defineModel({
+  name: 'SharedSource',
+  table: { name: 'migration_shared_source_ts' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'secret', type: 'S', encryption: { v: 1 } },
+  ],
+});
+
+const sharedTarget = defineModel({
+  name: 'SharedTarget',
+  table: { name: 'migration_shared_target_ts' },
+  keys: {
+    partition: { attribute: 'PK', type: 'S' },
+    sort: { attribute: 'SK', type: 'S' },
+  },
+  attributes: [
+    { attribute: 'PK', type: 'S', roles: ['pk'] },
+    { attribute: 'SK', type: 'S', roles: ['sk'] },
+    { attribute: 'secret', type: 'S', encryption: { v: 1 } },
+  ],
+});
+
+void test('S5: same-name encrypted attribute is rebound to the target record', async () => {
+  const provider: EncryptionProvider = {
+    async decrypt(envelope, ctx) {
+      assert.equal(envelope.v, 1);
+      assert.equal(ctx.model, 'SharedSource');
+      assert.equal(ctx.attribute, 'secret');
+      assert.deepEqual(ctx.binding, {
+        table: 'migration_shared_source_ts',
+        partitionKey: { S: 'SHARED#1' },
+        sortKey: { S: 'PROFILE' },
+      });
+      return encodeEncryptedPayload({ S: 'shared-secret' });
+    },
+    async encrypt(plaintext, ctx) {
+      assert.equal(ctx.model, 'SharedTarget');
+      assert.equal(ctx.attribute, 'secret');
+      assert.deepEqual(ctx.binding, {
+        table: 'migration_shared_target_ts',
+        partitionKey: { S: 'SHARED#1' },
+        sortKey: { S: 'PROFILE' },
+      });
+      assert.deepEqual(decodeEncryptedPayload(plaintext), {
+        S: 'shared-secret',
+      });
+      return {
+        v: 2,
+        edk: new Uint8Array([1, 2, 3]),
+        nonce: new Uint8Array([4, 5, 6]),
+        ct: new Uint8Array([9, 9, 9]),
+      };
+    },
+  };
+
+  const ddb = new StubDdb((cmd) => {
+    const table = describeActive(cmd);
+    if (table !== undefined) return table;
+    if (cmd instanceof ScanCommand) {
+      return {
+        Items: [
+          { PK: { S: 'SHARED#1' }, SK: { S: 'PROFILE' }, secret: envelope() },
+        ],
+      };
+    }
+    if (cmd instanceof BatchWriteItemCommand) return {};
+    throw new Error('unexpected command');
+  });
+
+  await autoMigrate(ddb as unknown as DynamoDBClient, sharedSource, {
+    targetModel: sharedTarget,
+    dataCopy: true,
+    encryption: provider,
+  });
+
+  const written = writeItemFor(ddb, 'migration_shared_target_ts');
+  assert.ok(written);
+  assert.ok(isEnvelope(written.secret));
+  const writtenSecret = written.secret;
+  assert.ok(writtenSecret && 'M' in writtenSecret);
+  assert.equal(writtenSecret.M?.v?.N, '2');
+  assert.equal(JSON.stringify(written).includes('shared-secret'), false);
+});
+
+void test('S5: a source decrypt failure writes no target page', async () => {
+  const provider: EncryptionProvider = {
+    async decrypt() {
+      throw new TheorydbError(
+        'ErrInvalidEncryptedEnvelope',
+        'aes-gcm decrypt failed',
+      );
+    },
+    async encrypt() {
+      throw new Error('must not be called');
+    },
+  };
+
+  const ddb = new StubDdb((cmd) => {
+    const table = describeActive(cmd);
+    if (table !== undefined) return table;
+    if (cmd instanceof ScanCommand) {
+      return {
+        Items: [
+          { PK: { S: 'SHARED#1' }, SK: { S: 'PROFILE' }, secret: envelope() },
+        ],
+      };
+    }
+    throw new Error('unexpected command');
+  });
+
+  await assert.rejects(
+    () =>
+      autoMigrate(ddb as unknown as DynamoDBClient, sharedSource, {
+        targetModel: sharedTarget,
+        dataCopy: true,
+        encryption: provider,
+      }),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidEncryptedEnvelope');
+      return true;
+    },
+  );
+
+  assert.equal(
+    ddb.commands.filter((cmd) => cmd instanceof BatchWriteItemCommand).length,
+    0,
+  );
+});
+
+void test('S5: a same-name encrypted attribute without a provider is refused', async () => {
+  const ddb = new StubDdb((cmd) => {
+    const table = describeActive(cmd);
+    if (table !== undefined) return table;
+    throw new Error('unexpected command');
+  });
+
+  await assert.rejects(
+    () =>
+      autoMigrate(ddb as unknown as DynamoDBClient, sharedSource, {
+        targetModel: sharedTarget,
+        dataCopy: true,
+      }),
+    (err) => {
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrMigrationEncryptionRequired');
+      return true;
+    },
   );
   assert.equal(
     ddb.commands.filter((cmd) => cmd instanceof BatchWriteItemCommand).length,

@@ -5,6 +5,7 @@ import {
   CreateTableCommand,
   DeleteTableCommand,
   DescribeTableCommand,
+  DescribeTimeToLiveCommand,
   type DynamoDBClient,
   UpdateTimeToLiveCommand,
 } from '@aws-sdk/client-dynamodb';
@@ -17,6 +18,8 @@ import {
   deleteTable,
   describeTable,
   ensureTable,
+  TTLAttributeMismatchError,
+  updateTimeToLive,
 } from '../../src/schema.js';
 
 const baseSchema: ModelSchema = {
@@ -219,7 +222,7 @@ void test('createTable syncs TTL when the model declares a ttl role', async () =
   });
 });
 
-void test('ensureTable syncs TTL for an existing table', async () => {
+void test('ensureTable leaves TTL untouched on an existing table', async () => {
   const model = defineModel(ttlSchema);
   const calls: unknown[] = [];
   const ddb = {
@@ -234,8 +237,174 @@ void test('ensureTable syncs TTL for an existing table', async () => {
 
   await ensureTable(ddb, model, { waitForActive: false });
 
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 1, 'only the existence check may run');
+  assert.ok(calls[0] instanceof DescribeTableCommand);
+  assert.equal(
+    calls.filter(
+      (cmd) =>
+        cmd instanceof UpdateTimeToLiveCommand ||
+        cmd instanceof DescribeTimeToLiveCommand,
+    ).length,
+    0,
+    'ensureTable must not make TTL calls for an existing table',
+  );
+});
+
+void test('ensureTable still waits on an existing table when requested', async () => {
+  const model = defineModel(ttlSchema);
+  const calls: unknown[] = [];
+  const ddb = {
+    send: async (cmd: unknown) => {
+      calls.push(cmd);
+      if (cmd instanceof DescribeTableCommand) {
+        return { Table: { TableStatus: 'ACTIVE' } };
+      }
+      return {};
+    },
+  } as unknown as DynamoDBClient;
+
+  await ensureTable(ddb, model);
+
+  assert.equal(calls.length, 2);
   assert.ok(calls[0] instanceof DescribeTableCommand);
   assert.ok(calls[1] instanceof DescribeTableCommand);
-  assert.ok(calls[2] instanceof UpdateTimeToLiveCommand);
+  assert.equal(
+    calls.filter(
+      (cmd) =>
+        cmd instanceof UpdateTimeToLiveCommand ||
+        cmd instanceof DescribeTimeToLiveCommand,
+    ).length,
+    0,
+  );
+});
+
+void test('createTable treats an already-enabled TTL on the same attribute as ok', async () => {
+  const model = defineModel(ttlSchema);
+  const calls: unknown[] = [];
+  const ddb = {
+    send: async (cmd: unknown) => {
+      calls.push(cmd);
+      if (cmd instanceof CreateTableCommand) {
+        throw { name: 'ResourceInUseException' };
+      }
+      if (cmd instanceof UpdateTimeToLiveCommand) {
+        throw {
+          name: 'ValidationException',
+          message: 'TimeToLive is already enabled',
+        };
+      }
+      if (cmd instanceof DescribeTimeToLiveCommand) {
+        return {
+          TimeToLiveDescription: {
+            TimeToLiveStatus: 'ENABLED',
+            AttributeName: 'expiresAt',
+          },
+        };
+      }
+      if (cmd instanceof DescribeTableCommand) {
+        return { Table: { TableStatus: 'ACTIVE' } };
+      }
+      return {};
+    },
+  } as unknown as DynamoDBClient;
+
+  await createTable(ddb, model, { waitForActive: false });
+
+  assert.equal(
+    calls.filter((cmd) => cmd instanceof DescribeTimeToLiveCommand).length,
+    1,
+  );
+});
+
+void test('createTable rejects TTL enabled on a different attribute with a clear error', async () => {
+  const model = defineModel(ttlSchema);
+  const ddb = {
+    send: async (cmd: unknown) => {
+      if (cmd instanceof CreateTableCommand) {
+        throw { name: 'ResourceInUseException' };
+      }
+      if (cmd instanceof UpdateTimeToLiveCommand) {
+        throw {
+          name: 'ValidationException',
+          message: 'TimeToLive is active on a different AttributeName',
+        };
+      }
+      if (cmd instanceof DescribeTimeToLiveCommand) {
+        return {
+          TimeToLiveDescription: {
+            TimeToLiveStatus: 'ENABLED',
+            AttributeName: 'legacyTtl',
+          },
+        };
+      }
+      if (cmd instanceof DescribeTableCommand) {
+        return { Table: { TableStatus: 'ACTIVE' } };
+      }
+      return {};
+    },
+  } as unknown as DynamoDBClient;
+
+  await assert.rejects(
+    async () => createTable(ddb, model, { waitForActive: false }),
+    (err) => {
+      assert.ok(err instanceof TTLAttributeMismatchError);
+      assert.ok(err instanceof TheorydbError);
+      assert.equal(err.code, 'ErrInvalidModel');
+      assert.match(err.message, /expiresAt/);
+      assert.match(err.message, /legacyTtl/);
+      assert.match(err.message, /different attribute/);
+      return true;
+    },
+  );
+});
+
+void test('updateTimeToLive surfaces the original error when the TTL state cannot be described', async () => {
+  const model = defineModel(ttlSchema);
+  const original = {
+    name: 'ValidationException',
+    message: 'TimeToLive is already enabled',
+  };
+  const ddb = {
+    send: async (cmd: unknown) => {
+      if (cmd instanceof UpdateTimeToLiveCommand) throw original;
+      if (cmd instanceof DescribeTimeToLiveCommand) {
+        throw { name: 'InternalServerError' };
+      }
+      if (cmd instanceof DescribeTableCommand) {
+        return { Table: { TableStatus: 'ACTIVE' } };
+      }
+      return {};
+    },
+  } as unknown as DynamoDBClient;
+
+  await assert.rejects(
+    async () => createTable(ddb, model, { waitForActive: false }),
+    (err) => err === original,
+  );
+});
+
+void test('updateTimeToLive does not describe state for a disable request', async () => {
+  const model = defineModel(ttlSchema);
+  const calls: unknown[] = [];
+  const ddb = {
+    send: async (cmd: unknown) => {
+      calls.push(cmd);
+      if (cmd instanceof UpdateTimeToLiveCommand) {
+        throw {
+          name: 'ValidationException',
+          message: 'TimeToLive is not enabled',
+        };
+      }
+      return {};
+    },
+  } as unknown as DynamoDBClient;
+
+  await assert.rejects(
+    async () => updateTimeToLive(ddb, model, { enabled: false }),
+    (err) => (err as { name?: string }).name === 'ValidationException',
+  );
+  assert.equal(
+    calls.filter((cmd) => cmd instanceof DescribeTimeToLiveCommand).length,
+    0,
+  );
 });

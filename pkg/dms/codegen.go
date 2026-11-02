@@ -348,6 +348,9 @@ func attributesToMaps(attrs []Attribute) []any {
 		if attr.Binary {
 			m["binary"] = true
 		}
+		if attr.JsonStringMode != "" {
+			m["jsonStringMode"] = attr.JsonStringMode
+		}
 		if attr.Encryption != nil {
 			m["encryption"] = map[string]any{"v": 1}
 		}

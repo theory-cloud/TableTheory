@@ -85,6 +85,7 @@ groups:
   - label: Examples
     items:
       - { id: examples-overview,      title: Examples Overview,      url: /examples/,                         icon: play }
+      - { id: examples-local-harness, title: Local Harness,          url: /examples/local-harness/,            icon: list-checks }
       - { id: examples-go-local,      title: Go Local Quickstart,    url: /examples/go-local-quickstart/,       icon: go-mark }
       - { id: examples-cdk-multilang, title: CDK Multi-language,     url: /examples/cdk-multilang/,             icon: package }
       - { id: examples-release-state, title: Release State Example,  url: /examples/release-state/,             icon: tag }
@@ -217,6 +218,7 @@ url_to_id:
   /integrations/autheory/:                 int-autheory
   /cdk/:                                   cdk-overview
   /examples/:                               examples-overview
+  /examples/local-harness/:                 examples-local-harness
   /examples/go-local-quickstart/:           examples-go-local
   /examples/cdk-multilang/:                 examples-cdk-multilang
   /examples/release-state/:                 examples-release-state

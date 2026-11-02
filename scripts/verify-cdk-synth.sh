@@ -45,4 +45,19 @@ if ! npm --prefix "${app_dir}" run synth >"${log_file}" 2>&1; then
   exit 1
 fi
 
+# Read the synthesized template locally: assert every Lambda function's
+# effective runtime is supported. This never deploys the stack. The assertion's
+# own self-test proves the read path fails closed on a deprecated override, a
+# dynamic runtime, and an empty template.
+node scripts/verify-cdk-synth-runtimes.mjs --self-test >"${log_file}" 2>&1 || {
+  cat "${log_file}"
+  echo "cdk-synth: FAIL (synthesized runtime assertion self-test)"
+  exit 1
+}
+node scripts/verify-cdk-synth-runtimes.mjs "${app_dir}/cdk.out" >"${log_file}" 2>&1 || {
+  cat "${log_file}"
+  echo "cdk-synth: FAIL (synthesized runtime assertion)"
+  exit 1
+}
+
 echo "cdk-synth: PASS"

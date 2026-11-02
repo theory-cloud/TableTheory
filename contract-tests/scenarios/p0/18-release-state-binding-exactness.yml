@@ -1,0 +1,422 @@
+name: "p0.release_state.binding_exactness"
+dms_version: "0.2"
+requires_capabilities: ["release_state.transactional_transition"]
+model: "ReleaseStateActual"
+table:
+  name: "release_state_contract"
+
+# R12/R49: an event or outbox binding authorizes an immutable row, so the
+# comparison must preserve DynamoDB type identity and exact numeric value.
+# S never equals N. Strings compare lexically ("001" != "1"). Numbers compare
+# as exact decimals, never binary64, so adjacent integers above 2^53 are
+# distinct. Every rejection below must happen before the transaction, leaving
+# the actual row untouched and the event row absent.
+steps:
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#exact-string"
+      SK: "ACTUAL"
+      status: "active"
+    expect:
+      ok: true
+
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#exact-version"
+      SK: "ACTUAL"
+      status: "active"
+      version: 4102444799
+    expect:
+      ok: true
+
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#exact-nested"
+      SK: "ACTUAL"
+      status: "active"
+    expect:
+      ok: true
+
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#exact-type-mismatch"
+      SK: "ACTUAL"
+      status: "active"
+    expect:
+      ok: true
+
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#exact-lexical"
+      SK: "ACTUAL"
+      status: "active"
+    expect:
+      ok: true
+
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#exact-large-reject"
+      SK: "ACTUAL"
+      status: "active"
+      version: 9007199254740992
+    expect:
+      ok: true
+
+  - op: create
+    if_not_exists: true
+    item:
+      PK: "RELEASE#exact-large-accept"
+      SK: "ACTUAL"
+      status: "active"
+      version: 9007199254740992
+    expect:
+      ok: true
+
+  # Exact string identity: the event row commits only when its S value is the
+  # exact S value the transition sets, and its partition is the actual row's.
+  - op: transition_append_event
+    actual:
+      model: "ReleaseStateActual"
+      key:
+        PK: "RELEASE#exact-string"
+        SK: "ACTUAL"
+      expected_version: 0
+      set:
+        status: "active"
+        previousReleaseId: "rel_002"
+    event:
+      model: "ReleaseStateEvent"
+      item:
+        PK: "RELEASE#exact-string"
+        SK: "EVENT#1"
+        releaseId: "rel_002"
+        eventType: "promoted"
+    event_binding:
+      PK: "actual:PK"
+      releaseId: "set:previousReleaseId"
+    expect:
+      ok: true
+
+  - op: get
+    model: "ReleaseStateEvent"
+    key:
+      PK: "RELEASE#exact-string"
+      SK: "EVENT#1"
+    expect:
+      item_contains:
+        PK: "RELEASE#exact-string"
+        releaseId: "rel_002"
+      raw_attribute_types:
+        PK: "S"
+        releaseId: "S"
+
+  - op: get
+    key:
+      PK: "RELEASE#exact-string"
+      SK: "ACTUAL"
+    expect:
+      item_contains:
+        status: "active"
+        previousReleaseId: "rel_002"
+        version: 1
+
+  # Valid nextVersion: expected version + 1 is an exact N value. The event TTL
+  # is the numeric row attribute used for the binding.
+  - op: transition_append_event
+    actual:
+      model: "ReleaseStateActual"
+      key:
+        PK: "RELEASE#exact-version"
+        SK: "ACTUAL"
+      expected_version: 4102444799
+      set:
+        status: "active"
+    event:
+      model: "ReleaseStateEvent"
+      item:
+        PK: "RELEASE#exact-version"
+        SK: "EVENT#1"
+        eventType: "promoted"
+        ttl: 4102444800
+    event_binding:
+      ttl: "nextVersion"
+    expect:
+      ok: true
+
+  - op: get
+    model: "ReleaseStateEvent"
+    key:
+      PK: "RELEASE#exact-version"
+      SK: "EVENT#1"
+    expect:
+      item_contains:
+        ttl: "4102444800"
+      raw_attribute_types:
+        ttl: "N"
+
+  - op: get
+    key:
+      PK: "RELEASE#exact-version"
+      SK: "ACTUAL"
+    expect:
+      item_contains:
+        version: "4102444800"
+
+  # Nested document identity: map and list values compare exactly, field by
+  # field, instead of falling through to a lossy scalar path.
+  - op: transition_append_event
+    actual:
+      model: "ReleaseStateActual"
+      key:
+        PK: "RELEASE#exact-nested"
+        SK: "ACTUAL"
+      expected_version: 0
+      set:
+        status: "active"
+        provenance:
+          mode: "native"
+          system: "release-control-plane"
+          kind: "operator_command"
+          ref: "operator://deploy/service-a/rel_002"
+          observed_at: "2026-04-24T19:00:00Z"
+          recorded_at: "2026-04-24T19:00:01Z"
+          evidence:
+            - kind: "operator_command"
+              source: "release-control-plane"
+              ref: "operator://deploy/service-a/rel_002"
+              observed_at: "2026-04-24T19:00:00Z"
+              digest: "sha256:44a2df6a9d0cfe1a3f3f7a2d8e2a0ad2d6fb2d0b2b7a6f5e4d3c2b1a09182736"
+    event:
+      model: "ReleaseStateEvent"
+      item:
+        PK: "RELEASE#exact-nested"
+        SK: "EVENT#1"
+        eventType: "promoted"
+        provenance:
+          mode: "native"
+          system: "release-control-plane"
+          kind: "operator_command"
+          ref: "operator://deploy/service-a/rel_002"
+          observed_at: "2026-04-24T19:00:00Z"
+          recorded_at: "2026-04-24T19:00:01Z"
+          evidence:
+            - kind: "operator_command"
+              source: "release-control-plane"
+              ref: "operator://deploy/service-a/rel_002"
+              observed_at: "2026-04-24T19:00:00Z"
+              digest: "sha256:44a2df6a9d0cfe1a3f3f7a2d8e2a0ad2d6fb2d0b2b7a6f5e4d3c2b1a09182736"
+    event_binding:
+      provenance: "set:provenance"
+    expect:
+      ok: true
+
+  - op: get
+    model: "ReleaseStateEvent"
+    key:
+      PK: "RELEASE#exact-nested"
+      SK: "EVENT#1"
+    expect:
+      item_has_fields: ["provenance"]
+
+  # S-vs-N: an N row attribute must never satisfy an S transition value.
+  - op: transition_append_event
+    actual:
+      model: "ReleaseStateActual"
+      key:
+        PK: "RELEASE#exact-type-mismatch"
+        SK: "ACTUAL"
+      expected_version: 0
+      set:
+        status: "active"
+        previousReleaseId: "rel_002"
+    event:
+      model: "ReleaseStateEvent"
+      item:
+        PK: "RELEASE#exact-type-mismatch"
+        SK: "EVENT#1"
+        eventType: "promoted"
+        ttl: 4102444800
+    event_binding:
+      ttl: "set:previousReleaseId"
+    expect:
+      error: "ErrInvalidModel"
+
+  - op: get
+    model: "ReleaseStateEvent"
+    key:
+      PK: "RELEASE#exact-type-mismatch"
+      SK: "EVENT#1"
+    expect:
+      error: "ErrItemNotFound"
+
+  - op: get
+    key:
+      PK: "RELEASE#exact-type-mismatch"
+      SK: "ACTUAL"
+    expect:
+      item_contains:
+        status: "active"
+        version: 0
+      item_missing_fields: ["previousReleaseId"]
+
+  # S-vs-N in the other direction: an S row attribute must never satisfy the
+  # numeric nextVersion source.
+  - op: transition_append_event
+    actual:
+      model: "ReleaseStateActual"
+      key:
+        PK: "RELEASE#exact-type-mismatch"
+        SK: "ACTUAL"
+      expected_version: 0
+      set:
+        status: "active"
+    event:
+      model: "ReleaseStateEvent"
+      item:
+        PK: "RELEASE#exact-type-mismatch"
+        SK: "EVENT#2"
+        eventType: "promoted"
+        releaseId: "1"
+    event_binding:
+      releaseId: "nextVersion"
+    expect:
+      error: "ErrInvalidModel"
+
+  - op: get
+    model: "ReleaseStateEvent"
+    key:
+      PK: "RELEASE#exact-type-mismatch"
+      SK: "EVENT#2"
+    expect:
+      error: "ErrItemNotFound"
+
+  # Lexical numbers are strings, not numeric identities: "001" != "1".
+  - op: transition_append_event
+    actual:
+      model: "ReleaseStateActual"
+      key:
+        PK: "RELEASE#exact-lexical"
+        SK: "ACTUAL"
+      expected_version: 0
+      set:
+        status: "active"
+        previousReleaseId: "001"
+    event:
+      model: "ReleaseStateEvent"
+      item:
+        PK: "RELEASE#exact-lexical"
+        SK: "EVENT#1"
+        releaseId: "1"
+        eventType: "promoted"
+    event_binding:
+      releaseId: "set:previousReleaseId"
+    expect:
+      error: "ErrInvalidModel"
+
+  - op: get
+    model: "ReleaseStateEvent"
+    key:
+      PK: "RELEASE#exact-lexical"
+      SK: "EVENT#1"
+    expect:
+      error: "ErrItemNotFound"
+
+  - op: get
+    key:
+      PK: "RELEASE#exact-lexical"
+      SK: "ACTUAL"
+    expect:
+      item_contains:
+        status: "active"
+        version: 0
+      item_missing_fields: ["previousReleaseId"]
+
+  # Adjacent integers above 2^53: 9007199254740992 and 9007199254740993 are
+  # distinct exact N values. A binary64 comparison collapses them, so this
+  # transition must be rejected before any write.
+  - op: transition_append_event
+    actual:
+      model: "ReleaseStateActual"
+      key:
+        PK: "RELEASE#exact-large-reject"
+        SK: "ACTUAL"
+      expected_version: 9007199254740992
+      set:
+        status: "active"
+    event:
+      model: "ReleaseStateEvent"
+      item:
+        PK: "RELEASE#exact-large-reject"
+        SK: "EVENT#1"
+        eventType: "promoted"
+        ttl: "9007199254740992"
+    event_binding:
+      ttl: "nextVersion"
+    expect:
+      error: "ErrInvalidModel"
+
+  - op: get
+    model: "ReleaseStateEvent"
+    key:
+      PK: "RELEASE#exact-large-reject"
+      SK: "EVENT#1"
+    expect:
+      error: "ErrItemNotFound"
+
+  - op: get
+    key:
+      PK: "RELEASE#exact-large-reject"
+      SK: "ACTUAL"
+    expect:
+      item_contains:
+        status: "active"
+        version: "9007199254740992"
+
+  # The exact next integer still commits, including the exact event value and
+  # the exact incremented actual version.
+  - op: transition_append_event
+    actual:
+      model: "ReleaseStateActual"
+      key:
+        PK: "RELEASE#exact-large-accept"
+        SK: "ACTUAL"
+      expected_version: 9007199254740992
+      set:
+        status: "active"
+    event:
+      model: "ReleaseStateEvent"
+      item:
+        PK: "RELEASE#exact-large-accept"
+        SK: "EVENT#1"
+        eventType: "promoted"
+        ttl: "9007199254740993"
+    event_binding:
+      ttl: "nextVersion"
+    expect:
+      ok: true
+
+  - op: get
+    model: "ReleaseStateEvent"
+    key:
+      PK: "RELEASE#exact-large-accept"
+      SK: "EVENT#1"
+    expect:
+      item_contains:
+        ttl: "9007199254740993"
+      raw_attribute_types:
+        ttl: "N"
+
+  - op: get
+    key:
+      PK: "RELEASE#exact-large-accept"
+      SK: "ACTUAL"
+    expect:
+      item_contains:
+        status: "active"
+        version: "9007199254740993"

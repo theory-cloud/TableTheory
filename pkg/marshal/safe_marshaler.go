@@ -73,6 +73,21 @@ func NewSafeMarshalerWithConverter(converter *pkgTypes.Converter) *SafeMarshaler
 	return &SafeMarshaler{converter: converter, now: time.Now}
 }
 
+// NewSafeMarshalerWithConverterAndClock creates a safe marshaler that consults
+// the provided converter and reads lifecycle timestamps from clock.
+//
+// A nil clock keeps the default of time.Now. The clock is the only way to make
+// a lifecycle model's stored bytes deterministic: the marshaler stamps
+// `createdAt` and `updatedAt` from it, so a caller that wants to reproduce a
+// writer payload must pass the same clock that writer was configured with.
+func NewSafeMarshalerWithConverterAndClock(converter *pkgTypes.Converter, clock func() time.Time) *SafeMarshaler {
+	m := &SafeMarshaler{converter: converter, now: clock}
+	if m.now == nil {
+		m.now = time.Now
+	}
+	return m
+}
+
 // MarshalItem safely marshals a model to DynamoDB AttributeValues using only reflection
 // This implementation prioritizes security over performance but is still highly optimized
 func (m *SafeMarshaler) MarshalItem(model any, metadata *model.Metadata) (map[string]types.AttributeValue, error) {

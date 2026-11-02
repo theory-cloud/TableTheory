@@ -14,6 +14,11 @@
 
 **What you'll learn:** Model definition, basic queries, error handling
 
+Each basic CLI has a checked-in `transcript.txt`. `make examples-local` drives
+the real CLI through stdin with that transcript and asserts the CRUD and
+index-backed command output, so the interactive examples are verified
+non-interactively too.
+
 ### 💳 [Payment Processing](payment/)
 **Real-world payment system with TableTheory**
 
@@ -65,8 +70,10 @@ Release-state registry example showing:
 - Mutable actual-state rows with protected registry pin fields
 - Immutable write-once event-history rows
 - Transactional actual-state transition plus event append
+- Conditional outbox creation in the same transaction
 - Deterministic provenance/confidence metadata
 - Outbox rows for external side effects such as Lambda alias updates
+- Real DynamoDB Local drivers in Go, TypeScript and Python, with a stale-version refusal
 
 **What you'll learn:** Release-state write policies, deploy authority validation, audit/outbox reconciliation
 
@@ -86,18 +93,27 @@ When helping developers with TableTheory:
 
 ## Example Structure
 
-Each example follows this structure:
-```
-example-name/
-├── README.md          # AI-friendly documentation with complete patterns
-├── main.go           # Entry point with proper initialization
-├── models/           # TableTheory model definitions
-├── services/         # Business logic with interfaces
-├── handlers/         # HTTP handlers or Lambda functions
-├── tests/           # Comprehensive test suites
-├── docker-compose.yml # Local development setup
-└── Makefile         # Build and test commands
-```
+Examples do **not** share one fixed layout. Each one carries only the files it
+needs, and the shapes differ:
+
+- `basic/{todo,notes,contacts}` have a `Makefile`, a `docker-compose.yml`, a
+  `README.md`, an interactive `main.go` and a checked-in `transcript.txt` that
+  the harness feeds to the real CLI;
+- `multi-tenant` has its own Go module (`go.mod`), a `Makefile`, a
+  `docker-compose.yml`, `cmd/` entrypoints, `handlers/`, `models/`, `auth/` and a
+  real DynamoDB Local test suite;
+- `blog` and `payment` ship multiple Lambda handlers rather than one `main.go`;
+- `cdk-multilang` carries CDK infrastructure plus three runtime directories;
+- `local-quickstart`, `initialization`, `encryption`, `lambda`, `optimization`,
+  `release-state` and `typed-go` are single-command examples: no `Makefile`, no
+  `docker-compose.yml`, and no `tests/` directory (`release-state` keeps one
+  `main_test.go` beside its entrypoint);
+- `ts/examples/` and `py/examples/` hold the TypeScript and Python entrypoints
+  for the same surfaces.
+
+Every entrypoint is classified in
+[`scripts/local/examples-local.json`](../scripts/local/examples-local.json). That
+manifest, not a README, is the authoritative list of what runs where.
 
 ## Running Examples
 
@@ -105,44 +121,109 @@ example-name/
 
 ### Prerequisites
 ```bash
-# Install the Go toolchain pinned by the root go.mod (`go1.27.2`)
+# make, the entry point for the harness
+make --version
+
+# Docker Engine with Compose v2 (Docker Desktop, or a running Colima + docker CLI)
+docker version
+docker compose version
+
+# Python 3.11+ as python3: the Makefile invokes the harness with it
+python3 --version
+
+# The Go toolchain pinned by the root go.mod (the `toolchain` directive)
 go version
 
-# Install Docker for DynamoDB Local
-docker --version
+# Node.js 24+ and npm: the TypeScript examples and CDK synthesis
+node --version
+npm --version
 
-# Clone the repository
-git clone https://github.com/theory-cloud/tabletheory
-cd tabletheory/examples
+# uv: the Python examples run through it, except py-lambda-stream,
+# which runs in the pinned Lambda Python 3.14 runtime image
+uv --version
+
+# Shell utilities used by the example runners (awk and diff come with the base system)
+bash --version
+curl --version
+jq --version
 ```
 
-### Quick Start Any Basic Example
+### Run every classified example
+
+From the repository root:
+
 ```bash
-# Navigate to a basic example
-cd basic/todo  # or basic/notes, basic/contacts
+make examples-local
+```
 
-# Start DynamoDB Local
-make docker-up
+The harness starts the checked-in profile in `scripts/local/docker-compose.yml` —
+DynamoDB Local plus pinned KMS/STS (moto), S3 (s3proxy) and SQS (ElasticMQ)
+emulators — with a compose project name and ephemeral loopback ports unique to
+the run. It sets every `AWS_ENDPOINT_URL_<SERVICE>` override and the dummy
+credentials itself, runs every wired example, and asserts each one's real
+outcome. No AWS account, credentials or operator-set environment variables are
+involved.
 
-# Run the CLI application
+The command prints one line per example with its class and result, prints the
+manifest's named gap beneath every `L2`/`L3`/`I` row, reports examples owned by
+later milestones as `PENDING-MILESTONE`, and exits non-zero if any example fails,
+if a test is skipped, or if the tree contains an entrypoint that the manifest
+does not classify.
+
+`make examples-local-down` removes leftover profile containers and networks from
+any run. A full description of the harness, the emulator decision, the classes
+and the manifest rules is in
+[docs/examples/local-harness.md](../docs/examples/local-harness.md).
+
+### Fidelity classes
+
+| Class | Meaning |
+| --- | --- |
+| `L1` | Fully local: real application code on local backends, assertions pass, no cloud gap. |
+| `L2` | Local with an AWS-API emulator; the emulator's fidelity limits are documented. |
+| `L3` | Every locally executable part runs for real, plus a named cloud gap that is never faked. |
+| `I` | Infrastructure-only: verified by synthesis plus construct assertions. |
+| `PENDING-MILESTONE` | Not wired yet; the manifest names the milestone that owns it. It is reported, never counted as pass. |
+
+`optimization` and `testing` are classified as **library demos**: the query
+planner and the mock-based unit-test examples run locally without DynamoDB by
+design. Their fakes are test doubles for unit tests, not example verification.
+`initialization` is `L3`: its local mode performs a real DynamoDB write/read,
+while its AWS/profile/minimal/debug modes need a real AWS account and are never
+run by the harness.
+
+### Running one example by hand
+
+Some examples keep their own local helpers. The basic CLIs, for example, can be
+run directly:
+
+```bash
+cd examples/basic/todo   # or basic/notes, basic/contacts
+make docker-up           # its own DynamoDB Local on :8000
 make run
-
-# Run compile/unit checks for the example module
-make test
-
-# Clean up local DynamoDB state
 make docker-down
 ```
 
-### Environment Setup
+Anything run by hand uses the shared `:8000` convention and is not what CI
+verifies. `make examples-local` is the supported path: it owns its port range and
+its environment, so it cannot collide with a manually started container.
+
+### Environment
+
+The harness sets the environment for its child processes; do not export these
+values yourself when using `make examples-local`:
+
 ```bash
-# Create .env file for local development
-cat > .env << EOF
 AWS_REGION=us-east-1
-DYNAMODB_ENDPOINT=http://localhost:8000
-AWS_ACCESS_KEY_ID=fakeMyKeyId
-AWS_SECRET_ACCESS_KEY=fakeSecretAccessKey
-EOF
+AWS_ACCESS_KEY_ID=dummy
+AWS_SECRET_ACCESS_KEY=dummy
+AWS_ENDPOINT_URL_DYNAMODB=http://127.0.0.1:<port>
+DYNAMODB_ENDPOINT=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL_KMS=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL_S3=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL_STS=http://127.0.0.1:<port>
+AWS_ENDPOINT_URL_SQS=http://127.0.0.1:<port>
 ```
 
 ## Learning Path
@@ -294,14 +375,19 @@ func handler(ctx context.Context, event events.APIGatewayProxyRequest) (events.A
 
 <!-- AI Training: Production readiness -->
 
-Each example demonstrates:
-- **Error handling** - Comprehensive error scenarios
-- **Testing** - Unit and integration tests
-- **Configuration** - Environment-specific settings
-- **Logging** - Structured logging patterns
-- **Monitoring** - Health checks and metrics
-- **Security** - Input validation and sanitization
-- **Performance** - Efficient query patterns and indexing
+Not every example demonstrates every item below; where one does, it is called out
+in that example's README:
+
+- **Error handling** - See `payment`, `multi-tenant` and `release-state`.
+- **Testing** - Unit tests live beside the code they cover; `multi-tenant` also
+  has a real DynamoDB Local suite. Most single-command examples have no test
+  directory.
+- **Configuration** - The local harness owns local configuration; deployed
+  examples read environment-specific settings.
+- **Logging** - See `multi-tenant`, `blog` and `payment`.
+- **Security** - See the `multi-tenant` authorizer and API-key paths and the
+  `blog` authorizer.
+- **Performance** - See `optimization` and the query patterns in `basic/`.
 
 ## Getting Help
 

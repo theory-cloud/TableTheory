@@ -7,12 +7,17 @@ import pytest
 
 import tabletheory_py.schema_migration as sm
 from tabletheory_py import (
+    InvalidEncryptedEnvelopeError,
     MigrationEncryptionError,
     ModelDefinition,
     ValidationError,
     theorydb_field,
 )
-from tabletheory_py.encryption import RecordBinding, decrypt_attribute_value
+from tabletheory_py.encryption import (
+    RecordBinding,
+    decrypt_attribute_value,
+    encrypt_attribute_value,
+)
 
 
 def _item() -> dict[str, object]:
@@ -511,5 +516,182 @@ def test_auto_migrate_encrypted_target_without_data_copy_is_not_refused(
 
     assert ensured == ["enc_dst"]
     assert client.scan_calls == []
+    assert client.batch_write_calls == []
+    assert client.put_items == []
+
+
+@dataclass(frozen=True)
+class _SharedEncryptedSource:
+    pk: str = theorydb_field(roles=["pk"])
+    sk: str = theorydb_field(roles=["sk"])
+    data: str = theorydb_field(encrypted=True)
+
+
+@dataclass(frozen=True)
+class _SharedEncryptedTarget:
+    pk: str = theorydb_field(roles=["pk"])
+    sk: str = theorydb_field(roles=["sk"])
+    data: str = theorydb_field(encrypted=True)
+
+
+def _inner_envelope(stored: dict[str, Any]) -> dict[str, Any]:
+    inner = stored["data"]["M"]
+    return {
+        "v": int(inner["v"]["N"]),
+        "edk": bytes(inner["edk"]["B"]),
+        "nonce": bytes(inner["nonce"]["B"]),
+        "ct": bytes(inner["ct"]["B"]),
+    }
+
+
+def _wire_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "M": {
+            "v": {"N": str(envelope["v"])},
+            "edk": {"B": envelope["edk"]},
+            "nonce": {"B": envelope["nonce"]},
+            "ct": {"B": envelope["ct"]},
+        }
+    }
+
+
+def test_auto_migrate_rebinds_same_name_encrypted_attributes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sm, "ensure_table", lambda model, *, client: None)
+    key_arn = "arn:aws:kms:us-east-1:000000000000:key/test"
+    kms = _FakeKms()
+    source_model = _real_model(_SharedEncryptedSource, "shared_src")
+    target_model = _real_model(_SharedEncryptedTarget, "shared_dst")
+
+    v1_envelope = encrypt_attribute_value(
+        {"S": "legacy-secret"},
+        attr_name="data",
+        kms_key_arn=key_arn,
+        kms_client=kms,
+        rand_bytes=lambda size: b"\x01" * size,
+    )
+    source_binding = RecordBinding(table="shared_src", partition_key={"S": "USER#2"}, sort_key={"S": "v1"})
+    v2_envelope = encrypt_attribute_value(
+        {"S": "bound-secret"},
+        attr_name="data",
+        kms_key_arn=key_arn,
+        kms_client=kms,
+        rand_bytes=lambda size: b"\x02" * size,
+        binding=source_binding,
+    )
+    items = [
+        {"pk": {"S": "USER#1"}, "sk": {"S": "v1"}, "data": _wire_envelope(v1_envelope)},
+        {"pk": {"S": "USER#2"}, "sk": {"S": "v1"}, "data": _wire_envelope(v2_envelope)},
+    ]
+    client = _RecordingClient([{"Items": items}])
+
+    sm.auto_migrate(
+        source_model,
+        target_model=target_model,
+        client=client,
+        data_copy=True,
+        kms_key_arn=key_arn,
+        kms_client=kms,
+        rand_bytes=lambda size: b"\x03" * size,
+    )
+
+    written = _batched_items(client)
+    assert len(written) == 2
+    target_binding = RecordBinding(
+        table="shared_dst",
+        partition_key={"S": "USER#2"},
+        sort_key={"S": "v1"},
+    )
+    for stored in written:
+        envelope = stored["data"]["M"]
+        assert envelope["v"] == {"N": "2"}
+        assert "legacy-secret" not in str(stored)
+        assert "bound-secret" not in str(stored)
+    assert decrypt_attribute_value(
+        _inner_envelope(written[0]),
+        attr_name="data",
+        kms_key_arn=key_arn,
+        kms_client=kms,
+        binding=RecordBinding(
+            table="shared_dst",
+            partition_key={"S": "USER#1"},
+            sort_key={"S": "v1"},
+        ),
+    ) == {"S": "legacy-secret"}
+    assert decrypt_attribute_value(
+        _inner_envelope(written[1]),
+        attr_name="data",
+        kms_key_arn=key_arn,
+        kms_client=kms,
+        binding=RecordBinding(
+            table="shared_dst",
+            partition_key={"S": "USER#2"},
+            sort_key={"S": "v1"},
+        ),
+    ) == {"S": "bound-secret"}
+    with pytest.raises(InvalidEncryptedEnvelopeError):
+        decrypt_attribute_value(
+            _inner_envelope(written[0]),
+            attr_name="data",
+            kms_key_arn=key_arn,
+            kms_client=kms,
+            binding=target_binding,
+        )
+
+
+def test_auto_migrate_refuses_same_name_encryption_without_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sm, "ensure_table", lambda model, *, client: None)
+    item = {
+        "pk": {"S": "USER#1"},
+        "sk": {"S": "v1"},
+        "data": {
+            "M": {"v": {"N": "1"}, "edk": {"B": b"edk"}, "nonce": {"B": b"0123456789ab"}, "ct": {"B": b"ct"}}
+        },
+    }
+    client = _RecordingClient([{"Items": [item]}])
+
+    with pytest.raises(MigrationEncryptionError, match="requires encryption for attribute"):
+        sm.auto_migrate(
+            _real_model(_SharedEncryptedSource, "shared_src"),
+            target_model=_real_model(_SharedEncryptedTarget, "shared_dst"),
+            client=client,
+            data_copy=True,
+        )
+
+    assert client.batch_write_calls == []
+    assert client.put_items == []
+
+
+def test_auto_migrate_source_decrypt_failure_writes_no_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sm, "ensure_table", lambda model, *, client: None)
+    key_arn = "arn:aws:kms:us-east-1:000000000000:key/test"
+    kms = _FakeKms()
+    envelope = encrypt_attribute_value(
+        {"S": "secret"},
+        attr_name="data",
+        kms_key_arn=key_arn,
+        kms_client=kms,
+        rand_bytes=lambda size: b"\x04" * size,
+    )
+    envelope["ct"] = envelope["ct"][:-1] + bytes([envelope["ct"][-1] ^ 0xFF])
+    item = {"pk": {"S": "USER#1"}, "sk": {"S": "v1"}, "data": _wire_envelope(envelope)}
+    client = _RecordingClient([{"Items": [item]}])
+
+    with pytest.raises(InvalidEncryptedEnvelopeError):
+        sm.auto_migrate(
+            _real_model(_SharedEncryptedSource, "shared_src"),
+            target_model=_real_model(_SharedEncryptedTarget, "shared_dst"),
+            client=client,
+            data_copy=True,
+            kms_key_arn=key_arn,
+            kms_client=kms,
+            rand_bytes=lambda size: b"\x05" * size,
+        )
+
     assert client.batch_write_calls == []
     assert client.put_items == []

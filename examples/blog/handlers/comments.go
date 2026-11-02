@@ -38,16 +38,38 @@ type publicComment struct {
 	Content    string    `json:"content"`
 }
 
+// rootCommentParentID is the stored sort key for a root comment. DynamoDB
+// rejects an empty string as a GSI key and omits an item from an index when its
+// sort key is absent, so a root comment cannot store "". The public projection
+// strips this sentinel, and replies keep their real parent comment ID.
+const rootCommentParentID = "parent"
+
 func publicCommentOf(comment *models.Comment) *publicComment {
+	parentID := comment.ParentID
+	if parentID == rootCommentParentID {
+		parentID = ""
+	}
 	return &publicComment{
 		CreatedAt:  comment.CreatedAt,
 		ID:         comment.ID,
 		PostID:     comment.PostID,
-		ParentID:   comment.ParentID,
+		ParentID:   parentID,
 		AuthorID:   comment.AuthorID,
 		AuthorName: comment.AuthorName,
 		Content:    comment.Content,
 	}
+}
+
+// commentForClient is the comment a write endpoint returns. It keeps the whole
+// recorded comment (the commenter needs its id and moderation status) but
+// replaces the stored root sentinel with the empty parent a client understands.
+// The public list projection is stricter: it also drops commenter PII.
+func commentForClient(comment *models.Comment) *models.Comment {
+	response := *comment
+	if response.ParentID == rootCommentParentID {
+		response.ParentID = ""
+	}
+	return &response
 }
 
 // commentNode represents a comment with its children
@@ -282,11 +304,16 @@ func (h *CommentHandler) createComment(ctx context.Context, postID string, reque
 	// Get author ID if authenticated
 	authorID := getAuthorID(request)
 
+	parentID := req.ParentID
+	if parentID == "" {
+		parentID = rootCommentParentID
+	}
+
 	// Create comment
 	comment := &models.Comment{
 		ID:          uuid.New().String(),
 		PostID:      postID,
-		ParentID:    req.ParentID,
+		ParentID:    parentID,
 		AuthorID:    authorID,
 		AuthorName:  req.AuthorName,
 		AuthorEmail: req.AuthorEmail,
@@ -334,7 +361,7 @@ func (h *CommentHandler) createComment(ctx context.Context, postID string, reque
 	}
 
 	response := map[string]any{
-		"comment": comment,
+		"comment": commentForClient(comment),
 		"message": "Comment submitted successfully",
 	}
 

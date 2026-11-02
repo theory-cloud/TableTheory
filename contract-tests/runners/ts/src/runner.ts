@@ -4,8 +4,10 @@ import {
   CreateTableCommand,
   DeleteTableCommand,
   DescribeTableCommand,
+  DescribeTimeToLiveCommand,
   GetItemCommand,
   ListTablesCommand,
+  UpdateTimeToLiveCommand,
   type AttributeDefinition,
   type AttributeValue,
   type CreateTableCommandInput,
@@ -17,9 +19,12 @@ import {
 } from "@aws-sdk/client-dynamodb";
 
 import { isTheorydbError } from "../../../../ts/src/errors.js";
+import { TTLAttributeMismatchError } from "../../../../ts/src/schema.js";
+import { getDmsModel, parseDmsDocument } from "../../../../ts/src/dms.js";
+import YAML from "yaml";
 
 import type { Driver, ErrorCode } from "./driver.js";
-import type { DmsModel, Scenario, Step } from "./types.js";
+import type { DmsModel, DmsRequest, Scenario, Step } from "./types.js";
 
 export async function pingDynamo(ddb: DynamoDBClient): Promise<void> {
   await ddb.send(new ListTablesCommand({ Limit: 1 }));
@@ -80,8 +85,107 @@ async function runStep(opts: {
     return;
   }
 
+  await driver.setStepEncryption(step.encryption);
+
+  if (step.op === "dms_parse" || step.op === "dms_get") {
+    const dms = step.dms;
+    if (!dms) throw new Error(`${step.op} dms is required`);
+    if (step.op === "dms_parse") {
+      const err = await captureError(() => driver.dmsParse(dms));
+      assertExpectation(step.expect, { err, vars });
+      return;
+    }
+    const schema = dmsSchemaFor(dms);
+    const res = await captureResult(() => driver.dmsGet(dms, step.key ?? {}));
+    assertExpectation(step.expect, {
+      err: res.err,
+      item: res.value,
+      model: schema as unknown as DmsModel,
+      vars,
+    });
+    return;
+  }
+
   const modelName = step.model ?? scenario.model;
   const model = modelByName(models, modelName);
+
+  if (step.op === "raw_put") {
+    const err = await captureError(() =>
+      driver.rawPut(tableName, step.raw_item ?? {}),
+    );
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "seed_encrypted") {
+    const table = step.table ?? tableName;
+    const err = await captureError(() =>
+      driver.seedEncrypted(
+        table,
+        step.item ?? {},
+        step.envelope_version ?? 0,
+        step.corrupt,
+        step.reset,
+      ),
+    );
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "migrate") {
+    assert.ok(step.migrate, "migrate request is required");
+    const err = await captureError(() =>
+      driver.migrate(step.migrate!, tableName),
+    );
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "create_table") {
+    const err = await captureError(() => driver.createTable(modelName));
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "ensure_table") {
+    const ttlCallsBefore = driver.ttlCallCount();
+    const err = await captureError(() => driver.ensureTable(modelName));
+    assertExpectation(step.expect, { err, model, vars });
+    if (step.forbid_ttl_calls && err === undefined) {
+      assert.equal(
+        driver.ttlCallCount(),
+        ttlCallsBefore,
+        "ensure_table must not make TTL calls",
+      );
+    }
+    return;
+  }
+
+  if (step.op === "update_ttl") {
+    const err = await captureError(() =>
+      updateTimeToLive(
+        ddb,
+        tableName,
+        step.ttl_attribute ?? "",
+        step.ttl_enabled ?? true,
+      ),
+    );
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "describe_ttl") {
+    const res = await captureResult(() => describeTimeToLive(ddb, tableName));
+    assertExpectation(step.expect, { err: res.err, model, vars });
+    if (res.err !== undefined || res.value === undefined) return;
+    if (step.expect?.ttl_status !== undefined) {
+      assert.equal(res.value.status, step.expect.ttl_status);
+    }
+    if (step.expect?.ttl_attribute !== undefined) {
+      assert.equal(res.value.attributeName, step.expect.ttl_attribute);
+    }
+    return;
+  }
 
   if (step.op === "create") {
     const item = step.item ?? {};
@@ -282,6 +386,7 @@ async function runStep(opts: {
           model: event.model,
           item: event.item,
         },
+        step.event_binding,
       ),
     );
     assertExpectation(step.expect, { err, model, vars });
@@ -430,7 +535,7 @@ function assertExpectation(
     err?: unknown;
     item?: Record<string, unknown>;
     raw?: Record<string, AttributeValue>;
-    model: DmsModel;
+    model?: DmsModel;
     vars: Map<string, unknown>;
   },
 ): void {
@@ -442,12 +547,14 @@ function assertExpectation(
     "item_has_fields",
     "item_missing_fields",
     "raw_attribute_types",
+    "raw_envelope_versions",
     "item_field_equals_var",
     "item_field_not_equals_var",
   ]);
   const hasRawAssertion = expectationHasAnyKey(expect, [
     "item_missing_fields",
     "raw_attribute_types",
+    "raw_envelope_versions",
     "raw_item_contains",
   ]);
   // item_absent requires the operation to succeed, but not a present item, so it
@@ -513,10 +620,11 @@ function assertExpectation(
   }
 
   if (expect.item_contains && item) {
+    const itemModel = requireAssertionModel(model);
     for (const [attr, want] of Object.entries(expect.item_contains)) {
       const have = item[attr];
       assert.ok(attr in item, `missing attr ${attr}`);
-      const attrDef = attributeByName(model, attr);
+      const attrDef = attributeByName(itemModel, attr);
       assert.ok(attrDef, `unknown attr ${attr}`);
       const rawValue =
         attrDef.encryption !== undefined ? undefined : raw?.[attr];
@@ -525,7 +633,12 @@ function assertExpectation(
   }
 
   if (expect.item_equals && item) {
-    assertItemEquals(expect.item_equals, item, raw, model);
+    assertItemEquals(
+      expect.item_equals,
+      item,
+      raw,
+      requireAssertionModel(model),
+    );
   }
 
   if (expect.raw_item_contains && raw) {
@@ -556,6 +669,20 @@ function assertExpectation(
     for (const [attr, wantType] of Object.entries(expect.raw_attribute_types)) {
       assert.ok(attr in raw, `expected raw field ${attr}`);
       assert.equal(attributeValueTypeName(raw[attr]!), wantType);
+    }
+  }
+
+  if (expect.raw_envelope_versions && raw) {
+    for (const [attr, wantVersion] of Object.entries(
+      expect.raw_envelope_versions,
+    )) {
+      const value = raw[attr];
+      assert.ok(value, `expected raw field ${attr}`);
+      assert.ok(
+        "M" in value && value.M !== undefined,
+        `raw field ${attr} is not an encrypted envelope`,
+      );
+      assert.equal(value.M.v?.N, wantVersion, `envelope version for ${attr}`);
     }
   }
 
@@ -624,6 +751,21 @@ function attributeByName(
   name: string,
 ): DmsModel["attributes"][number] | undefined {
   return model.attributes.find((a) => a.attribute === name);
+}
+
+function requireAssertionModel(model: DmsModel | undefined): DmsModel {
+  if (!model) throw new Error("model is required for item assertions");
+  return model;
+}
+
+function dmsSchemaFor(req: DmsRequest): DmsModel {
+  if (req.document !== undefined) {
+    return getDmsModel(
+      parseDmsDocument(req.document),
+      req.model,
+    ) as unknown as DmsModel;
+  }
+  return YAML.parse(req.schema ?? "") as DmsModel;
 }
 
 function assertValueMatches(
@@ -814,6 +956,9 @@ function mapError(err: unknown): ErrorCode | "" {
 }
 
 function mapErrors(err: unknown): ErrorCode[] {
+  if (err instanceof TTLAttributeMismatchError) {
+    return ["ErrTTLAttributeMismatch"];
+  }
   if (isTheorydbError(err)) {
     const maybeCodes = (err as { codes?: unknown }).codes;
     if (Array.isArray(maybeCodes)) {
@@ -836,6 +981,47 @@ function attributeValueTypeName(av: AttributeValue): string {
   if ("L" in av && av.L !== undefined) return "L";
   if ("M" in av && av.M !== undefined) return "M";
   return "UNKNOWN";
+}
+
+interface TimeToLiveState {
+  status: string;
+  attributeName?: string;
+}
+
+async function describeTimeToLive(
+  ddb: DynamoDBClient,
+  tableName: string,
+): Promise<TimeToLiveState> {
+  const resp = await ddb.send(
+    new DescribeTimeToLiveCommand({ TableName: tableName }),
+  );
+  const description = resp.TimeToLiveDescription;
+  if (!description?.TimeToLiveStatus) {
+    throw new Error(`DescribeTimeToLive returned no status for ${tableName}`);
+  }
+  return {
+    status: description.TimeToLiveStatus,
+    ...(description.AttributeName
+      ? { attributeName: description.AttributeName }
+      : {}),
+  };
+}
+
+async function updateTimeToLive(
+  ddb: DynamoDBClient,
+  tableName: string,
+  attributeName: string,
+  enabled: boolean,
+): Promise<void> {
+  await ddb.send(
+    new UpdateTimeToLiveCommand({
+      TableName: tableName,
+      TimeToLiveSpecification: {
+        AttributeName: attributeName,
+        Enabled: enabled,
+      },
+    }),
+  );
 }
 
 async function captureError(

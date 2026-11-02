@@ -4,9 +4,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -22,65 +25,96 @@ type User struct {
 	ID        string `theorydb:"pk"`
 	Email     string `theorydb:"sk"`
 	Name      string
-	CreatedAt string `theorydb:"created_at"`
+	CreatedAt time.Time `theorydb:"created_at"`
 	Active    bool
 }
 
+// TableName keeps this example's table distinct from other examples' User
+// models when they share one local DynamoDB instance.
+func (User) TableName() string { return "tabletheory_initialization_users" }
+
 func main() {
+	mode := flag.String(
+		"mode",
+		"all",
+		"initialization path to run: all, local, aws, profile, minimal or debug",
+	)
+	flag.Parse()
 	ctx := context.Background()
 
-	// Demonstrate different initialization patterns
+	// Demonstrate different initialization patterns. The local path runs
+	// against DynamoDB Local and is the only path the examples harness runs.
+	// The aws, profile, minimal and debug paths resolve the real AWS defaults;
+	// they are L3 (named cloud gap: a real AWS account and credentials) and
+	// never run under make examples-local.
 	fmt.Println("TableTheory Initialization Examples")
 	fmt.Println("================================")
 
-	// Example 1: Local Development
-	fmt.Println("\n1. Local Development (DynamoDB Local)")
-	if db, err := initializeLocal(ctx); err != nil {
-		log.Printf("Local init failed: %v", err)
-	} else {
-		testDB(ctx, db, "local")
-	}
-
-	// Example 2: AWS Environment
-	fmt.Println("\n2. AWS Environment (with credentials)")
-	if db, err := initializeAWS(ctx); err != nil {
-		log.Printf("AWS init failed: %v", err)
-	} else {
-		testDB(ctx, db, "aws")
-	}
-
-	// Example 3: Custom Profile
-	fmt.Println("\n3. Custom AWS Profile")
-	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
-		if db, err := initializeWithProfile(ctx, profile); err != nil {
-			log.Printf("Profile init failed: %v", err)
+	if *mode == "all" || *mode == "local" {
+		fmt.Println("\n1. Local Development (DynamoDB Local)")
+		if db, err := initializeLocal(ctx); err != nil {
+			log.Printf("Local init failed: %v", err)
 		} else {
-			testDB(ctx, db, "profile")
+			testDB(ctx, db, "local")
 		}
-	} else {
-		fmt.Println("   Skipped: AWS_PROFILE not set")
 	}
 
-	// Example 4: Minimal Configuration
-	fmt.Println("\n4. Minimal Configuration (may fail without AWS setup)")
-	if db, err := initializeMinimal(ctx); err != nil {
-		log.Printf("Minimal init failed: %v", err)
-	} else {
-		testDB(ctx, db, "minimal")
+	if *mode == "all" || *mode == "aws" {
+		fmt.Println("\n2. AWS Environment (with credentials)")
+		if db, err := initializeAWS(ctx); err != nil {
+			log.Printf("AWS init failed: %v", err)
+		} else {
+			testDB(ctx, db, "aws")
+		}
 	}
 
-	// Example 5: Debug AWS SDK directly
-	fmt.Println("\n5. Debug: Test AWS SDK v2 Directly")
-	debugAWSSDK(ctx)
+	if *mode == "all" || *mode == "profile" {
+		fmt.Println("\n3. Custom AWS Profile")
+		if profile := os.Getenv("AWS_PROFILE"); profile != "" {
+			if db, err := initializeWithProfile(ctx, profile); err != nil {
+				log.Printf("Profile init failed: %v", err)
+			} else {
+				testDB(ctx, db, "profile")
+			}
+		} else {
+			fmt.Println("   Skipped: AWS_PROFILE not set")
+		}
+	}
+
+	if *mode == "all" || *mode == "minimal" {
+		fmt.Println("\n4. Minimal Configuration (may fail without AWS setup)")
+		if db, err := initializeMinimal(ctx); err != nil {
+			log.Printf("Minimal init failed: %v", err)
+		} else {
+			testDB(ctx, db, "minimal")
+		}
+	}
+
+	if *mode == "all" || *mode == "debug" {
+		fmt.Println("\n5. Debug: Test AWS SDK v2 Directly")
+		debugAWSSDK(ctx)
+	}
 }
 
-// initializeLocal shows proper initialization for DynamoDB Local
-func initializeLocal(ctx context.Context) (core.DB, error) {
+// localEndpoint honours the local harness endpoint while keeping the historical
+// localhost:8000 default for a hand-started DynamoDB Local.
+func localEndpoint() string {
+	for _, key := range []string{"DYNAMODB_ENDPOINT", "AWS_ENDPOINT_URL_DYNAMODB"} {
+		if endpoint := strings.TrimSpace(os.Getenv(key)); endpoint != "" {
+			return endpoint
+		}
+	}
+	return "http://localhost:8000"
+}
+
+// initializeLocal shows proper initialization for DynamoDB Local. The local
+// path creates the example table so the real round-trip in testDB can run.
+func initializeLocal(ctx context.Context) (core.ExtendedDB, error) {
 	fmt.Println("   Initializing for DynamoDB Local...")
 
 	sessionConfig := session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: localEndpoint(),
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			// Critical: Must provide credentials for local DynamoDB
 			config.WithCredentialsProvider(
@@ -90,12 +124,15 @@ func initializeLocal(ctx context.Context) (core.DB, error) {
 		},
 	}
 
-	db, err := tabletheory.NewBasic(sessionConfig)
+	db, err := tabletheory.New(sessionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TableTheory: %w", err)
 	}
+	if err := db.EnsureTable(&User{}); err != nil {
+		return nil, fmt.Errorf("failed to ensure the local table: %w", err)
+	}
 
-	fmt.Println("   ✓ Initialized successfully")
+	fmt.Printf("   ✓ Initialized successfully against %s\n", localEndpoint())
 	return db, nil
 }
 
@@ -168,21 +205,37 @@ func initializeMinimal(ctx context.Context) (core.DB, error) {
 	return db, nil
 }
 
-// testDB performs a simple operation to verify the DB works
+// testDB performs a real DynamoDB write and read so the reported success is an
+// observed outcome rather than a constructed-client claim.
 func testDB(ctx context.Context, db core.DB, testName string) {
-	fmt.Printf("   Testing %s connection...\n", testName)
+	fmt.Printf("   Testing %s connection with a real write and read...\n", testName)
 
-	// Try to create a query (this won't hit DynamoDB yet)
-	query := db.Model(&User{})
-	if query == nil {
-		fmt.Println("   ✗ Failed: query is nil")
+	user := &User{
+		ID:        fmt.Sprintf("INIT#%s#%d", testName, time.Now().UnixNano()),
+		Email:     "init-" + testName + "@example.test",
+		Name:      "Initialization " + testName,
+		CreatedAt: time.Now().UTC(),
+		Active:    true,
+	}
+	if err := db.WithContext(ctx).Model(user).Create(); err != nil {
+		fmt.Printf("   ✗ real write failed: %v\n", err)
 		return
 	}
 
-	fmt.Println("   ✓ DB instance working")
+	var got User
+	if err := db.WithContext(ctx).Model(&User{}).
+		Where("ID", "=", user.ID).
+		First(&got); err != nil {
+		fmt.Printf("   ✗ real read failed: %v\n", err)
+		return
+	}
+	if got.ID != user.ID || got.Email != user.Email {
+		fmt.Printf("   ✗ real read mismatch: got %s/%s, want %s/%s\n",
+			got.ID, got.Email, user.ID, user.Email)
+		return
+	}
 
-	// Note: Actual DynamoDB operations would fail here without proper setup
-	// This is just to show the initialization succeeded
+	fmt.Printf("   ✓ real round-trip: wrote and read %s/%s\n", got.ID, got.Email)
 }
 
 // debugAWSSDK tests AWS SDK v2 directly to help diagnose issues

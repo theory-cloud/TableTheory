@@ -2,7 +2,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests example-local generate-contract-models verify-generated-models generate-api-reference verify-api-reference sync-runtime-docs-site verify-runtime-docs-site verify-generative-artifacts benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
+.PHONY: all build test test-unit unit-cover clean lint fmt fmt-check docker-up docker-down docker-clean integration contract-tests example-local examples-local examples-local-selftest examples-local-down generate-contract-models verify-generated-models generate-api-reference verify-api-reference sync-runtime-docs-site verify-runtime-docs-site verify-generative-artifacts benchmark stress test-all verify-coverage verify-go-modules verify-ci-toolchain verify-planning-docs sec rubric rubric-fast stage-theorycloud-tabletheory-subtree verify-theorycloud-tabletheory-subtree sync-theorycloud-tabletheory-subtree trigger-theorycloud-publish
 
 # Variables
 GOMOD := github.com/theory-cloud/tabletheory/v6
@@ -16,6 +16,11 @@ UNIT_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_module
 ALL_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress)
 INTEGRATION_PACKAGES := $(shell go list ./tests/integration/...)
 DYNAMODB_LOCAL_IMAGE ?= amazon/dynamodb-local:3.1.0
+# The test suites resolve DynamoDB from DYNAMODB_ENDPOINT (defaulting to the
+# shared :8000 convention). docker-up resolves the same endpoint so a suite run
+# on another port never silently starts a second, unused local backend.
+DYNAMODB_ENDPOINT ?= http://localhost:8000
+DDB_LOCAL_PROBE := go run ./internal/dynamodbprobe/cmd/dynamodb-local-check -endpoint $(DYNAMODB_ENDPOINT)
 
 # Default target
 all: fmt lint test build
@@ -59,6 +64,23 @@ example-local: docker-up
 		DYNAMODB_ENDPOINT=$${DYNAMODB_ENDPOINT:-http://localhost:8000} \
 		go run ./examples/local-quickstart
 
+# Run every classified example against the checked-in local profile. The
+# harness starts a private compose stack (DynamoDB Local plus the pinned
+# KMS/STS/S3/SQS emulators) with a per-run project name and ephemeral ports,
+# owns the endpoint/credential environment, asserts each example's real
+# outcome, and fails on any skip or unclassified entrypoint.
+examples-local: examples-local-selftest
+	@python3 ./scripts/local/run_examples_local.py
+
+# Mutation self-tests for the harness: classification, profile validation and a
+# real two-instance concurrency isolation test (needs Docker).
+examples-local-selftest:
+	@python3 ./scripts/local/test_examples_local.py
+
+# Remove leftover harness containers and networks from any run.
+examples-local-down:
+	@python3 ./scripts/local/run_examples_local.py --cleanup
+
 # Generate and verify DMS-derived contract-runner model files.
 generate-contract-models:
 	@bash scripts/verify-generated-models.sh --write
@@ -84,6 +106,9 @@ verify-runtime-docs-site:
 
 verify-generative-artifacts:
 	@python3 scripts/verify-generative-artifacts.py
+
+verify-doc-snippets:
+	@python3 scripts/verify-doc-snippets.py
 
 # Run benchmarks
 benchmark:
@@ -133,9 +158,13 @@ clean:
 
 # Start DynamoDB Local
 docker-up:
-	@echo "Starting DynamoDB Local..."
-	@if curl -s http://localhost:8000 > /dev/null 2>&1; then \
-		echo "DynamoDB Local is already running"; \
+	@echo "Ensuring DynamoDB Local at $(DYNAMODB_ENDPOINT)..."
+	@if $(DDB_LOCAL_PROBE) > /dev/null 2>&1; then \
+		echo "DynamoDB Local is already running at $(DYNAMODB_ENDPOINT)"; \
+	elif [ "$(DYNAMODB_ENDPOINT)" != "http://localhost:8000" ]; then \
+		echo "❌ Error: DYNAMODB_ENDPOINT=$(DYNAMODB_ENDPOINT) is not answering."; \
+		echo "   Start that DynamoDB Local yourself; the checked-in compose profile only publishes :8000."; \
+		exit 1; \
 	else \
 		if [ -f docker-compose.yml ]; then \
 			docker compose up -d dynamodb-local; \
@@ -147,14 +176,14 @@ docker-up:
 			fi; \
 		fi; \
 	fi
-	@echo "Waiting for DynamoDB Local to be ready..."
+	@echo "Waiting for DynamoDB Local to answer the DynamoDB protocol..."
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
-		if curl -s http://localhost:8000 > /dev/null 2>&1; then \
-			echo "✅ DynamoDB Local is ready!"; \
+		if $(DDB_LOCAL_PROBE) > /dev/null 2>&1; then \
+			echo "✅ DynamoDB Local is ready at $(DYNAMODB_ENDPOINT)!"; \
 			break; \
 		fi; \
 		if [ $$i -eq 10 ]; then \
-			echo "❌ Error: DynamoDB Local failed to start"; \
+			echo "❌ Error: DynamoDB Local failed to start at $(DYNAMODB_ENDPOINT)"; \
 			exit 1; \
 		fi; \
 		echo "  Waiting... (attempt $$i/10)"; \
@@ -280,6 +309,9 @@ help:
 	@echo "  make integration - Run integration tests only (requires Docker)"
 	@echo "  make contract-tests - Run Go/TypeScript/Python contract suite (requires Docker)"
 	@echo "  make example-local - Start DynamoDB Local and run the Go quickstart CRUD proof"
+	@echo "  make examples-local - Run every classified example against the local harness profile"
+	@echo "  make examples-local-selftest - Prove the harness classification fails closed on mutations"
+	@echo "  make examples-local-down - Stop the harness DynamoDB Local profile container"
 	@echo "  make verify-runtime-docs-site - Check generated TS/Py site doc copies"
 	@echo "  make verify-api-reference - Check generated API reference drift"
 	@echo "  make verify-generative-artifacts - Check llms/vocabulary/rules artifacts"
@@ -339,12 +371,14 @@ lambda-build:
 	@cd build/lambda && zip function.zip bootstrap
 	@echo "Lambda function built: build/lambda/function.zip"
 
-# Test Lambda functionality
+# Lambda helpers live in internal/theorydb. The historical ./lambda_test.go
+# path never existed in the tree; keep the public target names but run the
+# tests and benchmarks where they actually live.
 lambda-test:
 	@echo "Running Lambda tests..."
-	@go test -v ./lambda_test.go -run TestLambda
+	@go test -v ./internal/theorydb -run '^TestLambda'
 
 # Run Lambda benchmarks
 lambda-bench:
 	@echo "Running Lambda benchmarks..."
-	@go test -bench=BenchmarkLambda -benchmem ./lambda_test.go 
+	@go test -bench='^BenchmarkLambda' -benchmem ./internal/theorydb

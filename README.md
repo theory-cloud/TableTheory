@@ -168,6 +168,15 @@ make docker-up     # start DynamoDB Local
 make test          # full suite incl. integration
 ```
 
+### Run the examples locally
+
+```bash
+make examples-local        # run every classified example
+make examples-local-down   # remove leftover containers and networks
+```
+
+The harness starts DynamoDB Local plus pinned KMS/STS, S3 and SQS emulators on ephemeral loopback ports, sets dummy credentials and endpoint overrides itself, and asserts each example's real outcome. No AWS account, AWS credentials or operator-set environment variables are involved. Prerequisites are Docker or Colima with Compose v2, Python 3.11+ as `python3`, the Go toolchain pinned by `go.mod`, Node.js 24+ with npm, `uv`, and `bash`/`curl`/`jq`. See [examples/README.md](examples/README.md) for the per-example classes and named gaps, and [docs/examples/local-harness.md](docs/examples/local-harness.md) for the harness design.
+
 For multi-language work:
 
 ```bash

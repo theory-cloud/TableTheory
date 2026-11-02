@@ -85,6 +85,7 @@ const ReleaseStateBindingActual = defineModel({
     { attribute: 'SK', type: 'S', roles: ['sk'] },
     { attribute: 'pinnedReleaseId', type: 'S', optional: true },
     { attribute: 'status', type: 'S', optional: true },
+    { attribute: 'payload', type: 'M', optional: true },
     { attribute: 'version', type: 'N', roles: ['version'] },
   ],
 });
@@ -104,6 +105,7 @@ const ReleaseStateBindingEvent = defineModel({
     { attribute: 'SK', type: 'S', roles: ['sk'] },
     { attribute: 'releaseId', type: 'S', optional: true },
     { attribute: 'eventType', type: 'S', optional: true },
+    { attribute: 'payload', type: 'M', optional: true },
     { attribute: 'version', type: 'N', optional: true },
   ],
 });
@@ -715,6 +717,133 @@ function evidenceOf(
         eventBinding: { version: 'nextVersion' },
       }),
     (e) => e instanceof TheorydbError && e.code === 'ErrInvalidModel',
+  );
+  assert.equal(ddb.sent.length, 0);
+}
+
+{
+  // Adjacent integers above 2^53 are distinct N values. A binary64 fallback
+  // collapses them; exact comparison rejects the mismatch before the
+  // transaction, while the exact next integer still commits.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        expectedVersion: 9007199254740992,
+        set: { status: 'active' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: {
+          PK: 'RELEASE#service-a',
+          SK: 'EVENT#1',
+          version: 9007199254740992n,
+        },
+        eventBinding: { version: 'nextVersion' },
+      }),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrInvalidModel' &&
+      e.message.includes('version'),
+  );
+  assert.equal(ddb.sent.length, 0);
+
+  await transitionReleaseState(client, {
+    actualModel: 'ReleaseStateBindingActual',
+    actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+    expectedVersion: 9007199254740992,
+    set: { status: 'active' },
+    eventModel: 'ReleaseStateBindingEvent',
+    eventItem: {
+      PK: 'RELEASE#service-a',
+      SK: 'EVENT#1',
+      version: 9007199254740993n,
+    },
+    eventBinding: { version: 'nextVersion' },
+  });
+  assert.equal(ddb.sent.length, 1);
+}
+
+{
+  // Nested document values compare structurally and exactly. A nested
+  // adjacent integer above 2^53 must not be equated through Number().
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+  const payload = { ref: 'release/001', ttl: 9007199254740993n };
+
+  await transitionReleaseState(client, {
+    actualModel: 'ReleaseStateBindingActual',
+    actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+    expectedVersion: 0,
+    set: { payload },
+    eventModel: 'ReleaseStateBindingEvent',
+    eventItem: {
+      PK: 'RELEASE#service-a',
+      SK: 'EVENT#1',
+      payload: { ref: 'release/001', ttl: 9007199254740993n },
+    },
+    eventBinding: { payload: 'set:payload' },
+  });
+  assert.equal(ddb.sent.length, 1);
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        expectedVersion: 0,
+        set: { payload },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: {
+          PK: 'RELEASE#service-a',
+          SK: 'EVENT#1',
+          payload: { ref: 'release/001', ttl: 9007199254740992n },
+        },
+        eventBinding: { payload: 'set:payload' },
+      }),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrInvalidModel' &&
+      e.message.includes('payload'),
+  );
+  assert.equal(ddb.sent.length, 1);
+}
+
+{
+  // DynamoDB S values compare lexically: "001" and "1" are different exact
+  // strings even though they look numeric.
+  const ddb = new StubDdb();
+  const client = new TheorydbClient(ddb as unknown as DynamoDBClient).register(
+    ReleaseStateBindingActual,
+    ReleaseStateBindingEvent,
+  );
+
+  await assert.rejects(
+    () =>
+      transitionReleaseState(client, {
+        actualModel: 'ReleaseStateBindingActual',
+        actualKey: { PK: 'RELEASE#service-a', SK: 'ACTUAL' },
+        set: { pinnedReleaseId: '001' },
+        eventModel: 'ReleaseStateBindingEvent',
+        eventItem: {
+          PK: 'RELEASE#service-a',
+          SK: 'EVENT#1',
+          releaseId: '1',
+        },
+        eventBinding: { releaseId: 'set:pinnedReleaseId' },
+      }),
+    (e) =>
+      e instanceof TheorydbError &&
+      e.code === 'ErrInvalidModel' &&
+      e.message.includes('releaseId'),
   );
   assert.equal(ddb.sent.length, 0);
 }

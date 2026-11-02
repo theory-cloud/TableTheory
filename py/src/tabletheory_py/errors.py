@@ -68,6 +68,15 @@ class ValidationError(TheorydbPyError):
     pass
 
 
+class TTLAttributeMismatchError(ValidationError):
+    """A table's TTL is already enabled on a different attribute.
+
+    It remains a ``ValidationError`` so existing handlers keep matching, while
+    ``except TTLAttributeMismatchError`` identifies the conflict specifically,
+    mirroring Go's ``errors.Is(err, schema.ErrTTLAttributeMismatch)``.
+    """
+
+
 class InvalidEncryptedEnvelopeError(ValidationError):
     """An encrypted envelope or its record binding is invalid.
 

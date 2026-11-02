@@ -2,6 +2,7 @@ import {
   CreateTableCommand,
   DeleteTableCommand,
   DescribeTableCommand,
+  DescribeTimeToLiveCommand,
   UpdateTimeToLiveCommand,
   type AttributeDefinition,
   type CreateTableCommandInput,
@@ -97,7 +98,6 @@ export async function ensureTable(
   opts: CreateTableOptions = {},
 ): Promise<void> {
   const tableName = opts.tableName ?? model.tableName;
-  const ttlAttribute = resolveTimeToLiveAttribute(model);
   try {
     await describeTable(ddb, model, { tableName });
   } catch (err) {
@@ -106,21 +106,16 @@ export async function ensureTable(
     return;
   }
 
-  if ((opts.waitForActive ?? true) || ttlAttribute) {
+  // An existing table is left exactly as it is, including its TTL state. This
+  // matches Go's EnsureTable; callers that need convergence call createTable or
+  // updateTimeToLive explicitly.
+  if (opts.waitForActive ?? true) {
     const waitOpts: { timeoutSeconds?: number; pollIntervalMs?: number } = {};
     if (opts.waitTimeoutSeconds !== undefined)
       waitOpts.timeoutSeconds = opts.waitTimeoutSeconds;
     if (opts.pollIntervalMs !== undefined)
       waitOpts.pollIntervalMs = opts.pollIntervalMs;
     await waitForTableActive(ddb, tableName, waitOpts);
-  }
-
-  if (ttlAttribute) {
-    await updateTimeToLive(ddb, model, {
-      tableName,
-      attributeName: ttlAttribute,
-      enabled: true,
-    });
   }
 }
 
@@ -182,6 +177,19 @@ export function resolveTimeToLiveAttribute(model: Model): string | undefined {
   return model.roles.ttl;
 }
 
+/**
+ * Raised when a table's TTL is already enabled on a different attribute than
+ * the model declares. It remains an `ErrInvalidModel` `TheorydbError` so
+ * existing handlers keep matching; `instanceof TTLAttributeMismatchError`
+ * matches the conflict specifically, mirroring Go's
+ * `errors.Is(err, schema.ErrTTLAttributeMismatch)`.
+ */
+export class TTLAttributeMismatchError extends TheorydbError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super('ErrInvalidModel', message, options);
+  }
+}
+
 export async function updateTimeToLive(
   ddb: DynamoDBClient,
   model: Model,
@@ -190,16 +198,61 @@ export async function updateTimeToLive(
   const tableName = opts.tableName ?? model.tableName;
   const attributeName = opts.attributeName ?? resolveTimeToLiveAttribute(model);
   if (!attributeName) return;
+  const enabled = opts.enabled ?? true;
 
-  await ddb.send(
-    new UpdateTimeToLiveCommand({
-      TableName: tableName,
-      TimeToLiveSpecification: {
-        AttributeName: attributeName,
-        Enabled: opts.enabled ?? true,
-      },
-    }),
-  );
+  try {
+    await ddb.send(
+      new UpdateTimeToLiveCommand({
+        TableName: tableName,
+        TimeToLiveSpecification: {
+          AttributeName: attributeName,
+          Enabled: enabled,
+        },
+      }),
+    );
+  } catch (err) {
+    if (!enabled || !isValidationException(err)) throw err;
+
+    const current = await describeTimeToLiveState(ddb, tableName);
+    if (
+      current !== undefined &&
+      (current.status === 'ENABLED' || current.status === 'ENABLING')
+    ) {
+      if (current.attributeName === attributeName) return;
+      throw new TTLAttributeMismatchError(
+        `Failed to enable TTL on table ${tableName} using attribute ${attributeName}: TTL is already enabled on a different attribute ${current.attributeName}`,
+        { cause: err },
+      );
+    }
+
+    throw err;
+  }
+}
+
+interface TimeToLiveState {
+  status: string;
+  attributeName?: string;
+}
+
+async function describeTimeToLiveState(
+  ddb: DynamoDBClient,
+  tableName: string,
+): Promise<TimeToLiveState | undefined> {
+  try {
+    const resp = await ddb.send(
+      new DescribeTimeToLiveCommand({ TableName: tableName }),
+    );
+    const description = resp.TimeToLiveDescription;
+    if (!description?.TimeToLiveStatus) return undefined;
+    return {
+      status: description.TimeToLiveStatus,
+      ...(description.AttributeName
+        ? { attributeName: description.AttributeName }
+        : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function buildCreateTableInput(
@@ -399,6 +452,13 @@ function isResourceInUse(err: unknown): boolean {
   if (err instanceof ResourceInUseException) return true;
   if (typeof err === 'object' && err !== null && 'name' in err) {
     return (err as { name?: unknown }).name === 'ResourceInUseException';
+  }
+  return false;
+}
+
+function isValidationException(err: unknown): boolean {
+  if (typeof err === 'object' && err !== null && 'name' in err) {
+    return (err as { name?: unknown }).name === 'ValidationException';
   }
   return false;
 }

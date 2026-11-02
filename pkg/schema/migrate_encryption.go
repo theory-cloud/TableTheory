@@ -24,20 +24,36 @@ type attributeEncryptor interface {
 	EncryptAttributeValueWithBinding(ctx context.Context, binding encryption.RecordBinding, attributeName string, av types.AttributeValue) (types.AttributeValue, error)
 }
 
+// attributeDecryptor decrypts an envelope with its source record binding. A
+// same-name encrypted attribute cannot be copied verbatim: the target write
+// must authenticate the target record, so the migration has to open the source
+// envelope first.
+type attributeDecryptor interface {
+	DecryptAttributeValueWithBinding(ctx context.Context, binding encryption.RecordBinding, attributeName string, envelope types.AttributeValue) (types.AttributeValue, error)
+}
+
+type migrationEncryptionService interface {
+	attributeEncryptor
+	attributeDecryptor
+}
+
 // migrationEncryptionPlan records the per-attribute encryption decisions for a
 // data-copying migration so each copied item is checked (and encrypted) before
 // it is handed to a batch write.
 type migrationEncryptionPlan struct {
 	encryptor       attributeEncryptor
+	decryptor       attributeDecryptor
 	sourceEncrypted map[string]struct{}
 	targetEncrypted map[string]struct{}
+	sourceMetadata  *model.Metadata
 	targetMetadata  *model.Metadata
+	sourceName      string
 	targetName      string
 }
 
 // migrationEncryptor builds the envelope encryption service from the session
 // configuration, or returns nil when the session has no KMS key configured.
-func (m *Manager) migrationEncryptor() attributeEncryptor {
+func (m *Manager) migrationEncryptor() migrationEncryptionService {
 	if m == nil || m.session == nil {
 		return nil
 	}
@@ -91,28 +107,34 @@ func sortedNames(values map[string]struct{}) []string {
 }
 
 // preflightMigrationEncryption rejects, before any table is created or copied,
-// a data migration that would write plaintext into a target encrypted field.
-func preflightMigrationEncryption(sourceMetadata, targetMetadata *model.Metadata, configured bool, targetName string) error {
+// a data migration that cannot satisfy the target's encryption contract. A
+// same-name encrypted attribute must be opened with the source binding and
+// re-sealed with the target binding, so crossing tables requires a provider
+// even when both models declare the attribute as encrypted.
+func preflightMigrationEncryption(_, targetMetadata *model.Metadata, configured bool, targetName string) error {
 	targetEncrypted := encryptedAttributeNames(targetMetadata)
-	if len(targetEncrypted) == 0 {
-		return nil
-	}
-	needs := absentFrom(targetEncrypted, encryptedAttributeNames(sourceMetadata))
-	if len(needs) == 0 || configured {
+	if len(targetEncrypted) == 0 || configured {
 		return nil
 	}
 	return fmt.Errorf(
 		"%w: migration target model %q requires encryption for attribute(s) %s; configure session.Config.KMSKeyARN",
-		ErrMigrationEncryptionRequired, targetName, strings.Join(needs, ", "),
+		ErrMigrationEncryptionRequired, targetName, strings.Join(sortedNames(targetEncrypted), ", "),
 	)
 }
 
-func newMigrationEncryptionPlan(sourceMetadata, targetMetadata *model.Metadata, encryptor attributeEncryptor, targetName string) *migrationEncryptionPlan {
+func newMigrationEncryptionPlan(sourceMetadata, targetMetadata *model.Metadata, encryptor attributeEncryptor, sourceName, targetName string) *migrationEncryptionPlan {
+	var decryptor attributeDecryptor
+	if service, ok := encryptor.(attributeDecryptor); ok {
+		decryptor = service
+	}
 	return &migrationEncryptionPlan{
 		encryptor:       encryptor,
+		decryptor:       decryptor,
 		sourceEncrypted: encryptedAttributeNames(sourceMetadata),
 		targetEncrypted: encryptedAttributeNames(targetMetadata),
+		sourceMetadata:  sourceMetadata,
 		targetMetadata:  targetMetadata,
+		sourceName:      sourceName,
 		targetName:      targetName,
 	}
 }
@@ -138,6 +160,18 @@ func (p *migrationEncryptionPlan) guardItem(ctx context.Context, item map[string
 		}
 	}
 
+	for _, name := range sortedNames(p.targetEncrypted) {
+		if _, shared := p.sourceEncrypted[name]; !shared {
+			continue
+		}
+		if _, ok := item[name]; !ok {
+			continue
+		}
+		if err := p.rebindAttribute(ctx, name, item); err != nil {
+			return err
+		}
+	}
+
 	for _, name := range absentFrom(p.sourceEncrypted, p.targetEncrypted) {
 		if av, ok := item[name]; ok && isEncryptedEnvelope(av) {
 			return fmt.Errorf(
@@ -148,6 +182,44 @@ func (p *migrationEncryptionPlan) guardItem(ctx context.Context, item map[string
 	}
 
 	return p.encryptMissingTargetAttributes(ctx, item)
+}
+
+// rebindAttribute opens a same-name encrypted attribute with the source
+// record binding and re-seals it with the target binding. A v1 source envelope
+// is upgraded to a target-bound v2 envelope.
+func (p *migrationEncryptionPlan) rebindAttribute(ctx context.Context, name string, item map[string]types.AttributeValue) error {
+	if p.decryptor == nil || p.encryptor == nil {
+		return fmt.Errorf(
+			"%w: migration target model %q requires encryption to rebind attribute %q; configure session.Config.KMSKeyARN",
+			ErrMigrationEncryptionRequired, p.targetName, name,
+		)
+	}
+
+	sourceBinding, err := encryption.NewRecordBindingFromKey(p.sourceName, p.sourceMetadata, item)
+	if err != nil {
+		return fmt.Errorf(
+			"%w: migration cannot bind encrypted attribute %q to the source record: %v",
+			ErrMigrationEncryptionRequired, name, err,
+		)
+	}
+	plaintext, err := p.decryptor.DecryptAttributeValueWithBinding(ctx, sourceBinding, name, item[name])
+	if err != nil {
+		return fmt.Errorf("failed to decrypt migration attribute %s: %w", name, err)
+	}
+
+	targetBinding, err := encryption.NewRecordBindingFromKey(p.targetName, p.targetMetadata, item)
+	if err != nil {
+		return fmt.Errorf(
+			"%w: migration cannot bind encrypted attribute %q to the target record: %v",
+			ErrMigrationEncryptionRequired, name, err,
+		)
+	}
+	encrypted, err := p.encryptor.EncryptAttributeValueWithBinding(ctx, targetBinding, name, plaintext)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt migration attribute %s: %w", name, err)
+	}
+	item[name] = encrypted
+	return nil
 }
 
 // encryptMissingTargetAttributes encrypts plaintext attributes that become

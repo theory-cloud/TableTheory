@@ -12,8 +12,13 @@ import {
   withLambdaTimeout,
 } from '../../src/lambda.js';
 import { TheorydbClient } from '../../src/client.js';
+import { TheorydbError } from '../../src/errors.js';
 import { defineModel } from '../../src/model.js';
-import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBClient,
+  PutItemCommand,
+  TransactionCanceledException,
+} from '@aws-sdk/client-dynamodb';
 import type { SendOptions } from '../../src/send-options.js';
 
 void test('isLambdaEnvironment detects lambda env vars', () => {
@@ -104,6 +109,69 @@ void test('withLambdaTimeout returns a derived TheorydbClient', async () => {
   assert.equal(sendOptions[0]?.abortSignal instanceof AbortSignal, true);
   assert.equal(sendOptions[0]?.abortSignal?.aborted, true);
   cleanup();
+});
+
+// withLambdaTimeout derives through withSendOptions, so redaction configured on
+// the caller's client must survive the derivation. The injected item image
+// proves the mapped cause is not serialized into logs whole.
+void test('withLambdaTimeout inherits redactItemImages', async () => {
+  const model = defineModel({
+    name: 'LambdaRedaction',
+    table: { name: 'lambda_redaction' },
+    keys: { partition: { attribute: 'PK', type: 'S' } },
+    attributes: [{ attribute: 'PK', type: 'S', roles: ['pk'] }],
+  });
+
+  const ddb = {
+    send: async (): Promise<unknown> => {
+      throw new TransactionCanceledException({
+        $metadata: {},
+        message: 'transaction canceled',
+        CancellationReasons: [
+          {
+            Code: 'ConditionalCheckFailed',
+            Message: 'loser',
+            Item: { secret: { S: 'lambda-top-secret' } },
+          },
+        ] as never,
+      });
+    },
+  } as unknown as DynamoDBClient;
+
+  const captureCause = async (
+    base: TheorydbClient,
+  ): Promise<{ cause: unknown }> => {
+    const { client, cleanup } = withLambdaTimeout(
+      base,
+      { getRemainingTimeInMillis: () => 0 },
+      { bufferMs: 0 },
+    );
+    try {
+      await client.transactWrite([
+        { kind: 'put', model: 'LambdaRedaction', item: { PK: 'A' } },
+      ]);
+      assert.fail('the transactWrite must surface the cancellation');
+    } catch (err) {
+      assert.ok(err instanceof TheorydbError);
+      return { cause: (err as { cause?: unknown }).cause };
+    } finally {
+      cleanup();
+    }
+  };
+
+  const redacted = await captureCause(
+    new TheorydbClient(ddb, { redactItemImages: true }).register(model),
+  );
+  assert.ok(
+    !JSON.stringify(redacted.cause).includes('lambda-top-secret'),
+    'withLambdaTimeout lost redactItemImages and leaked the item image',
+  );
+
+  const plain = await captureCause(new TheorydbClient(ddb).register(model));
+  assert.ok(
+    JSON.stringify(plain.cause).includes('lambda-top-secret'),
+    'the non-redaction default must remain unchanged through withLambdaTimeout',
+  );
 });
 
 function countActiveTimeouts(): number {

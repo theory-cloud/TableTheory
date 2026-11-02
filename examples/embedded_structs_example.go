@@ -3,11 +3,9 @@ package examples
 
 import (
 	"fmt"
-	"log"
 	"time"
 
-	"github.com/theory-cloud/tabletheory/v6"
-	"github.com/theory-cloud/tabletheory/v6/pkg/session"
+	"github.com/theory-cloud/tabletheory/v6/pkg/core"
 )
 
 // BaseModel represents common fields for a single-table design pattern
@@ -40,7 +38,7 @@ func (c *EmbeddedCustomer) TableName() string {
 	return "my-application"
 }
 
-// Product demonstrates the same pattern for a different entity type
+// EmbeddedProduct demonstrates the same pattern for a different entity type
 type EmbeddedProduct struct {
 	ID          string `theorydb:"attr:id"`
 	Name        string `theorydb:"attr:name"`
@@ -56,7 +54,7 @@ func (p *EmbeddedProduct) TableName() string {
 	return "my-application"
 }
 
-// Order shows how to use embedded structs with relationships
+// EmbeddedOrder shows how to use embedded structs with relationships
 type EmbeddedOrder struct {
 	OrderedAt  time.Time `theorydb:"attr:orderedAt"`
 	ID         string    `theorydb:"attr:id"`
@@ -71,18 +69,10 @@ func (o *EmbeddedOrder) TableName() string {
 	return "my-application"
 }
 
-// ExampleEmbeddedStructs demonstrates how to use embedded structs with TableTheory
-func ExampleEmbeddedStructs() {
-	// Initialize TableTheory
-	config := session.Config{
-		Region: "us-east-1",
-	}
-
-	db, err := tabletheory.New(config)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+// ExampleEmbeddedStructs demonstrates how to use embedded structs with TableTheory.
+// The caller provides an initialized DB whose table already exists; the driver
+// in examples/drivers creates it with the gsi1 and gsi2 indexes.
+func ExampleEmbeddedStructs(db core.ExtendedDB) error {
 	// Create a customer with the embedded BaseModel fields
 	customer := &EmbeddedCustomer{
 		BaseModel: BaseModel{
@@ -104,21 +94,20 @@ func ExampleEmbeddedStructs() {
 
 	// Create the customer
 	if err := db.Model(customer).Create(); err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("create customer: %w", err)
 	}
 
 	fmt.Printf("Customer created at: %v\n", customer.CreatedAt)
 
 	// Query customers by tenant using GSI1
 	var customers []EmbeddedCustomer
-	err = db.Model(&EmbeddedCustomer{}).
+	err := db.Model(&EmbeddedCustomer{}).
 		Index("gsi1").
 		Where("GSI1PK", "=", "TENANT#tenant_456").
 		Where("GSI1SK", "BEGINS_WITH", "CUSTOMER#").
 		All(&customers)
-
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("query customers by tenant: %w", err)
 	}
 
 	fmt.Printf("Found %d customers for tenant\n", len(customers))
@@ -144,7 +133,7 @@ func ExampleEmbeddedStructs() {
 	}
 
 	if err := db.Model(product).Create(); err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("create product: %w", err)
 	}
 
 	// Create an order linking customer and product
@@ -167,7 +156,7 @@ func ExampleEmbeddedStructs() {
 	}
 
 	if err := db.Model(order).Create(); err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("create order: %w", err)
 	}
 
 	// Query all orders for a customer using GSI1
@@ -178,9 +167,8 @@ func ExampleEmbeddedStructs() {
 		Where("GSI1SK", "BEGINS_WITH", "ORDER#").
 		OrderBy("GSI1SK", "DESC").
 		All(&orders)
-
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("query orders for customer: %w", err)
 	}
 
 	fmt.Printf("Customer has %d orders\n", len(orders))
@@ -190,10 +178,11 @@ func ExampleEmbeddedStructs() {
 	customer.GSI2PK = "EMAIL#johndoe@example.com"
 
 	if err := db.Model(customer).Update("Email", "GSI2PK"); err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("update customer email: %w", err)
 	}
 
 	fmt.Printf("Customer email updated, UpdatedAt: %v\n", customer.UpdatedAt)
+	return nil
 }
 
 // Benefits of embedded structs:

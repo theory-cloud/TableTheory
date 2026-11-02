@@ -78,7 +78,7 @@ type ContactsApp struct {
 func NewContactsApp(orgID string) (*ContactsApp, error) {
 	cfg := &session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000",
+		Endpoint: localEndpoint(),
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 		},
@@ -89,17 +89,26 @@ func NewContactsApp(orgID string) (*ContactsApp, error) {
 		return nil, fmt.Errorf("failed to create TableTheory client: %v", err)
 	}
 
-	// Create table with multiple GSIs
-	if err := db.CreateTable(&Contact{}); err != nil {
-		if !strings.Contains(err.Error(), "ResourceInUseException") {
-			return nil, fmt.Errorf("failed to create table: %v", err)
-		}
+	// Create the table and its GSIs only when they are missing.
+	if err := db.EnsureTable(&Contact{}); err != nil {
+		return nil, fmt.Errorf("failed to create table: %v", err)
 	}
 
 	return &ContactsApp{
 		db:    db,
 		orgID: orgID,
 	}, nil
+}
+
+// localEndpoint honours the local harness endpoint while keeping the historical
+// localhost:8000 default for a hand-started DynamoDB Local.
+func localEndpoint() string {
+	for _, key := range []string{"DYNAMODB_ENDPOINT", "AWS_ENDPOINT_URL_DYNAMODB"} {
+		if endpoint := strings.TrimSpace(os.Getenv(key)); endpoint != "" {
+			return endpoint
+		}
+	}
+	return "http://localhost:8000"
 }
 
 // Create adds a new contact
@@ -111,6 +120,10 @@ func (app *ContactsApp) Create(contact *Contact) error {
 
 	// Set full name for searching
 	contact.FullName = fmt.Sprintf("%s#%s", contact.LastName, contact.FirstName)
+
+	// gsi-phone is keyed on the normalized digits, so store the same shape the
+	// lookup queries.
+	contact.Phone = normalizePhone(contact.Phone)
 
 	// Set timestamps
 	contact.CreatedAt = time.Now()
@@ -200,6 +213,30 @@ func (app *ContactsApp) FindByPhone(phone string) ([]Contact, error) {
 		Where("Phone", "=", normalizedPhone).
 		All(&contacts); err != nil {
 		return nil, fmt.Errorf("failed to search by phone: %v", err)
+	}
+
+	// Filter by organization
+	var orgContacts []Contact
+	for _, contact := range contacts {
+		if strings.HasPrefix(contact.ID, app.orgID+"#") {
+			contact.OrgID = app.orgID
+			orgContacts = append(orgContacts, contact)
+		}
+	}
+
+	return orgContacts, nil
+}
+
+// FindByFullName reads the gsi-name index using the LastName#FirstName key.
+func (app *ContactsApp) FindByFullName(lastName, firstName string) ([]Contact, error) {
+	var contacts []Contact
+
+	fullName := fmt.Sprintf("%s#%s", lastName, firstName)
+	if err := app.db.Model(&Contact{}).
+		Index("gsi-name").
+		Where("FullName", "=", fullName).
+		All(&contacts); err != nil {
+		return nil, fmt.Errorf("failed to search by name: %v", err)
 	}
 
 	// Filter by organization
@@ -479,6 +516,7 @@ func (app *ContactsApp) runCLI() {
 	fmt.Println("  search <term>       - Search by name or company")
 	fmt.Println("  email <email>       - Find by email")
 	fmt.Println("  phone <number>      - Find by phone")
+	fmt.Println("  name <last> <first> - Find by full-name index")
 	fmt.Println("  favorites           - Show favorite contacts")
 	fmt.Println("  favorite <num>      - Toggle favorite status")
 	fmt.Println("  delete <num>        - Delete a contact")
@@ -557,6 +595,17 @@ func (app *ContactsApp) runCLI() {
 				fmt.Printf("Error: %v\n", err)
 			}
 
+		case "name":
+			if len(parts) < 3 {
+				fmt.Println("Usage: name <last> <first>")
+				continue
+			}
+			if contacts, err := app.FindByFullName(parts[1], parts[2]); err == nil {
+				app.printContacts(contacts, fmt.Sprintf("Contacts named '%s %s'", parts[1], parts[2]))
+			} else {
+				fmt.Printf("Error: %v\n", err)
+			}
+
 		case "favorites":
 			if contacts, err := app.GetFavorites(); err == nil {
 				app.printContacts(contacts, "Favorite Contacts")
@@ -593,7 +642,7 @@ func (app *ContactsApp) runCLI() {
 			return
 
 		default:
-			fmt.Println("Unknown command. Try: add, list, search, email, phone, favorites, delete, import, stats, quit")
+			fmt.Println("Unknown command. Try: add, list, search, email, phone, name, favorites, delete, import, stats, quit")
 		}
 	}
 }

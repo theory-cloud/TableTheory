@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/theory-cloud/tabletheory/v6/examples/blog/models"
 )
 
 const testMethodArn = "arn:aws:execute-api:us-east-1:123456789012:api/dev/POST/posts"
@@ -215,4 +218,48 @@ func TestTOKENEventShapeDoesNotAuthorize(t *testing.T) {
 
 	_, err := HandleRequest(context.Background(), event)
 	require.EqualError(t, err, "Unauthorized")
+}
+
+// TestModelTableNamesMatchTemplate pins the other half of the deployment
+// contract: every model resolves the table the SAM template creates for the
+// active environment. Before this test the models silently derived "Posts",
+// "Comments", "Authors" and "Search" while the template created
+// "<environment>-blog-*", so a deployed handler wrote to a table that did not
+// exist.
+func TestModelTableNamesMatchTemplate(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "staging")
+
+	body, err := os.ReadFile("../deployment/sam-template.yaml")
+	require.NoError(t, err)
+	var document yaml.Node
+	require.NoError(t, yaml.Unmarshal(body, &document))
+	resources := templateMapping(t, document.Content[0], "Resources")
+
+	declared := map[string]bool{}
+	for i := 0; i+1 < len(resources.Content); i += 2 {
+		resource := resources.Content[i+1]
+		if templateScalar(t, resource, "Type") != "AWS::DynamoDB::Table" {
+			continue
+		}
+		tableName := templateMapping(t, templateMapping(t, resource, "Properties"), "TableName")
+		require.Equal(t, "!Sub", tableName.Tag)
+		declared[strings.ReplaceAll(tableName.Value, "${Environment}", "staging")] = true
+	}
+	require.Equal(t, map[string]bool{
+		"staging-blog-posts":    true,
+		"staging-blog-comments": true,
+		"staging-blog-authors":  true,
+		"staging-blog-search":   true,
+	}, declared)
+
+	models := []interface{ TableName() string }{
+		&models.Post{},
+		&models.Comment{},
+		&models.Author{},
+		&models.SearchIndex{},
+	}
+	for _, model := range models {
+		require.Containsf(t, declared, model.TableName(),
+			"%T resolves a table the template does not create", model)
+	}
 }

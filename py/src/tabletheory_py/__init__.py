@@ -24,6 +24,7 @@ from .errors import (
     ThrottledError,
     TransactionCanceledError,
     TransactionConflictError,
+    TTLAttributeMismatchError,
     ValidationError,
     VersionConflictError,
 )
@@ -354,6 +355,7 @@ __all__ = [
     "remove_field",
     "rename_field",
     "TheorydbPyError",
+    "TTLAttributeMismatchError",
     "describe_table",
     "group_by",
     "GroupByQuery",

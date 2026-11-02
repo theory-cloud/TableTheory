@@ -590,6 +590,9 @@ func (q *Query) BatchCreateWithResult(items any) (*BatchResult, error) {
 // wrapper cannot poison the live context. Because the effective context is
 // always recomposed from the retained layers, either ordering of QueryTimeout
 // and WithCancellation keeps both the deadline and manual cancellation in force.
+// The existing q.ctx is the last non-nil fallback, so a query assembled with only
+// that field still keeps its caller context instead of falling back to
+// context.Background.
 func (q *Query) applyContext() {
 	if q.cancel != nil {
 		q.cancel()
@@ -598,6 +601,9 @@ func (q *Query) applyContext() {
 	base := q.cancelCtx
 	if base == nil {
 		base = q.baseCtx
+	}
+	if base == nil {
+		base = q.ctx
 	}
 	if base == nil {
 		base = context.Background()

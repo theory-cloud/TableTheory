@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -74,6 +75,7 @@ func TestEncryption_EnvelopeShapeAndAADBinding(t *testing.T) {
 	httpClient := &http.Client{
 		Transport: &kmsStubTransport{
 			inner:           http.DefaultTransport,
+			dynamoHost:      endpointHost(endpoint),
 			plaintextKeyB64: plaintextKeyB64,
 			edkB64:          edkB64,
 		},
@@ -229,8 +231,20 @@ type kmsStubTransport struct {
 
 	mu sync.Mutex
 
+	dynamoHost      string
 	plaintextKeyB64 string
 	edkB64          string
+}
+
+// endpointHost returns the host:port the KMS passthrough stub may forward to.
+// The DynamoDB endpoint is configurable (DYNAMODB_ENDPOINT), so the guard must
+// follow the configured endpoint instead of hardcoding the default port.
+func endpointHost(endpoint string) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" {
+		return "localhost:8000"
+	}
+	return strings.ToLower(parsed.Host)
 }
 
 func (t *kmsStubTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -250,7 +264,11 @@ func (t *kmsStubTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	host := strings.ToLower(req.URL.Host)
-	if host == "localhost:8000" || host == "127.0.0.1:8000" {
+	allowedHost := t.dynamoHost
+	if allowedHost == "" {
+		allowedHost = "localhost:8000"
+	}
+	if host == allowedHost {
 		return t.inner.RoundTrip(req)
 	}
 

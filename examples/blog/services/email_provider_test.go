@@ -4,37 +4,67 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"log"
+	"math/big"
 	"net"
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
+type fakeSMTPOptions struct {
+	startTLS bool
+	auth     bool
+	stall    bool
+}
+
 // fakeSMTPServer is a minimal, real TCP SMTP peer used to exercise the provider's
 // delivery path without a network or a deployed service.
 type fakeSMTPServer struct {
-	listener net.Listener
-	addr     string
-	stall    bool
-	received chan []byte
-	connDone chan struct{}
+	listener  net.Listener
+	addr      string
+	opts      fakeSMTPOptions
+	tlsConfig *tls.Config
+	roots     *x509.CertPool
+	received  chan []byte
+	connDone  chan struct{}
+	mu        sync.Mutex
+	commands  []string
+	sawMail   bool
 }
 
 func startFakeSMTPServer(t *testing.T, stall bool) *fakeSMTPServer {
 	t.Helper()
+	return startFakeSMTPServerWithOptions(t, fakeSMTPOptions{startTLS: true, auth: true, stall: stall})
+}
 
+func startFakeSMTPServerWithOptions(t *testing.T, opts fakeSMTPOptions) *fakeSMTPServer {
+	t.Helper()
+
+	cert, roots := newSMTPTestCert(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	server := &fakeSMTPServer{
 		listener: listener,
 		addr:     listener.Addr().String(),
-		stall:    stall,
+		opts:     opts,
+		tlsConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		},
+		roots:    roots,
 		received: make(chan []byte, 1),
 		connDone: make(chan struct{}),
 	}
@@ -50,6 +80,29 @@ func (s *fakeSMTPServer) hostPort() (string, string) {
 		return s.addr, ""
 	}
 	return host, port
+}
+
+func (s *fakeSMTPServer) recordCommand(command string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.commands = append(s.commands, command)
+}
+
+func (s *fakeSMTPServer) commandIndex(prefix string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for index, command := range s.commands {
+		if strings.HasPrefix(command, prefix) {
+			return index
+		}
+	}
+	return -1
+}
+
+func (s *fakeSMTPServer) mailSeen() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sawMail
 }
 
 func (s *fakeSMTPServer) serve() {
@@ -68,6 +121,7 @@ func (s *fakeSMTPServer) serve() {
 
 	writeLine("220 fake ESMTP")
 
+	tlsActive := false
 	stalled := false
 	for {
 		line, err := reader.ReadString('\n')
@@ -80,17 +134,52 @@ func (s *fakeSMTPServer) serve() {
 			continue
 		}
 
-		switch command := strings.ToUpper(strings.TrimSpace(line)); {
+		command := strings.ToUpper(strings.TrimSpace(line))
+		s.recordCommand(command)
+
+		switch {
 		case strings.HasPrefix(command, "EHLO"), strings.HasPrefix(command, "HELO"):
-			if s.stall {
+			if s.opts.stall {
 				stalled = true
 				continue
 			}
-			writeLine("250-fake")
-			writeLine("250 AUTH PLAIN")
+			if s.opts.startTLS && !tlsActive {
+				writeLine("250-fake")
+				writeLine("250-STARTTLS")
+				writeLine("250 OK")
+				continue
+			}
+			if s.opts.auth {
+				writeLine("250-fake")
+				writeLine("250 AUTH PLAIN")
+				continue
+			}
+			writeLine("250 OK")
+		case strings.HasPrefix(command, "STARTTLS"):
+			if !s.opts.startTLS || tlsActive {
+				writeLine("454 TLS not available")
+				continue
+			}
+			writeLine("220 ready to start TLS")
+			tlsConn := tls.Server(conn, s.tlsConfig)
+			if err := tlsConn.Handshake(); err != nil {
+				return
+			}
+			conn = tlsConn
+			reader = bufio.NewReader(conn)
+			tlsActive = true
 		case strings.HasPrefix(command, "AUTH"):
+			if !tlsActive || !s.opts.auth {
+				writeLine("503 5.7.0 AUTH not available")
+				continue
+			}
 			writeLine("235 authenticated")
-		case strings.HasPrefix(command, "MAIL"), strings.HasPrefix(command, "RCPT"):
+		case strings.HasPrefix(command, "MAIL"):
+			s.mu.Lock()
+			s.sawMail = true
+			s.mu.Unlock()
+			writeLine("250 ok")
+		case strings.HasPrefix(command, "RCPT"):
 			writeLine("250 ok")
 		case strings.HasPrefix(command, "DATA"):
 			writeLine("354 end with <CRLF>.<CRLF>")
@@ -126,9 +215,36 @@ func readSMTPData(reader *bufio.Reader) ([]byte, error) {
 	}
 }
 
+func newSMTPTestCert(t *testing.T) (tls.Certificate, *x509.CertPool) {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "127.0.0.1"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:     []string{"localhost"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	parsed, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	roots := x509.NewCertPool()
+	roots.AddCert(parsed)
+
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, roots
+}
+
 func newTestEmailProvider(server *fakeSMTPServer) *EmailProvider {
 	host, port := server.hostPort()
-	return NewEmailProvider(EmailConfig{
+	provider := NewEmailProvider(EmailConfig{
 		SMTPHost:     host,
 		SMTPPort:     port,
 		SMTPUsername: "user",
@@ -136,6 +252,8 @@ func newTestEmailProvider(server *fakeSMTPServer) *EmailProvider {
 		FromEmail:    "notifications@example.com",
 		FromName:     "Blog Notifications",
 	})
+	provider.testTLSConfig = &tls.Config{RootCAs: server.roots}
+	return provider
 }
 
 func testNotification() *Notification {
@@ -309,5 +427,102 @@ func TestEmailProviderFastPeerDeliversMessage(t *testing.T) {
 		require.Contains(t, body, "To: reader@example.com")
 	case <-time.After(2 * time.Second):
 		t.Fatal("fast SMTP peer did not receive the message")
+	}
+}
+
+func TestEmailProviderRequiresSTARTTLSForNonTestDelivery(t *testing.T) {
+	server := startFakeSMTPServerWithOptions(t, fakeSMTPOptions{startTLS: false, auth: true})
+	provider := newTestEmailProvider(server)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := provider.Send(ctx, testNotification())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "STARTTLS")
+	require.False(t, server.mailSeen(), "MAIL must not be issued without STARTTLS")
+	select {
+	case <-server.received:
+		t.Fatal("message must not be sent without STARTTLS")
+	default:
+	}
+}
+
+func TestEmailProviderRequiresAUTHAfterTLSWhenCredentialsExist(t *testing.T) {
+	server := startFakeSMTPServerWithOptions(t, fakeSMTPOptions{startTLS: true, auth: false})
+	provider := newTestEmailProvider(server)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := provider.Send(ctx, testNotification())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "AUTH")
+	require.False(t, server.mailSeen(), "MAIL must not be issued without AUTH")
+	select {
+	case <-server.received:
+		t.Fatal("message must not be sent without AUTH")
+	default:
+	}
+}
+
+func TestEmailProviderRejectsIncompleteCredentials(t *testing.T) {
+	provider := NewEmailProvider(EmailConfig{
+		SMTPHost:     "127.0.0.1",
+		SMTPPort:     "2525",
+		SMTPUsername: "user",
+		FromEmail:    "notifications@example.com",
+	})
+
+	err := provider.Send(context.Background(), testNotification())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "both")
+}
+
+func TestEmailProviderSecureDeliveryOrdersSTARTTLSAndAUTHBeforeMAIL(t *testing.T) {
+	server := startFakeSMTPServer(t, false)
+	provider := newTestEmailProvider(server)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, provider.Send(ctx, testNotification()))
+
+	startTLS := server.commandIndex("STARTTLS")
+	auth := server.commandIndex("AUTH")
+	mail := server.commandIndex("MAIL")
+	require.True(t, startTLS >= 0, "STARTTLS must be issued")
+	require.True(t, auth > startTLS, "AUTH must follow STARTTLS")
+	require.True(t, mail > auth, "MAIL must follow AUTH")
+
+	select {
+	case data := <-server.received:
+		require.Contains(t, string(data), "Comment body")
+	case <-time.After(2 * time.Second):
+		t.Fatal("secure SMTP peer did not receive the message")
+	}
+}
+
+// TestEmailProviderSecureUnauthenticatedRelayWithoutCredentials proves the
+// no-credentials path still works for a STARTTLS relay that does not require
+// AUTH. Credentials are what trigger the AUTH requirement.
+func TestEmailProviderSecureUnauthenticatedRelayWithoutCredentials(t *testing.T) {
+	server := startFakeSMTPServerWithOptions(t, fakeSMTPOptions{startTLS: true, auth: false})
+	host, port := server.hostPort()
+	provider := NewEmailProvider(EmailConfig{
+		SMTPHost:  host,
+		SMTPPort:  port,
+		FromEmail: "notifications@example.com",
+	})
+	provider.testTLSConfig = &tls.Config{RootCAs: server.roots}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, provider.Send(ctx, testNotification()))
+
+	select {
+	case data := <-server.received:
+		require.Contains(t, string(data), "Comment body")
+	case <-time.After(2 * time.Second):
+		t.Fatal("STARTTLS relay without credentials did not receive the message")
 	}
 }

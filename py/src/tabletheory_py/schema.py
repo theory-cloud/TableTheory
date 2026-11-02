@@ -10,7 +10,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from .attr_types import unwrap_optional
-from .errors import AwsError, NotFoundError, ValidationError
+from .errors import AwsError, NotFoundError, TTLAttributeMismatchError, ValidationError
 from .model import ModelDefinition
 
 BillingMode = str  # "PAY_PER_REQUEST" | "PROVISIONED"
@@ -84,7 +84,6 @@ def ensure_table(
     if not resolved_table:
         raise ValueError("table_name is required (or set ModelDefinition.table_name)")
 
-    ttl_attribute = resolve_ttl_attribute(model)
     try:
         client.describe_table(TableName=resolved_table)
     except ClientError as err:
@@ -104,22 +103,16 @@ def ensure_table(
         )
         return
 
-    if wait_for_active or ttl_attribute is not None:
+    # An existing table is left exactly as it is, including its TTL state. This
+    # matches Go's EnsureTable; callers that need convergence call create_table
+    # or update_time_to_live explicitly.
+    if wait_for_active:
         _wait_for_table_active(
             client,
             resolved_table,
             timeout_seconds=wait_timeout_seconds,
             poll_interval_seconds=poll_interval_seconds,
             sleep=sleep,
-        )
-
-    if ttl_attribute is not None:
-        update_time_to_live(
-            model,
-            client=client,
-            table_name=resolved_table,
-            attribute_name=ttl_attribute,
-            enabled=True,
         )
 
 
@@ -213,7 +206,40 @@ def update_time_to_live(
             },
         )
     except ClientError as err:
+        if enabled and _is_validation_exception(err):
+            current = _current_time_to_live(client, resolved_table)
+            if current is not None:
+                status, current_attribute = current
+                if status in {"ENABLED", "ENABLING"}:
+                    if current_attribute == resolved_attribute:
+                        return
+                    raise TTLAttributeMismatchError(
+                        "failed to enable ttl on table "
+                        f"{resolved_table} using attribute {resolved_attribute}: "
+                        "ttl is already enabled on a different attribute "
+                        f"{current_attribute}"
+                    ) from err
         raise _map_schema_error(err) from err
+
+
+def _is_validation_exception(err: ClientError) -> bool:
+    return str(err.response.get("Error", {}).get("Code", "")) == "ValidationException"
+
+
+def _current_time_to_live(
+    client: Any,
+    table_name: str,
+) -> tuple[str, str] | None:
+    try:
+        response = client.describe_time_to_live(TableName=table_name)
+    except ClientError:
+        return None
+
+    description = response.get("TimeToLiveDescription") or {}
+    status = str(description.get("TimeToLiveStatus", ""))
+    if not status:
+        return None
+    return status, str(description.get("AttributeName", ""))
 
 
 def build_create_table_request(

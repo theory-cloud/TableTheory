@@ -1,0 +1,86 @@
+name: "p0.dms.json_string_mode"
+dms_version: "0.2"
+requires_capabilities: ["dms.json_string_mode"]
+model: "EncryptedRecord"
+table:
+  name: "dms_json_string_mode_contract"
+steps:
+  # The stored value is raw JSON text. Parse mode must restore the array so
+  # role membership is exact: the lookalike member "not-admin" is not "admin".
+  - op: raw_put
+    raw_item:
+      PK: {s: "ROLE#1"}
+      SK: {s: "MEMBER"}
+      roles: {s: "[\"not-admin\"]"}
+    expect:
+      ok: true
+
+  # DMS wire spelling: json_string_mode in a parsed document.
+  - op: dms_get
+    dms:
+      model: "DmsRoleRecord"
+      document: |
+        dms_version: "0.2"
+        models:
+          - name: "DmsRoleRecord"
+            table:
+              name: "dms_json_string_mode_contract"
+            naming:
+              convention: "snake_case"
+            keys:
+              partition: { attribute: "PK", type: "S" }
+              sort: { attribute: "SK", type: "S" }
+            attributes:
+              - { attribute: "PK", type: "S", roles: ["pk"] }
+              - { attribute: "SK", type: "S", roles: ["sk"] }
+              - { attribute: "roles", type: "S", json: true, json_string_mode: "parse" }
+    key:
+      PK: "ROLE#1"
+      SK: "MEMBER"
+    expect:
+      ok: true
+      item_contains:
+        roles: ["not-admin"]
+
+  # Runtime spelling used by generated TypeScript schemas: jsonStringMode.
+  - op: dms_get
+    dms:
+      model: "DmsRoleDirect"
+      schema: |
+        name: "DmsRoleDirect"
+        table:
+          name: "dms_json_string_mode_contract"
+        keys:
+          partition: { attribute: "PK", type: "S" }
+          sort: { attribute: "SK", type: "S" }
+        attributes:
+          - { attribute: "PK", type: "S", roles: ["pk"] }
+          - { attribute: "SK", type: "S", roles: ["sk"] }
+          - { attribute: "roles", type: "S", json: true, jsonStringMode: "parse" }
+    key:
+      PK: "ROLE#1"
+      SK: "MEMBER"
+    expect:
+      ok: true
+      item_contains:
+        roles: ["not-admin"]
+
+  # Conflicting spellings are refused instead of silently preferring one.
+  - op: dms_parse
+    dms:
+      model: "DmsRoleConflict"
+      document: |
+        dms_version: "0.2"
+        models:
+          - name: "DmsRoleConflict"
+            table:
+              name: "dms_json_string_mode_contract"
+            keys:
+              partition: { attribute: "PK", type: "S" }
+              sort: { attribute: "SK", type: "S" }
+            attributes:
+              - { attribute: "PK", type: "S", roles: ["pk"] }
+              - { attribute: "SK", type: "S", roles: ["sk"] }
+              - { attribute: "roles", type: "S", json: true, jsonStringMode: "parse", json_string_mode: "carrier" }
+    expect:
+      error: "ErrInvalidModel"

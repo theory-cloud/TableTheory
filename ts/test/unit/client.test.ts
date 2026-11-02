@@ -1331,6 +1331,76 @@ void test('client redactItemImages strips item images from the retained cause', 
   assert.ok(redactedCause instanceof TransactionCanceledException);
 });
 
+// Redaction is client configuration, so every supported derivation must carry
+// it. `withLambdaTimeout` always derives through `withSendOptions`, which makes
+// this inheritance load-bearing for Lambda handlers.
+void test('derived clients inherit redactItemImages', async () => {
+  const makeException = () =>
+    new TransactionCanceledException({
+      $metadata: {},
+      message: 'transaction canceled',
+      CancellationReasons: [
+        {
+          Code: 'ConditionalCheckFailed',
+          Message: 'loser',
+          Item: { secret: { S: 'top-secret-value' } },
+        },
+      ] as never,
+    });
+
+  const captureCause = async (client: TheorydbClient): Promise<unknown> => {
+    try {
+      await client.transactWrite([
+        { kind: 'put', model: 'User', item: { PK: 'A', SK: '1' } },
+      ]);
+      assert.fail('the transactWrite must surface the cancellation');
+    } catch (err) {
+      assert.ok(err instanceof TheorydbError);
+      return (err as { cause?: unknown }).cause;
+    }
+  };
+
+  const throwingDdb = () =>
+    new StubDdb(() => {
+      throw makeException();
+    }) as unknown as DynamoDBClient;
+
+  const redacted = new TheorydbClient(throwingDdb(), {
+    redactItemImages: true,
+  }).register(User);
+  const redactedDerivations: Array<[string, TheorydbClient]> = [
+    ['withSendOptions', redacted.withSendOptions({})],
+    ['withDynamoDBClient', redacted.withDynamoDBClient(throwingDdb())],
+    ['fork', redacted.fork().register(User)],
+  ];
+  for (const [name, derived] of redactedDerivations) {
+    const cause = await captureCause(derived);
+    assert.ok(
+      cause instanceof TransactionCanceledException,
+      `${name}: the derived client must still map the SDK exception`,
+    );
+    assert.ok(
+      !JSON.stringify(cause).includes('top-secret-value'),
+      `${name}: derived client lost redactItemImages and leaked the item image`,
+    );
+  }
+
+  // The option stays off by default, including through every derivation.
+  const plain = new TheorydbClient(throwingDdb()).register(User);
+  const plainDerivations: Array<[string, TheorydbClient]> = [
+    ['withSendOptions', plain.withSendOptions({})],
+    ['withDynamoDBClient', plain.withDynamoDBClient(throwingDdb())],
+    ['fork', plain.fork().register(User)],
+  ];
+  for (const [name, derived] of plainDerivations) {
+    const cause = await captureCause(derived);
+    assert.ok(
+      JSON.stringify(cause).includes('top-secret-value'),
+      `${name}: the retained cause must stay unchanged when redaction is not enabled`,
+    );
+  }
+});
+
 void test('raw transaction update does not treat keyword-shaped placeholders as sections', async () => {
   const ddb = new StubDdb((cmd) => {
     if (cmd instanceof TransactWriteItemsCommand) return {};

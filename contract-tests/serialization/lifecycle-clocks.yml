@@ -1,0 +1,77 @@
+version: 1
+
+# Shared, language-neutral conformance table for lifecycle timestamp stamping.
+#
+# A model with `createdAt`/`updatedAt` fields is stamped by the writer, not by
+# the caller. That makes an item preflight's byte-equality claim conditional: it
+# is only true when the preflight and the writer read the same clock. This table
+# is the single source of truth for what each runtime's two writer paths store
+# under a fixed clock, an advancing clock, and no shared clock.
+#
+# Each runtime asserts its own column through its own stateful writer seam. The
+# rows cover one scenario each: the put call runs first, the transact_write put
+# second, and both observe the same clock instance. `stamps` is the vocabulary
+# the expectations are stated in, so a runtime never compares against a value it
+# invented.
+
+name: lifecycle-clocks
+description: >
+  Lifecycle timestamp stamping per writer path, per runtime, under a fixed
+  clock, an advancing clock, and no shared clock. The fixed clock is the one a
+  shared preflight can be given; the advancing and missing clocks are the cases
+  where an exact-equality claim between the two writer paths must not be made.
+
+writer_paths: [put, transact_write]
+
+runtimes: [go, ts, py]
+
+clock_modes: [fixed, advancing, missing]
+
+# The concrete timestamps the scenarios inject. A fixed clock returns
+# `fixed` for every call; an advancing clock returns `advancing_first` on the
+# first read and `advancing_second` on the next.
+stamps:
+  fixed: "2026-01-02T03:04:05.123456789Z"
+  advancing_first: "2026-01-02T03:04:05.000000001Z"
+  advancing_second: "2026-01-02T03:04:06.000000002Z"
+
+# The complete set of expectation values.
+#   stamp_fixed / stamp_first / stamp_second - the stored value equals that
+#     scenario stamp verbatim.
+#   wall_clock - the runtime stamped from its own clock because none was
+#     injected; the value must not equal any scenario stamp.
+#   unstamped - the writer path does not stamp lifecycle fields at all and
+#     stores the model's zero value.
+expectations: [stamp_fixed, stamp_first, stamp_second, wall_clock, unstamped]
+
+rows:
+  - mode: fixed
+    expect:
+      put: {go: stamp_fixed, ts: stamp_fixed, py: stamp_fixed}
+      transact_write: {go: unstamped, ts: stamp_fixed, py: stamp_fixed}
+    # Whether the two writer paths store the same lifecycle bytes under this
+    # clock. Go's transactional writer does not stamp lifecycle fields, so its
+    # two paths can never agree on this model; that is a frozen writer property,
+    # not a defect this table may change.
+    put_equals_transact_write: {go: false, ts: true, py: true}
+    # Whether an exact-equality claim between the two writer paths can be
+    # supported at all. Only a runtime whose two paths both stamp from a shared
+    # fixed clock can support it, and only for the fixed row.
+    exact_equality_supported: {go: false, ts: true, py: true}
+
+  - mode: advancing
+    expect:
+      put: {go: stamp_first, ts: stamp_first, py: stamp_first}
+      transact_write:
+        {go: unstamped, ts: stamp_second, py: stamp_second}
+    put_equals_transact_write: {go: false, ts: false, py: false}
+    exact_equality_supported: {go: false, ts: false, py: false}
+
+  - mode: missing
+    expect:
+      put: {go: wall_clock, ts: wall_clock, py: wall_clock}
+      transact_write: {go: unstamped, ts: wall_clock, py: wall_clock}
+    # No equality is asserted between the two paths here: with no shared clock
+    # each writer reads its own, so the bytes may or may not happen to agree.
+    # That is exactly why an exact-equality claim is unsupported.
+    exact_equality_supported: {go: false, ts: false, py: false}

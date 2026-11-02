@@ -1,5 +1,30 @@
 {
   "$schema": "https://theory.cloud/tabletheory/schemas/visible-npm-audit-findings.schema.json",
   "purpose": "Findings listed here are intentionally visible in SEC-2 evidence and are not supply-chain allowlist suppressions.",
-  "findings": []
+  "findings": [
+    {
+      "project": "examples/cdk-multilang",
+      "package": "minimatch",
+      "advisory": "GHSA-g3hv-75wg-m249",
+      "node": "node_modules/aws-cdk-lib/node_modules/minimatch",
+      "visibility": "visible",
+      "status": "upstream-bundled-pending-fix",
+      "reviewed_on": "2026-11-01",
+      "expires_on": "2026-12-01",
+      "remove_when": "Remove when the pinned aws-cdk-lib bundles minimatch >= 11.0.1 (the patched version for GHSA-g3hv-75wg-m249).",
+      "justification": "minimatch 10.2.6 is bundled inside aws-cdk-lib 2.275.0 in examples/cdk-multilang (inBundle: true). The pin was re-reviewed on 2026-11-01: aws-cdk-lib 2.275.0, still the latest release, declares and bundles minimatch ^10.2.6, so no aws-cdk-lib release fixes this, and npm overrides cannot replace a dependency shipped inside the aws-cdk-lib tarball (verified: an override leaves the bundled lock entry at 10.2.6). Operator ruling 2026-10-03: \"if a vulnerable dependency is bundled in AWS we make an exception until its updated there\"; extended 2026-10-04 to AWS-published build-toolchain chains. Scoped to exactly GHSA-g3hv-75wg-m249 at the bundled node path; scripts/test-npm-audit-policy.sh pins the bundled version and fails when it moves."
+    },
+    {
+      "project": "examples/cdk-multilang",
+      "package": "aws-cdk-lib",
+      "advisory": "minimatch",
+      "node": "node_modules/aws-cdk-lib",
+      "visibility": "visible",
+      "status": "upstream-bundled-pending-fix",
+      "reviewed_on": "2026-11-01",
+      "expires_on": "2026-12-01",
+      "remove_when": "Remove together with the bundled minimatch GHSA-g3hv-75wg-m249 entry when the pinned aws-cdk-lib bundles minimatch >= 11.0.1.",
+      "justification": "Derived parent entry: npm audit reports aws-cdk-lib itself as vulnerable solely because it bundles the vulnerable minimatch covered by the sibling GHSA-g3hv-75wg-m249 entry (via: [\"minimatch\"]). Same operator ruling 2026-10-03 (AWS-bundled vulnerable dependency, exception until AWS updates it; 2026-10-04 extension to AWS-published build-toolchain chains). Scoped to exactly package aws-cdk-lib at node_modules/aws-cdk-lib; the bundled leaf entry must exist for this entry to remain valid (scripts/test-npm-audit-policy.sh enforces the pair)."
+    }
+  ]
 }

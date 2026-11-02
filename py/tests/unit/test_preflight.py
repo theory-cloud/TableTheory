@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -120,3 +121,74 @@ def test_preflight_refuses_encrypted_model() -> None:
     )
     with pytest.raises(ValidationError, match="encrypted"):
         marshal_item_for_writer_path(table, PreflightEncrypted(pk="p1"), ItemWriterPath.PUT)
+
+
+_STAMP = "2026-01-02T03:04:05.123456789Z"
+
+
+@dataclass(frozen=True)
+class PreflightStamped:
+    pk: str = theorydb_field(name="PK", roles=["pk"])
+    sk: str = theorydb_field(name="SK", roles=["sk"])
+    created_at: str = theorydb_field(name="createdAt", roles=["created_at"], default="")
+    updated_at: str = theorydb_field(name="updatedAt", roles=["updated_at"], default="")
+
+
+def _stamped_table(
+    client: StatefulDynamoDBClient, clock: Callable[[], str] | None = None
+) -> Table[PreflightStamped]:
+    model = ModelDefinition.from_dataclass(PreflightStamped, table_name="preflight_stamped")
+    return Table(model, client=client, now=clock or (lambda: _STAMP))
+
+
+def test_preflight_matches_a_fixed_lifecycle_clock_on_both_writer_paths() -> None:
+    item = PreflightStamped(pk="p1", sk="s1")
+
+    put_client = StatefulDynamoDBClient()
+    _stamped_table(put_client).put(item)
+    captured_put = put_client.items("preflight_stamped")[0]
+
+    transact_client = StatefulDynamoDBClient()
+    _stamped_table(transact_client).transact_write([TransactPut(item)])
+    captured_transact = transact_client.items("preflight_stamped")[0]
+
+    assert captured_put == captured_transact, "both writer paths stamp from the same clock"
+
+    table = _stamped_table(StatefulDynamoDBClient())
+    assert marshal_item_for_writer_path(table, item, ItemWriterPath.PUT, now=_STAMP) == captured_put
+    assert (
+        marshal_item_for_writer_path(table, item, ItemWriterPath.TRANSACT_WRITE, now=_STAMP)
+        == captured_transact
+    )
+
+
+def test_preflight_refuses_a_lifecycle_model_without_the_writer_clock() -> None:
+    table = _stamped_table(StatefulDynamoDBClient())
+    item = PreflightStamped(pk="p1", sk="s1")
+
+    for path in (ItemWriterPath.PUT, ItemWriterPath.TRANSACT_WRITE):
+        with pytest.raises(ValidationError, match="lifecycle clock"):
+            marshal_item_for_writer_path(table, item, path)
+
+
+def test_preflight_reads_the_supplied_stamp_not_the_table_clock() -> None:
+    stamps = iter(["2026-01-02T03:04:05.000000001Z", "2026-01-02T03:04:06.000000002Z"])
+    advancing = _stamped_table(StatefulDynamoDBClient(), clock=lambda: next(stamps))
+    item = PreflightStamped(pk="p1", sk="s1")
+
+    captured_client = StatefulDynamoDBClient()
+    _stamped_table(
+        captured_client,
+        clock=iter(["2026-01-02T03:04:05.000000001Z", "2026-01-02T03:04:06.000000002Z"]).__next__,
+    ).put(item)
+    captured = captured_client.items("preflight_stamped")[0]
+
+    preflight = marshal_item_for_writer_path(
+        advancing, item, ItemWriterPath.PUT, now="2026-01-02T03:04:05.000000001Z"
+    )
+    assert preflight == captured
+
+
+def test_preflight_keeps_working_without_a_clock_for_models_without_lifecycle_fields() -> None:
+    table = _table(StatefulDynamoDBClient())
+    assert marshal_item_for_writer_path(table, _matrix_item(), ItemWriterPath.PUT)

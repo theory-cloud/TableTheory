@@ -2,21 +2,25 @@
 # Local, no-AWS variant of the cdk-multilang demo.
 #
 # Proves the cross-language "no drift" property against a throwaway DynamoDB
-# Local: the Go runtime writes one shared item, then the TypeScript and Python
-# runtimes read it back and assert the same shape. It also drift-checks the
-# committed generated CDK construct against dms/demo.yml.
+# Local and the local KMS: the Go runtime writes one shared item with an
+# encrypted secret, then the TypeScript and Python runtimes read it back,
+# decrypt the secret through KMS, and assert the same shape and plaintext. It
+# also drift-checks the committed generated CDK construct against dms/demo.yml.
 #
-# Encryption is intentionally out of scope here: encrypted fields fail closed
-# without KMS, which is not available in a no-AWS run. Use the deployed AWS
-# variant (scripts/smoke.sh) to exercise encryption end to end.
+# KMS_KEY_ARN must point at a key in the local KMS (the examples harness
+# provisions one with scripts/local/cmd/examples-local-kms-key). The script
+# never contacts AWS.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 LOCAL_DIR="${REPO_ROOT}/examples/cdk-multilang/local"
-PORT="${CDK_LOCAL_PORT:-8020}"
-ENDPOINT="http://localhost:${PORT}"
+PORT="${CDK_LOCAL_PORT:-}"
 
-export DYNAMODB_ENDPOINT="$ENDPOINT"
+if [[ -z "${KMS_KEY_ARN:-}" ]]; then
+  echo "KMS_KEY_ARN is required for the encrypted local variant" >&2
+  exit 1
+fi
+
 export AWS_REGION="${AWS_REGION:-us-east-1}"
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-dummy}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-dummy}"
@@ -44,13 +48,26 @@ if [[ ! -x "${REPO_ROOT}/ts/node_modules/.bin/tsx" ]]; then
   npm --prefix "${REPO_ROOT}/ts" ci --ignore-scripts
 fi
 
-echo "==> starting throwaway DynamoDB Local on port ${PORT}"
+echo "==> starting throwaway DynamoDB Local"
 # Publish on loopback only: DynamoDB Local enforces no authentication, so the
-# throwaway instance must not be reachable from other network interfaces.
-CID="$(docker run -d --rm -p "127.0.0.1:${PORT}:8000" amazon/dynamodb-local:3.1.0 \
-  -jar DynamoDBLocal.jar -sharedDb -inMemory)"
+# throwaway instance must not be reachable from other network interfaces. Unless
+# the caller pinned a port, Docker chooses an ephemeral one so two local runs
+# cannot collide.
+DDB_IMAGE="amazon/dynamodb-local@sha256:7ef4a2c45b58c2901e70a4f28e0953a422c2c631baaaf5e2c15e0805740c7752"
+if [[ -n "$PORT" ]]; then
+  CID="$(docker run -d --rm -p "127.0.0.1:${PORT}:8000" "$DDB_IMAGE" \
+    -jar DynamoDBLocal.jar -sharedDb -inMemory)"
+else
+  CID="$(docker run -d --rm -p "127.0.0.1::8000" "$DDB_IMAGE" \
+    -jar DynamoDBLocal.jar -sharedDb -inMemory)"
+fi
+if [[ -z "$PORT" ]]; then
+  PORT="$(docker port "$CID" 8000 | head -n1 | sed 's/.*://')"
+fi
+ENDPOINT="http://127.0.0.1:${PORT}"
+export DYNAMODB_ENDPOINT="$ENDPOINT"
 
-echo "==> waiting for DynamoDB Local"
+echo "==> waiting for DynamoDB Local on ${ENDPOINT}"
 ready=""
 for _ in $(seq 1 30); do
   if curl -sS --max-time 2 -o /dev/null "$ENDPOINT"; then
@@ -64,7 +81,7 @@ if [[ -z "$ready" ]]; then
   exit 1
 fi
 
-echo "==> go: create shared table and write item"
+echo "==> go: create shared table and write item (encrypted secret)"
 (cd "$REPO_ROOT" && go run ./examples/cdk-multilang/local/go)
 
 echo "==> node: read the same item via the TypeScript runtime"

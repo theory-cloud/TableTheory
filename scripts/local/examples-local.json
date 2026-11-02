@@ -1,0 +1,333 @@
+{
+  "version": 1,
+  "profile": {
+    "name": "tabletheory-examples-local",
+    "composeFile": "scripts/local/docker-compose.yml",
+    "containers": {
+      "dynamodb-local": {
+        "image": "amazon/dynamodb-local@sha256:7ef4a2c45b58c2901e70a4f28e0953a422c2c631baaaf5e2c15e0805740c7752",
+        "containerPort": 8000
+      },
+      "moto": {
+        "image": "motoserver/moto@sha256:59a1965d845249b04def37a0e2565f9cc6c44543cb89b68e90f28f344b3b0d1a",
+        "containerPort": 5000
+      },
+      "s3proxy": {
+        "image": "andrewgaul/s3proxy@sha256:1f8915c2b4a8af22bf1fc191500f242974a458c457391b5788f9107544273dc3",
+        "containerPort": 80
+      },
+      "elasticmq": {
+        "image": "softwaremill/elasticmq-native@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c",
+        "containerPort": 9324
+      }
+    },
+    "endpoints": {
+      "dynamodb": {
+        "container": "dynamodb-local",
+        "env": [
+          "AWS_ENDPOINT_URL",
+          "AWS_ENDPOINT_URL_DYNAMODB",
+          "DYNAMODB_ENDPOINT"
+        ]
+      },
+      "kms": {
+        "container": "moto",
+        "env": [
+          "AWS_ENDPOINT_URL_KMS",
+          "KMS_ENDPOINT"
+        ]
+      },
+      "sts": {
+        "container": "moto",
+        "env": [
+          "AWS_ENDPOINT_URL_STS",
+          "STS_ENDPOINT"
+        ]
+      },
+      "s3": {
+        "container": "s3proxy",
+        "env": [
+          "AWS_ENDPOINT_URL_S3",
+          "S3_ENDPOINT"
+        ]
+      },
+      "sqs": {
+        "container": "elasticmq",
+        "env": [
+          "AWS_ENDPOINT_URL_SQS",
+          "SQS_ENDPOINT"
+        ]
+      }
+    },
+    "lambda": {
+      "images": {
+        "go": {
+          "tag": "public.ecr.aws/lambda/provided:al2023",
+          "digest": "sha256:2dc0f1f26731018b369932201d1dac295edd1730d1280f194486ae093ac39798",
+          "pinned": "2026-11-01"
+        },
+        "node": {
+          "tag": "public.ecr.aws/lambda/nodejs:24",
+          "digest": "sha256:8466f17dcfbec19afcfefff53964fac7bc3f7975fa132d5fd74dce53004827d0",
+          "pinned": "2026-11-01"
+        },
+        "python": {
+          "tag": "public.ecr.aws/lambda/python:3.14",
+          "digest": "sha256:51985f11b2fb1949619bda27d121f38ef7d4db64423ca6189ab1d7e632527d27",
+          "pinned": "2026-11-01"
+        }
+      }
+    }
+  },
+  "entrypoints": {
+    "examples/local-quickstart/main.go": {
+      "run": "go-local-quickstart",
+      "class": "L1",
+      "description": "Go CRUD quickstart: create, read, update and delete one note on DynamoDB Local."
+    },
+    "examples/cdk-multilang/local/run-local.sh": {
+      "run": "shell-cdk-multilang-local",
+      "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS calls are real.",
+      "description": "Cross-language no-drift check with encryption: Go writes one item whose secret is encrypted through the local KMS, then TypeScript and Python read the same item and decrypt the secret, and the generated CDK construct is drift-checked. Gap: the KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS calls are real."
+    },
+    "examples/cdk-multilang/local/go/writer.go": {
+      "coveredBy": "examples/cdk-multilang/local/run-local.sh",
+      "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
+      "description": "Go writer half of the cross-language no-drift check: writes the shared item with a KMS-encrypted secret and asserts it decrypts on read; executed inside run-local.sh. Gap: the KMS is emulated."
+    },
+    "examples/cdk-multilang/local/read.mts": {
+      "coveredBy": "examples/cdk-multilang/local/run-local.sh",
+      "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
+      "description": "Node.js reader half of the cross-language no-drift check; decrypts the KMS-encrypted secret through the local KMS; executed inside run-local.sh."
+    },
+    "examples/cdk-multilang/local/read.py": {
+      "coveredBy": "examples/cdk-multilang/local/run-local.sh",
+      "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
+      "description": "Python reader half of the cross-language no-drift check; decrypts the KMS-encrypted secret through the local KMS; executed inside run-local.sh."
+    },
+    "examples/multi-tenant/cmd/local/main.go": {
+      "run": "multi-tenant-http",
+      "class": "L1",
+      "description": "Multi-tenant API as a real HTTP server: health, JWT authorizer refusals, organization creation and authenticated reads with real tenant-isolation responses."
+    },
+    "examples/multi-tenant/cmd/lambda/main.go": {
+      "run": "multi-tenant-lambda",
+      "class": "L1",
+      "description": "Lambda adapter driven through its route-matrix tests: API Gateway proxy events, loopback HTTP through the shared router, and the warm API-key authorizer."
+    },
+    "examples/multi-tenant/cmd/token/main.go": {
+      "run": "multi-tenant-token",
+      "class": "L1",
+      "description": "Token CLI: mints the HS256 bearer token the local server verifies, and refuses incomplete arguments."
+    },
+    "ts/examples/local.ts": {
+      "run": "ts-local",
+      "class": "L1",
+      "description": "TypeScript runtime CRUD example: table creation, conditional create, query paging, update and delete."
+    },
+    "py/examples/local_crud.py": {
+      "run": "py-local-crud",
+      "class": "L1",
+      "description": "Python runtime CRUD example: table creation, put, get and a sort-key begins_with query."
+    },
+    "examples/basic/contacts/main.go": {
+      "run": "go-basic-contacts",
+      "class": "L1",
+      "description": "Contacts CLI driven through its checked-in stdin transcript: create, list, gsi-email, gsi-phone, gsi-name, favorite, delete, with output assertions."
+    },
+    "examples/basic/notes/main.go": {
+      "run": "go-basic-notes",
+      "class": "L1",
+      "description": "Notes CLI driven through its checked-in stdin transcript: create, list, gsi-user, gsi-category, recent, stats, with output assertions."
+    },
+    "examples/basic/todo/main.go": {
+      "run": "go-basic-todo",
+      "class": "L1",
+      "description": "Todo CLI driven through its checked-in stdin transcript: create, list, complete and delete, with output assertions."
+    },
+    "examples/initialization/main.go": {
+      "run": "go-initialization-local",
+      "class": "L3",
+      "gap": "The aws, profile, minimal and debug modes need a real AWS account; only the local mode runs here.",
+      "description": "Local initialization mode creates the table and performs a real TableTheory write/read on DynamoDB Local. The aws, profile, minimal and debug modes resolve real AWS defaults; they are the named cloud gap and never run in the harness."
+    },
+    "examples/optimization/main.go": {
+      "run": "go-library-demos",
+      "class": "L1",
+      "description": "Library demo: the query planner runs locally without DynamoDB, and the same runner executes the examples/testing mock-based unit-test suite. Fakes here are test doubles for unit tests, not example verification."
+    },
+    "examples/testing/user_service_test.go": {
+      "coveredBy": "examples/optimization/main.go",
+      "class": "L1",
+      "description": "Mock-based unit-test suite demonstrating pkg/mocks; executed by the library-demo runner. It runs locally without DynamoDB by design."
+    },
+    "examples/release-state/main.go": {
+      "run": "go-release-state",
+      "class": "L1",
+      "description": "Real TransactWrite on DynamoDB Local: actual-state update, event append and conditional outbox create, read-back assertions, plus refusal of a stale expected version."
+    },
+    "examples/typed-go/main.go": {
+      "run": "go-typed-go",
+      "class": "L1",
+      "description": "Typed generic API driver: table creation, typed create/get/update and a begins_with query on DynamoDB Local, with read-back assertions."
+    },
+    "examples/drivers/main.go": {
+      "run": "go-loose-examples",
+      "class": "L1",
+      "description": "Driver for the loose examples/*.go snippets: seeds each table, runs the real snippet functions and asserts the conditional, transaction, batch-get, list-operation, embedded-struct and FaceTheory TTL outcomes."
+    },
+    "examples/feature_spotlight.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "Conditional helpers, transaction builder and batch-get builder snippets; executed inside examples/drivers."
+    },
+    "examples/list_operations_example.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "List and set update snippets; executed inside examples/drivers."
+    },
+    "examples/embedded_structs_example.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "Embedded-struct single-table snippets; executed inside examples/drivers."
+    },
+    "examples/facetheory_ttl_cache_example.go": {
+      "coveredBy": "examples/drivers/main.go",
+      "class": "L1",
+      "description": "FaceTheory ISR cache metadata shape and freshness helpers; executed inside examples/drivers."
+    },
+    "ts/examples/release-state.ts": {
+      "run": "ts-release-state",
+      "class": "L1",
+      "description": "TypeScript release-state driver: the same real TransactWrite, read-back and stale-version refusal as the Go and Python rows, with an identical parity line."
+    },
+    "py/examples/gsi_query.py": {
+      "run": "py-gsi-query",
+      "class": "L1",
+      "description": "Python GSI query on DynamoDB Local: creates the table and index, writes two users and asserts the email index returns only the matching row."
+    },
+    "py/examples/release_state.py": {
+      "run": "py-release-state",
+      "class": "L1",
+      "description": "Python release-state driver: the same real TransactWrite, read-back and stale-version refusal as the Go and TypeScript rows, with an identical parity line."
+    },
+    "examples/encryption/main.go": {
+      "run": "go-encryption",
+      "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS GenerateDataKey/Decrypt calls are real.",
+      "description": "KMS envelope round-trip through TableTheory on DynamoDB Local and the local KMS emulator: the plaintext field round-trips on read, and a raw GetItem proves the stored attribute is a v2 envelope whose ciphertext does not contain the plaintext. Gap: the KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS GenerateDataKey/Decrypt calls are real."
+    },
+    "examples/lambda/main.go": {
+      "run": "lambda-go",
+      "class": "L2",
+      "gap": "STS is emulated (moto) with no authorization fidelity: no trust policy, external-ID or IAM enforcement; the AssumeRole call itself is real.",
+      "description": "Lambda handler through the provided.al2023 runtime interface: base-account create/get on DynamoDB Local plus partner AssumeRole create/get. Gap: the STS is emulated (moto) and has no authorization fidelity - no trust policy, external-ID or IAM enforcement; the AssumeRole call itself is real."
+    },
+    "examples/payment/lambda/process/handler.go": {
+      "run": "payment-process",
+      "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants); the envelope decrypt is real.",
+      "description": "Payment processing through a real API Gateway proxy event on DynamoDB Local: merchant policy, idempotency and the atomic payment/transaction/counter transaction. The merchant's encrypted fields are decrypted through the local KMS. Gap: KMS is emulated (no HSM, key policies or grants). The webhook HTTPS/public-IP rule refuses a local target and no webhook record is written."
+    },
+    "examples/payment/lambda/query/handler.go": {
+      "run": "payment-query",
+      "class": "L1",
+      "description": "Payment query handler through real API Gateway proxy events on DynamoDB Local: list, single payment with transactions, summary and export-job creation, plus an unauthenticated refusal."
+    },
+    "examples/payment/lambda/reconcile/handler.go": {
+      "run": "payment-reconcile",
+      "class": "L3",
+      "gap": "Managed S3 event delivery: s3proxy has no bucket notifications, so the event payload is generated while the object read is real.",
+      "description": "Reconcile handler with generated S3 events and real object reads on s3proxy, writing settlement and audit rows to DynamoDB Local. Gap: managed S3 event delivery - s3proxy has no bucket notifications, so the event payload is generated while the object read is real."
+    },
+    "ts/examples/lambda/handler.ts": {
+      "run": "ts-lambda",
+      "class": "L1",
+      "description": "TypeScript Lambda handler in the Node 24 runtime image: reads a seeded item from DynamoDB Local through the real client."
+    },
+    "py/examples/lambda_stream_handler.py": {
+      "run": "py-lambda-stream",
+      "class": "L3",
+      "gap": "Managed stream delivery: DynamoDB Local has no Streams, so the record is generated while the write and stored image are real.",
+      "description": "Python stream handler in the Python 3.14 runtime image, fed a DynamoDB stream record generated from a real local write and read back. Gap: managed stream delivery - DynamoDB Local has no Streams, so the record is generated while the write and stored image are real."
+    },
+    "examples/blog/authorizer/main.go": {
+      "run": "blog-authorizer",
+      "class": "L1",
+      "description": "Blog REQUEST authorizer through the Lambda runtime interface: an HS256 token minted by the harness is allowed with the authorId/role context and the methodArn policy, then a missing credential, a tampered signature, an expired token, alg=none, a missing subject and a missing JWT_SECRET are all refused. The harness never sets BLOG_ALLOW_HEADER_IDENTITY."
+    },
+    "examples/blog/cmd/comments/main.go": {
+      "run": "blog-comments",
+      "class": "L1",
+      "description": "Blog comments handler through the Lambda runtime interface on DynamoDB Local with the template table names: anonymous comments stay pending and out of the public list, an authenticated comment is auto-approved with the authorizer's authorId, admin moderation is required, and spoofed role headers, non-admin moderation, non-owner deletion and pending-comment leakage are refused."
+    },
+    "examples/blog/cmd/posts/main.go": {
+      "run": "blog-posts",
+      "class": "L1",
+      "description": "Blog posts handler through the Lambda runtime interface on DynamoDB Local with the template table names: create/read/list/update/delete of published and draft posts, public draft hiding and 404 after deletion, plus refusals for a missing credential, spoofed X-Author-ID headers and non-owner updates/deletes."
+    },
+    "examples/blog/cmd/local/main.go": {
+      "run": "blog-local-tables",
+      "class": "L1",
+      "description": "Local table tool through the real models: creates and counts the four tables the SAM template declares, using the same <environment>-blog-* names the models resolve. This is the local counterpart of the template table resources; every blog row depends on it."
+    },
+    "examples/cdk-multilang/lambdas/go/main.go": {
+      "run": "cdk-multilang-go",
+      "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
+      "description": "Deployed cdk-multilang Go handler through the Lambda runtime interface against DynamoDB Local and the local KMS: Function URL PUT/GET, batch write/read, transaction write/read, 405/400/404 refusals, and a raw GetItem proving the secret is stored as an envelope. Gap: the KMS is emulated (no HSM, key policies or grants)."
+    },
+    "examples/cdk-multilang/bin/app.ts": {
+      "run": "cdk-multilang-synth",
+      "class": "I",
+      "gap": "Infrastructure only: the stack is synthesized and asserted, never deployed.",
+      "description": "The CDK app is synthesized from two different working directories with dummy credentials and a dead AWS endpoint: both templates are identical, contain no host path or fixed account id, and assert five functions (provided.al2023, nodejs24.x x3, python3.14), two PK/SK tables with the evidence TTL and stream, three IAM Function URLs, the KMS key and the archive bucket lifecycle."
+    },
+    "examples/cdk-multilang/lambdas/node/handler.ts": {
+      "run": "cdk-multilang-node",
+      "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
+      "description": "Deployed cdk-multilang Node handler through the Node 24 runtime interface against DynamoDB Local and the local KMS: reads the Go-written encrypted item and decrypts it, batch write/read with lang=ts, transaction write/read, 405/400/404 refusals, and a raw envelope check on a Node-written item. Gap: the KMS is emulated."
+    },
+    "examples/cdk-multilang/lambdas/archive/handler.ts": {
+      "run": "cdk-multilang-archive",
+      "class": "L3",
+      "gap": "Managed stream delivery: DynamoDB Local has no Streams, so the TTL expiry record is generated while the write, stored image, delete and S3 object are real.",
+      "description": "Deployed cdk-multilang archive handler through the Node 24 runtime interface: a DynamoDB stream REMOVE record generated from a real local write, read-back and delete drives the handler, which writes the archive object to s3proxy and the harness reads it back and asserts the event id, TTL value and image. Gap: managed stream delivery - DynamoDB Local has no Streams, so the TTL expiry record is generated while the write, stored image, delete and S3 object are real."
+    },
+    "examples/cdk-multilang/lambdas/python/handler.py": {
+      "run": "cdk-multilang-python",
+      "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
+      "description": "Deployed cdk-multilang Python handler through the Python 3.14 runtime interface against DynamoDB Local and the local KMS: Function URL PUT/GET of an encrypted field, batch write/read with lang=py, transaction write/read, 405/400/404 refusals, and a raw envelope check. Gap: the KMS is emulated."
+    },
+    "examples/cdk-multilang/scripts/smoke.sh": {
+      "run": "cdk-multilang-smoke-local",
+      "class": "L3",
+      "gap": "Deployed AWS stack smoke: Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised.",
+      "description": "The deployed smoke script needs a deployed stack, IAM-signed Function URLs and an AWS profile, so it never runs here. scripts/smoke-local.sh drives the same journeys (encrypted PUT via Go, GET via Node and Python, raw envelope, batch, transaction) against the locally run handlers through the runtime interface. Gap: deployed AWS stack smoke - Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised."
+    },
+    "examples/cdk-multilang/scripts/smoke-local.sh": {
+      "coveredBy": "examples/cdk-multilang/scripts/smoke.sh",
+      "class": "L3",
+      "gap": "Deployed AWS stack smoke: Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised.",
+      "description": "Local replacement for scripts/smoke.sh; executed inside the smoke.sh row against the RIE-hosted Go, Node and Python handlers."
+    }
+  },
+  "suites": {
+    "examples/blog": {
+      "run": "blog-module-tests",
+      "class": "L1",
+      "description": "The blog example's separate Go module: authorizer refusal/template tests, handler authorization tests and the model/table-name alignment test against the SAM template. The harness runs the module suite because the root test targets exclude examples."
+    },
+    "examples/multi-tenant": {
+      "run": "multi-tenant-module-tests",
+      "class": "L1",
+      "description": "The example's separate Go module: go test ./... across auth, handlers, cmd and the DynamoDB Local tests package. Handler unit tests use the in-process fake; real-DynamoDB coverage comes from the route-matrix and HTTP rows."
+    }
+  }
+}

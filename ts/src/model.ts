@@ -312,6 +312,16 @@ function validateModelSchema(schema: ModelSchema): void {
       );
     }
     const jsonStringMode = attr.jsonStringMode ?? attr.json_string_mode;
+    if (
+      attr.jsonStringMode !== undefined &&
+      attr.json_string_mode !== undefined &&
+      attr.jsonStringMode !== attr.json_string_mode
+    ) {
+      throw new TheorydbError(
+        'ErrInvalidModel',
+        `jsonStringMode and json_string_mode conflict: ${attr.attribute}`,
+      );
+    }
     if (jsonStringMode !== undefined) {
       if (!attr.json || attr.type !== 'S') {
         throw new TheorydbError(

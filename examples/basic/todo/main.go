@@ -48,7 +48,7 @@ func NewTodoApp() (*TodoApp, error) {
 	// Configure TableTheory for local DynamoDB
 	cfg := &session.Config{
 		Region:   "us-east-1",
-		Endpoint: "http://localhost:8000", // Local DynamoDB endpoint
+		Endpoint: localEndpoint(),
 		AWSConfigOptions: []func(*config.LoadOptions) error{
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 		},
@@ -66,15 +66,23 @@ func NewTodoApp() (*TodoApp, error) {
 		return nil, fmt.Errorf("failed to create TableTheory client: %v", err)
 	}
 
-	// Create table if it doesn't exist
-	if err := extDB.CreateTable(&Todo{}); err != nil {
-		// It's okay if table already exists
-		if !strings.Contains(err.Error(), "ResourceInUseException") {
-			return nil, fmt.Errorf("failed to create table: %v", err)
-		}
+	// Create the table only when it is missing, so repeated local runs work.
+	if err := extDB.EnsureTable(&Todo{}); err != nil {
+		return nil, fmt.Errorf("failed to create table: %v", err)
 	}
 
 	return &TodoApp{db: db}, nil
+}
+
+// localEndpoint honours the local harness endpoint while keeping the historical
+// localhost:8000 default for a hand-started DynamoDB Local.
+func localEndpoint() string {
+	for _, key := range []string{"DYNAMODB_ENDPOINT", "AWS_ENDPOINT_URL_DYNAMODB"} {
+		if endpoint := strings.TrimSpace(os.Getenv(key)); endpoint != "" {
+			return endpoint
+		}
+	}
+	return "http://localhost:8000"
 }
 
 // Create adds a new todo to our list

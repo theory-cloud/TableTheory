@@ -120,6 +120,33 @@ func TestValidateAPIKeyBoundsRepeatedWrongSecrets(t *testing.T) {
 		"repeated wrong secrets must not run bcrypt past the failure limit")
 }
 
+// TestWarmAPIKeyHandlerRetainsFailureHistory models the Lambda lifecycle the
+// entrypoint now uses: one handler survives across invocations. The first
+// invocation boundary consumes the failure budget; the next is rejected before
+// another bcrypt comparison instead of starting over with a fresh verifier.
+func TestWarmAPIKeyHandlerRetainsFailureHistory(t *testing.T) {
+	store := &fakeAPIKeyStore{}
+	store.set(activeTestRecord(t, "correct-secret"))
+
+	var compares int32
+	handler := newScriptedHandler(t, store, func(hashedPassword, password []byte) error {
+		atomic.AddInt32(&compares, 1)
+		return bcrypt.CompareHashAndPassword(hashedPassword, password)
+	})
+
+	for i := 0; i < keyVerificationFailureLimit; i++ {
+		_, err := handler.ValidateAPIKey(fmt.Sprintf("sk_test_%s.wrong-%d", testKeyID, i))
+		require.Error(t, err)
+	}
+	require.Equal(t, int32(keyVerificationFailureLimit), atomic.LoadInt32(&compares))
+
+	// A later invocation on the same warm handler must stop before bcrypt.
+	_, err := handler.ValidateAPIKey("sk_test_" + testKeyID + ".wrong-after-threshold")
+	require.Error(t, err)
+	require.Equal(t, int32(keyVerificationFailureLimit), atomic.LoadInt32(&compares),
+		"a warm handler must not spend another bcrypt comparison after the threshold")
+}
+
 // TestValidateAPIKeyBoundsConcurrentVerificationWork proves the concurrency
 // bound: a parallel burst of attempts for distinct valid key identifiers cannot
 // run more than maxConcurrentKeyVerifications comparisons at once.

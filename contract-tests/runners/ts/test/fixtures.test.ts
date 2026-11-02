@@ -513,6 +513,9 @@ function stubDriver(overrides: Partial<Driver>): Driver {
   };
   return {
     capabilities: () => [],
+    createTable: fail,
+    ensureTable: fail,
+    ttlCallCount: () => 0,
     create: fail,
     get: fail,
     getOptional: fail,
@@ -529,6 +532,12 @@ function stubDriver(overrides: Partial<Driver>): Driver {
     transactWrite: fail,
     transitionAppendEvent: fail,
     validateProvenance: fail,
+    setStepEncryption: async () => undefined,
+    rawPut: fail,
+    seedEncrypted: fail,
+    migrate: fail,
+    dmsParse: fail,
+    dmsGet: fail,
     ...overrides,
   };
 }

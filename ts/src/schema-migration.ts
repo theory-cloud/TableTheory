@@ -11,6 +11,7 @@ import {
 import { chunk, sleep } from './batch.js';
 import { encodeEncryptedPayload } from './encryption-avjson.js';
 import {
+  envelopeFromAttributeValue,
   envelopeToAttributeValue,
   envelopeVersionForContext,
   recordBindingFromItem,
@@ -67,20 +68,20 @@ export async function autoMigrate(
 
   // A migration that copies no data cannot write plaintext into the target, so
   // the encryption preflight applies only when a copy will actually happen.
+  // Every target encrypted attribute needs the provider: a new name must be
+  // encrypted, and a same-name attribute must be rebound to the target record.
   if (
     opts.dataCopy === true &&
-    sourceModel.tableName !== targetModel.tableName
+    sourceModel.tableName !== targetModel.tableName &&
+    targetEnc.size > 0
   ) {
-    const needsEncryption = new Set(
-      [...targetEnc].filter((name) => !srcEnc.has(name)),
-    );
-    if (needsEncryption.size > 0 && !opts.encryption) {
+    if (!opts.encryption) {
       throw new TheorydbError(
         'ErrMigrationEncryptionRequired',
         'migration target model "' +
           targetModel.name +
           '" requires encryption for attribute(s) ' +
-          [...needsEncryption].sort().join(', ') +
+          [...targetEnc].sort().join(', ') +
           '; supply AutoMigrateOptions.encryption',
       );
     }
@@ -103,6 +104,7 @@ export async function autoMigrate(
         srcEnc,
         targetEnc,
         provider: opts.encryption,
+        sourceModel,
         targetModel,
       },
     );
@@ -125,6 +127,7 @@ interface MigrationEncryptionContext {
   srcEnc: ReadonlySet<string>;
   targetEnc: ReadonlySet<string>;
   provider: EncryptionProvider | undefined;
+  sourceModel: Model;
   targetModel: Model;
 }
 
@@ -159,6 +162,7 @@ async function copyData(
             encryption.srcEnc,
             encryption.targetEnc,
             encryption.provider,
+            encryption.sourceModel,
             encryption.targetModel,
           );
         }
@@ -221,6 +225,7 @@ async function guardMigrationItem(
   srcEnc: ReadonlySet<string>,
   targetEnc: ReadonlySet<string>,
   provider: EncryptionProvider | undefined,
+  sourceModel: Model,
   targetModel: Model,
 ): Promise<MigrationItem> {
   for (const name of [...srcEnc].sort()) {
@@ -234,6 +239,55 @@ async function guardMigrationItem(
           '" is declared encrypted in the source model but the copied value is not an encrypted envelope',
       );
     }
+  }
+
+  for (const name of [...targetEnc].filter((n) => srcEnc.has(n)).sort()) {
+    const value = item[name];
+    if (value === undefined) continue;
+    if (!provider) {
+      throw new TheorydbError(
+        'ErrMigrationEncryptionRequired',
+        'migration target model "' +
+          targetModel.name +
+          '" requires encryption to rebind attribute "' +
+          name +
+          '"; supply AutoMigrateOptions.encryption',
+      );
+    }
+    const sourceBinding = recordBindingFromItem(sourceModel, item);
+    if (!sourceBinding) {
+      throw new TheorydbError(
+        'ErrMigrationEncryptionRequired',
+        'migration cannot bind encrypted attribute "' +
+          name +
+          '" to the source record: missing key attributes',
+      );
+    }
+    const targetBinding = recordBindingFromItem(targetModel, item);
+    if (!targetBinding) {
+      throw new TheorydbError(
+        'ErrMigrationEncryptionRequired',
+        'migration cannot bind encrypted attribute "' +
+          name +
+          '" to the target record: missing key attributes',
+      );
+    }
+    const plaintext = await provider.decrypt(
+      envelopeFromAttributeValue(value),
+      { model: sourceModel.name, attribute: name, binding: sourceBinding },
+    );
+    const env = await provider.encrypt(plaintext, {
+      model: targetModel.name,
+      attribute: name,
+      binding: targetBinding,
+    });
+    if (env.v !== 2) {
+      throw new TheorydbError(
+        'ErrInvalidEncryptedEnvelope',
+        'Unsupported envelope version',
+      );
+    }
+    item[name] = envelopeToAttributeValue(env);
   }
 
   for (const name of [...srcEnc].filter((n) => !targetEnc.has(n)).sort()) {

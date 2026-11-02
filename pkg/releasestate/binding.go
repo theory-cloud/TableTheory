@@ -2,6 +2,8 @@ package releasestate
 
 import (
 	"fmt"
+	"math"
+	"math/big"
 	"reflect"
 	"strings"
 
@@ -119,6 +121,9 @@ func resolveBindingSource(source string, input TransitionAppendEventInput, actua
 	case source == bindingSourceNextVersion:
 		if input.ExpectedVersion == nil {
 			return nil, fmt.Errorf("nextVersion requires ExpectedVersion")
+		}
+		if *input.ExpectedVersion == math.MaxInt64 {
+			return nil, fmt.Errorf("nextVersion overflows ExpectedVersion %d", *input.ExpectedVersion)
 		}
 		return *input.ExpectedVersion + 1, nil
 	case strings.HasPrefix(source, bindingSourceSetPrefix):
@@ -433,34 +438,99 @@ func fieldByIndexSafe(value reflect.Value, indexPath []int) (reflect.Value, bool
 	return value, true
 }
 
+// bindingValuesEqual compares a bound row value with the value the
+// authorizing transition supplies. Equality is type-directed: strings compare
+// lexically and never satisfy numbers, while numeric kinds compare as exact
+// rational values. In particular, no value is ever converted to binary64, so
+// adjacent integers above 2^53 remain distinct.
 func bindingValuesEqual(left, right any) bool {
 	if reflect.DeepEqual(left, right) {
 		return true
 	}
 
-	leftNumber, leftOK := numericValue(left)
-	rightNumber, rightOK := numericValue(right)
-	if leftOK && rightOK {
-		return leftNumber == rightNumber
+	leftNumber, leftOK := exactNumber(left)
+	rightNumber, rightOK := exactNumber(right)
+	if leftOK || rightOK {
+		return leftOK && rightOK && leftNumber.Cmp(rightNumber) == 0
 	}
-	return false
+	return bindingContainersEqual(reflect.ValueOf(left), reflect.ValueOf(right))
 }
 
-func numericValue(value any) (float64, bool) {
+func exactNumber(value any) (*big.Rat, bool) {
 	reflected := reflect.ValueOf(value)
 	if !reflected.IsValid() {
-		return 0, false
+		return nil, false
 	}
 	switch reflected.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return float64(reflected.Int()), true
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return float64(reflected.Uint()), true
+		return new(big.Rat).SetInt64(reflected.Int()), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return new(big.Rat).SetUint64(reflected.Uint()), true
 	case reflect.Float32, reflect.Float64:
-		return reflected.Float(), true
+		number := new(big.Rat).SetFloat64(reflected.Float())
+		if number == nil {
+			return nil, false
+		}
+		return number, true
 	default:
-		return 0, false
+		return nil, false
 	}
+}
+
+// bindingContainersEqual recurses through maps, slices, and arrays so nested
+// values follow the same exact rules as top-level bindings. Structs keep the
+// DeepEqual behavior above.
+func bindingContainersEqual(left, right reflect.Value) bool {
+	if !left.IsValid() || !right.IsValid() || left.Kind() != right.Kind() {
+		return false
+	}
+	switch left.Kind() {
+	case reflect.Map:
+		return bindingMapsEqual(left, right)
+	case reflect.Slice, reflect.Array:
+		return bindingSequencesEqual(left, right)
+	default:
+		return false
+	}
+}
+
+func bindingMapsEqual(left, right reflect.Value) bool {
+	if left.IsNil() != right.IsNil() || left.Len() != right.Len() {
+		return false
+	}
+	// A map lookup requires the key value to be assignable to the destination
+	// key type. Maps with incompatible key types cannot describe the same
+	// DynamoDB map, so reject before reflect panics.
+	if !left.Type().Key().AssignableTo(right.Type().Key()) {
+		return false
+	}
+	for _, key := range left.MapKeys() {
+		rightValue := right.MapIndex(key)
+		if !rightValue.IsValid() {
+			return false
+		}
+		if !bindingValuesEqual(left.MapIndex(key).Interface(), rightValue.Interface()) {
+			return false
+		}
+	}
+	return true
+}
+
+func bindingSequencesEqual(left, right reflect.Value) bool {
+	// A nil list and an empty list are distinct DynamoDB values. Arrays have
+	// no nil state, so only slices carry that distinction.
+	if left.Kind() == reflect.Slice && left.IsNil() != right.IsNil() {
+		return false
+	}
+	if left.Len() != right.Len() {
+		return false
+	}
+	for index := 0; index < left.Len(); index++ {
+		if !bindingValuesEqual(left.Index(index).Interface(), right.Index(index).Interface()) {
+			return false
+		}
+	}
+	return true
 }
 
 func describeModel(instance any) string {
