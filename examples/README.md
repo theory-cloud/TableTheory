@@ -138,7 +138,8 @@ go version
 node --version
 npm --version
 
-# uv: the Python examples run through it
+# uv: the Python examples run through it, except py-lambda-stream,
+# which runs in the pinned Lambda Python 3.14 runtime image
 uv --version
 
 # Shell utilities used by the example runners (awk and diff come with the base system)

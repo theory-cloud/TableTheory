@@ -29,7 +29,9 @@ make examples-local-down   # remove leftover containers/networks from any run
   `examples/cdk-multilang/` toolchain the harness installs and runs declares
   Node 24+. The harness installs both trees from their checked-in lockfiles when
   their dependencies are missing, then builds the TypeScript runtime.
-- `uv`; the Python example rows run through `uv --directory py run ...`.
+- `uv`; the Python example rows run through `uv --directory py run ...`, except
+  `py-lambda-stream`, which runs inside the pinned Lambda Python 3.14 runtime
+  image.
 - `bash`, `curl` and `jq`; the cdk-multilang local runner and smoke script use
   them.
 
@@ -438,7 +440,7 @@ missing expected output as a failure.
     "examples/encryption/main.go": {
       "run": "go-encryption",
       "class": "L2",
-      "gap": "KMS is emulated (no HSM, key policies or grants).",
+      "gap": "KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS GenerateDataKey/Decrypt calls are real.",
       "description": "KMS envelope round-trip on DynamoDB Local."
     }
   },
