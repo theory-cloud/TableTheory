@@ -63,6 +63,15 @@ bash scripts/verify-python-build.sh
 
 The Python tests are pytest-based. Do not use `python -m unittest` as the primary Python validation command for this repo.
 
+### Run the examples locally
+
+```bash
+make examples-local        # run every classified example
+make examples-local-down   # remove leftover containers and networks
+```
+
+The harness starts its own local profile on ephemeral loopback ports, sets dummy credentials and endpoint overrides, and never contacts AWS, so no AWS account or credentials are required. Prerequisites are Docker or Colima with Compose v2, Python 3.11+ as `python3`, the Go toolchain pinned by `go.mod`, Node.js 24+ with npm, `uv`, and `bash`/`curl`/`jq`. See [examples/README.md](./examples/README.md) for the full prerequisite list and per-example classes, and [docs/examples/local-harness.md](./docs/examples/local-harness.md) for the harness design.
+
 ## Contributor validation gates
 
 ### Fast local loop

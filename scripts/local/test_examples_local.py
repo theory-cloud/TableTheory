@@ -372,6 +372,133 @@ class ManifestRowTests(unittest.TestCase):
             self.assertEqual(tree.validate(entries), [])
 
 
+class ManifestGapTests(unittest.TestCase):
+    def test_l3_and_i_rows_require_a_named_gap(self) -> None:
+        for class_name in ("L3", "I"):
+            with self.subTest(class_name=class_name), tempfile.TemporaryDirectory() as tmp:
+                tree = HarnessTree(Path(tmp))
+                entries = dict(tree.entries)
+                entries["examples/quickstart/main.go"] = {"run": "noop", "class": class_name}
+
+                errors = tree.validate(entries)
+
+                self.assertTrue(
+                    any("requires a named gap" in error for error in errors), errors
+                )
+
+    def test_l2_row_may_carry_a_fidelity_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = HarnessTree(Path(tmp))
+            entries = dict(tree.entries)
+            entries["examples/quickstart/main.go"] = {
+                "run": "noop",
+                "class": "L2",
+                "gap": "KMS is emulated.",
+            }
+
+            self.assertEqual(tree.validate(entries), [])
+
+    def test_gap_must_be_a_non_empty_string(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = HarnessTree(Path(tmp))
+            entries = dict(tree.entries)
+            entries["examples/quickstart/main.go"] = {
+                "run": "noop",
+                "class": "L2",
+                "gap": "   ",
+            }
+
+            errors = tree.validate(entries)
+
+            self.assertTrue(
+                any("gap must be a non-empty string" in error for error in errors), errors
+            )
+
+    def test_repository_l3_and_i_rows_all_name_a_gap(self) -> None:
+        _, entries = harness.load_manifest(harness.MANIFEST_PATH)
+
+        missing = [
+            entry.key
+            for entry in entries
+            if entry.class_name in ("L3", "I") and not entry.gap
+        ]
+
+        self.assertEqual(missing, [])
+
+
+class SummaryTests(unittest.TestCase):
+    def test_summary_prints_named_gaps_for_l2_l3_and_i(self) -> None:
+        entries = [
+            harness.Entry("examples/local/main.go", "entrypoint", {"class": "L1"}),
+            harness.Entry(
+                "examples/l2/main.go",
+                "entrypoint",
+                {"class": "L2", "gap": "KMS is emulated."},
+            ),
+            harness.Entry(
+                "examples/l3/main.go",
+                "entrypoint",
+                {"class": "L3", "gap": "Managed stream delivery."},
+            ),
+            harness.Entry(
+                "examples/infrastructure/bin/app.ts",
+                "entrypoint",
+                {"class": "I", "gap": "Infrastructure only."},
+            ),
+        ]
+        results = {entry.key: ("PASS", "real checks") for entry in entries}
+
+        lines = harness.summary_lines(entries, results)
+
+        self.assertIn(" " * harness.SUMMARY_GAP_INDENT + "gap: KMS is emulated.", lines)
+        self.assertIn(
+            " " * harness.SUMMARY_GAP_INDENT + "gap: Managed stream delivery.", lines
+        )
+        self.assertIn(
+            " " * harness.SUMMARY_GAP_INDENT + "gap: Infrastructure only.", lines
+        )
+        self.assertNotIn(
+            "gap: ",
+            "\n".join(line for line in lines if "examples/local/main.go" in line),
+        )
+
+    def test_gap_does_not_change_the_result_or_covered_note(self) -> None:
+        target = harness.Entry(
+            "examples/l3/main.go",
+            "entrypoint",
+            {"class": "L3", "gap": "Managed stream delivery."},
+        )
+        covered = harness.Entry(
+            "examples/covered.sh",
+            "entrypoint",
+            {
+                "coveredBy": target.key,
+                "class": "L3",
+                "gap": "Deployed AWS stack smoke.",
+            },
+        )
+        results = {target.key: ("FAIL", "boom"), covered.key: ("FAIL", "boom")}
+
+        lines = harness.summary_lines([target, covered], results)
+        text = "\n".join(lines)
+
+        self.assertIn("  FAIL     L3                     examples/l3/main.go  (boom)", text)
+        self.assertIn("examples/covered.sh  (via examples/l3/main.go)", text)
+        self.assertIn(
+            " " * harness.SUMMARY_GAP_INDENT + "gap: Deployed AWS stack smoke.", lines
+        )
+
+    def test_every_manifest_gap_is_printed(self) -> None:
+        _, entries = harness.load_manifest(harness.MANIFEST_PATH)
+        results = {entry.key: ("PASS", "verified") for entry in entries if not entry.pending}
+
+        text = "\n".join(harness.summary_lines(entries, results))
+
+        for entry in entries:
+            if entry.gap:
+                self.assertIn("gap: " + entry.gap, text)
+
+
 class ProfileValidationTests(unittest.TestCase):
     def mutate(self, mutate) -> list[str]:
         with tempfile.TemporaryDirectory() as tmp:

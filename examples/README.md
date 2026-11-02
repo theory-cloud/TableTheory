@@ -121,15 +121,31 @@ manifest, not a README, is the authoritative list of what runs where.
 
 ### Prerequisites
 ```bash
+# make, the entry point for the harness
+make --version
+
+# Docker Engine with Compose v2 (Docker Desktop, or a running Colima + docker CLI)
+docker version
+docker compose version
+
+# Python 3.11+ as python3: the Makefile invokes the harness with it
+python3 --version
+
 # The Go toolchain pinned by the root go.mod (the `toolchain` directive)
 go version
 
-# Docker (Colima is fine) for the local DynamoDB profile
-docker --version
-
-# Node and uv for the TypeScript and Python examples
+# Node.js 24+ and npm: the TypeScript examples and CDK synthesis
 node --version
+npm --version
+
+# uv: the Python examples run through it, except py-lambda-stream,
+# which runs in the pinned Lambda Python 3.14 runtime image
 uv --version
+
+# Shell utilities used by the example runners (awk and diff come with the base system)
+bash --version
+curl --version
+jq --version
 ```
 
 ### Run every classified example
@@ -148,10 +164,11 @@ credentials itself, runs every wired example, and asserts each one's real
 outcome. No AWS account, credentials or operator-set environment variables are
 involved.
 
-The command prints one line per example with its class and result, reports
-examples owned by later milestones as `PENDING-MILESTONE`, and exits non-zero if
-any example fails, if a test is skipped, or if the tree contains an entrypoint
-that the manifest does not classify.
+The command prints one line per example with its class and result, prints the
+manifest's named gap beneath every `L2`/`L3`/`I` row, reports examples owned by
+later milestones as `PENDING-MILESTONE`, and exits non-zero if any example fails,
+if a test is skipped, or if the tree contains an entrypoint that the manifest
+does not classify.
 
 `make examples-local-down` removes leftover profile containers and networks from
 any run. A full description of the harness, the emulator decision, the classes
