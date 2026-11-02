@@ -15,6 +15,28 @@ make examples-local        # run everything that is classified
 make examples-local-down   # remove leftover containers/networks from any run
 ```
 
+## Prerequisites
+
+- Docker Engine with Compose v2, either Docker Desktop or a running Colima with
+  the `docker` CLI. The profile is a real compose stack; a missing daemon stops
+  the run at preflight.
+- `make`, the documented entry point.
+- Python 3.11 or newer, available as `python3`. The `Makefile` invokes the
+  harness with it, and the harness imports `tomllib`, which is Python 3.11+.
+- The Go toolchain pinned by the root `go.mod`; the harness exports
+  `GOTOOLCHAIN` from that `toolchain` directive.
+- Node.js 24 or newer and npm. The `ts/` package supports Node 22+, but the
+  `examples/cdk-multilang/` toolchain the harness installs and runs declares
+  Node 24+. The harness installs both trees from their checked-in lockfiles when
+  their dependencies are missing, then builds the TypeScript runtime.
+- `uv`; the Python example rows run through `uv --directory py run ...`.
+- `bash`, `curl` and `jq`; the cdk-multilang local runner and smoke script use
+  them.
+
+No AWS account, AWS credentials or operator-set environment variables are
+required: the harness sets its own dummy credentials and loopback endpoint
+overrides, and the preflight fails if any SDK endpoint resolves elsewhere.
+
 ## What the harness owns
 
 | Piece | Where it lives |
@@ -320,10 +342,13 @@ build throwaway repository trees and assert that validation fails when:
 - a rogue `.ts` or `.py` file under `examples/` is unclassified, or a rogue
   `.sh` runner under `ts/examples/` is unclassified;
 - a `pending` row names a file that does not exist, or one discovery does not
-  treat as an entrypoint.
+  treat as an entrypoint;
+- a classified `L3` or `I` row omits its named gap, or a declared gap is empty.
 
 They also pin the documented exclusions against the real tree, so `bin/app.ts`
-stays visible while `lib/`, `test/` and generated output stay out.
+stays visible while `lib/`, `test/` and generated output stay out. The summary
+tests assert that every manifest gap is printed and that a gap never changes a
+row's result.
 
 The profile itself is tested the same way: a tag-only image, a fixed host port,
 a fixed `container_name`, a fixed compose project name, a missing logical
@@ -351,6 +376,10 @@ Every manifest entry declares exactly one of:
 | `L3` | Every locally executable part runs for real, plus a named cloud gap that is never faked. |
 | `I` | Infrastructure-only: synthesis plus construct assertions. |
 | `pending: <milestone>` | Not wired yet (used when a future milestone owns the row). Reported as `PENDING-MILESTONE`, never counted as pass. |
+
+`make examples-local` prints each row's class and, directly beneath the row, the
+manifest `gap` when it has one, so the fidelity limit is visible next to the
+result.
 
 A skip is a failure. Go tests are run through `go test -json`, and any `skip`
 event fails the row; example runners treat a non-zero exit, a timeout, or a
@@ -403,12 +432,14 @@ missing expected output as a failure.
     "examples/cdk-multilang/local/go/writer.go": {
       "coveredBy": "examples/cdk-multilang/local/run-local.sh",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
       "description": "Executed inside run-local.sh."
     },
     "examples/encryption/main.go": {
       "run": "go-encryption",
       "class": "L2",
-      "description": "KMS envelope round-trip; gap: the KMS is emulated."
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
+      "description": "KMS envelope round-trip on DynamoDB Local."
     }
   },
   "suites": {
@@ -437,6 +468,10 @@ missing expected output as a failure.
   an ISO pin date.
 - `run` names a runner implemented in `scripts/local/run_examples_local.py`.
   Each runner is used by exactly one entry.
+- `gap` is the named cloud or emulator-fidelity limit printed beneath the row
+  in the summary. Every `L3` and `I` row must carry one; an `L2` row carries one
+  when the emulator has a documented fidelity limit. Validation rejects an empty
+  or non-string gap, and the field never changes a row's result.
 - `coveredBy` points at another executed entry; the covered row inherits its
   result and is not run a second time. It is how a helper entrypoint
   (`local/go/writer.go`, `local/read.mts`, `local/read.py` — the halves of the
@@ -514,7 +549,9 @@ place those tests run.
    the real example and asserts its real outcome. Do not assert on mocks.
 2. Register the runner in `RUNNERS`.
 3. Add the entrypoint to `scripts/local/examples-local.json` with `class` and
-   `run`. If the example belongs to a later milestone, use `pending` instead.
+   `run`. An `L3` or `I` row also needs its named `gap`; an `L2` row needs one
+   when the emulator has a fidelity limit. If the example belongs to a later
+   milestone, use `pending` instead.
 4. Run `make examples-local` twice in a row. The second run must pass against a
    fresh database without manual cleanup.
 

@@ -141,6 +141,10 @@ class Entry:
         return str(self.data.get("description", ""))
 
     @property
+    def gap(self) -> str:
+        return str(self.data.get("gap", ""))
+
+    @property
     def label(self) -> str:
         return f"{self.key} [{self.kind}]" if self.kind == "suite" else self.key
 
@@ -577,6 +581,12 @@ def validate_manifest(
             errors.append(f"{entry.key}: declare a class ({'/'.join(CLASSES)}) or pending <milestone>")
         if entry.class_name and entry.class_name not in CLASSES:
             errors.append(f"{entry.key}: unknown class {entry.class_name!r}")
+        if "gap" in entry.data:
+            gap = entry.data["gap"]
+            if not isinstance(gap, str) or not gap.strip():
+                errors.append(f"{entry.key}: gap must be a non-empty string")
+        if entry.class_name in ("L3", "I") and not entry.gap:
+            errors.append(f"{entry.key}: class {entry.class_name} requires a named gap")
         if entry.pending and entry.pending not in MILESTONES:
             errors.append(f"{entry.key}: unknown milestone {entry.pending!r}")
 
@@ -3420,6 +3430,31 @@ def print_failure(label: str, failure: HarnessFailure) -> None:
             print(f"        | {line}")
 
 
+SUMMARY_GAP_INDENT = 34
+
+
+def summary_lines(entries: list[Entry], results: dict[str, tuple[str, str]]) -> list[str]:
+    """Render the per-row summary, including each row's named gap.
+
+    ``results`` remains the only source of an outcome, so adding a gap line
+    cannot change pass/fail semantics. A row with a manifest ``gap`` gets one
+    indented line beneath it, which keeps the fidelity limit next to the result.
+    """
+    lines = [f"  {'result':<8} {'class':<22} example"]
+    for entry in entries:
+        if entry.pending:
+            lines.append(f"  {'PENDING':<8} {'PENDING-MILESTONE ' + entry.pending:<22} {entry.key}")
+            continue
+        result, detail = results.get(entry.key, ("FAIL", "row did not run"))
+        suffix = f"  ({detail})" if detail else ""
+        if entry.covered_by:
+            suffix = f"  (via {entry.covered_by})"
+        lines.append(f"  {result:<8} {entry.class_name:<22} {entry.key}{suffix}")
+        if entry.gap:
+            lines.append(" " * SUMMARY_GAP_INDENT + f"gap: {entry.gap}")
+    return lines
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run every classified TableTheory example against the local profile."
@@ -3555,22 +3590,15 @@ def main(argv: list[str] | None = None) -> int:
 
         print()
         print("summary")
-        print(f"  {'result':<8} {'class':<22} example")
-        passed = 0
-        failed = 0
-        for entry in entries:
-            if entry.pending:
-                print(f"  {'PENDING':<8} {'PENDING-MILESTONE ' + entry.pending:<22} {entry.key}")
-                continue
-            result, detail = results.get(entry.key, ("FAIL", "row did not run"))
-            suffix = f"  ({detail})" if detail else ""
-            if entry.covered_by:
-                suffix = f"  (via {entry.covered_by})"
-            print(f"  {result:<8} {entry.class_name:<22} {entry.key}{suffix}")
-            if result == "PASS":
-                passed += 1
-            else:
-                failed += 1
+        for line in summary_lines(entries, results):
+            print(line)
+
+        passed = sum(
+            1
+            for entry in entries
+            if not entry.pending and results.get(entry.key, ("FAIL", ""))[0] == "PASS"
+        )
+        failed = sum(1 for entry in entries if not entry.pending) - passed
 
         print()
         print(f"counts: {passed} passed, {failed} failed, {len(pending)} pending-milestone")

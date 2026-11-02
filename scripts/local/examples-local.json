@@ -88,21 +88,25 @@
     "examples/cdk-multilang/local/run-local.sh": {
       "run": "shell-cdk-multilang-local",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS calls are real.",
       "description": "Cross-language no-drift check with encryption: Go writes one item whose secret is encrypted through the local KMS, then TypeScript and Python read the same item and decrypt the secret, and the generated CDK construct is drift-checked. Gap: the KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS calls are real."
     },
     "examples/cdk-multilang/local/go/writer.go": {
       "coveredBy": "examples/cdk-multilang/local/run-local.sh",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
       "description": "Go writer half of the cross-language no-drift check: writes the shared item with a KMS-encrypted secret and asserts it decrypts on read; executed inside run-local.sh. Gap: the KMS is emulated."
     },
     "examples/cdk-multilang/local/read.mts": {
       "coveredBy": "examples/cdk-multilang/local/run-local.sh",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
       "description": "Node.js reader half of the cross-language no-drift check; decrypts the KMS-encrypted secret through the local KMS; executed inside run-local.sh."
     },
     "examples/cdk-multilang/local/read.py": {
       "coveredBy": "examples/cdk-multilang/local/run-local.sh",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
       "description": "Python reader half of the cross-language no-drift check; decrypts the KMS-encrypted secret through the local KMS; executed inside run-local.sh."
     },
     "examples/multi-tenant/cmd/local/main.go": {
@@ -148,6 +152,7 @@
     "examples/initialization/main.go": {
       "run": "go-initialization-local",
       "class": "L3",
+      "gap": "The aws, profile, minimal and debug modes need a real AWS account; only the local mode runs here.",
       "description": "Local initialization mode creates the table and performs a real TableTheory write/read on DynamoDB Local. The aws, profile, minimal and debug modes resolve real AWS defaults; they are the named cloud gap and never run in the harness."
     },
     "examples/optimization/main.go": {
@@ -213,16 +218,19 @@
     "examples/encryption/main.go": {
       "run": "go-encryption",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS GenerateDataKey/Decrypt calls are real.",
       "description": "KMS envelope round-trip through TableTheory on DynamoDB Local and the local KMS emulator: the plaintext field round-trips on read, and a raw GetItem proves the stored attribute is a v2 envelope whose ciphertext does not contain the plaintext. Gap: the KMS is emulated (no HSM, key policies or grants); the envelope cryptography and KMS GenerateDataKey/Decrypt calls are real."
     },
     "examples/lambda/main.go": {
       "run": "lambda-go",
       "class": "L2",
+      "gap": "STS is emulated (moto) with no authorization fidelity: no trust policy, external-ID or IAM enforcement; the AssumeRole call itself is real.",
       "description": "Lambda handler through the provided.al2023 runtime interface: base-account create/get on DynamoDB Local plus partner AssumeRole create/get. Gap: the STS is emulated (moto) and has no authorization fidelity - no trust policy, external-ID or IAM enforcement; the AssumeRole call itself is real."
     },
     "examples/payment/lambda/process/handler.go": {
       "run": "payment-process",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants); the envelope decrypt is real.",
       "description": "Payment processing through a real API Gateway proxy event on DynamoDB Local: merchant policy, idempotency and the atomic payment/transaction/counter transaction. The merchant's encrypted fields are decrypted through the local KMS. Gap: KMS is emulated (no HSM, key policies or grants). The webhook HTTPS/public-IP rule refuses a local target and no webhook record is written."
     },
     "examples/payment/lambda/query/handler.go": {
@@ -233,6 +241,7 @@
     "examples/payment/lambda/reconcile/handler.go": {
       "run": "payment-reconcile",
       "class": "L3",
+      "gap": "Managed S3 event delivery: s3proxy has no bucket notifications, so the event payload is generated while the object read is real.",
       "description": "Reconcile handler with generated S3 events and real object reads on s3proxy, writing settlement and audit rows to DynamoDB Local. Gap: managed S3 event delivery - s3proxy has no bucket notifications, so the event payload is generated while the object read is real."
     },
     "ts/examples/lambda/handler.ts": {
@@ -243,6 +252,7 @@
     "py/examples/lambda_stream_handler.py": {
       "run": "py-lambda-stream",
       "class": "L3",
+      "gap": "Managed stream delivery: DynamoDB Local has no Streams, so the record is generated while the write and stored image are real.",
       "description": "Python stream handler in the Python 3.14 runtime image, fed a DynamoDB stream record generated from a real local write and read back. Gap: managed stream delivery - DynamoDB Local has no Streams, so the record is generated while the write and stored image are real."
     },
     "examples/blog/authorizer/main.go": {
@@ -268,36 +278,43 @@
     "examples/cdk-multilang/lambdas/go/main.go": {
       "run": "cdk-multilang-go",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
       "description": "Deployed cdk-multilang Go handler through the Lambda runtime interface against DynamoDB Local and the local KMS: Function URL PUT/GET, batch write/read, transaction write/read, 405/400/404 refusals, and a raw GetItem proving the secret is stored as an envelope. Gap: the KMS is emulated (no HSM, key policies or grants)."
     },
     "examples/cdk-multilang/bin/app.ts": {
       "run": "cdk-multilang-synth",
       "class": "I",
+      "gap": "Infrastructure only: the stack is synthesized and asserted, never deployed.",
       "description": "The CDK app is synthesized from two different working directories with dummy credentials and a dead AWS endpoint: both templates are identical, contain no host path or fixed account id, and assert five functions (provided.al2023, nodejs24.x x3, python3.14), two PK/SK tables with the evidence TTL and stream, three IAM Function URLs, the KMS key and the archive bucket lifecycle."
     },
     "examples/cdk-multilang/lambdas/node/handler.ts": {
       "run": "cdk-multilang-node",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
       "description": "Deployed cdk-multilang Node handler through the Node 24 runtime interface against DynamoDB Local and the local KMS: reads the Go-written encrypted item and decrypts it, batch write/read with lang=ts, transaction write/read, 405/400/404 refusals, and a raw envelope check on a Node-written item. Gap: the KMS is emulated."
     },
     "examples/cdk-multilang/lambdas/archive/handler.ts": {
       "run": "cdk-multilang-archive",
       "class": "L3",
+      "gap": "Managed stream delivery: DynamoDB Local has no Streams, so the TTL expiry record is generated while the write, stored image, delete and S3 object are real.",
       "description": "Deployed cdk-multilang archive handler through the Node 24 runtime interface: a DynamoDB stream REMOVE record generated from a real local write, read-back and delete drives the handler, which writes the archive object to s3proxy and the harness reads it back and asserts the event id, TTL value and image. Gap: managed stream delivery - DynamoDB Local has no Streams, so the TTL expiry record is generated while the write, stored image, delete and S3 object are real."
     },
     "examples/cdk-multilang/lambdas/python/handler.py": {
       "run": "cdk-multilang-python",
       "class": "L2",
+      "gap": "KMS is emulated (no HSM, key policies or grants).",
       "description": "Deployed cdk-multilang Python handler through the Python 3.14 runtime interface against DynamoDB Local and the local KMS: Function URL PUT/GET of an encrypted field, batch write/read with lang=py, transaction write/read, 405/400/404 refusals, and a raw envelope check. Gap: the KMS is emulated."
     },
     "examples/cdk-multilang/scripts/smoke.sh": {
       "run": "cdk-multilang-smoke-local",
       "class": "L3",
+      "gap": "Deployed AWS stack smoke: Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised.",
       "description": "The deployed smoke script needs a deployed stack, IAM-signed Function URLs and an AWS profile, so it never runs here. scripts/smoke-local.sh drives the same journeys (encrypted PUT via Go, GET via Node and Python, raw envelope, batch, transaction) against the locally run handlers through the runtime interface. Gap: deployed AWS stack smoke - Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised."
     },
     "examples/cdk-multilang/scripts/smoke-local.sh": {
       "coveredBy": "examples/cdk-multilang/scripts/smoke.sh",
       "class": "L3",
+      "gap": "Deployed AWS stack smoke: Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised.",
       "description": "Local replacement for scripts/smoke.sh; executed inside the smoke.sh row against the RIE-hosted Go, Node and Python handlers."
     }
   },

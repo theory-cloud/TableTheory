@@ -8,7 +8,8 @@ The checked-in local profile and harness behind `make examples-local`.
   and gives each run a unique compose project name.
 - `examples-local.json` — the classification manifest. Every example entrypoint
   in the tree must appear here as `L1`/`L2`/`L3`/`I` or as `pending: <milestone>`,
-  and every row must name a file that exists in the tree.
+  every row must name a file that exists in the tree, and every `L3`/`I` row
+  carries the named `gap` the summary prints.
 - `run_examples_local.py` — discovery, profile startup, preflight, runners, the
   summary and `--cleanup`.
 - `lambda_runtime.py` — builds each handler with its real toolchain, starts it
