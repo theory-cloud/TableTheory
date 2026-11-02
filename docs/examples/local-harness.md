@@ -19,10 +19,14 @@ make examples-local-down   # remove leftover containers/networks from any run
 
 | Piece | Where it lives |
 | --- | --- |
-| Local profile | `scripts/local/docker-compose.yml` — digest-pinned DynamoDB Local, moto (KMS + STS), s3proxy and ElasticMQ |
+| Local profile | `scripts/local/docker-compose.yml` — digest-pinned DynamoDB Local, moto (KMS + STS), s3proxy and ElasticMQ; the Lambda runtime image pins live in the manifest under `profile.lambda.images` |
 | Classification manifest | `scripts/local/examples-local.json` |
 | Harness | `scripts/local/run_examples_local.py` |
 | Endpoint-resolution preflight | `scripts/local/cmd/examples-local-preflight` |
+| Lambda runtime driver | `scripts/local/lambda_runtime.py` |
+| In-container Lambda preflight | `scripts/local/cmd/examples-local-lambda-preflight` |
+| Payment and Lambda fixtures | `scripts/local/cmd/examples-local-payment-fixtures` |
+| Generated stream record | `scripts/local/cmd/examples-local-stream-event` |
 | KMS key provisioning and round-trip | `scripts/local/cmd/examples-local-kms-key` |
 | CI job | `.github/workflows/examples-local.yml` |
 
@@ -81,6 +85,9 @@ The run stops before any example if:
 - a service does not speak its AWS protocol: the preflight issues a real
   `ListTables` (DynamoDB), `ListKeys` (KMS), `GetCallerIdentity` (STS),
   `ListBuckets` (S3, path-style) and `ListQueues` (SQS);
+- the Lambda function container resolves an SDK endpoint anywhere but the
+  profile, sees credentials other than the dummy static keys, fails a backend
+  protocol probe, or resolves a real AWS hostname;
 - the local KMS cannot wrap and unwrap a data key with the framework's
   `EncryptionContext`.
 
@@ -154,7 +161,74 @@ Every image in the profile is pinned by digest, and the manifest validation
 fails if a tag-only image, a fixed host port, a fixed container name or a fixed
 compose project name is introduced. The tags that produced the current digests
 are `amazon/dynamodb-local:3.1.0`, `motoserver/moto:5.2.5`,
-`andrewgaul/s3proxy:master` and `softwaremill/elasticmq-native:1.7.1`.
+`andrewgaul/s3proxy:master` and `softwaremill/elasticmq-native:1.7.1`. The
+Lambda runtime images follow the same rule and are pinned in the manifest too;
+their tags, digests and refresh procedure are in the next section.
+
+## Lambda handlers (T4a)
+
+Every handler is built with its real toolchain and started in the official AWS
+Lambda runtime image, which embeds the Runtime Interface Emulator (RIE). The
+harness invokes `POST /2015-03-31/functions/function/invocations` with a real
+event payload; no handler is called in process.
+
+| Runtime | Image | Tag | Digest (multi-arch index) | Pinned | Handler build |
+| --- | --- | --- | --- | --- | --- |
+| Go | `public.ecr.aws/lambda/provided` | `al2023` | `public.ecr.aws/lambda/provided:al2023@sha256:2dc0f1f26731018b369932201d1dac295edd1730d1280f194486ae093ac39798` | 2026-11-01 | `GOOS=linux GOARCH=<docker server arch> CGO_ENABLED=0 go build`, mounted as `/var/task/bootstrap` |
+| Node | `public.ecr.aws/lambda/nodejs` | `24` | `public.ecr.aws/lambda/nodejs:24@sha256:8466f17dcfbec19afcfefff53964fac7bc3f7975fa132d5fd74dce53004827d0` | 2026-11-01 | esbuild bundle of the `.ts` entrypoint, mounted as `/var/task/handler.js` |
+| Python | `public.ecr.aws/lambda/python` | `3.14` | `public.ecr.aws/lambda/python:3.14@sha256:51985f11b2fb1949619bda27d121f38ef7d4db64423ca6189ab1d7e632527d27` | 2026-11-01 | the checked-in handler plus a verbatim copy of `py/src/tabletheory_py`, mounted at `/var/task` |
+
+These are the multi-arch (index) digests: the same pin resolves the arm64 and
+amd64 child manifests, so an Apple-silicon host and the Linux CI runner run the
+same published image. The reference exists in exactly one place:
+`scripts/local/examples-local.json` under `profile.lambda.images`, as `tag`,
+`digest` and `pinned`. `lambda_runtime.py` names no image itself and refuses a
+reference that is not `tag@sha256:...`, and the manifest validation rejects a
+tag-only image, a malformed tag or a missing pin date. The mutation self-test
+also fails if this table and the manifest disagree.
+
+To refresh a digest deliberately:
+
+1. Confirm the tag still names the runtime the examples target (`provided:al2023`,
+   `nodejs:24`, `python:3.14`); a runtime-version bump is a separate change that
+   also updates the examples and this table.
+2. Resolve the multi-arch index digest, not an architecture child digest:
+   `docker buildx imagetools inspect public.ecr.aws/lambda/provided:al2023` and
+   read the top-level `Digest:` line.
+3. Update `profile.lambda.images.<runtime>.digest` and `pinned` (the date) in
+   `scripts/local/examples-local.json`, then update this table in the same
+   commit.
+4. Run `make examples-local` on a Docker/Colima host: the preflight and the T4a
+   rows start all three runtime images, so a bad digest fails before any example
+   row claims a pass.
+
+The function container joins the run's private compose network, gets a hosts
+entry for every profile service, and is started with a closed DNS server
+(`127.0.0.2`). Its environment carries the static dummy credentials and the
+profile's endpoint overrides. Before any example runs, the harness invokes
+`examples-local-lambda-preflight` in the same runtime image; it asserts that
+DynamoDB, KMS, STS, S3 and SQS all resolve to the profile, that each backend
+answers its real protocol, that only the dummy credentials resolve, and that
+`dynamodb.us-east-1.amazonaws.com` does not resolve. A failure stops the run.
+
+Fixture tooling (`scripts/local/cmd/examples-local-payment-fixtures`) provisions
+the tables the handlers use and seeds the merchant and user rows through the real
+models. The stream event tool performs one real write and reads the stored item
+back; the generated record is then fed to the Python handler.
+
+| Row | Class | How it is verified | Named gap |
+| --- | --- | --- | --- |
+| `examples/lambda/main.go` | `L2` | base-account create/get plus partner `AssumeRole` create/get through RIE; unknown-action and unknown-partner refusals | moto STS has no authorization fidelity: no trust policy, external-ID or IAM enforcement |
+| `examples/payment/lambda/process` | `L2` | real API Gateway proxy event; merchant policy, idempotency and the atomic payment/transaction/counter write; `403`/`401` refusals; the webhook HTTPS/public-IP rule refuses `https://127.0.0.1` and stores no webhook record | KMS is emulated (no HSM, key policies or grants); the envelope decrypt is real |
+| `examples/payment/lambda/query` | `L1` | real API Gateway proxy events for list, detail, summary and export, plus an unauthenticated refusal | none |
+| `examples/payment/lambda/reconcile` | `L3` | generated S3 event plus a real `GetObject` on s3proxy; two rows reconcile; settlement and audit rows are stored | managed S3 event delivery: s3proxy has no bucket notifications |
+| `ts/examples/lambda/handler.ts` | `L1` | Node 24 handler reads a seeded item from DynamoDB Local | none |
+| `py/examples/lambda_stream_handler.py` | `L3` | generated DynamoDB stream record from a real local write and read-back; Python 3.14 handler logs the decoded note | managed stream delivery: DynamoDB Local has no Streams |
+
+The reconcile handler uses path-style S3 addressing when `AWS_ENDPOINT_URL_S3`
+or `S3_ENDPOINT` is set; production AWS keeps virtual-host addressing. The
+payment process handler reads `KMS_KEY_ARN` so it can decrypt the merchant's
+encrypted fields, which the harness provisions in the local KMS.
 
 ## Discovery
 
@@ -204,7 +278,11 @@ stays visible while `lib/`, `test/` and generated output stay out.
 The profile itself is tested the same way: a tag-only image, a fixed host port,
 a fixed `container_name`, a fixed compose project name, a missing logical
 endpoint, or an endpoint that omits its `AWS_ENDPOINT_URL_<SERVICE>` override
-all fail validation. `ConcurrencyIsolationTests` starts two real profiles at
+all fail validation. The Lambda runtime pins are covered from both ends: a
+tag-only or missing `profile.lambda.images` entry fails validation, the runtime
+refuses an unpinned reference, the runtime module may not name an image literal,
+and the documented table must match the manifest's pins and dates.
+`ConcurrencyIsolationTests` starts two real profiles at
 once and asserts that the second run neither recreates nor removes the first
 run's container, that the endpoints differ, and that the first database still
 answers after the second stack is torn down. That test needs Docker and fails
@@ -222,7 +300,7 @@ Every manifest entry declares exactly one of:
 | `L2` | Local with an AWS-API emulator; the emulator's fidelity limits are documented. |
 | `L3` | Every locally executable part runs for real, plus a named cloud gap that is never faked. |
 | `I` | Infrastructure-only: synthesis plus construct assertions. |
-| `pending: T4a/T4b` | Not wired yet. Reported as `PENDING-MILESTONE`, never counted as pass. |
+| `pending: T4b` | Not wired yet. Reported as `PENDING-MILESTONE`, never counted as pass. |
 
 A skip is a failure. Go tests are run through `go test -json`, and any `skip`
 event fails the row; example runners treat a non-zero exit, a timeout, or a
@@ -254,6 +332,15 @@ missing expected output as a failure.
       "kms": {
         "container": "moto",
         "env": ["AWS_ENDPOINT_URL_KMS", "KMS_ENDPOINT"]
+      }
+    },
+    "lambda": {
+      "images": {
+        "go": {
+          "tag": "public.ecr.aws/lambda/provided:al2023",
+          "digest": "sha256:...",
+          "pinned": "2026-11-01"
+        }
       }
     }
   },
@@ -287,12 +374,17 @@ missing expected output as a failure.
 - `containers` declares every compose service with its digest-pinned image and
   container port; `endpoints` maps each logical service (`dynamodb`, `kms`,
   `sts`, `s3`, `sqs`; the example above abbreviates the last three) to a
-  container and the environment variables that must point at it.
+  container and the environment variables that must point at it. `lambda.images`
+  declares the three runtime images (`go`, `node`, `python`; one shown) as a
+  `tag`, a multi-arch `digest` and the `pinned` date; the runtime composes
+  `tag@digest`, so a moving tag cannot change what runs.
 - Validation checks that every container image is digest-pinned, that the
   compose file declares the same image and publishes an ephemeral loopback port
   (`127.0.0.1::<containerPort>`), that no `container_name` or top-level compose
   `name` fixes an identity, that all five logical services exist, and that each
-  one exposes its `AWS_ENDPOINT_URL_<SERVICE>` override.
+  one exposes its `AWS_ENDPOINT_URL_<SERVICE>` override. It also checks that all
+  three Lambda runtime pins exist, carry a digest, a tagged image reference and
+  an ISO pin date.
 - `run` names a runner implemented in `scripts/local/run_examples_local.py`.
   Each runner is used by exactly one entry.
 - `coveredBy` points at another executed entry; the covered row inherits its
@@ -348,8 +440,8 @@ DynamoDB write and read.
 The T3 rows (`examples/encryption` and the cdk-multilang local variant) are
 `L2`: the envelope cryptography, KMS calls and cross-language decryption are
 real, and the KMS emulator's limits are the named gap. The S3 and SQS emulators
-are part of the profile and preflighted, but no T3 example uses them yet; T4a
-(payment reconcile on S3) and AppTheory (SQS polling) consume them.
+are part of the profile and preflighted. The T4a payment reconcile row consumes
+S3; AppTheory will consume SQS with polling delivery.
 
 `optimization` and `testing` are intentionally library demos: the query planner
 takes metadata/executor interfaces rather than a database, and `testing`
@@ -357,7 +449,7 @@ demonstrates mocks for unit tests. They run locally without DynamoDB, as scoped
 by the local-execution need (Q3).
 
 Every other entrypoint in the tree is listed in the manifest as `pending` for
-T4a or T4b. That includes the `examples/cdk-multilang` runtime files that local
+T4b. That includes the `examples/cdk-multilang` runtime files that local
 execution does not reach yet: `bin/app.ts`, `lambdas/node/handler.ts`,
 `lambdas/archive/handler.ts` and `lambdas/python/handler.py` are T4b rows,
 alongside the deployed `lambdas/go` handler and `scripts/smoke.sh`. Pending rows
@@ -391,14 +483,14 @@ environment.
   missing) and treats `ResourceInUseException` as typed success. A library-level
   fix is tracked separately.
 - DynamoDB Local has no Streams, so stream-delivery paths are `L3` with the
-  named gap "managed stream delivery" from T4a onward.
+  named gap "managed stream delivery" in the T4a Python row and later rows.
 - The S3, SQS and STS emulators do not deliver managed events: S3 event
   notifications, SQS event-source mappings and EventBridge delivery remain `L3`
   with the named "managed <service> delivery" gap. Polling an ElasticMQ queue
   is real delivery and can be `L2`.
 - moto's STS accepts any role ARN and does not evaluate trust or IAM policies;
-  any T4a partner-AssumeRole row must treat the authorization decision as a
-  named gap even though the `AssumeRole` call itself is real.
+  the T4a partner-AssumeRole row treats the authorization decision as a named
+  gap even though the `AssumeRole` call itself is real.
 - The emulator images are digest-pinned but the s3proxy image publishes no
   semantic tag (the current pin came from `master`/commit `c7d5140`); refreshing
   it means re-running the S3 trial and updating both the compose file and this

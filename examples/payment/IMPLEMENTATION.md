@@ -282,6 +282,9 @@ JWT_AUDIENCE=payment-api
 
 # AWS Configuration
 AWS_REGION=us-east-1
+
+# KMS (required to read Merchant/Customer encrypted fields)
+KMS_KEY_ARN=arn:aws:kms:us-east-1:123456789012:key/...
 ```
 
 ## Security Considerations
