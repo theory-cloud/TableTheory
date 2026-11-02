@@ -247,6 +247,12 @@ def safe_dict(self) -> dict[str, object]
 class TransactionConflictError(TransactionCanceledError)
 ```
 
+#### `TTLAttributeMismatchError`
+
+```python
+class TTLAttributeMismatchError(ValidationError)
+```
+
 #### `ValidationError`
 
 ```python

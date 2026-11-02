@@ -214,6 +214,38 @@ function validateStep(
       break;
     case "create_table":
       break;
+    case "ensure_table":
+      if (
+        step.forbid_ttl_calls !== undefined &&
+        typeof step.forbid_ttl_calls !== "boolean"
+      ) {
+        throw new Error(`${prefix}: forbid_ttl_calls must be a boolean`);
+      }
+      break;
+    case "update_ttl":
+      if (
+        typeof step.ttl_attribute !== "string" ||
+        step.ttl_attribute.length === 0
+      ) {
+        throw new Error(`${prefix}: ttl_attribute is required`);
+      }
+      if (
+        step.ttl_enabled !== undefined &&
+        typeof step.ttl_enabled !== "boolean"
+      ) {
+        throw new Error(`${prefix}: ttl_enabled must be a boolean`);
+      }
+      break;
+    case "describe_ttl":
+      if (
+        step.expect?.ttl_status === undefined &&
+        step.expect?.ttl_attribute === undefined
+      ) {
+        throw new Error(
+          `${prefix}: expect.ttl_status or expect.ttl_attribute is required`,
+        );
+      }
+      break;
     case "dms_parse":
     case "dms_get":
       requirePlainObject(step.dms, `${prefix}: dms is required`);
@@ -309,12 +341,21 @@ function validateExpectation(
     }
   }
 
+  for (const key of ["ttl_status", "ttl_attribute"] as const) {
+    if (!Object.hasOwn(expect, key)) continue;
+    if (typeof expect[key] !== "string" || expect[key].length === 0) {
+      throw new Error(`${prefix}.${key} must be a non-empty string`);
+    }
+  }
+
   const hasErrorExpectation =
     (typeof expect.error === "string" && expect.error.length > 0) ||
     (Array.isArray(expect.errors) && expect.errors.length > 0);
   const hasDataAssertion = expectationHasAnyKey(expect, [
     ...itemAssertionKeys,
     ...readAssertionKeys,
+    "ttl_status",
+    "ttl_attribute",
   ]);
   if (hasErrorExpectation && hasDataAssertion) {
     throw new Error(

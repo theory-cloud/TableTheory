@@ -330,12 +330,16 @@ type TestDBFactory struct{ ... }
 ```go
 type Fake struct{ ... }
     func New() *Fake
+    func NewWithOptions(options ...Option) *Fake
+type Option func(*Fake)
+    func WithDynamoDBTTLValidation() Option
 ```
 
 ### `github.com/theory-cloud/tabletheory/v6/pkg/schema`
 
 ```go
 var ErrMigrationEncryptionRequired = errors.New("schema migration encryption required")
+var ErrTTLAttributeMismatch = errors.New("ttl attribute mismatch")
 func TransformWithValidation(item map[string]types.AttributeValue, transform TransformFunc, ...) (map[string]types.AttributeValue, error)
 type AutoMigrateOption func(*AutoMigrateOptions)
     func WithBackupTable(tableName string) AutoMigrateOption

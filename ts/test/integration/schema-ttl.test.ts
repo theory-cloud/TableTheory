@@ -10,7 +10,12 @@ import {
 } from '@aws-sdk/client-dynamodb';
 
 import { defineModel } from '../../src/model.js';
-import { createTable, deleteTable } from '../../src/schema.js';
+import {
+  createTable,
+  deleteTable,
+  ensureTable,
+  TTLAttributeMismatchError,
+} from '../../src/schema.js';
 
 const endpoint = process.env.DYNAMODB_ENDPOINT ?? 'http://localhost:8000';
 const skipIntegration =
@@ -52,6 +57,34 @@ try {
     }
     throw err;
   }
+
+  await deleteTable(ddb, ttlModel, { ignoreMissing: true });
+
+  // Go's EnsureTable is the reference: an existing table is left untouched,
+  // including a disabled TTL. Ensure that no TTL call happens here.
+  await ddb.send(
+    new CreateTableCommand({
+      TableName: tableName,
+      BillingMode: 'PAY_PER_REQUEST',
+      KeySchema: [{ AttributeName: 'ID', KeyType: 'HASH' }],
+      AttributeDefinitions: [{ AttributeName: 'ID', AttributeType: 'S' }],
+    }),
+  );
+  await ensureTable(ddb, ttlModel);
+
+  const afterEnsure = await ddb.send(
+    new DescribeTimeToLiveCommand({ TableName: tableName }),
+  );
+  assert.equal(
+    afterEnsure.TimeToLiveDescription?.TimeToLiveStatus,
+    'DISABLED',
+    'ensureTable must not enable TTL on an existing table',
+  );
+  assert.equal(
+    afterEnsure.TimeToLiveDescription?.AttributeName,
+    undefined,
+    'ensureTable must not choose a TTL attribute on an existing table',
+  );
 
   await deleteTable(ddb, ttlModel, { ignoreMissing: true });
 
@@ -105,6 +138,10 @@ try {
     conflictError = err;
   }
   assert.ok(conflictError, 'expected a conflict error');
+  assert.ok(
+    conflictError instanceof TTLAttributeMismatchError,
+    'conflict must be the typed TTL attribute mismatch',
+  );
   const message = (conflictError as Error).message;
   assert.match(
     message,

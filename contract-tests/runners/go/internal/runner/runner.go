@@ -160,6 +160,36 @@ func (r *Runner) runStep(t require.TestingT, ctx context.Context, s *scenario.Sc
 		r.assertStepResult(t, step.Expect, nil, err, nil, model)
 		return
 
+	case "ensure_table":
+		ttlCallsBefore := r.driver.TTLCallCount()
+		err := r.driver.EnsureTable(ctx, modelName)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		if step.ForbidTTLCalls && err == nil {
+			require.Equal(t, ttlCallsBefore, r.driver.TTLCallCount(), "ensure_table must not make TTL calls")
+		}
+		return
+
+	case "update_ttl":
+		enabled := true
+		if step.TTLEnabled != nil {
+			enabled = *step.TTLEnabled
+		}
+		err := r.updateTimeToLive(ctx, tableName, step.TTLAttribute, enabled)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		return
+
+	case "describe_ttl":
+		status, attribute, err := r.describeTimeToLive(ctx, tableName)
+		r.assertStepResult(t, step.Expect, nil, err, nil, model)
+		if err != nil {
+			return
+		}
+		require.Equal(t, step.Expect.TTLStatus, status, "ttl status")
+		if step.Expect.TTLAttribute != "" {
+			require.Equal(t, step.Expect.TTLAttribute, attribute, "ttl attribute")
+		}
+		return
+
 	case "dms_parse", "dms_get":
 		require.FailNow(t, "DMS scenario op is not supported by the Go runtime")
 		return
@@ -1057,6 +1087,38 @@ func (r *Runner) getRawItem(ctx context.Context, tableName string, model spec.Mo
 		return nil, theorydbErrors.ErrItemNotFound
 	}
 	return out.Item, nil
+}
+
+type timeToLiveDescriber interface {
+	DescribeTimeToLive(context.Context, *dynamodb.DescribeTimeToLiveInput, ...func(*dynamodb.Options)) (*dynamodb.DescribeTimeToLiveOutput, error)
+}
+
+func (r *Runner) describeTimeToLive(ctx context.Context, tableName string) (string, string, error) {
+	describer, ok := r.ddb.(timeToLiveDescriber)
+	if !ok {
+		return "", "", fmt.Errorf("DescribeTimeToLive is not supported by the runner client")
+	}
+	out, err := describer.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if out == nil || out.TimeToLiveDescription == nil {
+		return "", "", fmt.Errorf("DescribeTimeToLive returned no description")
+	}
+	return string(out.TimeToLiveDescription.TimeToLiveStatus), aws.ToString(out.TimeToLiveDescription.AttributeName), nil
+}
+
+func (r *Runner) updateTimeToLive(ctx context.Context, tableName, attribute string, enabled bool) error {
+	_, err := r.ddb.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String(attribute),
+			Enabled:       aws.Bool(enabled),
+		},
+	})
+	return err
 }
 
 func (r *Runner) recreateTable(ctx context.Context, tableName string, model spec.Model) error {

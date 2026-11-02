@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -64,11 +65,14 @@ const (
 	ErrImmutableModelMutation          ErrorCode = "ErrImmutableModelMutation"
 	ErrProtectedFieldMutation          ErrorCode = "ErrProtectedFieldMutation"
 	ErrRejectedDeployAuthorityEvidence ErrorCode = "ErrRejectedDeployAuthorityEvidence"
+	ErrTTLAttributeMismatch            ErrorCode = "ErrTTLAttributeMismatch"
 )
 
 type Driver interface {
 	Capabilities() []string
 	CreateTable(ctx context.Context, model string) error
+	EnsureTable(ctx context.Context, model string) error
+	TTLCallCount() int
 	Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error
 	Get(ctx context.Context, model string, key map[string]any) (map[string]any, error)
 	GetOptional(ctx context.Context, model string, key map[string]any) (map[string]any, bool, error)
@@ -188,6 +192,8 @@ func MapErrors(err error) []ErrorCode {
 		return []ErrorCode{ErrProtectedFieldMutation}
 	case errors.Is(err, theorydbErrors.ErrRejectedDeployAuthorityEvidence):
 		return []ErrorCode{ErrRejectedDeployAuthorityEvidence}
+	case errors.Is(err, schema.ErrTTLAttributeMismatch):
+		return []ErrorCode{ErrTTLAttributeMismatch}
 	default:
 		return nil
 	}
@@ -201,9 +207,41 @@ type rawClient interface {
 	DeleteTable(ctx context.Context, params *dynamodb.DeleteTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteTableOutput, error)
 }
 
+// countingDynamoDB records the TTL calls the framework makes so contract
+// scenarios can prove that a path makes none.
+type countingDynamoDB struct {
+	session.DynamoDBAPI
+	ttlCalls *atomic.Int64
+}
+
+func (c *countingDynamoDB) UpdateTimeToLive(
+	ctx context.Context,
+	params *dynamodb.UpdateTimeToLiveInput,
+	optFns ...func(*dynamodb.Options),
+) (*dynamodb.UpdateTimeToLiveOutput, error) {
+	c.ttlCalls.Add(1)
+	return c.DynamoDBAPI.UpdateTimeToLive(ctx, params, optFns...)
+}
+
+func (c *countingDynamoDB) DescribeTimeToLive(
+	ctx context.Context,
+	params *dynamodb.DescribeTimeToLiveInput,
+	optFns ...func(*dynamodb.Options),
+) (*dynamodb.DescribeTimeToLiveOutput, error) {
+	c.ttlCalls.Add(1)
+	describer, ok := c.DynamoDBAPI.(interface {
+		DescribeTimeToLive(context.Context, *dynamodb.DescribeTimeToLiveInput, ...func(*dynamodb.Options)) (*dynamodb.DescribeTimeToLiveOutput, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("DescribeTimeToLive is not supported by this client")
+	}
+	return describer.DescribeTimeToLive(ctx, params, optFns...)
+}
+
 type TheorydbDriver struct {
 	db                      core.ExtendedDB
 	deterministicEncryption bool
+	ttlCalls                *atomic.Int64
 
 	// stepEncryption selects a database instance without KMS for steps that
 	// prove fail-closed behavior; "" uses the scenario-configured instance.
@@ -246,6 +284,7 @@ func (d *TheorydbDriver) Capabilities() []string {
 		"release_state.provenance_confidence",
 		"encryption.fail_closed",
 		"encryption.migration_rebinding",
+		"schema.ttl",
 	}
 	if d.deterministicEncryption {
 		capabilities = append(capabilities, "encryption.deterministic_interop")
@@ -302,23 +341,28 @@ func NewTheorydbDriver(options ...Options) (*TheorydbDriver, error) {
 		driver.kmsRand = rng
 	}
 
-	db, err := tabletheory.New(cfg)
-	if err != nil {
-		return nil, err
-	}
-	driver.db = db
-	if !driver.deterministicEncryption {
-		driver.noEncryptionDB = db
-	}
-
 	awsCfg, err := config.LoadDefaultConfig(context.Background(), loadOptions...)
 	if err != nil {
 		return nil, err
 	}
-	driver.ddb = dynamodb.NewFromConfig(awsCfg, func(o *dynamodb.Options) {
+	client := dynamodb.NewFromConfig(awsCfg, func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
-	driver.raw = driver.ddb
+	ttlCalls := &atomic.Int64{}
+	db, err := tabletheory.NewWithClient(cfg, &countingDynamoDB{
+		DynamoDBAPI: client,
+		ttlCalls:    ttlCalls,
+	})
+	if err != nil {
+		return nil, err
+	}
+	driver.db = db
+	driver.ttlCalls = ttlCalls
+	driver.ddb = client
+	driver.raw = client
+	if !driver.deterministicEncryption {
+		driver.noEncryptionDB = db
+	}
 
 	return driver, nil
 }
@@ -342,8 +386,12 @@ func NewFakeTheorydbDriver(options ...Options) (*TheorydbDriver, *fakedb.Fake, e
 		deterministicEncryption = true
 	}
 
-	fake := fakedb.New()
-	db, err := tabletheory.NewWithClient(cfg, fake)
+	fake := fakedb.NewWithOptions(fakedb.WithDynamoDBTTLValidation())
+	ttlCalls := &atomic.Int64{}
+	db, err := tabletheory.NewWithClient(cfg, &countingDynamoDB{
+		DynamoDBAPI: fake,
+		ttlCalls:    ttlCalls,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -351,6 +399,7 @@ func NewFakeTheorydbDriver(options ...Options) (*TheorydbDriver, *fakedb.Fake, e
 	return &TheorydbDriver{
 		db:                      db,
 		deterministicEncryption: deterministicEncryption,
+		ttlCalls:                ttlCalls,
 		kmsClient:               kmsClient,
 		kmsRand:                 rng,
 		fake:                    fake,
@@ -364,6 +413,22 @@ func (d *TheorydbDriver) CreateTable(_ context.Context, model string) error {
 		return err
 	}
 	return d.activeDB().CreateTable(instance)
+}
+
+func (d *TheorydbDriver) EnsureTable(_ context.Context, model string) error {
+	instance, err := emptyModel(model)
+	if err != nil {
+		return err
+	}
+	return d.activeDB().EnsureTable(instance)
+}
+
+// TTLCallCount reports how many TTL API calls the framework has made so far.
+func (d *TheorydbDriver) TTLCallCount() int {
+	if d.ttlCalls == nil {
+		return 0
+	}
+	return int(d.ttlCalls.Load())
 }
 
 func (d *TheorydbDriver) Create(ctx context.Context, model string, item map[string]any, ifNotExists bool) error {

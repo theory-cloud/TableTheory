@@ -51,6 +51,19 @@
   Python never had a counterpart. Semver decision: this removed-API change is release-major material and must not ship
   as a patch/minor.
 
+### Behavior Changes
+
+* **ts, py:** `ensureTable` / `ensure_table` no longer enables TTL on a table that already exists. This matches Go's
+  `DB.EnsureTable`, which is the reference: an existing table is left exactly as it is, with no `UpdateTimeToLive` or
+  `DescribeTimeToLive` call. New tables are still created with TTL, and `createTable` / `create_table` still converges
+  TTL on an existing table. Callers that relied on `ensureTable` / `ensure_table` to enable TTL for an existing table
+  should call `createTable` / `create_table`, `updateTimeToLive` / `update_time_to_live`, or manage TTL in
+  infrastructure as code. TypeScript/Python auto-migration inherits this through `ensureTable` / `ensure_table`, so
+  an existing migration target keeps its current TTL state, matching Go. The different-attribute conflict is now
+  `TTLAttributeMismatchError` (still an
+  `ErrInvalidModel` `TheorydbError` / `ValidationError`), matching Go's `errors.Is(err, schema.ErrTTLAttributeMismatch)`.
+  No new IAM permissions are required and Go behavior is unchanged.
+
 ### Features
 
 * **go:** add `NewWithClient` and a state-backed `pkg/testing/fakedb` consumer test fake

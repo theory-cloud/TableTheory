@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
@@ -32,20 +33,22 @@ var _ session.DynamoDBAPI = (*Fake)(nil)
 
 // Fake is an in-memory implementation of the TableTheory DynamoDBAPI seam.
 type Fake struct {
-	transactErr  error
-	tables       map[string]*tableState
-	cancelReason []types.CancellationReason
-	cancelQueued bool
-	mu           sync.RWMutex
+	transactErr   error
+	tables        map[string]*tableState
+	cancelReason  []types.CancellationReason
+	cancelQueued  bool
+	ttlValidation bool
+	mu            sync.RWMutex
 }
 
 type tableState struct {
-	indexes map[string]indexState
-	items   map[string]map[string]types.AttributeValue
-	name    string
-	pk      string
-	sk      string
-	ttlAttr string
+	indexes    map[string]indexState
+	items      map[string]map[string]types.AttributeValue
+	name       string
+	pk         string
+	sk         string
+	ttlAttr    string
+	ttlEnabled bool
 }
 
 type indexState struct {
@@ -55,9 +58,37 @@ type indexState struct {
 
 // New returns an empty in-memory DynamoDB fake. Use it for tests whose outcome
 // depends on stored state or supported condition expressions; pkg/mocks does
-// not evaluate those conditions.
+// not evaluate those conditions. It keeps the fake's historical permissive TTL
+// behavior; use NewWithOptions with WithDynamoDBTTLValidation to make
+// UpdateTimeToLive reject what DynamoDB rejects.
 func New() *Fake {
-	return &Fake{tables: make(map[string]*tableState)}
+	return NewWithOptions()
+}
+
+// NewWithOptions returns an empty in-memory DynamoDB fake configured with the
+// supplied options.
+func NewWithOptions(options ...Option) *Fake {
+	fake := &Fake{tables: make(map[string]*tableState)}
+	for _, option := range options {
+		if option != nil {
+			option(fake)
+		}
+	}
+	return fake
+}
+
+// Option configures a Fake at construction time.
+type Option func(*Fake)
+
+// WithDynamoDBTTLValidation makes UpdateTimeToLive reject the requests DynamoDB
+// rejects: a missing TimeToLiveSpecification.AttributeName, enabling TTL on the
+// attribute that is already enabled, and enabling TTL while another attribute is
+// enabled. The default fake accepts all three, matching the behavior existing
+// consumer tests rely on.
+func WithDynamoDBTTLValidation() Option {
+	return func(fake *Fake) {
+		fake.ttlValidation = true
+	}
 }
 
 // Reset removes all fake tables and items and clears any queued transaction
@@ -253,10 +284,43 @@ func (f *Fake) UpdateTimeToLive(_ context.Context, params *dynamodb.UpdateTimeTo
 	if table == nil {
 		return nil, resourceNotFound(tableName)
 	}
-	if params.TimeToLiveSpecification != nil && params.TimeToLiveSpecification.AttributeName != nil {
-		table.ttlAttr = aws.ToString(params.TimeToLiveSpecification.AttributeName)
+	if params.TimeToLiveSpecification == nil || params.TimeToLiveSpecification.AttributeName == nil {
+		if f.ttlValidation {
+			return nil, errors.New("UpdateTimeToLive requires TimeToLiveSpecification.AttributeName")
+		}
+		return &dynamodb.UpdateTimeToLiveOutput{TimeToLiveSpecification: params.TimeToLiveSpecification}, nil
 	}
+
+	attributeName := aws.ToString(params.TimeToLiveSpecification.AttributeName)
+	if f.ttlValidation && aws.ToBool(params.TimeToLiveSpecification.Enabled) && table.ttlEnabled {
+		if table.ttlAttr == attributeName {
+			return nil, &smithy.GenericAPIError{Code: "ValidationException", Message: "TimeToLive is already enabled"}
+		}
+		return nil, &smithy.GenericAPIError{Code: "ValidationException", Message: "TimeToLive is active on a different AttributeName"}
+	}
+
+	table.ttlAttr = attributeName
+	table.ttlEnabled = aws.ToBool(params.TimeToLiveSpecification.Enabled)
 	return &dynamodb.UpdateTimeToLiveOutput{TimeToLiveSpecification: params.TimeToLiveSpecification}, nil
+}
+
+// DescribeTimeToLive reports the TTL state the fake records from
+// UpdateTimeToLive, matching the DynamoDB status and attribute shape.
+func (f *Fake) DescribeTimeToLive(_ context.Context, params *dynamodb.DescribeTimeToLiveInput, _ ...func(*dynamodb.Options)) (*dynamodb.DescribeTimeToLiveOutput, error) {
+	tableName := aws.ToString(params.TableName)
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	table := f.tables[tableName]
+	if table == nil {
+		return nil, resourceNotFound(tableName)
+	}
+
+	description := &types.TimeToLiveDescription{TimeToLiveStatus: types.TimeToLiveStatusDisabled}
+	if table.ttlEnabled {
+		description.TimeToLiveStatus = types.TimeToLiveStatusEnabled
+		description.AttributeName = aws.String(table.ttlAttr)
+	}
+	return &dynamodb.DescribeTimeToLiveOutput{TimeToLiveDescription: description}, nil
 }
 
 func (f *Fake) GetItem(_ context.Context, params *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
@@ -751,12 +815,13 @@ func (f *Fake) cloneTablesLocked() map[string]*tableState {
 	out := make(map[string]*tableState, len(f.tables))
 	for name, table := range f.tables {
 		cloned := &tableState{
-			name:    table.name,
-			pk:      table.pk,
-			sk:      table.sk,
-			ttlAttr: table.ttlAttr,
-			indexes: make(map[string]indexState, len(table.indexes)),
-			items:   make(map[string]map[string]types.AttributeValue, len(table.items)),
+			name:       table.name,
+			pk:         table.pk,
+			sk:         table.sk,
+			ttlAttr:    table.ttlAttr,
+			ttlEnabled: table.ttlEnabled,
+			indexes:    make(map[string]indexState, len(table.indexes)),
+			items:      make(map[string]map[string]types.AttributeValue, len(table.items)),
 		}
 		for k, v := range table.indexes {
 			cloned.indexes[k] = v

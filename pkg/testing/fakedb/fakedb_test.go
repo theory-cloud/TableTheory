@@ -88,6 +88,130 @@ func TestNewWithClientRejectsNilClient(t *testing.T) {
 	require.ErrorContains(t, err, "DynamoDB client is nil")
 }
 
+func TestFakeTimeToLiveTracksState(t *testing.T) {
+	ctx := context.Background()
+	fake := fakedb.NewWithOptions(fakedb.WithDynamoDBTTLValidation())
+	tableName := "ttl_fake"
+
+	_, err := fake.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName:   aws.String(tableName),
+		BillingMode: types.BillingModePayPerRequest,
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("PK"), KeyType: types.KeyTypeHash},
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := fake.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, desc.TimeToLiveDescription)
+	require.Equal(t, types.TimeToLiveStatusDisabled, desc.TimeToLiveDescription.TimeToLiveStatus)
+
+	_, err = fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String("ttl"),
+			Enabled:       aws.Bool(true),
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err = fake.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.TimeToLiveStatusEnabled, desc.TimeToLiveDescription.TimeToLiveStatus)
+	require.Equal(t, "ttl", aws.ToString(desc.TimeToLiveDescription.AttributeName))
+
+	_, err = fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String("ttl"),
+			Enabled:       aws.Bool(true),
+		},
+	})
+	require.ErrorContains(t, err, "TimeToLive is already enabled")
+
+	_, err = fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String("legacy_ttl"),
+			Enabled:       aws.Bool(true),
+		},
+	})
+	require.ErrorContains(t, err, "TimeToLive is active on a different AttributeName")
+
+	desc, err = fake.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "ttl", aws.ToString(desc.TimeToLiveDescription.AttributeName))
+}
+
+func TestFakeUpdateTimeToLiveDefaultKeepsHistoricalBehaviour(t *testing.T) {
+	ctx := context.Background()
+	fake := fakedb.New()
+	tableName := "ttl_default_fake"
+
+	_, err := fake.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName:   aws.String(tableName),
+		BillingMode: types.BillingModePayPerRequest,
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("PK"), KeyType: types.KeyTypeHash},
+		},
+	})
+	require.NoError(t, err)
+
+	// A missing specification was accepted before and still is.
+	out, err := fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	require.NoError(t, err)
+	require.Nil(t, out.TimeToLiveSpecification)
+
+	// So was a specification without an attribute name.
+	out, err = fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName:               aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{Enabled: aws.Bool(true)},
+	})
+	require.NoError(t, err)
+	require.Nil(t, out.TimeToLiveSpecification.AttributeName)
+
+	// Enabling, re-enabling the same attribute, and enabling a different
+	// attribute all succeeded silently before.
+	first := &types.TimeToLiveSpecification{AttributeName: aws.String("ttl"), Enabled: aws.Bool(true)}
+	out, err = fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName:               aws.String(tableName),
+		TimeToLiveSpecification: first,
+	})
+	require.NoError(t, err)
+	require.Same(t, first, out.TimeToLiveSpecification)
+
+	out, err = fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName:               aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{AttributeName: aws.String("ttl"), Enabled: aws.Bool(true)},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	out, err = fake.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		TableName:               aws.String(tableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{AttributeName: aws.String("legacy_ttl"), Enabled: aws.Bool(true)},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	// The default fake records the last attribute it was given, as it always did.
+	desc, err := fake.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: aws.String(tableName),
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.TimeToLiveStatusEnabled, desc.TimeToLiveDescription.TimeToLiveStatus)
+	require.Equal(t, "legacy_ttl", aws.ToString(desc.TimeToLiveDescription.AttributeName))
+}
+
 func TestFakeSupportsAdminBatchScanAndTransactions(t *testing.T) {
 	ctx := context.Background()
 	fake := fakedb.New()

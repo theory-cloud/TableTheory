@@ -4,8 +4,10 @@ import {
   CreateTableCommand,
   DeleteTableCommand,
   DescribeTableCommand,
+  DescribeTimeToLiveCommand,
   GetItemCommand,
   ListTablesCommand,
+  UpdateTimeToLiveCommand,
   type AttributeDefinition,
   type AttributeValue,
   type CreateTableCommandInput,
@@ -17,10 +19,8 @@ import {
 } from "@aws-sdk/client-dynamodb";
 
 import { isTheorydbError } from "../../../../ts/src/errors.js";
-import {
-  getDmsModel,
-  parseDmsDocument,
-} from "../../../../ts/src/dms.js";
+import { TTLAttributeMismatchError } from "../../../../ts/src/schema.js";
+import { getDmsModel, parseDmsDocument } from "../../../../ts/src/dms.js";
 import YAML from "yaml";
 
 import type { Driver, ErrorCode } from "./driver.js";
@@ -96,9 +96,7 @@ async function runStep(opts: {
       return;
     }
     const schema = dmsSchemaFor(dms);
-    const res = await captureResult(() =>
-      driver.dmsGet(dms, step.key ?? {}),
-    );
+    const res = await captureResult(() => driver.dmsGet(dms, step.key ?? {}));
     assertExpectation(step.expect, {
       err: res.err,
       item: res.value,
@@ -146,6 +144,46 @@ async function runStep(opts: {
   if (step.op === "create_table") {
     const err = await captureError(() => driver.createTable(modelName));
     assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "ensure_table") {
+    const ttlCallsBefore = driver.ttlCallCount();
+    const err = await captureError(() => driver.ensureTable(modelName));
+    assertExpectation(step.expect, { err, model, vars });
+    if (step.forbid_ttl_calls && err === undefined) {
+      assert.equal(
+        driver.ttlCallCount(),
+        ttlCallsBefore,
+        "ensure_table must not make TTL calls",
+      );
+    }
+    return;
+  }
+
+  if (step.op === "update_ttl") {
+    const err = await captureError(() =>
+      updateTimeToLive(
+        ddb,
+        tableName,
+        step.ttl_attribute ?? "",
+        step.ttl_enabled ?? true,
+      ),
+    );
+    assertExpectation(step.expect, { err, model, vars });
+    return;
+  }
+
+  if (step.op === "describe_ttl") {
+    const res = await captureResult(() => describeTimeToLive(ddb, tableName));
+    assertExpectation(step.expect, { err: res.err, model, vars });
+    if (res.err !== undefined || res.value === undefined) return;
+    if (step.expect?.ttl_status !== undefined) {
+      assert.equal(res.value.status, step.expect.ttl_status);
+    }
+    if (step.expect?.ttl_attribute !== undefined) {
+      assert.equal(res.value.attributeName, step.expect.ttl_attribute);
+    }
     return;
   }
 
@@ -644,11 +682,7 @@ function assertExpectation(
         "M" in value && value.M !== undefined,
         `raw field ${attr} is not an encrypted envelope`,
       );
-      assert.equal(
-        value.M.v?.N,
-        wantVersion,
-        `envelope version for ${attr}`,
-      );
+      assert.equal(value.M.v?.N, wantVersion, `envelope version for ${attr}`);
     }
   }
 
@@ -922,6 +956,9 @@ function mapError(err: unknown): ErrorCode | "" {
 }
 
 function mapErrors(err: unknown): ErrorCode[] {
+  if (err instanceof TTLAttributeMismatchError) {
+    return ["ErrTTLAttributeMismatch"];
+  }
   if (isTheorydbError(err)) {
     const maybeCodes = (err as { codes?: unknown }).codes;
     if (Array.isArray(maybeCodes)) {
@@ -944,6 +981,47 @@ function attributeValueTypeName(av: AttributeValue): string {
   if ("L" in av && av.L !== undefined) return "L";
   if ("M" in av && av.M !== undefined) return "M";
   return "UNKNOWN";
+}
+
+interface TimeToLiveState {
+  status: string;
+  attributeName?: string;
+}
+
+async function describeTimeToLive(
+  ddb: DynamoDBClient,
+  tableName: string,
+): Promise<TimeToLiveState> {
+  const resp = await ddb.send(
+    new DescribeTimeToLiveCommand({ TableName: tableName }),
+  );
+  const description = resp.TimeToLiveDescription;
+  if (!description?.TimeToLiveStatus) {
+    throw new Error(`DescribeTimeToLive returned no status for ${tableName}`);
+  }
+  return {
+    status: description.TimeToLiveStatus,
+    ...(description.AttributeName
+      ? { attributeName: description.AttributeName }
+      : {}),
+  };
+}
+
+async function updateTimeToLive(
+  ddb: DynamoDBClient,
+  tableName: string,
+  attributeName: string,
+  enabled: boolean,
+): Promise<void> {
+  await ddb.send(
+    new UpdateTimeToLiveCommand({
+      TableName: tableName,
+      TimeToLiveSpecification: {
+        AttributeName: attributeName,
+        Enabled: enabled,
+      },
+    }),
+  );
 }
 
 async function captureError(

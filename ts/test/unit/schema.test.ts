@@ -18,6 +18,7 @@ import {
   deleteTable,
   describeTable,
   ensureTable,
+  TTLAttributeMismatchError,
   updateTimeToLive,
 } from '../../src/schema.js';
 
@@ -221,7 +222,7 @@ void test('createTable syncs TTL when the model declares a ttl role', async () =
   });
 });
 
-void test('ensureTable syncs TTL for an existing table', async () => {
+void test('ensureTable leaves TTL untouched on an existing table', async () => {
   const model = defineModel(ttlSchema);
   const calls: unknown[] = [];
   const ddb = {
@@ -236,10 +237,45 @@ void test('ensureTable syncs TTL for an existing table', async () => {
 
   await ensureTable(ddb, model, { waitForActive: false });
 
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 1, 'only the existence check may run');
+  assert.ok(calls[0] instanceof DescribeTableCommand);
+  assert.equal(
+    calls.filter(
+      (cmd) =>
+        cmd instanceof UpdateTimeToLiveCommand ||
+        cmd instanceof DescribeTimeToLiveCommand,
+    ).length,
+    0,
+    'ensureTable must not make TTL calls for an existing table',
+  );
+});
+
+void test('ensureTable still waits on an existing table when requested', async () => {
+  const model = defineModel(ttlSchema);
+  const calls: unknown[] = [];
+  const ddb = {
+    send: async (cmd: unknown) => {
+      calls.push(cmd);
+      if (cmd instanceof DescribeTableCommand) {
+        return { Table: { TableStatus: 'ACTIVE' } };
+      }
+      return {};
+    },
+  } as unknown as DynamoDBClient;
+
+  await ensureTable(ddb, model);
+
+  assert.equal(calls.length, 2);
   assert.ok(calls[0] instanceof DescribeTableCommand);
   assert.ok(calls[1] instanceof DescribeTableCommand);
-  assert.ok(calls[2] instanceof UpdateTimeToLiveCommand);
+  assert.equal(
+    calls.filter(
+      (cmd) =>
+        cmd instanceof UpdateTimeToLiveCommand ||
+        cmd instanceof DescribeTimeToLiveCommand,
+    ).length,
+    0,
+  );
 });
 
 void test('createTable treats an already-enabled TTL on the same attribute as ok', async () => {
@@ -311,6 +347,7 @@ void test('createTable rejects TTL enabled on a different attribute with a clear
   await assert.rejects(
     async () => createTable(ddb, model, { waitForActive: false }),
     (err) => {
+      assert.ok(err instanceof TTLAttributeMismatchError);
       assert.ok(err instanceof TheorydbError);
       assert.equal(err.code, 'ErrInvalidModel');
       assert.match(err.message, /expiresAt/);

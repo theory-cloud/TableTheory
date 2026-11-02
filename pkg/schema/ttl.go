@@ -14,6 +14,35 @@ import (
 	"github.com/theory-cloud/tabletheory/v6/pkg/session"
 )
 
+// ErrTTLAttributeMismatch reports that a table's TTL is already enabled on a
+// different attribute than the model declares. The error returned from TTL
+// synchronization wraps it, so callers can match it with errors.Is.
+var ErrTTLAttributeMismatch = errors.New("ttl attribute mismatch")
+
+// ttlAttributeMismatchError carries the conflict details while keeping the
+// message text unchanged from earlier releases.
+type ttlAttributeMismatchError struct {
+	cause   error
+	message string
+}
+
+func (e *ttlAttributeMismatchError) Error() string {
+	return e.message
+}
+
+// Unwrap returns the DynamoDB cause as a single step, exactly like the
+// fmt.Errorf("%w") error this type replaced, so errors.Unwrap and manual unwrap
+// loops keep their previous depth.
+func (e *ttlAttributeMismatchError) Unwrap() error {
+	return e.cause
+}
+
+// Is matches the exported sentinel without a multi-error Unwrap, so errors.Is
+// keeps working alongside the single-step Unwrap chain.
+func (e *ttlAttributeMismatchError) Is(target error) bool {
+	return target == ErrTTLAttributeMismatch
+}
+
 // timeToLiveDescriber is satisfied by the real DynamoDB client. It is kept
 // separate from session.DynamoDBAPI so narrow test doubles and existing
 // implementations of that interface keep working.
@@ -112,11 +141,14 @@ func resolveTTLValidationFailure(
 		return true, nil
 	}
 
-	return true, fmt.Errorf(
-		"failed to enable ttl on table %s using attribute %s: ttl is already enabled on a different attribute %s: %w",
-		tableName,
-		attributeName,
-		currentAttribute,
-		cause,
-	)
+	return true, &ttlAttributeMismatchError{
+		message: fmt.Sprintf(
+			"failed to enable ttl on table %s using attribute %s: ttl is already enabled on a different attribute %s: %v",
+			tableName,
+			attributeName,
+			currentAttribute,
+			cause,
+		),
+		cause: cause,
+	}
 }

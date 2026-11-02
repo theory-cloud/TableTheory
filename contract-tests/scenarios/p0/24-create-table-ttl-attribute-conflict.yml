@@ -1,0 +1,23 @@
+name: "p0.schema.create_table_ttl_attribute_conflict"
+dms_version: "0.2"
+requires_capabilities:
+  - "schema.ttl"
+model: "User"
+table:
+  name: "users_contract"
+steps:
+  # Simulate a table provisioned by other tooling with TTL on another
+  # attribute. CreateTable must not silently switch the attribute.
+  - op: update_ttl
+    ttl_attribute: "legacy_ttl"
+    expect:
+      ok: true
+
+  - op: create_table
+    expect:
+      error: "ErrTTLAttributeMismatch"
+
+  - op: describe_ttl
+    expect:
+      ttl_status: "ENABLED"
+      ttl_attribute: "legacy_ttl"

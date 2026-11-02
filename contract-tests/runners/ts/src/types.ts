@@ -64,6 +64,9 @@ export interface Step {
   op:
     | "create"
     | "create_table"
+    | "ensure_table"
+    | "update_ttl"
+    | "describe_ttl"
     | "get"
     | "get_optional"
     | "update"
@@ -110,6 +113,9 @@ export interface Step {
   event_binding?: Record<string, string>;
   ms?: number;
   save?: Record<string, string>;
+  forbid_ttl_calls?: boolean;
+  ttl_attribute?: string;
+  ttl_enabled?: boolean;
   expect?: Expectation;
 }
 
@@ -214,4 +220,6 @@ export interface Expectation {
   raw_envelope_versions?: Record<string, string>;
   item_field_equals_var?: Record<string, string>;
   item_field_not_equals_var?: Record<string, string>;
+  ttl_status?: string;
+  ttl_attribute?: string;
 }
