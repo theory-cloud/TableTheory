@@ -166,7 +166,7 @@ and the manifest rules is in
 | `L2` | Local with an AWS-API emulator; the emulator's fidelity limits are documented. |
 | `L3` | Every locally executable part runs for real, plus a named cloud gap that is never faked. |
 | `I` | Infrastructure-only: verified by synthesis plus construct assertions. |
-| `PENDING-MILESTONE` | Not wired yet; the manifest names the milestone that owns it (T4b today). It is reported, never counted as pass. |
+| `PENDING-MILESTONE` | Not wired yet; the manifest names the milestone that owns it. It is reported, never counted as pass. |
 
 `optimization` and `testing` are classified as **library demos**: the query
 planner and the mock-based unit-test examples run locally without DynamoDB by
