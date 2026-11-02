@@ -38,12 +38,22 @@ type publicComment struct {
 	Content    string    `json:"content"`
 }
 
+// rootCommentParentID is the stored sort key for a root comment. DynamoDB
+// rejects an empty string as a GSI key and omits an item from an index when its
+// sort key is absent, so a root comment cannot store "". The public projection
+// strips this sentinel, and replies keep their real parent comment ID.
+const rootCommentParentID = "parent"
+
 func publicCommentOf(comment *models.Comment) *publicComment {
+	parentID := comment.ParentID
+	if parentID == rootCommentParentID {
+		parentID = ""
+	}
 	return &publicComment{
 		CreatedAt:  comment.CreatedAt,
 		ID:         comment.ID,
 		PostID:     comment.PostID,
-		ParentID:   comment.ParentID,
+		ParentID:   parentID,
 		AuthorID:   comment.AuthorID,
 		AuthorName: comment.AuthorName,
 		Content:    comment.Content,
@@ -282,11 +292,16 @@ func (h *CommentHandler) createComment(ctx context.Context, postID string, reque
 	// Get author ID if authenticated
 	authorID := getAuthorID(request)
 
+	parentID := req.ParentID
+	if parentID == "" {
+		parentID = rootCommentParentID
+	}
+
 	// Create comment
 	comment := &models.Comment{
 		ID:          uuid.New().String(),
 		PostID:      postID,
-		ParentID:    req.ParentID,
+		ParentID:    parentID,
 		AuthorID:    authorID,
 		AuthorName:  req.AuthorName,
 		AuthorEmail: req.AuthorEmail,

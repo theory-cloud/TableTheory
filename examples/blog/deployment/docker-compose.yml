@@ -2,7 +2,7 @@ services:
   dynamodb-local:
     image: amazon/dynamodb-local:3.1.0
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${BLOG_DYNAMODB_PORT:-8000}:8000"
     command: "-jar DynamoDBLocal.jar -sharedDb -dbPath ./data"
     environment:
       - AWS_ACCESS_KEY_ID=dummy
