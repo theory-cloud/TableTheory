@@ -2,9 +2,42 @@ package models
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
+
+// tableNameEnv is the stack parameter the SAM template injects into every
+// function as ENVIRONMENT. Table names follow the template's
+// "<environment>-blog-<kind>" convention exactly, so a model and the table the
+// template creates can never drift apart.
+const tableNameEnv = "ENVIRONMENT"
+
+const defaultTableEnvironment = "dev"
+
+// tableName resolves one model table name from the deployment environment.
+func tableName(kind string) string {
+	environment := strings.TrimSpace(os.Getenv(tableNameEnv))
+	if environment == "" {
+		environment = defaultTableEnvironment
+	}
+	return fmt.Sprintf("%s-blog-%s", environment, kind)
+}
+
+func (Post) TableName() string          { return tableName("posts") }
+func (Comment) TableName() string       { return tableName("comments") }
+func (Author) TableName() string        { return tableName("authors") }
+func (Category) TableName() string      { return tableName("categories") }
+func (Tag) TableName() string           { return tableName("tags") }
+func (Subscriber) TableName() string    { return tableName("subscribers") }
+func (SearchIndex) TableName() string   { return tableName("search") }
+func (Analytics) TableName() string     { return tableName("analytics") }
+func (Session) TableName() string       { return tableName("sessions") }
+func (PostView) TableName() string      { return tableName("views") }
+func (RelatedPost) TableName() string   { return tableName("related-posts") }
+func (ContentBlock) TableName() string  { return tableName("content-blocks") }
+func (Page) TableName() string          { return tableName("pages") }
+func (EmailTemplate) TableName() string { return tableName("email-templates") }
 
 // Post represents a blog post
 type Post struct {
@@ -16,13 +49,13 @@ type Post struct {
 	Content       string            `json:"content"`
 	Status        string            `theorydb:"index:gsi-status-date,pk" json:"status"`
 	Excerpt       string            `json:"excerpt,omitempty"`
-	CategoryID    string            `theorydb:"index:gsi-category,pk" json:"category_id,omitempty"`
+	CategoryID    string            `theorydb:"index:gsi-category,pk,omitempty" json:"category_id,omitempty"`
 	ID            string            `theorydb:"pk" json:"id"`
 	FeaturedImage string            `json:"featured_image,omitempty"`
 	Title         string            `json:"title"`
 	AuthorID      string            `theorydb:"index:gsi-author,pk" json:"author_id"`
 	Slug          string            `theorydb:"index:gsi-slug,pk" json:"slug"`
-	Tags          []string          `theorydb:"set" json:"tags,omitempty"`
+	Tags          []string          `theorydb:"set,omitempty" json:"tags,omitempty"`
 	ViewCount     int               `json:"view_count"`
 	CommentCount  int               `json:"comment_count"`
 	Version       int               `theorydb:"version" json:"version"`
@@ -41,7 +74,7 @@ type Comment struct {
 	UpdatedAt   time.Time `theorydb:"updated_at" json:"updated_at"`
 	ID          string    `theorydb:"pk" json:"id"`
 	PostID      string    `theorydb:"index:gsi-post,pk" json:"post_id"`
-	ParentID    string    `theorydb:"index:gsi-post,sk,prefix:parent" json:"parent_id,omitempty"`
+	ParentID    string    `theorydb:"index:gsi-post,sk,prefix:parent,omitempty" json:"parent_id,omitempty"`
 	AuthorID    string    `json:"author_id"`
 	AuthorName  string    `json:"author_name"`
 	AuthorEmail string    `json:"author_email"`
@@ -112,8 +145,8 @@ type Subscriber struct {
 	Name             string    `json:"name,omitempty"`
 	Status           string    `json:"status"`
 	UnsubscribeToken string    `json:"-"`
-	Categories       []string  `theorydb:"set" json:"categories,omitempty"`
-	Tags             []string  `theorydb:"set" json:"tags,omitempty"`
+	Categories       []string  `theorydb:"set,omitempty" json:"categories,omitempty"`
+	Tags             []string  `theorydb:"set,omitempty" json:"tags,omitempty"`
 }
 
 // SearchIndex represents a search index entry for full-text search

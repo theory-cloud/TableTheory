@@ -103,3 +103,17 @@ For a no-AWS cross-language check, use the [`local/`](./local/README.md) variant
 ```bash
 bash examples/cdk-multilang/local/run-local.sh
 ```
+
+The examples harness also drives the deployed Go, Node and Python handlers and
+the archive handler locally, and runs
+[`scripts/smoke-local.sh`](./scripts/smoke-local.sh) — the same journeys as
+`scripts/smoke.sh` against the runtime interface:
+
+```bash
+make examples-local
+```
+
+`smoke-local.sh` needs `CDK_GO_URL`, `CDK_NODE_URL`, `CDK_PY_URL` and
+`TABLE_NAME`, which the harness supplies. Its named gap is deployed-stack smoke:
+Function URL IAM authentication, the deployed tables and the deployed stream
+event source are not exercised without a real stack.

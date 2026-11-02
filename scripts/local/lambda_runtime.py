@@ -21,9 +21,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -57,9 +59,14 @@ class LambdaFunction:
     task_dir: Path
     _logs_seen: int = field(default=0)
 
+    @property
+    def url(self) -> str:
+        """The RIE invocation URL for this function container."""
+        return f"http://127.0.0.1:{self.port}/2015-03-31/functions/function/invocations"
+
     def invoke(self, payload: dict, *, timeout: int = DEFAULT_TIMEOUT) -> object:
         """POST one event to the RIE endpoint and return the decoded response."""
-        url = f"http://127.0.0.1:{self.port}/2015-03-31/functions/function/invocations"
+        url = self.url
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -228,10 +235,11 @@ class LambdaRuntime:
         path.mkdir(parents=True)
         return path
 
-    def build_go(self, name: str, package: str) -> Path:
+    def build_go(self, name: str, package: str, cwd: Path | None = None) -> Path:
         task = self._task_dir(name)
         self.harness.run(
             ["go", "build", "-o", str(task / "bootstrap"), package],
+            cwd=cwd or ROOT,
             env={
                 "GOOS": "linux",
                 "GOARCH": self._go_architecture(),
@@ -264,7 +272,7 @@ class LambdaRuntime:
             raise LambdaFailure(f"{name}: esbuild produced no handler.js")
         return task
 
-    def build_python(self, name: str, handler: Path) -> Path:
+    def build_python(self, name: str, handler: Path, requirements: Path | None = None) -> Path:
         task = self._task_dir(name)
         package = ROOT / "py" / "src" / "tabletheory_py"
         shutil.copytree(
@@ -273,7 +281,50 @@ class LambdaRuntime:
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
         shutil.copy2(handler, task / "handler.py")
+        if requirements is not None:
+            self._install_python_dependencies(name, requirements, task)
         return task
+
+    def _install_python_dependencies(self, name: str, project: Path, task: Path) -> None:
+        """Install the handler project's declared runtime dependencies.
+
+        A deployed Python function's asset contains its dependencies; mounting
+        only the handler and the runtime would silently drop them. The pyproject
+        is the example's own dependency manifest, so read it instead of
+        duplicating pins here. The install runs inside the same pinned Lambda
+        Python image, because a host pip would resolve macOS/arm64 wheels the
+        Linux function container cannot load.
+        """
+        manifest = project / "pyproject.toml"
+        try:
+            declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise LambdaFailure(f"{name}: missing dependency manifest {manifest}") from exc
+        except tomllib.TOMLDecodeError as exc:
+            raise LambdaFailure(f"{name}: invalid {manifest}: {exc}") from exc
+        dependencies = (declared.get("project") or {}).get("dependencies") or []
+        if not dependencies:
+            return
+        install = " ".join(shlex.quote(dependency) for dependency in dependencies)
+        install_command = (
+            "python -m pip install --quiet --no-input --disable-pip-version-check "
+            f"--no-warn-script-location -t /var/task {install}"
+        )
+        self.harness.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{task}:/var/task",
+                "--entrypoint",
+                "/bin/bash",
+                self.image_for("python"),
+                "-c",
+                install_command,
+            ],
+            timeout=900,
+        )
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -362,9 +413,19 @@ class LambdaRuntime:
         except OSError:
             return False
 
-    def start_go(self, name: str, package: str, extra_env: dict[str, str] | None = None) -> LambdaFunction:
+    def start_go(
+        self,
+        name: str,
+        package: str,
+        extra_env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+    ) -> LambdaFunction:
         return self._start(
-            name, self.image_for("go"), self.build_go(name, package), "bootstrap", extra_env
+            name,
+            self.image_for("go"),
+            self.build_go(name, package, cwd),
+            "bootstrap",
+            extra_env,
         )
 
     def start_node(self, name: str, entry: Path, extra_env: dict[str, str] | None = None) -> LambdaFunction:
@@ -372,9 +433,19 @@ class LambdaRuntime:
             name, self.image_for("node"), self.build_node(name, entry), HANDLER_NAME, extra_env
         )
 
-    def start_python(self, name: str, handler: Path, extra_env: dict[str, str] | None = None) -> LambdaFunction:
+    def start_python(
+        self,
+        name: str,
+        handler: Path,
+        extra_env: dict[str, str] | None = None,
+        requirements: Path | None = None,
+    ) -> LambdaFunction:
         return self._start(
-            name, self.image_for("python"), self.build_python(name, handler), HANDLER_NAME, extra_env
+            name,
+            self.image_for("python"),
+            self.build_python(name, handler, requirements),
+            HANDLER_NAME,
+            extra_env,
         )
 
     def preflight(self) -> dict:
@@ -383,11 +454,16 @@ class LambdaRuntime:
         try:
             result = function.invoke({"endpoints": self.container_endpoints()}, timeout=120)
         finally:
-            function.stop()
-            self.functions.pop("preflight", None)
+            self.stop("preflight")
         if not isinstance(result, dict) or result.get("ok") is not True:
             raise LambdaFailure("in-container Lambda preflight did not report ok", json.dumps(result))
         return result
+
+    def stop(self, name: str) -> None:
+        """Stop one function container and forget it."""
+        function = self.functions.pop(name, None)
+        if function is not None:
+            function.stop()
 
     def close(self) -> None:
         for function in list(self.functions.values()):

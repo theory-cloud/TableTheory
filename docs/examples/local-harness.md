@@ -230,6 +230,56 @@ or `S3_ENDPOINT` is set; production AWS keeps virtual-host addressing. The
 payment process handler reads `KMS_KEY_ARN` so it can decrypt the merchant's
 encrypted fields, which the harness provisions in the local KMS.
 
+## Blog and cdk-multilang deployed handlers (T4b)
+
+The blog example is its own Go module (`examples/blog/go.mod`) that replaces the
+library with `../..`. Its models resolve the SAM template's table names
+(`<ENVIRONMENT>-blog-posts`, `-comments`, `-authors`, `-search`; `ENVIRONMENT`
+defaults to `dev`), and `cmd/local` provisions and counts those tables. Without
+that alignment the handlers wrote to derived names such as `Posts` that the
+template never created.
+
+The blog rows never set `BLOG_ALLOW_HEADER_IDENTITY`. The harness mints an HS256
+token with the authorizer's `JWT_SECRET`, invokes the **real authorizer** through
+the runtime interface to obtain its `authorId`/`role` context, and passes that
+context into the real API Gateway proxy event the posts and comments handlers
+receive. Every row also asserts the refusal paths:
+
+| Row | Class | How it is verified | Named gap |
+| --- | --- | --- | --- |
+| `examples/blog/authorizer/main.go` | `L1` | allow with the minted context and `methodArn` policy; missing credential, tampered signature, expired token, `alg=none`, missing subject and missing `JWT_SECRET` are refused | none |
+| `examples/blog/cmd/posts/main.go` | `L1` | published/draft create, public list and slug read with draft hiding, owner update and delete, 404 after delete; missing credential, spoofed `X-Author-ID`/`X-Author-Role` headers and non-owner update/delete are refused | none |
+| `examples/blog/cmd/comments/main.go` | `L1` | anonymous comment stays pending and unlisted, authenticated comment is auto-approved with the authorizer identity, admin moderation is enforced, non-admin moderation, spoofed role headers and non-owner deletion are refused | none |
+| `examples/blog/cmd/local/main.go` | `L1` | provisions and counts the four template-named tables through the real models | none |
+
+The cdk-multilang rows run the **deployed** handler code through the runtime
+interface against DynamoDB Local, moto KMS and s3proxy. The Node handler and the
+archive handler import the built TypeScript runtime (`ts/dist`), which the
+harness builds before bundling them. The Python handler's declared runtime
+dependencies (from its `pyproject.toml`) are installed into the task directory
+inside the same pinned Python runtime image, so the Linux wheels match the
+function container.
+
+| Row | Class | How it is verified | Named gap |
+| --- | --- | --- | --- |
+| `examples/cdk-multilang/lambdas/go/main.go` | `L2` | Function URL PUT/GET, batch, transaction, `405`/`400`/`404` refusals, raw envelope check | KMS is emulated |
+| `examples/cdk-multilang/lambdas/node/handler.ts` | `L2` | reads and decrypts the Go-written item, batch with `lang=ts`, transaction, refusals, envelope check | KMS is emulated |
+| `examples/cdk-multilang/lambdas/python/handler.py` | `L2` | encrypted PUT/GET, batch with `lang=py`, transaction, refusals, envelope check | KMS is emulated |
+| `examples/cdk-multilang/lambdas/archive/handler.ts` | `L3` | a stream `REMOVE` record generated from a real local write, read-back and delete drives the handler; the archive object is written to s3proxy, read back, and its event id, TTL value and image are asserted | managed stream delivery: DynamoDB Local has no Streams |
+| `examples/cdk-multilang/scripts/smoke.sh` | `L3` | `scripts/smoke-local.sh` drives the same journeys (encrypted PUT via Go, GET via Node/Python, raw envelope, batch, transaction) against the locally run handlers | deployed AWS stack smoke: Function URL IAM auth, deployed tables and the deployed archive event source |
+| `examples/cdk-multilang/bin/app.ts` | `I` | synthesizes the real CDK app from two working directories with dummy credentials and a dead AWS endpoint; both templates are identical, contain no host path or fixed account id, and assert function runtimes, tables, TTL/stream, three IAM Function URLs, KMS and bucket lifecycle | infrastructure only |
+
+`CDK_SYNTH_NO_BUNDLING=1` is a harness-only switch in `bin/app.ts`: it sets the
+`aws:cdk:bundling-stacks` context to `[]` so a shape assertion does not need the
+Go/Node/Python bundling toolchains or network. A deploy never sets it. The
+template comparison covers the two runs byte-for-byte at the JSON level, so an
+absolute path or account lookup that leaked into the template fails the row.
+
+The local S3 client in the archive handler switches to path-style addressing
+only when `AWS_ENDPOINT_URL_S3`/`S3_ENDPOINT` is set; the deployed client keeps
+virtual-host addressing. The Python handler does the same for its DynamoDB and
+KMS clients when the profile's endpoint variables are present.
+
 ## Discovery
 
 Entrypoints are discovered from the tree, not from a hand-maintained list:
@@ -300,7 +350,7 @@ Every manifest entry declares exactly one of:
 | `L2` | Local with an AWS-API emulator; the emulator's fidelity limits are documented. |
 | `L3` | Every locally executable part runs for real, plus a named cloud gap that is never faked. |
 | `I` | Infrastructure-only: synthesis plus construct assertions. |
-| `pending: T4b` | Not wired yet. Reported as `PENDING-MILESTONE`, never counted as pass. |
+| `pending: <milestone>` | Not wired yet (used when a future milestone owns the row). Reported as `PENDING-MILESTONE`, never counted as pass. |
 
 A skip is a failure. Go tests are run through `go test -json`, and any `skip`
 event fails the row; example runners treat a non-zero exit, a timeout, or a
@@ -448,12 +498,15 @@ takes metadata/executor interfaces rather than a database, and `testing`
 demonstrates mocks for unit tests. They run locally without DynamoDB, as scoped
 by the local-execution need (Q3).
 
-Every other entrypoint in the tree is listed in the manifest as `pending` for
-T4b. That includes the `examples/cdk-multilang` runtime files that local
-execution does not reach yet: `bin/app.ts`, `lambdas/node/handler.ts`,
-`lambdas/archive/handler.ts` and `lambdas/python/handler.py` are T4b rows,
-alongside the deployed `lambdas/go` handler and `scripts/smoke.sh`. Pending rows
-are printed on every run and are never counted as pass.
+The T4b rows are covered by the blog and cdk-multilang tables above and are
+shown in the generated summary like every other row. No TableTheory entrypoint
+is left `pending`: discovery and classification are checked on every run, and an
+unclassified entrypoint fails the run before any row executes.
+
+The `examples/blog` module suite runs the module's own unit and template tests
+(`go test -json ./...` with skip detection), including the table-name/template
+alignment test. The root test targets exclude `examples/`, so this is the only
+place those tests run.
 
 ## Adding an example
 
@@ -483,7 +536,14 @@ environment.
   missing) and treats `ResourceInUseException` as typed success. A library-level
   fix is tracked separately.
 - DynamoDB Local has no Streams, so stream-delivery paths are `L3` with the
-  named gap "managed stream delivery" in the T4a Python row and later rows.
+  named gap "managed stream delivery": the T4a Python stream handler and the
+  cdk-multilang archive handler both receive a record generated from a real
+  local write, and the archive row additionally performs a real delete and S3
+  object round-trip.
+- The deployed cdk-multilang smoke is `L3` with the named gap "deployed AWS
+  stack smoke": `scripts/smoke-local.sh` drives the same journeys against the
+  locally run handlers, but Function URL IAM authentication, the deployed tables
+  and the deployed stream event source are not exercised.
 - The S3, SQS and STS emulators do not deliver managed events: S3 event
   notifications, SQS event-source mappings and EventBridge delivery remain `L3`
   with the named "managed <service> delivery" gap. Polling an ElasticMQ queue
