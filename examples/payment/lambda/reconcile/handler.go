@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -95,7 +96,12 @@ func (h *ReconcileHandler) HandleRequest(ctx context.Context, event events.S3Eve
 // processFile processes a single reconciliation file
 func (h *ReconcileHandler) processFile(ctx context.Context, record events.S3EventRecord) error {
 	bucket := record.S3.Bucket.Name
-	key := record.S3.Object.Key
+	// S3 URL-encodes the object key in a notification (application/x-www-form-urlencoded):
+	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
+	key, err := url.QueryUnescape(record.S3.Object.Key)
+	if err != nil {
+		return fmt.Errorf("invalid URL-encoded object key %q: %w", record.S3.Object.Key, err)
+	}
 
 	// Download file from S3
 	result, err := h.s3Client.GetObject(ctx, &s3.GetObjectInput{

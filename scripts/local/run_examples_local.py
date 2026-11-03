@@ -99,6 +99,7 @@ CDK_DEMO_TABLE = "multilang_local"
 CDK_EVIDENCE_TABLE = "multilang_evidence_local"
 CDK_ARCHIVE_BUCKET = "multilang-archive-local"
 CDK_ARCHIVE_PREFIX = "evidence-snapshots"
+CDK_SMOKE_ARCHIVE_PREFIX = "evidence-smoke-snapshots"
 CDK_TTL_ATTRIBUTE = "expires_at"
 JWT_SECRET = "tabletheory-local-harness-secret"
 DEFAULT_TIMEOUT = 900
@@ -1742,26 +1743,156 @@ def _fixture_json(harness: Harness, mode: str, **options: str) -> dict:
         raise HarnessFailure(f"fixture {mode} output is not JSON: {exc}", output) from exc
 
 
-def _stream_event(harness: Harness, pk: str) -> dict:
-    result = harness.run(
-        [
-            "go",
-            "run",
-            "./scripts/local/cmd/examples-local-stream-event",
-            "-pk",
-            pk,
-            "-sk",
-            "META",
-            "-value",
-            "42",
-        ],
-        timeout=300,
-    )
-    output = result.stdout.strip()
+STREAM_ARN_RE = re.compile(r"^arn:aws:dynamodb:[^:]+:\d{12}:table/.+/stream/.+$")
+STREAM_EVENT_ID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+S3_NOTIFICATION_EVENT_NAME = "ObjectCreated:Put"
+
+
+def _stream_records(harness: Harness, mode: str, **options: object) -> dict:
+    """Run the stream reader and return its last JSON line.
+
+    The reader performs the write (and, for ``ttl-remove``, the delete) and
+    reads the resulting records from DynamoDB Local Streams. A tool that prints
+    a record without a real stream ARN, event id or sequence number is rejected
+    by ``require_real_stream_event`` below.
+    """
+    argv = [
+        "go",
+        "run",
+        "./scripts/local/cmd/examples-local-stream-event",
+        "-mode",
+        mode,
+    ]
+    for key, value in options.items():
+        argv.extend([f"-{key.replace('_', '-')}", str(value)])
+    result = harness.run(argv, timeout=300)
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    if not lines:
+        raise HarnessFailure(f"stream reader {mode} produced no output", _combined_output(result))
     try:
-        return json.loads(output.splitlines()[-1])
-    except (IndexError, json.JSONDecodeError) as exc:
-        raise HarnessFailure(f"stream event tool did not print JSON: {exc}", output) from exc
+        return json.loads(lines[-1])
+    except json.JSONDecodeError as exc:
+        raise HarnessFailure(f"stream reader {mode} output is not JSON: {exc}", result.stdout) from exc
+
+
+def require_real_stream_event(
+    payload: dict,
+    *,
+    expected_event_name: str,
+    pk: str | None = None,
+    sk: str | None = None,
+    pk_name: str = "pk",
+    sk_name: str = "sk",
+    label: str,
+) -> dict:
+    """Fail closed unless the record came from a real DynamoDB stream.
+
+    The source marker, the stream ARN DescribeTable reported, the record's
+    eventSourceARN, its event id and its sequence number must all be present and
+    consistent. This is what keeps a resurrected fabricator from passing.
+    """
+    if not isinstance(payload, dict):
+        raise HarnessFailure(f"{label}: stream reader returned {type(payload).__name__}")
+    if payload.get("source") != "dynamodb-streams":
+        raise HarnessFailure(
+            f"{label}: the record was not read from DynamoDB Streams", json.dumps(payload)
+        )
+    stream_arn = payload.get("stream_arn") or ""
+    if not STREAM_ARN_RE.match(stream_arn):
+        raise HarnessFailure(f"{label}: stream ARN {stream_arn!r} is not a DynamoDB stream ARN")
+
+    event = payload.get("event") or {}
+    records = event.get("Records") or []
+    if len(records) != 1:
+        raise HarnessFailure(f"{label}: expected one stream record, got {len(records)}")
+    record = records[0]
+    if record.get("eventName") != expected_event_name:
+        raise HarnessFailure(
+            f"{label}: expected {expected_event_name}, got {record.get('eventName')!r}",
+            json.dumps(record),
+        )
+    if record.get("eventSourceARN") != stream_arn:
+        raise HarnessFailure(
+            f"{label}: record eventSourceARN does not match the table's stream ARN",
+            json.dumps(record),
+        )
+    event_id = record.get("eventID") or ""
+    if not STREAM_EVENT_ID_RE.match(event_id) or event_id.startswith(("local-", "ttl-")):
+        raise HarnessFailure(f"{label}: event id {event_id!r} is not a real stream event id")
+    sequence = (record.get("dynamodb") or {}).get("SequenceNumber") or ""
+    if not sequence:
+        raise HarnessFailure(f"{label}: record has no stream sequence number")
+    if payload.get("event_id") != event_id or payload.get("sequence_number") != sequence:
+        raise HarnessFailure(f"{label}: reader metadata does not match its record")
+
+    if pk is not None:
+        keys = (record.get("dynamodb") or {}).get("Keys") or {}
+        if (keys.get(pk_name) or {}).get("S") != pk:
+            raise HarnessFailure(f"{label}: record partition key does not match {pk!r}")
+    if sk is not None:
+        keys = (record.get("dynamodb") or {}).get("Keys") or {}
+        if (keys.get(sk_name) or {}).get("S") != sk:
+            raise HarnessFailure(f"{label}: record sort key does not match {sk!r}")
+    return record
+
+
+def require_real_s3_notification(
+    payload: dict,
+    *,
+    bucket: str,
+    key: str,
+    label: str,
+) -> dict:
+    """Fail closed unless a real S3 notification was delivered to a queue.
+
+    The notification must carry the SQS message id, the dropped s3:TestEvent
+    id, and the documented record shape. moto omits sequencer/userIdentity/
+    requestParameters/responseElements, which the docs record as a local
+    deviation; the fields the handler consumes are asserted.
+    """
+    if not isinstance(payload, dict):
+        raise HarnessFailure(f"{label}: notification fixture returned {type(payload).__name__}")
+    if payload.get("source") != "moto-s3-notification":
+        raise HarnessFailure(f"{label}: the event was not an S3 notification")
+    if not payload.get("message_id") or not payload.get("test_event_id"):
+        raise HarnessFailure(
+            f"{label}: missing SQS message id or the dropped s3:TestEvent id",
+            json.dumps(payload),
+        )
+
+    notification = payload.get("notification") or {}
+    records = notification.get("Records") or []
+    if len(records) != 1:
+        raise HarnessFailure(f"{label}: expected one S3 record, got {len(records)}")
+    record = records[0]
+    if record.get("eventSource") != "aws:s3":
+        raise HarnessFailure(f"{label}: unexpected eventSource {record.get('eventSource')!r}")
+    if record.get("eventName") != S3_NOTIFICATION_EVENT_NAME:
+        raise HarnessFailure(
+            f"{label}: expected {S3_NOTIFICATION_EVENT_NAME}, got {record.get('eventName')!r}"
+        )
+
+    entity = record.get("s3") or {}
+    if entity.get("s3SchemaVersion") != "1.0":
+        raise HarnessFailure(f"{label}: unexpected s3SchemaVersion {entity.get('s3SchemaVersion')!r}")
+    bucket_block = entity.get("bucket") or {}
+    if bucket_block.get("name") != bucket:
+        raise HarnessFailure(f"{label}: notification names bucket {bucket_block.get('name')!r}")
+    if bucket_block.get("arn") != f"arn:aws:s3:::{bucket}":
+        raise HarnessFailure(f"{label}: notification bucket ARN is {bucket_block.get('arn')!r}")
+    object_block = entity.get("object") or {}
+    encoded_key = object_block.get("key") or ""
+    if urllib.parse.unquote_plus(encoded_key) != key:
+        raise HarnessFailure(
+            f"{label}: notification key {encoded_key!r} does not decode to {key!r}"
+        )
+    if int(object_block.get("size") or 0) <= 0:
+        raise HarnessFailure(f"{label}: notification object has no size")
+    if not object_block.get("eTag"):
+        raise HarnessFailure(f"{label}: notification object has no eTag")
+    return record
 
 
 def _api_event(
@@ -2080,42 +2211,44 @@ def run_payment_query(harness: Harness) -> str:
     return "list/get/summary/export + 401 refusal"
 
 
+RECONCILE_BUCKET = "reconciliation-local"
+RECONCILE_KEY = "reconciliation/merchant-1/2026-11-01.csv"
+
+
 def run_payment_reconcile(harness: Harness) -> str:
     _fixture(harness, "provision")
-    published = _fixture_json(harness, "publish-reconcile")
-    function = _lambda_runtime(harness).start_go(
-        "payment-reconcile", "./examples/payment/lambda/reconcile"
+    runtime = _lambda_runtime(harness)
+    # The profile's default S3 is s3proxy (no notifications). This row uses the
+    # profile's moto S3, which delivers a real bucket notification to moto SQS;
+    # the other S3 rows keep s3proxy.
+    moto_host = runtime.profile.url("kms")
+    moto_container = runtime.container_url("moto")
+    published = _fixture_json(
+        harness,
+        "publish-reconcile-notification",
+        bucket=RECONCILE_BUCKET,
+        key=RECONCILE_KEY,
+        endpoint=moto_host,
+    )
+    record = require_real_s3_notification(
+        published,
+        bucket=RECONCILE_BUCKET,
+        key=RECONCILE_KEY,
+        label="payment reconcile",
+    )
+    function = runtime.start_go(
+        "payment-reconcile",
+        "./examples/payment/lambda/reconcile",
+        {
+            "AWS_ENDPOINT_URL_S3": moto_container,
+            "S3_ENDPOINT": moto_container,
+            "AWS_ENDPOINT_URL_SQS": moto_container,
+            "SQS_ENDPOINT": moto_container,
+        },
     )
 
-    event = {
-        "Records": [
-            {
-                "eventVersion": "2.1",
-                "eventSource": "aws:s3",
-                "awsRegion": "us-east-1",
-                "eventTime": "2026-11-02T00:00:00.000Z",
-                "eventName": "ObjectCreated:Put",
-                "s3": {
-                    "s3SchemaVersion": "1.0",
-                    "configurationId": "tabletheory-local-harness",
-                    "bucket": {
-                        "name": published.get("bucket"),
-                        "ownerIdentity": {"principalId": "local"},
-                        "arn": f"arn:aws:s3:::{published.get('bucket')}",
-                    },
-                    "object": {
-                        "key": published.get("key"),
-                        "size": published.get("size"),
-                        "eTag": published.get("etag"),
-                        "sequencer": "0001",
-                    },
-                },
-            }
-        ]
-    }
-
     function.mark_logs()
-    result = function.invoke(event)
+    result = function.invoke(published["notification"])
     _require(result is None, "reconcile handler returned a value", result)
     logs = function.new_logs()
     expect_output(logs, ["Reconciliation completed: 2 processed, 0 errors"], "reconcile")
@@ -2125,7 +2258,11 @@ def run_payment_reconcile(harness: Harness) -> str:
     _require(verify.get("settlements", 0) >= 1, "reconcile stored no settlement", verify)
     _require(verify.get("audit_logs", 0) >= 2, "reconcile stored no audit entries", verify)
 
-    return "real S3 object read + 2 rows + settlement/audit writes"
+    return (
+        f"real S3 notification {published['message_id']} ({record['eventName']}) "
+        f"from {RECONCILE_BUCKET}/{RECONCILE_KEY}; dropped s3:TestEvent "
+        f"{published['test_event_id']}; object read + 2 rows + settlement/audit writes"
+    )
 
 
 def run_ts_lambda(harness: Harness) -> str:
@@ -2150,13 +2287,27 @@ def run_ts_lambda(harness: Harness) -> str:
 
 def run_py_lambda_stream(harness: Harness) -> str:
     pk = f"NOTE#{uuid.uuid4().hex[:12]}"
-    event = _stream_event(harness, pk)
+    stream = _stream_records(
+        harness,
+        "insert",
+        table="lambda_stream_notes",
+        pk=pk,
+        sk="META",
+        value=42,
+    )
+    record = require_real_stream_event(
+        stream,
+        expected_event_name="INSERT",
+        pk=pk,
+        sk="META",
+        label="Python stream handler",
+    )
     function = _lambda_runtime(harness).start_python(
         "py-lambda-stream", ROOT / "py" / "examples" / "lambda_stream_handler.py"
     )
 
     function.mark_logs()
-    result = function.invoke(event)
+    result = function.invoke(stream["event"])
     _require(result is None, "Python stream handler returned a value", result)
     logs = function.new_logs()
     expect_output(
@@ -2165,7 +2316,10 @@ def run_py_lambda_stream(harness: Harness) -> str:
         "Python stream handler",
     )
 
-    return "generated stream record from a real local write"
+    return (
+        f"real INSERT {record['eventID']} sequence {record['dynamodb']['SequenceNumber']} "
+        f"read from {stream['stream_arn']}"
+    )
 
 
 # --- Blog rows --------------------------------------------------------------
@@ -2745,6 +2899,11 @@ def _cdk_provision(harness: Harness) -> dict:
         "archive bucket name drifted from the harness constant",
         provisioned,
     )
+    _require(
+        str(provisioned.get("evidence_stream_arn", "")).startswith("arn:aws:dynamodb:"),
+        "evidence table has no real DynamoDB stream",
+        provisioned,
+    )
     return provisioned
 
 
@@ -3081,40 +3240,70 @@ def run_cdk_multilang_python(harness: Harness) -> str:
     )
 
 
-def run_cdk_multilang_archive(harness: Harness) -> str:
-    _cdk_provision(harness)
-    generated = _cdk_fixture(
-        harness, "stream-event", pk="evidence#local", sk="ttl-1", ttl=CDK_TTL_ATTRIBUTE
-    )
-    event = generated.get("event") or {}
-    _require(
-        len(event.get("Records") or []) == 1,
-        "stream event generator did not produce one record",
-        generated,
-    )
-
-    runtime = _lambda_runtime(harness)
-    function = runtime.start_node(
+def _start_archive_function(
+    runtime: lambda_runtime.LambdaRuntime, prefix: str
+) -> lambda_runtime.LambdaFunction:
+    return runtime.start_node(
         "cdk-archive",
         CDK_MULTILANG / "lambdas" / "archive" / "handler.ts",
         {
             "ARCHIVE_BUCKET_NAME": CDK_ARCHIVE_BUCKET,
-            "ARCHIVE_PREFIX": CDK_ARCHIVE_PREFIX,
+            "ARCHIVE_PREFIX": prefix,
             "TTL_ATTRIBUTE_NAME": CDK_TTL_ATTRIBUTE,
         },
     )
+
+
+def _archive_stream_records(
+    harness: Harness, pk: str, *, label: str
+) -> tuple[dict, dict]:
+    stream = _stream_records(
+        harness,
+        "ttl-remove",
+        table=CDK_EVIDENCE_TABLE,
+        pk=pk,
+        sk="ttl-1",
+        ttl_attribute=CDK_TTL_ATTRIBUTE,
+    )
+    remove = require_real_stream_event(
+        stream,
+        expected_event_name="REMOVE",
+        pk=pk,
+        sk="ttl-1",
+        label=label,
+    )
+    _require(
+        stream.get("ttl_identity_added") is True
+        and (remove.get("userIdentity") or {}).get("type") == "Service"
+        and (remove.get("userIdentity") or {}).get("principalId") == "dynamodb.amazonaws.com",
+        "the REMOVE record does not carry the documented TTL service identity",
+        remove,
+    )
+    modify = stream.get("modify") or {}
+    _require(
+        modify.get("eventName") == "MODIFY"
+        and modify.get("eventSourceARN") == stream["stream_arn"]
+        and modify.get("eventID"),
+        "the stream read did not include a real MODIFY record",
+        stream,
+    )
+    return stream, remove
+
+
+def run_cdk_multilang_archive(harness: Harness) -> str:
+    _cdk_provision(harness)
+    runtime = _lambda_runtime(harness)
+    function = _start_archive_function(runtime, CDK_ARCHIVE_PREFIX)
     try:
-        response = function.invoke(event)
+        stream, remove = _archive_stream_records(harness, "evidence#local", label="archive")
+        response = function.invoke({"Records": [stream["modify"]]})
+        _require(response == {"batchItemFailures": []}, "non-TTL record was not skipped", response)
+        response = function.invoke(stream["event"])
         _require(
             response == {"batchItemFailures": []},
             "archive handler reported a batch item failure",
             response,
         )
-        non_ttl = json.loads(json.dumps(event))
-        non_ttl["Records"][0]["eventName"] = "MODIFY"
-        non_ttl["Records"][0]["userIdentity"] = {"type": "Service", "principalId": "unknown"}
-        response = function.invoke(non_ttl)
-        _require(response == {"batchItemFailures": []}, "non-TTL record was not skipped", response)
     finally:
         runtime.stop("cdk-archive")
 
@@ -3123,12 +3312,17 @@ def run_cdk_multilang_archive(harness: Harness) -> str:
     )
     _require(int(archived.get("objects", 0)) == 1, "archive wrote an unexpected object count", archived)
     _require(
-        archived.get("event_id") == generated.get("event_id"),
-        "archived event id does not match the generated record",
+        archived.get("event_id") == remove["eventID"],
+        "archived event id does not match the real stream record",
         archived,
     )
     _require(
-        archived.get("ttl_value") == generated.get("old_ttl_value"),
+        archived.get("event_source") == stream["stream_arn"],
+        "archived stream ARN does not match the real table stream",
+        archived,
+    )
+    _require(
+        archived.get("ttl_value") == stream.get("old_ttl_value"),
         "archived TTL value does not match the real stored image",
         archived,
     )
@@ -3137,7 +3331,11 @@ def run_cdk_multilang_archive(harness: Harness) -> str:
         "archived TTL attribute mismatch",
         archived,
     )
-    return "generated TTL REMOVE record from a real write/read/delete + real S3 PutObject/GetObject"
+    return (
+        f"real REMOVE {remove['eventID']} sequence {remove['dynamodb']['SequenceNumber']} "
+        f"read from {stream['stream_arn']}; TTL identity added because DynamoDB Local does not "
+        "run the TTL sweeper; real S3 PutObject/GetObject"
+    )
 
 
 def run_cdk_multilang_smoke_local(harness: Harness) -> str:
@@ -3155,6 +3353,7 @@ def run_cdk_multilang_smoke_local(harness: Harness) -> str:
             requirements=CDK_MULTILANG / "lambdas" / "python",
         ),
     }
+    archive = _start_archive_function(runtime, CDK_SMOKE_ARCHIVE_PREFIX)
     try:
         result = harness.run(
             ["bash", "examples/cdk-multilang/scripts/smoke-local.sh"],
@@ -3169,10 +3368,37 @@ def run_cdk_multilang_smoke_local(harness: Harness) -> str:
         output = _combined_output(result)
         expect_output(output, ["smoke-local: PASS"], "cdk-multilang smoke-local")
         reject_output(output, ["smoke-local: FAIL", "FAIL:"], "cdk-multilang smoke-local")
+
+        # The archive event source is part of the deployed smoke's subject; the
+        # local row exercises it with the same real stream reader as the archive
+        # row, against the real evidence table stream.
+        stream, remove = _archive_stream_records(harness, "evidence#smoke", label="smoke archive")
+        response = archive.invoke(stream["event"])
+        _require(
+            response == {"batchItemFailures": []},
+            "smoke archive handler reported a batch item failure",
+            response,
+        )
+        archived = _cdk_fixture(
+            harness,
+            "verify-archive",
+            bucket=CDK_ARCHIVE_BUCKET,
+            prefix=CDK_SMOKE_ARCHIVE_PREFIX,
+        )
+        _require(int(archived.get("objects", 0)) == 1, "smoke archive object count mismatch", archived)
+        _require(
+            archived.get("event_id") == remove["eventID"],
+            "smoke archive event id does not match the real stream record",
+            archived,
+        )
     finally:
+        runtime.stop("cdk-archive")
         for name in ("cdk-smoke-go", "cdk-smoke-node", "cdk-smoke-python"):
             runtime.stop(name)
-    return "smoke.sh journeys (encryption, raw envelope, batch, tx) against the local handlers"
+    return (
+        "smoke.sh journeys (encryption, raw envelope, batch, tx) against the local handlers; "
+        f"real stream REMOVE {remove['eventID']} through the archive handler"
+    )
 
 
 def _synth_assertions(template: dict, repo_root: Path) -> dict:

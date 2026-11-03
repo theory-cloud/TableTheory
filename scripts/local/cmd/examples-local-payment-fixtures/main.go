@@ -1,7 +1,8 @@
 // Command examples-local-payment-fixtures provisions the local DynamoDB tables
 // the Lambda and payment examples use, seeds fixture rows through the real
-// TableTheory models, publishes a reconciliation object to the local S3
-// emulator, and reads the stored state back for harness assertions.
+// TableTheory models, configures a real moto S3 bucket notification and puts
+// the reconciliation object, and reads the stored state back for harness
+// assertions.
 //
 // It is harness tooling, not an example: every write goes through the real
 // library against the local profile, and the tool refuses to run with anything
@@ -26,6 +27,8 @@ import (
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
 	"github.com/theory-cloud/tabletheory/v6"
 	payment "github.com/theory-cloud/tabletheory/v6/examples/payment"
@@ -41,6 +44,8 @@ const (
 	defaultBucket        = "reconciliation-local"
 	defaultObjectKey     = "reconciliation/merchant-1/2026-11-01.csv"
 	defaultUsersTable    = "lambda_users"
+	defaultQueueName     = "tabletheory-reconcile-notifications"
+	notificationTimeout  = 30 * time.Second
 )
 
 // lambdaPayment mirrors examples/lambda's Payment model. The harness cannot
@@ -95,6 +100,8 @@ type options struct {
 	bucket     string
 	key        string
 	userTable  string
+	endpoint   string
+	queue      string
 }
 
 type verification struct {
@@ -122,11 +129,13 @@ type publishedObject struct {
 
 func main() {
 	var opts options
-	flag.StringVar(&opts.mode, "mode", "", "provision|seed-merchant|seed-user|verify-user|publish-reconcile|verify-payment")
+	flag.StringVar(&opts.mode, "mode", "", "provision|seed-merchant|seed-user|verify-user|publish-reconcile|publish-reconcile-notification|verify-payment")
 	flag.StringVar(&opts.merchant, "merchant", defaultMerchantID, "merchant id to seed or verify")
 	flag.StringVar(&opts.webhookURL, "webhook-url", defaultWebhookURL, "merchant webhook URL")
 	flag.StringVar(&opts.bucket, "bucket", defaultBucket, "S3 bucket for the reconciliation object")
 	flag.StringVar(&opts.key, "key", defaultObjectKey, "S3 object key for the reconciliation object")
+	flag.StringVar(&opts.endpoint, "endpoint", "", "S3 and SQS endpoint for the notification probe (the profile's moto)")
+	flag.StringVar(&opts.queue, "queue", defaultQueueName, "SQS queue that receives the bucket notification")
 	flag.Parse()
 
 	if err := run(context.Background(), opts); err != nil {
@@ -169,6 +178,8 @@ func run(ctx context.Context, opts options) error {
 		return verifyUser(ctx)
 	case "publish-reconcile":
 		return publishReconcile(ctx, opts.bucket, opts.key)
+	case "publish-reconcile-notification":
+		return publishReconcileNotification(ctx, opts)
 	case "verify-payment":
 		db, err := newDB()
 		if err != nil {
@@ -332,6 +343,211 @@ func publishReconcile(ctx context.Context, bucket, key string) error {
 	return nil
 }
 
+type s3Notification struct {
+	Records []s3NotificationRecord `json:"Records"`
+}
+
+type s3NotificationRecord struct {
+	EventVersion string `json:"eventVersion"`
+	EventSource  string `json:"eventSource"`
+	AWSRegion    string `json:"awsRegion"`
+	EventTime    string `json:"eventTime"`
+	EventName    string `json:"eventName"`
+	S3           struct {
+		S3SchemaVersion string `json:"s3SchemaVersion"`
+		ConfigurationID string `json:"configurationId"`
+		Bucket          struct {
+			Name string `json:"name"`
+			ARN  string `json:"arn"`
+		} `json:"bucket"`
+		Object struct {
+			Key  string `json:"key"`
+			Size int64  `json:"size"`
+			ETag string `json:"etag"`
+		} `json:"object"`
+	} `json:"s3"`
+}
+
+// publishReconcileNotification configures a real bucket notification on the
+// profile's moto S3, drains the s3:TestEvent AWS sends when a notification is
+// configured, puts the reconciliation CSV, and returns the ObjectCreated record
+// moto delivered to the queue. The event shape is asserted against
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
+// (the record eventName has no s3: prefix; only the configuration uses one).
+func publishReconcileNotification(ctx context.Context, opts options) error {
+	if strings.TrimSpace(opts.endpoint) == "" {
+		return fmt.Errorf("-endpoint is required for publish-reconcile-notification")
+	}
+	if err := assertLoopbackEndpoint("-endpoint", opts.endpoint); err != nil {
+		return err
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("load AWS config: %w", err)
+	}
+	s3Client := s3.NewFromConfig(cfg, func(options *s3.Options) {
+		options.BaseEndpoint = aws.String(opts.endpoint)
+		options.UsePathStyle = true
+	})
+	sqsClient := sqs.NewFromConfig(cfg, func(options *sqs.Options) {
+		options.BaseEndpoint = aws.String(opts.endpoint)
+	})
+
+	queue, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName: aws.String(opts.queue),
+	})
+	if err != nil {
+		return fmt.Errorf("create queue %s: %w", opts.queue, err)
+	}
+	queueURL := aws.ToString(queue.QueueUrl)
+	attributes, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl:       aws.String(queueURL),
+		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	if err != nil {
+		return fmt.Errorf("read queue ARN: %w", err)
+	}
+	queueARN := attributes.Attributes[string(sqstypes.QueueAttributeNameQueueArn)]
+	if queueARN == "" {
+		return fmt.Errorf("queue %s has no ARN", opts.queue)
+	}
+
+	if _, err := s3Client.CreateBucket(ctx, &s3.CreateBucketInput{
+		Bucket: aws.String(opts.bucket),
+	}); err != nil {
+		var owned *s3types.BucketAlreadyOwnedByYou
+		var exists *s3types.BucketAlreadyExists
+		if !errors.As(err, &owned) && !errors.As(err, &exists) {
+			return fmt.Errorf("create bucket %s: %w", opts.bucket, err)
+		}
+	}
+	if _, err := s3Client.PutBucketNotificationConfiguration(ctx, &s3.PutBucketNotificationConfigurationInput{
+		Bucket: aws.String(opts.bucket),
+		NotificationConfiguration: &s3types.NotificationConfiguration{
+			QueueConfigurations: []s3types.QueueConfiguration{{
+				Id:       aws.String("tabletheory-reconcile"),
+				QueueArn: aws.String(queueARN),
+				Events:   []s3types.Event{s3types.EventS3ObjectCreated},
+			}},
+		},
+	}); err != nil {
+		return fmt.Errorf("configure notification on %s: %w", opts.bucket, err)
+	}
+
+	testEventID, _, err := receiveNotification(ctx, sqsClient, queueURL, func(body string) bool {
+		return strings.Contains(body, "s3:TestEvent")
+	})
+	if err != nil {
+		return fmt.Errorf("the s3:TestEvent was not delivered: %w", err)
+	}
+
+	body := []byte("payment_id,transaction_id,status,fee,processed_date,settlement_date\n" +
+		"pay_1,tx_1,succeeded,100,2026-11-01,2026-11-01\n" +
+		"pay_2,tx_2,succeeded,250,2026-11-01,2026-11-01\n")
+	if _, err := s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(opts.bucket),
+		Key:         aws.String(opts.key),
+		Body:        bytes.NewReader(body),
+		ContentType: aws.String("text/csv"),
+	}); err != nil {
+		return fmt.Errorf("put %s/%s: %w", opts.bucket, opts.key, err)
+	}
+
+	messageID, raw, err := receiveNotification(ctx, sqsClient, queueURL, func(body string) bool {
+		return strings.Contains(body, "ObjectCreated:Put")
+	})
+	if err != nil {
+		return fmt.Errorf("the ObjectCreated notification was not delivered: %w", err)
+	}
+
+	var notification s3Notification
+	if err := json.Unmarshal([]byte(raw), &notification); err != nil {
+		return fmt.Errorf("notification body is not JSON: %w", err)
+	}
+	if len(notification.Records) != 1 {
+		return fmt.Errorf("notification carried %d records, want 1", len(notification.Records))
+	}
+	record := notification.Records[0]
+	if record.EventVersion != "2.1" {
+		return fmt.Errorf("unexpected eventVersion %q", record.EventVersion)
+	}
+	if record.EventSource != "aws:s3" {
+		return fmt.Errorf("unexpected eventSource %q", record.EventSource)
+	}
+	if record.EventName != "ObjectCreated:Put" {
+		return fmt.Errorf("unexpected eventName %q", record.EventName)
+	}
+	if record.S3.S3SchemaVersion != "1.0" {
+		return fmt.Errorf("unexpected s3SchemaVersion %q", record.S3.S3SchemaVersion)
+	}
+	if record.S3.Bucket.Name != opts.bucket || record.S3.Bucket.ARN != "arn:aws:s3:::"+opts.bucket {
+		return fmt.Errorf("notification names bucket %q/%q, want %q", record.S3.Bucket.Name, record.S3.Bucket.ARN, opts.bucket)
+	}
+	decodedKey, err := url.QueryUnescape(record.S3.Object.Key)
+	if err != nil {
+		return fmt.Errorf("notification key %q is not URL-encoded: %w", record.S3.Object.Key, err)
+	}
+	if decodedKey != opts.key {
+		return fmt.Errorf("notification key %q decodes to %q, want %q", record.S3.Object.Key, decodedKey, opts.key)
+	}
+	if record.S3.Object.Size <= 0 || record.S3.Object.ETag == "" {
+		return fmt.Errorf("notification object has size %d and eTag %q", record.S3.Object.Size, record.S3.Object.ETag)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return fmt.Errorf("decode notification envelope: %w", err)
+	}
+	emit(map[string]any{
+		"source":        "moto-s3-notification",
+		"bucket":        opts.bucket,
+		"key":           opts.key,
+		"queue_url":     queueURL,
+		"queue_arn":     queueARN,
+		"message_id":    messageID,
+		"test_event_id": testEventID,
+		"notification":  decoded,
+		"event_name":    record.EventName,
+		"size":          record.S3.Object.Size,
+		"etag":          record.S3.Object.ETag,
+	})
+	return nil
+}
+
+func receiveNotification(
+	ctx context.Context,
+	client *sqs.Client,
+	queueURL string,
+	match func(string) bool,
+) (string, string, error) {
+	deadline := time.Now().Add(notificationTimeout)
+	for time.Now().Before(deadline) {
+		out, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl:            aws.String(queueURL),
+			MaxNumberOfMessages: 10,
+			WaitTimeSeconds:     1,
+		})
+		if err != nil {
+			return "", "", fmt.Errorf("receive from %s: %w", queueURL, err)
+		}
+		for _, message := range out.Messages {
+			body := aws.ToString(message.Body)
+			if !match(body) {
+				continue
+			}
+			if _, err := client.DeleteMessage(ctx, &sqs.DeleteMessageInput{
+				QueueUrl:      aws.String(queueURL),
+				ReceiptHandle: message.ReceiptHandle,
+			}); err != nil {
+				return "", "", fmt.Errorf("delete notification: %w", err)
+			}
+			return aws.ToString(message.MessageId), body, nil
+		}
+	}
+	return "", "", fmt.Errorf("no matching notification arrived within %s", notificationTimeout)
+}
+
 func verifyPayment(db core.ExtendedDB, merchantID string) error {
 	var payments []*payment.Payment
 	if err := db.Model(&payment.Payment{}).
@@ -434,15 +650,31 @@ func assertHarnessCredentials(ctx context.Context) error {
 		if value == "" {
 			return fmt.Errorf("%s is unset; the harness must own every endpoint", name)
 		}
-		parsed, err := url.Parse(value)
-		if err != nil {
-			return fmt.Errorf("%s is not a URL: %w", name, err)
-		}
-		switch strings.ToLower(parsed.Hostname()) {
-		case "127.0.0.1", "::1", "localhost":
-		default:
-			return fmt.Errorf("%s host %q is not loopback; refusing to run", name, parsed.Hostname())
+		if err := assertLoopbackEndpoint(name, value); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func emit(payload map[string]any) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "examples-local-payment-fixtures: FAIL: encode result: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(encoded))
+}
+
+func assertLoopbackEndpoint(name, value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("%s is not a URL: %w", name, err)
+	}
+	switch strings.ToLower(parsed.Hostname()) {
+	case "127.0.0.1", "::1", "localhost":
+		return nil
+	default:
+		return fmt.Errorf("%s host %q is not loopback; refusing to run", name, parsed.Hostname())
+	}
 }
