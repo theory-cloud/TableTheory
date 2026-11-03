@@ -1,13 +1,15 @@
 // Command examples-local-cdk-fixtures prepares and inspects the local state the
 // cdk-multilang rows need: it provisions the shared demo table, the TTL
-// evidence table and the archive bucket, reads an encrypted item back in its
-// raw DynamoDB envelope form, generates a DynamoDB stream REMOVE record from a
-// real local write and delete, and reads the archive object the deployed
-// archive handler wrote to the local S3 emulator.
+// evidence table and the archive bucket, enables the evidence table's real
+// DynamoDB stream, reads an encrypted item back in its raw DynamoDB envelope
+// form, and reads the archive object the deployed archive handler wrote to the
+// local S3 emulator.
 //
 // It is harness tooling, not an example: every write and read goes through the
 // real AWS API surface against the local profile. The tool refuses to run with
-// anything but the static dummy credentials and loopback endpoints.
+// anything but the static dummy credentials and loopback endpoints. Stream
+// records are read by examples-local-stream-event; this tool never manufactures
+// one.
 package main
 
 import (
@@ -31,18 +33,17 @@ import (
 
 	"github.com/theory-cloud/tabletheory/v6"
 	"github.com/theory-cloud/tabletheory/v6/pkg/core"
+	"github.com/theory-cloud/tabletheory/v6/scripts/local/internal/streams"
 )
 
 const (
-	dummyAccessKeyID      = "dummy"
-	dummySecretAccessKey  = "dummy"
-	defaultDemoTable      = "multilang_local"
-	defaultEvidenceTable  = "multilang_evidence_local"
-	defaultArchiveBucket  = "multilang-archive-local"
-	defaultArchivePrefix  = "evidence-snapshots"
-	defaultTTLAttribute   = "expires_at"
-	defaultTableRegion    = "us-east-1"
-	fakeAccountIdentifier = "123456789012"
+	dummyAccessKeyID     = "dummy"
+	dummySecretAccessKey = "dummy"
+	defaultDemoTable     = "multilang_local"
+	defaultEvidenceTable = "multilang_evidence_local"
+	defaultArchiveBucket = "multilang-archive-local"
+	defaultArchivePrefix = "evidence-snapshots"
+	streamReadyTimeout   = 30 * time.Second
 )
 
 // demoItem mirrors the deployed DemoItem model. The harness cannot import a
@@ -78,18 +79,16 @@ type options struct {
 	sk        string
 	bucket    string
 	prefix    string
-	ttl       string
 	plaintext string
 }
 
 func main() {
 	opts := options{}
-	flag.StringVar(&opts.mode, "mode", "provision", "provision, verify-envelope, stream-event or verify-archive")
+	flag.StringVar(&opts.mode, "mode", "provision", "provision, verify-envelope or verify-archive")
 	flag.StringVar(&opts.pk, "pk", "demo#1", "partition key")
 	flag.StringVar(&opts.sk, "sk", "v1", "sort key")
 	flag.StringVar(&opts.bucket, "bucket", defaultArchiveBucket, "archive bucket")
 	flag.StringVar(&opts.prefix, "prefix", defaultArchivePrefix, "archive key prefix")
-	flag.StringVar(&opts.ttl, "ttl", defaultTTLAttribute, "TTL attribute name")
 	flag.StringVar(&opts.plaintext, "plaintext", "", "plaintext that must not appear in the stored item")
 	flag.Parse()
 
@@ -106,8 +105,6 @@ func main() {
 		err = provision(ctx, opts)
 	case "verify-envelope":
 		err = verifyEnvelope(ctx, opts)
-	case "stream-event":
-		err = streamEvent(ctx, opts)
 	case "verify-archive":
 		err = verifyArchive(ctx, opts)
 	default:
@@ -129,6 +126,17 @@ func provision(ctx context.Context, opts options) error {
 		}
 	}
 
+	ddb, err := newDynamoDB(ctx)
+	if err != nil {
+		return err
+	}
+	// The archive row consumes the table's real DynamoDB stream; enabling it
+	// here keeps every cdk-multilang row on the same provisioned table.
+	stream, err := streams.Ensure(ctx, ddb, evidenceItem{}.TableName(), streamReadyTimeout)
+	if err != nil {
+		return fmt.Errorf("enable evidence stream: %w", err)
+	}
+
 	client, err := newS3(ctx)
 	if err != nil {
 		return err
@@ -142,10 +150,12 @@ func provision(ctx context.Context, opts options) error {
 	}
 
 	emit(map[string]any{
-		"ok":             true,
-		"demo_table":     demoItem{}.TableName(),
-		"evidence_table": evidenceItem{}.TableName(),
-		"archive_bucket": opts.bucket,
+		"ok":                    true,
+		"demo_table":            demoItem{}.TableName(),
+		"evidence_table":        evidenceItem{}.TableName(),
+		"evidence_stream_arn":   stream.StreamARN,
+		"evidence_stream_label": stream.StreamLabel,
+		"archive_bucket":        opts.bucket,
 	})
 	return nil
 }
@@ -195,94 +205,6 @@ func verifyEnvelope(ctx context.Context, opts options) error {
 		"stored_bytes":     len(encoded),
 	}
 	emit(result)
-	return nil
-}
-
-// streamEvent performs a real write, reads the stored image back, deletes the
-// row and turns the read image into the stream REMOVE record a DynamoDB Streams
-// TTL expiry would deliver. DynamoDB Local has no Streams, so the record is
-// generated while the write, the stored image and the delete are real.
-func streamEvent(ctx context.Context, opts options) error {
-	client, err := newDynamoDB(ctx)
-	if err != nil {
-		return err
-	}
-	table := evidenceItem{}.TableName()
-	expired := time.Now().Add(-time.Hour).Unix()
-
-	put := &dynamodb.PutItemInput{
-		TableName: aws.String(table),
-		Item: map[string]ddbtypes.AttributeValue{
-			"pk":      &ddbtypes.AttributeValueMemberS{Value: opts.pk},
-			"sk":      &ddbtypes.AttributeValueMemberS{Value: opts.sk},
-			"payload": &ddbtypes.AttributeValueMemberS{Value: "expired evidence"},
-			opts.ttl:  &ddbtypes.AttributeValueMemberN{Value: strconv.FormatInt(expired, 10)},
-		},
-	}
-	if _, err := client.PutItem(ctx, put); err != nil {
-		return fmt.Errorf("write %s: %w", table, err)
-	}
-
-	stored, err := getItemWithKeys(ctx, client, table, "pk", "sk", opts.pk, opts.sk)
-	if err != nil {
-		return err
-	}
-	if len(stored) == 0 {
-		return fmt.Errorf("written item %s/%s could not be read back", opts.pk, opts.sk)
-	}
-	if _, err := client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
-		TableName: aws.String(table),
-		Key: map[string]ddbtypes.AttributeValue{
-			"pk": &ddbtypes.AttributeValueMemberS{Value: opts.pk},
-			"sk": &ddbtypes.AttributeValueMemberS{Value: opts.sk},
-		},
-	}); err != nil {
-		return fmt.Errorf("delete %s: %w", table, err)
-	}
-
-	eventID := fmt.Sprintf("ttl-%d", time.Now().UnixNano())
-	oldImage := make(map[string]any, len(stored))
-	for key, value := range stored {
-		oldImage[key] = attributeJSON(value)
-	}
-	encodedImage, err := json.Marshal(oldImage)
-	if err != nil {
-		return fmt.Errorf("encode stream image: %w", err)
-	}
-	keys := map[string]any{
-		"pk": attributeJSON(stored["pk"]),
-		"sk": attributeJSON(stored["sk"]),
-	}
-	record := map[string]any{
-		"eventID":        eventID,
-		"eventName":      "REMOVE",
-		"eventVersion":   "1.1",
-		"eventSource":    "aws:dynamodb",
-		"awsRegion":      defaultTableRegion,
-		"eventSourceARN": fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s/stream/2026-11-01T00:00:00.000", defaultTableRegion, fakeAccountIdentifier, table),
-		"userIdentity": map[string]string{
-			"type":        "Service",
-			"principalId": "dynamodb.amazonaws.com",
-		},
-		"dynamodb": map[string]any{
-			"ApproximateCreationDateTime": time.Now().Unix(),
-			"Keys":                        keys,
-			"OldImage":                    oldImage,
-			"SequenceNumber":              "100000000000000000001",
-			"SizeBytes":                   len(encodedImage),
-			"StreamViewType":              "NEW_AND_OLD_IMAGES",
-		},
-	}
-	emit(map[string]any{
-		"event":          map[string]any{"Records": []any{record}},
-		"event_id":       eventID,
-		"ttl_attribute":  opts.ttl,
-		"pk":             opts.pk,
-		"sk":             opts.sk,
-		"old_image":      oldImage,
-		"old_ttl_value":  oldImage[opts.ttl],
-		"evidence_table": table,
-	})
 	return nil
 }
 
@@ -378,37 +300,6 @@ func getItemWithKeys(
 		return nil, fmt.Errorf("get %s/%s/%s: %w", table, pk, sk, err)
 	}
 	return out.Item, nil
-}
-
-// attributeJSON converts an AttributeValue into the DynamoDB JSON wire shape
-// a Lambda stream event carries.
-func attributeJSON(value ddbtypes.AttributeValue) any {
-	switch typed := value.(type) {
-	case *ddbtypes.AttributeValueMemberS:
-		return map[string]string{"S": typed.Value}
-	case *ddbtypes.AttributeValueMemberN:
-		return map[string]string{"N": typed.Value}
-	case *ddbtypes.AttributeValueMemberB:
-		return map[string]string{"B": string(typed.Value)}
-	case *ddbtypes.AttributeValueMemberBOOL:
-		return map[string]bool{"BOOL": typed.Value}
-	case *ddbtypes.AttributeValueMemberM:
-		values := make(map[string]any, len(typed.Value))
-		for key, entry := range typed.Value {
-			values[key] = attributeJSON(entry)
-		}
-		return map[string]any{"M": values}
-	case *ddbtypes.AttributeValueMemberL:
-		values := make([]any, 0, len(typed.Value))
-		for _, entry := range typed.Value {
-			values = append(values, attributeJSON(entry))
-		}
-		return map[string]any{"L": values}
-	case *ddbtypes.AttributeValueMemberNULL:
-		return map[string]bool{"NULL": typed.Value}
-	default:
-		return map[string]any{"unknown": fmt.Sprintf("%T", value)}
-	}
 }
 
 func stringValue(value ddbtypes.AttributeValue) string {

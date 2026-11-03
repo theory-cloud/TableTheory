@@ -178,6 +178,19 @@ class LambdaRuntime:
             endpoints[service] = f"http://{spec.container}:{container.container_port}"
         return endpoints
 
+    def container_url(self, name: str) -> str:
+        """Return the compose-network URL of one profile container.
+
+        A row that needs a service on a container other than the logical
+        endpoint the profile maps (the reconcile row uses moto's S3 and SQS)
+        passes this URL to the function's environment.
+        """
+        try:
+            container = self.profile.containers[name]
+        except KeyError as exc:
+            raise LambdaFailure(f"profile has no container {name!r}") from exc
+        return f"http://{name}:{container.container_port}"
+
     def _container_env(self, extra: dict[str, str] | None) -> dict[str, str]:
         env = {
             "AWS_REGION": "us-east-1",

@@ -3,9 +3,10 @@
 The checked-in local profile and harness behind `make examples-local`.
 
 - `docker-compose.yml` — the local profile: DynamoDB Local plus digest-pinned
-  moto (KMS + STS), s3proxy (S3) and ElasticMQ (SQS) services. Every service
-  publishes an ephemeral loopback port; the harness reads the assigned port back
-  and gives each run a unique compose project name.
+  moto (KMS + STS, and the reconcile row's S3 notifications + SQS), s3proxy
+  (the default S3) and ElasticMQ (SQS). Every service publishes an ephemeral
+  loopback port; the harness reads the assigned port back and gives each run a
+  unique compose project name.
 - `examples-local.json` — the classification manifest. Every example entrypoint
   in the tree must appear here as `L1`/`L2`/`L3`/`I` or as `pending: <milestone>`,
   every row must name a file that exists in the tree, and every `L3`/`I` row
@@ -27,10 +28,17 @@ The checked-in local profile and harness behind `make examples-local`.
   and proves the same endpoints, credentials and backend protocols from the
   function container, and that a real AWS hostname does not resolve.
 - `cmd/examples-local-payment-fixtures` — provisions the payment and Lambda
-  tables, seeds the merchant and user rows, publishes the reconciliation CSV to
-  s3proxy, and reads stored state back for assertions.
-- `cmd/examples-local-stream-event` — performs a real local write, reads the
-  stored item back, and prints a DynamoDB stream record generated from it.
+  tables, seeds the merchant and user rows, configures a real moto S3 bucket
+  notification and puts the reconciliation CSV, and reads stored state back for
+  assertions.
+- `cmd/examples-local-stream-event` — performs a real local write (and, for the
+  archive row, a real delete) and reads the resulting record from DynamoDB Local
+  Streams through `DescribeStream`, `GetShardIterator` and `GetRecords`. It
+  never derives a record from the stored item.
+- `internal/streams` — the shared stream reader, Lambda event-shape conversion
+  and the documented local deviations (`eventSourceARN` is filled from the real
+  stream ARN, and the TTL service identity is added to a harness delete because
+  DynamoDB Local does not run the TTL sweeper).
 - `cmd/examples-local-kms-key` — creates the per-run envelope key and proves the
   local KMS wraps and unwraps a data key with the framework's context.
 
