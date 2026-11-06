@@ -5,9 +5,12 @@
 # AWS profile, IAM-signed Function URLs and a live DynamoDB table. This script
 # drives the same journeys (encrypted write, cross-language reads, the raw
 # envelope, batch and transaction) against the same handler code started in the
-# Lambda runtime interface by the examples harness. No SigV4 is needed because
-# the local RIE endpoints are plain loopback HTTP; the IAM-authenticated
-# deployed path remains the named gap.
+# Lambda runtime interface by the examples harness. The tables are real
+# DynamoDB Local tables. The harness row also exercises the archive event source
+# with a real DynamoDB stream REMOVE record. No SigV4 is needed because the
+# local RIE endpoints are plain loopback HTTP; Function URL IAM policy
+# authentication is the only remaining named gap (docs/125: IAM policy
+# evaluation).
 #
 # Required environment (set by the harness):
 #   CDK_GO_URL, CDK_NODE_URL, CDK_PY_URL  RIE invocation URLs for each handler
