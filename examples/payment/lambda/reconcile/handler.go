@@ -84,9 +84,11 @@ func NewReconcileHandler() (*ReconcileHandler, error) {
 func (h *ReconcileHandler) HandleRequest(ctx context.Context, event events.S3Event) error {
 	for _, record := range event.Records {
 		if err := h.processFile(ctx, record); err != nil {
-			// Log error but continue processing other files
-			key := strings.ReplaceAll(strings.ReplaceAll(record.S3.Object.Key, "\n", ""), "\r", "")
-			fmt.Printf("Error processing file %s: %v\n", key, err)
+			// Log error but continue processing other files. Both the key and
+			// the error can carry user-controlled key bytes (the URL-unescape
+			// failure quotes the offending bytes), so the composed message is
+			// sanitized before it reaches the plain-text log.
+			fmt.Println(sanitizeLogMessage(fmt.Sprintf("Error processing file %s: %v", record.S3.Object.Key, err)))
 			continue
 		}
 	}
@@ -100,7 +102,7 @@ func (h *ReconcileHandler) processFile(ctx context.Context, record events.S3Even
 	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
 	key, err := url.QueryUnescape(record.S3.Object.Key)
 	if err != nil {
-		return fmt.Errorf("invalid URL-encoded object key %q: %w", record.S3.Object.Key, err)
+		return fmt.Errorf("invalid URL-encoded object key %q: %w", sanitizeLogMessage(record.S3.Object.Key), err)
 	}
 
 	// Download file from S3
@@ -273,6 +275,14 @@ func (h *ReconcileHandler) processBatch(ctx context.Context, batch []*Reconcilia
 }
 
 // Helper functions
+
+// sanitizeLogMessage strips the CR/LF characters a user-controlled value could
+// use to forge extra log lines when the message is printed as plain text
+// (CWE-117). Both the S3 object key and errors quoting the raw key are
+// user-controlled, so the composed message is sanitized as a whole.
+func sanitizeLogMessage(message string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(message, "\n", ""), "\r", "")
+}
 
 func parseReconciliationRow(row []string) (*ReconciliationRecord, error) {
 	if len(row) < 6 {
