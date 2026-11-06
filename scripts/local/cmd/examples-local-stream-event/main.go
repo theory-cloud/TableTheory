@@ -1,34 +1,44 @@
-// Command examples-local-stream-event performs one real DynamoDB write through
-// TableTheory, reads the stored item back with GetItem, and prints a DynamoDB
-// stream record built from that stored image.
+// Command examples-local-stream-event performs a real DynamoDB write (and, in
+// ttl-remove mode, a real delete) and reads the resulting record from the
+// table's DynamoDB stream with DescribeStream, GetShardIterator and GetRecords.
 //
-// DynamoDB Local has no Streams, so the harness feeds this generated record to
-// the Python stream handler as a real Lambda invocation. The record is derived
-// from the item DynamoDB Local actually stored; the delivery is the named cloud
-// gap ("managed stream delivery").
+// It never derives a record from the stored item. The record's event id,
+// sequence number, keys, images and stream ARN all come from DynamoDB Local
+// Streams. The one local substitution is the documented TTL service identity on
+// a REMOVE record: DynamoDB Local does not run the TTL sweeper, so the harness
+// deletes the item itself and adds the identity AWS documents for TTL deletes
+// (https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/time-to-live-ttl-streams.html).
+//
+// See scripts/local/internal/streams for the reader, the Lambda event shape and
+// the deviations the local backend has.
 package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 
 	"github.com/theory-cloud/tabletheory/v6"
+	"github.com/theory-cloud/tabletheory/v6/scripts/local/internal/streams"
 )
 
 const (
 	dummyAccessKeyID     = "dummy"
 	dummySecretAccessKey = "dummy"
-	streamTable          = "lambda_stream_notes"
 	streamRegion         = "us-east-1"
+	defaultTable         = "lambda_stream_notes"
 )
 
 type streamNote struct {
@@ -37,144 +47,302 @@ type streamNote struct {
 	Value int    `json:"value"`
 }
 
-func (streamNote) TableName() string { return streamTable }
+// insertTable lets the harness name the table from the command line while the
+// model still resolves one name through TableName.
+var insertTable = defaultTable
 
-type streamEvent struct {
-	Records []streamRecord `json:"Records"`
-}
+func (streamNote) TableName() string { return insertTable }
 
-type streamRecord struct {
-	EventID        string         `json:"eventID"`
-	EventName      string         `json:"eventName"`
-	EventVersion   string         `json:"eventVersion"`
-	EventSource    string         `json:"eventSource"`
-	AWSRegion      string         `json:"awsRegion"`
-	EventSourceARN string         `json:"eventSourceARN"`
-	DynamoDB       streamDynamoDB `json:"dynamodb"`
-}
-
-type streamDynamoDB struct {
-	Keys           map[string]any `json:"Keys"`
-	NewImage       map[string]any `json:"NewImage"`
-	SequenceNumber string         `json:"SequenceNumber"`
-	SizeBytes      int            `json:"SizeBytes"`
-	StreamViewType string         `json:"StreamViewType"`
+type result struct {
+	Source           string           `json:"source"`
+	Mode             string           `json:"mode"`
+	Table            string           `json:"table"`
+	StreamARN        string           `json:"stream_arn"`
+	StreamLabel      string           `json:"stream_label"`
+	Event            streams.Event    `json:"event"`
+	Record           *streams.Record  `json:"record,omitempty"`
+	Records          []streams.Record `json:"records,omitempty"`
+	Insert           *streams.Record  `json:"insert,omitempty"`
+	Modify           *streams.Record  `json:"modify,omitempty"`
+	Remove           *streams.Record  `json:"remove,omitempty"`
+	StoredImage      map[string]any   `json:"stored_image,omitempty"`
+	OldTTLValue      any              `json:"old_ttl_value,omitempty"`
+	TTLIdentityAdded bool             `json:"ttl_identity_added"`
+	EventID          string           `json:"event_id"`
+	SequenceNumber   string           `json:"sequence_number"`
+	EventName        string           `json:"event_name"`
+	EventSourceARN   string           `json:"event_source_arn"`
 }
 
 func main() {
-	pk := flag.String("pk", "NOTE#local", "partition key for the stored note")
-	sk := flag.String("sk", "META", "sort key for the stored note")
-	value := flag.Int("value", 42, "numeric value for the stored note")
+	mode := flag.String("mode", "insert", "insert or ttl-remove")
+	table := flag.String("table", defaultTable, "table to write and read the stream from")
+	pk := flag.String("pk", "NOTE#local", "partition key for the stored item")
+	sk := flag.String("sk", "META", "sort key for the stored item")
+	value := flag.Int("value", 42, "numeric value for the inserted note")
+	ttlAttribute := flag.String("ttl-attribute", "expires_at", "TTL attribute for ttl-remove mode")
+	timeout := flag.Duration("timeout", 30*time.Second, "how long to wait for the stream record")
 	flag.Parse()
 
-	if err := run(context.Background(), *pk, *sk, *value); err != nil {
+	if err := run(context.Background(), *mode, *table, *pk, *sk, *value, *ttlAttribute, *timeout); err != nil {
 		fmt.Fprintf(os.Stderr, "examples-local-stream-event: FAIL: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, pk, sk string, value int) error {
-	if err := assertHarnessCredentials(ctx); err != nil {
+func run(
+	ctx context.Context,
+	mode, table, pk, sk string,
+	value int,
+	ttlAttribute string,
+	timeout time.Duration,
+) error {
+	if err := assertHarnessEnvironment(ctx); err != nil {
 		return err
 	}
-
-	db, err := tabletheory.New(tabletheory.Config{Region: streamRegion})
+	endpoint, err := localEndpoint()
 	if err != nil {
 		return err
-	}
-	if err := db.EnsureTable(&streamNote{}); err != nil {
-		return fmt.Errorf("ensure %s: %w", streamTable, err)
-	}
-
-	note := &streamNote{PK: pk, SK: sk, Value: value}
-	if err := db.Model(note).CreateOrUpdate(); err != nil {
-		return fmt.Errorf("write note: %w", err)
 	}
 
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("load AWS config: %w", err)
 	}
-	client := dynamodb.NewFromConfig(cfg)
-	stored, err := client.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(streamTable),
-		Key: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: pk},
-			"sk": &types.AttributeValueMemberS{Value: sk},
-		},
-		ConsistentRead: aws.Bool(true),
+	ddb := dynamodb.NewFromConfig(cfg, func(options *dynamodb.Options) {
+		options.BaseEndpoint = aws.String(endpoint)
 	})
+	streamClient := dynamodbstreams.NewFromConfig(cfg, func(options *dynamodbstreams.Options) {
+		options.BaseEndpoint = aws.String(endpoint)
+	})
+
+	switch mode {
+	case "insert":
+		return insert(ctx, ddb, streamClient, table, pk, sk, value, timeout)
+	case "ttl-remove":
+		return ttlRemove(ctx, ddb, streamClient, table, pk, sk, ttlAttribute, timeout)
+	default:
+		return fmt.Errorf("unknown mode %q", mode)
+	}
+}
+
+func insert(
+	ctx context.Context,
+	ddb *dynamodb.Client,
+	streamClient *dynamodbstreams.Client,
+	table, pk, sk string,
+	value int,
+	timeout time.Duration,
+) error {
+	insertTable = table
+	db, err := tabletheory.New(tabletheory.Config{Region: streamRegion})
 	if err != nil {
-		return fmt.Errorf("read note back: %w", err)
+		return err
 	}
-	if len(stored.Item) == 0 {
-		return fmt.Errorf("the write did not produce a stored item")
+	if err := db.EnsureTable(&streamNote{}); err != nil {
+		return fmt.Errorf("ensure %s: %w", table, err)
 	}
-
-	image := make(map[string]any, len(stored.Item))
-	for name, attribute := range stored.Item {
-		encoded, err := attributeJSON(attribute)
-		if err != nil {
-			return fmt.Errorf("encode attribute %s: %w", name, err)
-		}
-		image[name] = encoded
-	}
-
-	keys := map[string]any{}
-	for _, key := range []string{"pk", "sk"} {
-		encoded, ok := image[key]
-		if !ok {
-			return fmt.Errorf("stored item has no %s key attribute", key)
-		}
-		keys[key] = encoded
-	}
-
-	size, err := json.Marshal(image)
+	metadata, err := streams.Ensure(ctx, ddb, table, timeout)
 	if err != nil {
-		return fmt.Errorf("marshal image: %w", err)
+		return err
+	}
+	note := &streamNote{PK: pk, SK: sk, Value: value}
+	if err := db.Model(note).CreateOrUpdate(); err != nil {
+		return fmt.Errorf("write note: %w", err)
 	}
 
-	event := streamEvent{Records: []streamRecord{{
-		EventID:        fmt.Sprintf("local-%d", time.Now().UnixNano()),
-		EventName:      "INSERT",
-		EventVersion:   "1.1",
-		EventSource:    "aws:dynamodb",
-		AWSRegion:      streamRegion,
-		EventSourceARN: "arn:aws:dynamodb:" + streamRegion + ":123456789012:table/" + streamTable + "/stream/local",
-		DynamoDB: streamDynamoDB{
-			Keys:           keys,
-			NewImage:       image,
-			SequenceNumber: fmt.Sprintf("%d", time.Now().UnixNano()),
-			SizeBytes:      len(size),
-			StreamViewType: "NEW_AND_OLD_IMAGES",
-		},
-	}}}
-
-	out, err := json.Marshal(event)
+	_, record, err := streams.Read(ctx, streamClient, metadata.StreamARN, func(record streams.Record) bool {
+		return record.EventName == "INSERT" && matchesKey(record, "pk", "sk", pk, sk)
+	}, timeout)
 	if err != nil {
-		return fmt.Errorf("marshal stream event: %w", err)
+		return err
 	}
-	fmt.Println(string(out))
+
+	emit(result{
+		Source:         "dynamodb-streams",
+		Mode:           "insert",
+		Table:          metadata.Table,
+		StreamARN:      metadata.StreamARN,
+		StreamLabel:    metadata.StreamLabel,
+		Event:          streams.EventFor(record),
+		Record:         &record,
+		EventID:        record.EventID,
+		SequenceNumber: record.DynamoDB.SequenceNumber,
+		EventName:      record.EventName,
+		EventSourceARN: record.EventSourceARN,
+	})
 	return nil
 }
 
-func attributeJSON(attribute types.AttributeValue) (any, error) {
+func ttlRemove(
+	ctx context.Context,
+	ddb *dynamodb.Client,
+	streamClient *dynamodbstreams.Client,
+	table, pk, sk, ttlAttribute string,
+	timeout time.Duration,
+) error {
+	metadata, err := streams.Ensure(ctx, ddb, table, timeout)
+	if err != nil {
+		return err
+	}
+	key := map[string]ddbtypes.AttributeValue{
+		"pk": &ddbtypes.AttributeValueMemberS{Value: pk},
+		"sk": &ddbtypes.AttributeValueMemberS{Value: sk},
+	}
+	expired := time.Now().Add(-time.Hour).Unix()
+	put := func(payload string) error {
+		_, err := ddb.PutItem(ctx, &dynamodb.PutItemInput{
+			TableName: aws.String(metadata.Table),
+			Item: map[string]ddbtypes.AttributeValue{
+				"pk":         &ddbtypes.AttributeValueMemberS{Value: pk},
+				"sk":         &ddbtypes.AttributeValueMemberS{Value: sk},
+				"payload":    &ddbtypes.AttributeValueMemberS{Value: payload},
+				ttlAttribute: &ddbtypes.AttributeValueMemberN{Value: fmt.Sprintf("%d", expired)},
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("write %s/%s: %w", pk, sk, err)
+		}
+		return nil
+	}
+
+	// An INSERT followed by a MODIFY gives the row a real non-TTL record to
+	// assert the handler's skip path against; the DELETE produces the REMOVE.
+	if err := put("expired evidence"); err != nil {
+		return err
+	}
+	if err := put("expired evidence v2"); err != nil {
+		return err
+	}
+
+	stored, err := ddb.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName:      aws.String(metadata.Table),
+		Key:            key,
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return fmt.Errorf("read back %s/%s: %w", pk, sk, err)
+	}
+	if len(stored.Item) == 0 {
+		return fmt.Errorf("written item %s/%s could not be read back", pk, sk)
+	}
+	storedImage, err := imageJSON(stored.Item)
+	if err != nil {
+		return err
+	}
+
+	if _, err := ddb.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(metadata.Table),
+		Key:       key,
+	}); err != nil {
+		return fmt.Errorf("delete %s/%s: %w", pk, sk, err)
+	}
+
+	collected, remove, err := streams.Read(ctx, streamClient, metadata.StreamARN, func(record streams.Record) bool {
+		return record.EventName == "REMOVE" && matchesKey(record, "pk", "sk", pk, sk)
+	}, timeout)
+	if err != nil {
+		return err
+	}
+	if len(remove.DynamoDB.OldImage) == 0 {
+		return fmt.Errorf("REMOVE record has no OldImage")
+	}
+	// The OldImage must be the item DynamoDB stored, not an image derived from
+	// the put request.
+	if !reflect.DeepEqual(storedImage, remove.DynamoDB.OldImage) {
+		return fmt.Errorf(
+			"REMOVE OldImage does not match the stored item:\nstored: %v\nrecord: %v",
+			storedImage, remove.DynamoDB.OldImage,
+		)
+	}
+
+	var inserted, modified *streams.Record
+	for index := range collected {
+		record := collected[index]
+		if !matchesKey(record, "pk", "sk", pk, sk) {
+			continue
+		}
+		switch record.EventName {
+		case "INSERT":
+			inserted = &record
+		case "MODIFY":
+			modified = &record
+		}
+	}
+	if inserted == nil {
+		return fmt.Errorf("the stream read did not include the INSERT record")
+	}
+	if modified == nil {
+		return fmt.Errorf("the stream read did not include the MODIFY record")
+	}
+
+	oldTTLValue := remove.DynamoDB.OldImage[ttlAttribute]
+	if oldTTLValue == nil {
+		return fmt.Errorf("REMOVE OldImage has no %s attribute", ttlAttribute)
+	}
+	identityAdded := streams.MarkTTLExpiry(&remove)
+
+	emit(result{
+		Source:           "dynamodb-streams",
+		Mode:             "ttl-remove",
+		Table:            metadata.Table,
+		StreamARN:        metadata.StreamARN,
+		StreamLabel:      metadata.StreamLabel,
+		Event:            streams.EventFor(remove),
+		Records:          collected,
+		Insert:           inserted,
+		Modify:           modified,
+		Remove:           &remove,
+		StoredImage:      storedImage,
+		OldTTLValue:      oldTTLValue,
+		TTLIdentityAdded: identityAdded,
+		EventID:          remove.EventID,
+		SequenceNumber:   remove.DynamoDB.SequenceNumber,
+		EventName:        remove.EventName,
+		EventSourceARN:   remove.EventSourceARN,
+	})
+	return nil
+}
+
+func matchesKey(record streams.Record, pkName, skName, pk, sk string) bool {
+	return stringAttribute(record.DynamoDB.Keys, pkName) == pk &&
+		stringAttribute(record.DynamoDB.Keys, skName) == sk
+}
+
+func stringAttribute(image map[string]any, name string) string {
+	value, _ := image[name].(map[string]string)
+	return value["S"]
+}
+
+func imageJSON(image map[string]ddbtypes.AttributeValue) (map[string]any, error) {
+	encoded := make(map[string]any, len(image))
+	for name, attribute := range image {
+		value, err := attributeJSON(attribute)
+		if err != nil {
+			return nil, fmt.Errorf("attribute %s: %w", name, err)
+		}
+		encoded[name] = value
+	}
+	return encoded, nil
+}
+
+func attributeJSON(attribute ddbtypes.AttributeValue) (any, error) {
 	switch value := attribute.(type) {
-	case *types.AttributeValueMemberS:
+	case *ddbtypes.AttributeValueMemberS:
 		return map[string]string{"S": value.Value}, nil
-	case *types.AttributeValueMemberN:
+	case *ddbtypes.AttributeValueMemberN:
 		return map[string]string{"N": value.Value}, nil
-	case *types.AttributeValueMemberBOOL:
+	case *ddbtypes.AttributeValueMemberB:
+		return map[string]string{"B": base64.StdEncoding.EncodeToString(value.Value)}, nil
+	case *ddbtypes.AttributeValueMemberBOOL:
 		return map[string]bool{"BOOL": value.Value}, nil
-	case *types.AttributeValueMemberNULL:
+	case *ddbtypes.AttributeValueMemberNULL:
 		return map[string]bool{"NULL": value.Value}, nil
-	case *types.AttributeValueMemberB:
-		return map[string][]byte{"B": value.Value}, nil
-	case *types.AttributeValueMemberSS:
+	case *ddbtypes.AttributeValueMemberSS:
 		return map[string][]string{"SS": value.Value}, nil
-	case *types.AttributeValueMemberNS:
+	case *ddbtypes.AttributeValueMemberNS:
 		return map[string][]string{"NS": value.Value}, nil
-	case *types.AttributeValueMemberM:
+	case *ddbtypes.AttributeValueMemberM:
 		encoded := make(map[string]any, len(value.Value))
 		for name, nested := range value.Value {
 			item, err := attributeJSON(nested)
@@ -184,7 +352,7 @@ func attributeJSON(attribute types.AttributeValue) (any, error) {
 			encoded[name] = item
 		}
 		return map[string]any{"M": encoded}, nil
-	case *types.AttributeValueMemberL:
+	case *ddbtypes.AttributeValueMemberL:
 		encoded := make([]any, 0, len(value.Value))
 		for _, nested := range value.Value {
 			item, err := attributeJSON(nested)
@@ -199,7 +367,36 @@ func attributeJSON(attribute types.AttributeValue) (any, error) {
 	}
 }
 
-func assertHarnessCredentials(ctx context.Context) error {
+func emit(payload result) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "examples-local-stream-event: FAIL: encode result: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(encoded))
+}
+
+func localEndpoint() (string, error) {
+	for _, name := range []string{"AWS_ENDPOINT_URL_DYNAMODB", "DYNAMODB_ENDPOINT", "AWS_ENDPOINT_URL"} {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			continue
+		}
+		host := strings.TrimPrefix(strings.TrimPrefix(value, "http://"), "https://")
+		if index := strings.IndexAny(host, ":/"); index >= 0 {
+			host = host[:index]
+		}
+		switch strings.ToLower(host) {
+		case "127.0.0.1", "::1", "localhost":
+			return value, nil
+		default:
+			return "", fmt.Errorf("%s host %q is not loopback; refusing to run", name, host)
+		}
+	}
+	return "", fmt.Errorf("no DynamoDB endpoint is set; the harness must own the endpoint")
+}
+
+func assertHarnessEnvironment(ctx context.Context) error {
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("load AWS config: %w", err)
@@ -210,9 +407,6 @@ func assertHarnessCredentials(ctx context.Context) error {
 	}
 	if creds.AccessKeyID != dummyAccessKeyID || creds.SecretAccessKey != dummySecretAccessKey {
 		return fmt.Errorf("resolved credentials are not the harness dummy static keys; refusing to run")
-	}
-	if os.Getenv("AWS_ENDPOINT_URL_DYNAMODB") == "" {
-		return fmt.Errorf("AWS_ENDPOINT_URL_DYNAMODB is unset; the harness must own the endpoint")
 	}
 	return nil
 }

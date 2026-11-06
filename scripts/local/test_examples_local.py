@@ -438,7 +438,7 @@ class SummaryTests(unittest.TestCase):
             harness.Entry(
                 "examples/l3/main.go",
                 "entrypoint",
-                {"class": "L3", "gap": "Managed stream delivery."},
+                {"class": "L3", "gap": "Example fidelity limit."},
             ),
             harness.Entry(
                 "examples/infrastructure/bin/app.ts",
@@ -452,7 +452,7 @@ class SummaryTests(unittest.TestCase):
 
         self.assertIn(" " * harness.SUMMARY_GAP_INDENT + "gap: KMS is emulated.", lines)
         self.assertIn(
-            " " * harness.SUMMARY_GAP_INDENT + "gap: Managed stream delivery.", lines
+            " " * harness.SUMMARY_GAP_INDENT + "gap: Example fidelity limit.", lines
         )
         self.assertIn(
             " " * harness.SUMMARY_GAP_INDENT + "gap: Infrastructure only.", lines
@@ -466,7 +466,7 @@ class SummaryTests(unittest.TestCase):
         target = harness.Entry(
             "examples/l3/main.go",
             "entrypoint",
-            {"class": "L3", "gap": "Managed stream delivery."},
+            {"class": "L3", "gap": "Example fidelity limit."},
         )
         covered = harness.Entry(
             "examples/covered.sh",
@@ -474,7 +474,7 @@ class SummaryTests(unittest.TestCase):
             {
                 "coveredBy": target.key,
                 "class": "L3",
-                "gap": "Deployed AWS stack smoke.",
+                "gap": "Deployed-stack subject.",
             },
         )
         results = {target.key: ("FAIL", "boom"), covered.key: ("FAIL", "boom")}
@@ -485,7 +485,7 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("  FAIL     L3                     examples/l3/main.go  (boom)", text)
         self.assertIn("examples/covered.sh  (via examples/l3/main.go)", text)
         self.assertIn(
-            " " * harness.SUMMARY_GAP_INDENT + "gap: Deployed AWS stack smoke.", lines
+            " " * harness.SUMMARY_GAP_INDENT + "gap: Deployed-stack subject.", lines
         )
 
     def test_every_manifest_gap_is_printed(self) -> None:
@@ -497,6 +497,169 @@ class SummaryTests(unittest.TestCase):
         for entry in entries:
             if entry.gap:
                 self.assertIn("gap: " + entry.gap, text)
+
+
+STREAM_ARN = (
+    "arn:aws:dynamodb:ddblocal:000000000000:table/lambda_stream_notes/stream/"
+    "2026-11-03T00:00:00.000"
+)
+STREAM_EVENT_ID = "c8c03763-3a2c-4de1-83d6-cd10df69e8f2"
+STREAM_SEQUENCE = "000000000000000000009"
+S3_BUCKET = "reconciliation-local"
+S3_KEY = "reconciliation/merchant-1/2026-11-01.csv"
+
+
+def stream_payload() -> dict:
+    record = {
+        "eventID": STREAM_EVENT_ID,
+        "eventName": "INSERT",
+        "eventVersion": "1.1",
+        "eventSource": "aws:dynamodb",
+        "awsRegion": "ddblocal",
+        "eventSourceARN": STREAM_ARN,
+        "dynamodb": {
+            "Keys": {"pk": {"S": "NOTE#1"}, "sk": {"S": "META"}},
+            "NewImage": {
+                "pk": {"S": "NOTE#1"},
+                "sk": {"S": "META"},
+                "value": {"N": "42"},
+            },
+            "SequenceNumber": STREAM_SEQUENCE,
+            "SizeBytes": 35,
+            "StreamViewType": "NEW_AND_OLD_IMAGES",
+        },
+    }
+    return {
+        "source": "dynamodb-streams",
+        "mode": "insert",
+        "table": "lambda_stream_notes",
+        "stream_arn": STREAM_ARN,
+        "stream_label": "2026-11-03T00:00:00.000",
+        "event": {"Records": [record]},
+        "record": record,
+        "event_id": STREAM_EVENT_ID,
+        "sequence_number": STREAM_SEQUENCE,
+        "event_name": "INSERT",
+        "event_source_arn": STREAM_ARN,
+    }
+
+
+def notification_payload() -> dict:
+    record = {
+        "eventVersion": "2.1",
+        "eventSource": "aws:s3",
+        "awsRegion": "us-east-1",
+        "eventTime": "2026-11-03T00:00:00.000Z",
+        "eventName": "ObjectCreated:Put",
+        "s3": {
+            "s3SchemaVersion": "1.0",
+            "configurationId": "tabletheory-reconcile",
+            "bucket": {"name": S3_BUCKET, "arn": f"arn:aws:s3:::{S3_BUCKET}"},
+            "object": {
+                "key": "reconciliation%2Fmerchant-1%2F2026-11-01.csv",
+                "size": 162,
+                "eTag": "20102c522ac8eb5b520b5556b59c7a09",
+            },
+        },
+    }
+    return {
+        "source": "moto-s3-notification",
+        "bucket": S3_BUCKET,
+        "key": S3_KEY,
+        "queue_url": "http://127.0.0.1:1/123456789012/queue",
+        "queue_arn": "arn:aws:sqs:us-east-1:123456789012:queue",
+        "message_id": "533e8dbc-e87a-4a80-9952-17124f0dc341",
+        "test_event_id": "3c01d58b-5c7b-447a-8036-96d868f9da33",
+        "notification": {"Records": [record]},
+        "event_name": "ObjectCreated:Put",
+        "size": 162,
+        "etag": "20102c522ac8eb5b520b5556b59c7a09",
+    }
+
+
+class RealDeliveryTests(unittest.TestCase):
+    """The real-stream and S3-notification validators must fail closed."""
+
+    def test_real_stream_payload_passes(self) -> None:
+        record = harness.require_real_stream_event(
+            stream_payload(),
+            expected_event_name="INSERT",
+            pk="NOTE#1",
+            sk="META",
+            label="stream",
+        )
+        self.assertEqual(record["eventID"], STREAM_EVENT_ID)
+
+    def test_fabricated_event_id_fails(self) -> None:
+        payload = stream_payload()
+        payload["event"]["Records"][0]["eventID"] = "local-1793719980000000000"
+        with self.assertRaises(harness.HarnessFailure):
+            harness.require_real_stream_event(
+                payload, expected_event_name="INSERT", label="stream"
+            )
+
+    def test_mismatched_stream_arn_fails(self) -> None:
+        payload = stream_payload()
+        payload["event"]["Records"][0]["eventSourceARN"] = STREAM_ARN.replace("lambda_stream_notes", "other")
+        with self.assertRaises(harness.HarnessFailure):
+            harness.require_real_stream_event(
+                payload, expected_event_name="INSERT", label="stream"
+            )
+
+    def test_missing_source_marker_fails(self) -> None:
+        payload = stream_payload()
+        payload["source"] = "generated"
+        with self.assertRaises(harness.HarnessFailure):
+            harness.require_real_stream_event(
+                payload, expected_event_name="INSERT", label="stream"
+            )
+
+    def test_missing_sequence_number_fails(self) -> None:
+        payload = stream_payload()
+        payload["event"]["Records"][0]["dynamodb"]["SequenceNumber"] = ""
+        payload["sequence_number"] = ""
+        with self.assertRaises(harness.HarnessFailure):
+            harness.require_real_stream_event(
+                payload, expected_event_name="INSERT", label="stream"
+            )
+
+    def test_real_s3_notification_passes(self) -> None:
+        record = harness.require_real_s3_notification(
+            notification_payload(), bucket=S3_BUCKET, key=S3_KEY, label="s3"
+        )
+        self.assertEqual(record["eventName"], "ObjectCreated:Put")
+
+    def test_missing_notification_message_id_fails(self) -> None:
+        payload = notification_payload()
+        payload["message_id"] = ""
+        with self.assertRaises(harness.HarnessFailure):
+            harness.require_real_s3_notification(
+                payload, bucket=S3_BUCKET, key=S3_KEY, label="s3"
+            )
+
+    def test_missing_dropped_test_event_id_fails(self) -> None:
+        payload = notification_payload()
+        payload["test_event_id"] = ""
+        with self.assertRaises(harness.HarnessFailure):
+            harness.require_real_s3_notification(
+                payload, bucket=S3_BUCKET, key=S3_KEY, label="s3"
+            )
+
+    def test_event_name_with_configuration_prefix_fails(self) -> None:
+        payload = notification_payload()
+        payload["notification"]["Records"][0]["eventName"] = "s3:ObjectCreated:Put"
+        with self.assertRaises(harness.HarnessFailure):
+            harness.require_real_s3_notification(
+                payload, bucket=S3_BUCKET, key=S3_KEY, label="s3"
+            )
+
+    def test_wrong_notification_key_fails(self) -> None:
+        payload = notification_payload()
+        payload["notification"]["Records"][0]["s3"]["object"]["key"] = "other.csv"
+        with self.assertRaises(harness.HarnessFailure):
+            harness.require_real_s3_notification(
+                payload, bucket=S3_BUCKET, key=S3_KEY, label="s3"
+            )
 
 
 class ProfileValidationTests(unittest.TestCase):

@@ -43,14 +43,14 @@ overrides, and the preflight fails if any SDK endpoint resolves elsewhere.
 
 | Piece | Where it lives |
 | --- | --- |
-| Local profile | `scripts/local/docker-compose.yml` — digest-pinned DynamoDB Local, moto (KMS + STS), s3proxy and ElasticMQ; the Lambda runtime image pins live in the manifest under `profile.lambda.images` |
+| Local profile | `scripts/local/docker-compose.yml` — digest-pinned DynamoDB Local, moto (KMS + STS, and the reconcile row's S3 notifications + SQS), s3proxy and ElasticMQ; the Lambda runtime image pins live in the manifest under `profile.lambda.images` |
 | Classification manifest | `scripts/local/examples-local.json` |
 | Harness | `scripts/local/run_examples_local.py` |
 | Endpoint-resolution preflight | `scripts/local/cmd/examples-local-preflight` |
 | Lambda runtime driver | `scripts/local/lambda_runtime.py` |
 | In-container Lambda preflight | `scripts/local/cmd/examples-local-lambda-preflight` |
-| Payment and Lambda fixtures | `scripts/local/cmd/examples-local-payment-fixtures` |
-| Generated stream record | `scripts/local/cmd/examples-local-stream-event` |
+| Payment and Lambda fixtures | `scripts/local/cmd/examples-local-payment-fixtures` (provisions tables, seeds rows, and configures the moto S3 notification) |
+| Real DynamoDB Streams reader | `scripts/local/cmd/examples-local-stream-event` (with `scripts/local/internal/streams`) |
 | KMS key provisioning and round-trip | `scripts/local/cmd/examples-local-kms-key` |
 | CI job | `.github/workflows/examples-local.yml` |
 
@@ -87,6 +87,12 @@ conventions the examples already read. `AWS_ENDPOINT_URL` keeps the multi-tenant
 entrypoint, which reads it, on the DynamoDB profile. The ports are not fixed:
 the harness reads them back from Docker after the stack starts (see
 "Isolation" below).
+
+The default S3 and SQS endpoints are s3proxy and ElasticMQ. The
+`examples/payment/lambda/reconcile` row alone points its fixture and function
+container at the profile's moto container: moto S3 delivers real bucket
+notifications and moto SQS receives them. Every other S3 row keeps s3proxy, so
+the SigV4-enforcing default and its existing assertions are unchanged.
 
 The harness also strips inherited `USER`, `ORG_ID`, `FACETHEORY_CACHE_TABLE_NAME`
 and `KMS_KEY_ARN`. Rows that need a deterministic identity set their own runtime
@@ -158,7 +164,7 @@ pins, against a real container, before it was chosen.
 | --- | --- | --- | --- | --- | --- | --- |
 | KMS | moto 5.2.5 | Apache-2.0 | `motoserver/moto@sha256:59a1965d845249b04def37a0e2565f9cc6c44543cb89b68e90f28f344b3b0d1a` | `CreateKey`, `GenerateDataKey` (AES-256, `EncryptionContext`) and `Decrypt` round-trip; a mismatched context is refused; `examples/encryption` ran end to end with real envelope crypto | No HSM, no key-policy/IAM/grant enforcement, no cross-account semantics; key material is in process memory. `GenerateDataKey`/`Decrypt`/`CreateKey` and context binding are real | `L2` |
 | STS | moto 5.2.5 | Apache-2.0 | same image as KMS | `AssumeRole` returned credentials with an expiration | Synthetic credentials; no trust-policy or IAM evaluation, any role ARN is accepted, session policies/tags are not enforced | `L2` |
-| S3 | s3proxy (`gaul/s3proxy`, commit `c7d5140`) | Apache-2.0 | `andrewgaul/s3proxy@sha256:1f8915c2b4a8af22bf1fc191500f242974a458c457391b5788f9107544273dc3` | SigV4 with the harness's dummy identity; `CreateBucket`, `PutObject`, `GetObject`, `ListObjectsV2` | No IAM/bucket policies, no event notifications, no Object Lock; versioning, multipart and checksum enforcement are partial. S3 → EventBridge delivery is absent, so S3 event paths remain `L3` "managed S3 event delivery" | `L2` |
+| S3 | s3proxy (`gaul/s3proxy`, commit `c7d5140`) | Apache-2.0 | `andrewgaul/s3proxy@sha256:1f8915c2b4a8af22bf1fc191500f242974a458c457391b5788f9107544273dc3` | SigV4 with the harness's dummy identity; `CreateBucket`, `PutObject`, `GetObject`, `ListObjectsV2` | No IAM/bucket policies, no Object Lock; versioning, multipart and checksum enforcement are partial. s3proxy has no event notifications; the reconcile row uses the profile's moto S3 for a real bucket notification to moto SQS (see "S3 notifications") | `L2` |
 | SQS | ElasticMQ 1.7.1 | Apache-2.0 | `softwaremill/elasticmq-native@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c` | `CreateQueue`, `SendMessage`, `ReceiveMessage`, `DeleteMessage` | In-memory queues; no IAM policies, cross-account access or SNS/EventBridge subscriptions. Polling delivery is real, so a later SQS polling example can be `L2`; managed event-source-mapping delivery remains `L3` | `L2` |
 
 Evaluated and rejected:
@@ -174,8 +180,10 @@ Evaluated and rejected:
   `Decrypt` trial and the mismatched-context refusal, but its stable image is
   from 2023-10 while the current `latest` tag is `4.0.0-alpha.1` (2026-02). A
   maintained KMS in moto was preferred over an alpha line.
-- **moto S3** — passed the same put/get/list trial, but s3proxy was chosen for a
-  dedicated, SigV4-enforcing S3 service with a filesystem backend.
+- **moto S3 as the default** — passed the same put/get/list trial, but s3proxy
+  was chosen as the default S3 backend for a dedicated, SigV4-enforcing service
+  with a filesystem backend. moto S3 is used for the one capability s3proxy
+  lacks: real bucket notifications to SQS (see "S3 notifications").
 
 DynamoDB Local predates this decision (T1) and is now digest-pinned
 (`amazon/dynamodb-local@sha256:7ef4a2c45b58c2901e70a4f28e0953a422c2c631baaaf5e2c15e0805740c7752`,
@@ -188,6 +196,69 @@ are `amazon/dynamodb-local:3.1.0`, `motoserver/moto:5.2.5`,
 `andrewgaul/s3proxy:master` and `softwaremill/elasticmq-native:1.7.1`. The
 Lambda runtime images follow the same rule and are pinned in the manifest too;
 their tags, digests and refresh procedure are in the next section.
+
+## DynamoDB Streams and S3 notifications
+
+DynamoDB Local implements DynamoDB Streams on the pinned digest
+(`amazon/dynamodb-local:3.1.0`). The harness enables a `NEW_AND_OLD_IMAGES`
+stream on the table (`CreateTable` with a stream specification, or
+`UpdateTable` on an existing table), takes the stream ARN from
+`DescribeTable.LatestStreamArn`, and reads records with `DescribeStream`,
+`GetShardIterator` (`TRIM_HORIZON`) and `GetRecords`
+([DynamoDB Streams API](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Operations_Amazon_DynamoDB_Streams.html)).
+`scripts/local/internal/streams` performs the read;
+`scripts/local/cmd/examples-local-stream-event` performs the real write (and,
+for the archive row, a real delete) and emits the Lambda event shape. No record
+is derived from a stored item.
+
+The record's event id, sequence number, keys, images and stream ARN all come
+from the stream. The Streams API record has no `eventSourceARN`; AWS Lambda adds
+the stream ARN when an event source mapping invokes the function
+([Lambda and DynamoDB Streams](https://docs.aws.amazon.com/lambda/latest/dg/with-ddb.html)),
+so the reader fills it from the stream ARN `DescribeTable` reported. That is the
+ARN the function would see from the real table.
+
+Local deviations, handled explicitly:
+
+- **Stream ARN region.** The pinned DynamoDB Local reports stream ARNs in the
+  `ddblocal` region and account `000000000000`, and its records carry
+  `"awsRegion": "ddblocal"`. The harness does not rewrite the ARN or the region:
+  the value is what the local table reports. `ListStreams` returns the
+  `Streams` key; that is also the AWS-documented response shape
+  ([ListStreams](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_streams_ListStreams.html)),
+  so no workaround is needed.
+- **TTL deletion.** DynamoDB Local does not run the TTL sweeper. The archive row
+  performs a real `DeleteItem` on an item whose TTL attribute is in the past and
+  reads the resulting `REMOVE` record. DynamoDB documents that a TTL-deleted
+  item's record carries `userIdentity.type = "Service"` and
+  `userIdentity.principalId = "dynamodb.amazonaws.com"`
+  ([DynamoDB Streams and TTL](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/time-to-live-ttl-streams.html));
+  the reader adds exactly that field to the real `REMOVE` record. Every other
+  field stays the stream's, and the row separately reads the stored item back
+  and asserts the record's `OldImage` equals it. The TTL expiry itself is the
+  harness delete, not a TTL sweep.
+- **Delivery.** The harness polls the stream and invokes the handler; AWS
+  Lambda's event source mapping performs that polling in a deployment. That is
+  the named `L2` fidelity limit, not a fabricated record.
+
+S3 notifications use the profile's moto S3 and moto SQS (not s3proxy, which has
+no notifications). The fixture configures a queue notification for
+`s3:ObjectCreated:*`, drains and records the `s3:TestEvent` AWS sends when a
+notification is configured, puts the CSV, and reads the delivered
+`ObjectCreated:Put` record from the queue. The record's `eventName` has no
+`s3:` prefix; only the configuration event name does
+([S3 event message structure](https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html)).
+The object key in the record is URL-encoded, and the reconcile handler decodes
+it before the object read, as the same documentation requires.
+
+moto deviations on the notification record: `sequencer`, `userIdentity`,
+`requestParameters` and `responseElements` are omitted. The handler consumes
+the bucket, key, size and ETag, and the harness asserts `eventVersion 2.1`,
+`eventSource aws:s3`, `eventName ObjectCreated:Put`, `s3SchemaVersion 1.0`, the
+bucket name/ARN, the decoded key, the size and the ETag. The SQS message id and
+the dropped `s3:TestEvent` id are reported in the row output, so the delivery is
+traceable. The harness, not an S3 event source, polls the queue and invokes the
+handler: that is the row's `L2` limit; the notification and object are real.
 
 ## Lambda handlers (T4a)
 
@@ -237,22 +308,26 @@ answers its real protocol, that only the dummy credentials resolve, and that
 
 Fixture tooling (`scripts/local/cmd/examples-local-payment-fixtures`) provisions
 the tables the handlers use and seeds the merchant and user rows through the real
-models. The stream event tool performs one real write and reads the stored item
-back; the generated record is then fed to the Python handler.
+models. `scripts/local/cmd/examples-local-stream-event` performs the real write
+(and, for the archive row, a real delete) and reads the resulting record from
+the table's DynamoDB stream; the Python handler is fed that record.
 
 | Row | Class | How it is verified | Named gap |
 | --- | --- | --- | --- |
 | `examples/lambda/main.go` | `L2` | base-account create/get plus partner `AssumeRole` create/get through RIE; unknown-action and unknown-partner refusals | moto STS has no authorization fidelity: no trust policy, external-ID or IAM enforcement |
 | `examples/payment/lambda/process` | `L2` | real API Gateway proxy event; merchant policy, idempotency and the atomic payment/transaction/counter write; `403`/`401` refusals; the webhook HTTPS/public-IP rule refuses `https://127.0.0.1` and stores no webhook record | KMS is emulated (no HSM, key policies or grants); the envelope decrypt is real |
 | `examples/payment/lambda/query` | `L1` | real API Gateway proxy events for list, detail, summary and export, plus an unauthenticated refusal | none |
-| `examples/payment/lambda/reconcile` | `L3` | generated S3 event plus a real `GetObject` on s3proxy; two rows reconcile; settlement and audit rows are stored | managed S3 event delivery: s3proxy has no bucket notifications |
+| `examples/payment/lambda/reconcile` | `L2` | real moto S3 bucket notification to moto SQS: the `s3:TestEvent` is drained and recorded, the `ObjectCreated:Put` record is read from the queue, the handler reads the real moto S3 object, and settlement and audit rows are stored | the harness, not an S3 event source, polls the queue and invokes the handler; moto omits the optional `sequencer`/`userIdentity`/`requestParameters`/`responseElements` fields |
 | `ts/examples/lambda/handler.ts` | `L1` | Node 24 handler reads a seeded item from DynamoDB Local | none |
-| `py/examples/lambda_stream_handler.py` | `L3` | generated DynamoDB stream record from a real local write and read-back; Python 3.14 handler logs the decoded note | managed stream delivery: DynamoDB Local has no Streams |
+| `py/examples/lambda_stream_handler.py` | `L2` | real `INSERT` record read from DynamoDB Local Streams after a real write; the Python 3.14 handler logs the decoded note; the row asserts the event id, sequence number and stream ARN | the harness, not a Lambda event source mapping, polls the stream and invokes the handler; stream ARNs carry the `ddblocal` region |
 
 The reconcile handler uses path-style S3 addressing when `AWS_ENDPOINT_URL_S3`
 or `S3_ENDPOINT` is set; production AWS keeps virtual-host addressing. The
-payment process handler reads `KMS_KEY_ARN` so it can decrypt the merchant's
-encrypted fields, which the harness provisions in the local KMS.
+reconcile row points those variables at moto and the handler URL-decodes the
+notification's object key before `GetObject`, per the S3 event-message
+documentation. The payment process handler reads `KMS_KEY_ARN` so it can
+decrypt the merchant's encrypted fields, which the harness provisions in the
+local KMS.
 
 ## Blog and cdk-multilang deployed handlers (T4b)
 
@@ -289,8 +364,8 @@ function container.
 | `examples/cdk-multilang/lambdas/go/main.go` | `L2` | Function URL PUT/GET, batch, transaction, `405`/`400`/`404` refusals, raw envelope check | KMS is emulated |
 | `examples/cdk-multilang/lambdas/node/handler.ts` | `L2` | reads and decrypts the Go-written item, batch with `lang=ts`, transaction, refusals, envelope check | KMS is emulated |
 | `examples/cdk-multilang/lambdas/python/handler.py` | `L2` | encrypted PUT/GET, batch with `lang=py`, transaction, refusals, envelope check | KMS is emulated |
-| `examples/cdk-multilang/lambdas/archive/handler.ts` | `L3` | a stream `REMOVE` record generated from a real local write, read-back and delete drives the handler; the archive object is written to s3proxy, read back, and its event id, TTL value and image are asserted | managed stream delivery: DynamoDB Local has no Streams |
-| `examples/cdk-multilang/scripts/smoke.sh` | `L3` | `scripts/smoke-local.sh` drives the same journeys (encrypted PUT via Go, GET via Node/Python, raw envelope, batch, transaction) against the locally run handlers | deployed AWS stack smoke: Function URL IAM auth, deployed tables and the deployed archive event source |
+| `examples/cdk-multilang/lambdas/archive/handler.ts` | `L2` | a real `REMOVE` record read from DynamoDB Local Streams after a real write/read/delete drives the handler; a real `MODIFY` record proves the skip path; the archive object is written to s3proxy, read back, and its real event id, stream ARN, TTL value and image are asserted | the harness, not a Lambda event source mapping, polls the stream and invokes the handler; DynamoDB Local has no TTL sweeper, so the harness performs the delete and adds the documented TTL service identity to the real record; stream ARNs carry the `ddblocal` region |
+| `examples/cdk-multilang/scripts/smoke.sh` | `L3` | `scripts/smoke-local.sh` drives the same journeys (encrypted PUT via Go, GET via Node/Python, raw envelope, batch, transaction) against the locally run handlers, and the row drives the archive handler with a real DynamoDB stream `REMOVE` record | deployed-stack subject (docs/125); only Function URL IAM policy authentication is not evaluated locally (docs/125 IAM policy evaluation) |
 | `examples/cdk-multilang/bin/app.ts` | `I` | synthesizes the real CDK app from two working directories with dummy credentials and a dead AWS endpoint; both templates are identical, contain no host path or fixed account id, and assert function runtimes, tables, TTL/stream, three IAM Function URLs, KMS and bucket lifecycle | infrastructure only |
 
 `CDK_SYNTH_NO_BUNDLING=1` is a harness-only switch in `bin/app.ts`: it sets the
@@ -350,7 +425,11 @@ build throwaway repository trees and assert that validation fails when:
 They also pin the documented exclusions against the real tree, so `bin/app.ts`
 stays visible while `lib/`, `test/` and generated output stay out. The summary
 tests assert that every manifest gap is printed and that a gap never changes a
-row's result.
+row's result. The real-delivery validators are tested from both sides: a
+record with a fabricated event id or a mismatched stream ARN fails, and a
+missing notification (no SQS message id or no dropped `s3:TestEvent` id) fails.
+A row that loses its real backend therefore cannot pass by regenerating a
+payload.
 
 The profile itself is tested the same way: a tag-only image, a fixed host port,
 a fixed `container_name`, a fixed compose project name, a missing logical
@@ -528,7 +607,9 @@ The T3 rows (`examples/encryption` and the cdk-multilang local variant) are
 `L2`: the envelope cryptography, KMS calls and cross-language decryption are
 real, and the KMS emulator's limits are the named gap. The S3 and SQS emulators
 are part of the profile and preflighted. The T4a payment reconcile row consumes
-S3; AppTheory will consume SQS with polling delivery.
+a real S3 notification through moto; the other S3 rows use s3proxy. Stream rows
+consume real DynamoDB Local Streams, with the harness poll/invoke as the named
+`L2` limit.
 
 `optimization` and `testing` are intentionally library demos: the query planner
 takes metadata/executor interfaces rather than a database, and `testing`
@@ -574,19 +655,27 @@ environment.
   multi-tenant example therefore provisions tables with `EnsureTable` (create if
   missing) and treats `ResourceInUseException` as typed success. A library-level
   fix is tracked separately.
-- DynamoDB Local has no Streams, so stream-delivery paths are `L3` with the
-  named gap "managed stream delivery": the T4a Python stream handler and the
-  cdk-multilang archive handler both receive a record generated from a real
-  local write, and the archive row additionally performs a real delete and S3
-  object round-trip.
-- The deployed cdk-multilang smoke is `L3` with the named gap "deployed AWS
-  stack smoke": `scripts/smoke-local.sh` drives the same journeys against the
-  locally run handlers, but Function URL IAM authentication, the deployed tables
-  and the deployed stream event source are not exercised.
-- The S3, SQS and STS emulators do not deliver managed events: S3 event
-  notifications, SQS event-source mappings and EventBridge delivery remain `L3`
-  with the named "managed <service> delivery" gap. Polling an ElasticMQ queue
-  is real delivery and can be `L2`.
+- DynamoDB Local implements Streams. The T4a Python stream handler and the
+  cdk-multilang archive handler are `L2`: their records are read from the real
+  stream. The remaining fidelity limit is delivery - the harness, not a Lambda
+  event source mapping, polls the stream and invokes the handler. DynamoDB Local
+  does not run the TTL sweeper, so the archive row performs the delete itself
+  and adds the documented TTL service identity to the real `REMOVE` record;
+  stream ARNs carry the `ddblocal` region. See "DynamoDB Streams and S3
+  notifications" above.
+- The deployed cdk-multilang smoke is `L3` as a deployed-stack subject
+  (docs/125). `scripts/smoke-local.sh` drives the same journeys against the
+  locally run handlers, and the row drives the archive handler with a real
+  DynamoDB stream `REMOVE` record. The surviving local limit is Function URL
+  IAM policy authentication (docs/125: IAM policy evaluation).
+- S3 notifications are real for the reconcile row: moto S3 delivers
+  `ObjectCreated:Put` to moto SQS after the fixture drops the `s3:TestEvent`;
+  the harness polls the queue and invokes the handler, which is the row's `L2`
+  limit. moto omits the optional `sequencer`, `userIdentity`,
+  `requestParameters` and `responseElements` record fields. SQS polling is real
+  against ElasticMQ, but no TableTheory row consumes an SQS event source
+  mapping, so managed SQS mapping delivery is not claimed. EventBridge has no
+  TableTheory row.
 - moto's STS accepts any role ARN and does not evaluate trust or IAM policies;
   the T4a partner-AssumeRole row treats the authorization decision as a named
   gap even though the `AssumeRole` call itself is real.

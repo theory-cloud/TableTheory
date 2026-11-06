@@ -240,9 +240,9 @@
     },
     "examples/payment/lambda/reconcile/handler.go": {
       "run": "payment-reconcile",
-      "class": "L3",
-      "gap": "Managed S3 event delivery: s3proxy has no bucket notifications, so the event payload is generated while the object read is real.",
-      "description": "Reconcile handler with generated S3 events and real object reads on s3proxy, writing settlement and audit rows to DynamoDB Local. Gap: managed S3 event delivery - s3proxy has no bucket notifications, so the event payload is generated while the object read is real."
+      "class": "L2",
+      "gap": "A real moto S3 bucket notification reaches moto SQS; the harness, not an S3 event source, polls the queue and invokes the handler. moto omits the optional sequencer, userIdentity, requestParameters and responseElements fields from the documented record.",
+      "description": "Reconcile handler fed a real S3 ObjectCreated:Put notification: moto S3 delivers the event to moto SQS, the harness drops the s3:TestEvent, reads the notification, and invokes the handler, which reads the real object and writes settlement and audit rows to DynamoDB Local. Gap: the harness, not an S3 event source, polls the queue and invokes the handler; moto omits the optional sequencer/userIdentity/requestParameters/responseElements fields."
     },
     "ts/examples/lambda/handler.ts": {
       "run": "ts-lambda",
@@ -251,9 +251,9 @@
     },
     "py/examples/lambda_stream_handler.py": {
       "run": "py-lambda-stream",
-      "class": "L3",
-      "gap": "Managed stream delivery: DynamoDB Local has no Streams, so the record is generated while the write and stored image are real.",
-      "description": "Python stream handler in the Python 3.14 runtime image, fed a DynamoDB stream record generated from a real local write and read back. Gap: managed stream delivery - DynamoDB Local has no Streams, so the record is generated while the write and stored image are real."
+      "class": "L2",
+      "gap": "The harness, not a Lambda event source mapping, polls DynamoDB Local Streams and invokes the handler; the INSERT record and stream ARN are real. The pinned DynamoDB Local reports stream ARNs in the ddblocal region.",
+      "description": "Python stream handler in the Python 3.14 runtime image, fed the real INSERT record a local write produced, read through DescribeStream, GetShardIterator and GetRecords. Gap: the harness, not a Lambda event source mapping, polls the stream and invokes the handler; stream ARNs carry the ddblocal region."
     },
     "examples/blog/authorizer/main.go": {
       "run": "blog-authorizer",
@@ -295,9 +295,9 @@
     },
     "examples/cdk-multilang/lambdas/archive/handler.ts": {
       "run": "cdk-multilang-archive",
-      "class": "L3",
-      "gap": "Managed stream delivery: DynamoDB Local has no Streams, so the TTL expiry record is generated while the write, stored image, delete and S3 object are real.",
-      "description": "Deployed cdk-multilang archive handler through the Node 24 runtime interface: a DynamoDB stream REMOVE record generated from a real local write, read-back and delete drives the handler, which writes the archive object to s3proxy and the harness reads it back and asserts the event id, TTL value and image. Gap: managed stream delivery - DynamoDB Local has no Streams, so the TTL expiry record is generated while the write, stored image, delete and S3 object are real."
+      "class": "L2",
+      "gap": "The harness, not a Lambda event source mapping, polls DynamoDB Local Streams and invokes the handler. DynamoDB Local does not run the TTL sweeper, so the harness performs a real delete and adds the documented TTL service identity to the real REMOVE record; stream ARNs carry the ddblocal region.",
+      "description": "Deployed cdk-multilang archive handler through the Node 24 runtime interface, fed a real REMOVE record read from DynamoDB Local Streams after a real write/read/delete; a real MODIFY record proves the skip path. The handler writes the archive object to s3proxy and the harness reads it back and asserts the real event id, stream ARN, TTL value and image. The TTL expiry is performed by the harness delete because DynamoDB Local has no TTL sweeper; the TTL service identity follows the AWS DynamoDB Streams/TTL record documentation."
     },
     "examples/cdk-multilang/lambdas/python/handler.py": {
       "run": "cdk-multilang-python",
@@ -308,14 +308,14 @@
     "examples/cdk-multilang/scripts/smoke.sh": {
       "run": "cdk-multilang-smoke-local",
       "class": "L3",
-      "gap": "Deployed AWS stack smoke: Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised.",
-      "description": "The deployed smoke script needs a deployed stack, IAM-signed Function URLs and an AWS profile, so it never runs here. scripts/smoke-local.sh drives the same journeys (encrypted PUT via Go, GET via Node and Python, raw envelope, batch, transaction) against the locally run handlers through the runtime interface. Gap: deployed AWS stack smoke - Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised."
+      "gap": "Deployed-stack subject (docs/125 true limit). The local counterpart runs the real DynamoDB Local tables and the archive event source through real Streams; only Function URL IAM policy authentication is not evaluated locally (docs/125: IAM policy evaluation).",
+      "description": "The deployed smoke script needs a deployed stack, IAM-signed Function URLs and an AWS profile, so it never runs here. scripts/smoke-local.sh drives the same journeys (encrypted PUT via Go, GET via Node and Python, raw envelope, batch, transaction) against the locally run handlers through the runtime interface, and the row also drives the archive handler with a real DynamoDB stream REMOVE record. Gap: deployed-stack subject; only Function URL IAM policy authentication is not evaluated locally (docs/125 IAM policy evaluation)."
     },
     "examples/cdk-multilang/scripts/smoke-local.sh": {
       "coveredBy": "examples/cdk-multilang/scripts/smoke.sh",
       "class": "L3",
-      "gap": "Deployed AWS stack smoke: Function URL IAM auth, the deployed tables and the deployed archive event source are not exercised.",
-      "description": "Local replacement for scripts/smoke.sh; executed inside the smoke.sh row against the RIE-hosted Go, Node and Python handlers."
+      "gap": "Deployed-stack subject (docs/125 true limit). The local counterpart runs the real DynamoDB Local tables and the archive event source through real Streams; only Function URL IAM policy authentication is not evaluated locally (docs/125: IAM policy evaluation).",
+      "description": "Local replacement for scripts/smoke.sh; executed inside the smoke.sh row against the RIE-hosted Go, Node and Python handlers, with the archive handler driven by a real DynamoDB stream REMOVE record."
     }
   },
   "suites": {
