@@ -156,6 +156,20 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.3.0-rc](https://github.com/theory-cloud/TableTheory/compare/v6.2.0...v6.3.0-rc) (2026-11-06)
+
+
+### Features
+
+* **examples-local:** deliver real stream and S3 events ([169e91c](https://github.com/theory-cloud/TableTheory/commit/169e91c32775b3de8f0b4ea9239e36ffd17e4266))
+* **examples-local:** deliver real stream and S3 events ([98c2120](https://github.com/theory-cloud/TableTheory/commit/98c21201501711474f4183962087ede848215172))
+
+
+### Bug Fixes
+
+* **examples:** close CodeQL alert 14 and absorb dependabot [#788](https://github.com/theory-cloud/TableTheory/issues/788)/[#790](https://github.com/theory-cloud/TableTheory/issues/790) ([07dadbf](https://github.com/theory-cloud/TableTheory/commit/07dadbf26eaf613bf4be42f917408c8afb28ecd3))
+* **examples:** sanitize reconcile failure log (CodeQL alert 14) ([8de1a69](https://github.com/theory-cloud/TableTheory/commit/8de1a6919dbc8b781678baf13c356b8657bc6a9c))
+
 ## [6.2.0](https://github.com/theory-cloud/TableTheory/compare/v6.2.0-rc...v6.2.0) (2026-11-02)
 
 Stable promotion of `v6.2.0-rc`.
