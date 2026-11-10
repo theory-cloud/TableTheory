@@ -156,6 +156,13 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.4.0-rc.1](https://github.com/theory-cloud/TableTheory/compare/v6.3.0...v6.4.0-rc.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **release:** cut the 6.4.0 RC for the dependency refresh ([fd7b06a](https://github.com/theory-cloud/TableTheory/commit/fd7b06a53a07596b51d3bba15472b1784c40dcdb))
+
 ## [6.3.0](https://github.com/theory-cloud/TableTheory/compare/v6.3.0-rc...v6.3.0) (2026-11-06)
 
 Stable promotion of `v6.3.0-rc`.
