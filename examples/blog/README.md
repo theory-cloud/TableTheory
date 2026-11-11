@@ -56,7 +56,7 @@ This example demonstrates how to build a modern blog platform using TableTheory 
 ## Quick Start
 
 ### Prerequisites
-- Go toolchain `go1.27.3`
+- Go toolchain `go1.27.4`
 - AWS CLI configured (only for `make deploy`)
 - Docker (for local DynamoDB)
 
