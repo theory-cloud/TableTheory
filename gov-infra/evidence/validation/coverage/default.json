@@ -5,32 +5,32 @@
         "make",
         "unit-cover"
       ],
-      "durationSeconds": 9.649,
+      "durationSeconds": 8.568,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-16T04:47:17Z",
+      "finishedAt": "2026-11-16T20:20:41Z",
       "id": "go-unit-cover",
-      "inputsDigest": "sha256:1d2284ee742bc61367bcc4b62a9b8e5b415179ebf0bc51fbab347c0fcd768fb5",
-      "logDigest": "sha256:4b2905848f49b424e22a7c8d1673cf2ac69ce87dffc2d4fc8c9dcdb5a876ef5a",
-      "logRef": "gov-infra/evidence/validation/local/coverage-go-unit-cover-20261116T044708Z-50036.log",
+      "inputsDigest": "sha256:74dc68c9824b855765cebbb1464873dadca2133cdaef81e9853e7f798ca22047",
+      "logDigest": "sha256:818423990e6ace5aa28a591174d2109cf21714743420ed1d98698e7f772ee56e",
+      "logRef": "gov-infra/evidence/validation/local/coverage-go-unit-cover-20261116T202033Z-57831.log",
       "reused": false,
-      "startedAt": "2026-11-16T04:47:08Z"
+      "startedAt": "2026-11-16T20:20:33Z"
     },
     {
       "argv": [
         "bash",
         "scripts/verify-coverage.sh"
       ],
-      "durationSeconds": 15.61,
+      "durationSeconds": 16.121,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-16T04:47:33Z",
+      "finishedAt": "2026-11-16T20:20:57Z",
       "id": "coverage-thresholds",
-      "inputsDigest": "sha256:6906b4b31955bee5b46412820ef602eac0a0e9e337c7d151db5c2740e90b64b5",
-      "logDigest": "sha256:098b083a3aaa4f51ea80f1e23313fa14b95eec3a30f77722b856124e211e5b8c",
-      "logRef": "gov-infra/evidence/validation/local/coverage-coverage-thresholds-20261116T044717Z-50036.log",
+      "inputsDigest": "sha256:9f2a6561b04cc4da251e3ae5abb70265def2668d8dca80f3640d325ef092870d",
+      "logDigest": "sha256:a863e61dbb5e5b3159d7a21718d94f6ae4f49c77a92297b8a0d0711f1f94bd59",
+      "logRef": "gov-infra/evidence/validation/local/coverage-coverage-thresholds-20261116T202041Z-57831.log",
       "reused": false,
-      "startedAt": "2026-11-16T04:47:17Z"
+      "startedAt": "2026-11-16T20:20:41Z"
     }
   ],
   "consumed": [],
@@ -52,7 +52,7 @@
   },
   "profile": "default",
   "reason": "",
-  "recordedAt": "2026-11-16T04:47:33Z",
+  "recordedAt": "2026-11-16T20:20:57Z",
   "releaseOnly": {
     "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
     "fileCount": 2,
@@ -62,7 +62,7 @@
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:c10272189722a058d9ff0f7b8f799eff810cf3cb0348ee6454fcac341b75efd4",
+    "digest": "sha256:10d31c28eb6030987e5faf38f0d10dc7aa7e1f9187de4886873ff17e8be82cce",
     "fileCount": 770,
     "paths": [
       "*.go",
@@ -83,7 +83,7 @@
     "version": 2
   },
   "source": {
-    "digest": "sha256:6fef5389d225f9c29d5e378506581c73b9aefac17708300dfed2830aaf616a6b",
+    "digest": "sha256:7ad9bba32f98350c4982b57360c875354f0b0461f8566c16a46641c52b13ea52",
     "fileCount": 1293
   },
   "verdict": "PASS"

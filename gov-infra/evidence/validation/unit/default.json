@@ -5,16 +5,16 @@
         "bash",
         "scripts/verify-unit-tests.sh"
       ],
-      "durationSeconds": 13.29,
+      "durationSeconds": 19.83,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-16T04:49:18Z",
+      "finishedAt": "2026-11-16T20:22:47Z",
       "id": "unit",
-      "inputsDigest": "sha256:11816c85c3ecc134af39dd60c0bfe73c3b11d0a90c3e2af4e084052024b6bea2",
-      "logDigest": "sha256:be0a210abdbbe2ab6f533fdb3ac7a1215f8cf86e7ac35807ed9cedd34bf1c3d2",
-      "logRef": "gov-infra/evidence/validation/local/unit-unit-20261116T044904Z-50036.log",
+      "inputsDigest": "sha256:497e43bb62c2747eaaef730e7e48e7609b8ed48e385aa313a2659ecdc5614485",
+      "logDigest": "sha256:90d53832324c95a7f04e3ae84c392eb31bfcc3c0b614a75bec6be110f5af5ec8",
+      "logRef": "gov-infra/evidence/validation/local/unit-unit-20261116T202227Z-57831.log",
       "reused": false,
-      "startedAt": "2026-11-16T04:49:04Z"
+      "startedAt": "2026-11-16T20:22:27Z"
     }
   ],
   "consumed": [],
@@ -36,7 +36,7 @@
   },
   "profile": "default",
   "reason": "",
-  "recordedAt": "2026-11-16T04:49:18Z",
+  "recordedAt": "2026-11-16T20:22:47Z",
   "releaseOnly": {
     "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
     "fileCount": 2,
@@ -46,7 +46,7 @@
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:93048de36e4294740c1d4559d20a958ba5398954eb1405761e4236a6ffe5ee10",
+    "digest": "sha256:9cd08a54a59209b979682ac8699b09cbd7f3077ba5f2d0b7572c08cf6518cd1f",
     "fileCount": 770,
     "paths": [
       "*.go",
@@ -67,7 +67,7 @@
     "version": 2
   },
   "source": {
-    "digest": "sha256:6fef5389d225f9c29d5e378506581c73b9aefac17708300dfed2830aaf616a6b",
+    "digest": "sha256:7ad9bba32f98350c4982b57360c875354f0b0461f8566c16a46641c52b13ea52",
     "fileCount": 1293
   },
   "verdict": "PASS"
