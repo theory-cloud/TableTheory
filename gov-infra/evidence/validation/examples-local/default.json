@@ -1,0 +1,72 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "make",
+        "examples-local"
+      ],
+      "durationSeconds": 56.455,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T20:21:54Z",
+      "id": "examples-harness",
+      "inputsDigest": "sha256:8285746e8b097fb1fbff3069b560d9e2b899ee974fdccd4360efae45bb147699",
+      "logDigest": "sha256:0dc251bf902d01074546e7921ddc231867c2d1c48e537ac8e9993bc26afaeef4",
+      "logRef": "gov-infra/evidence/validation/local/examples-local-examples-harness-20261116T202057Z-57831.log",
+      "reused": false,
+      "startedAt": "2026-11-16T20:20:57Z"
+    }
+  ],
+  "consumed": [],
+  "description": "Local examples harness: every classified example runs against the checked-in, digest-pinned local profile and asserts its real outcome",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "v24.21.0",
+    "platform": {
+      "arch": "arm64",
+      "os": "darwin"
+    },
+    "python": "3.14.7"
+  },
+  "gate": "examples-local",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "default",
+  "reason": "",
+  "recordedAt": "2026-11-16T20:21:54Z",
+  "releaseOnly": {
+    "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:3aa7856955fd43cd50144971d2eff1586a0dc0ff769214b701b584b20bade5e3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:df465b17db55f46bb1d65c14bea70c71794630a899f2eae4a5b63ce15a97db6a",
+    "fileCount": 914,
+    "paths": [
+      "examples/",
+      "scripts/local/",
+      "scripts/evidence/",
+      "Makefile",
+      "go.mod",
+      "go.sum",
+      "pkg/",
+      "internal/",
+      "cmd/",
+      "ts/",
+      "py/",
+      "contract-tests/"
+    ],
+    "version": 2
+  },
+  "source": {
+    "digest": "sha256:7ad9bba32f98350c4982b57360c875354f0b0461f8566c16a46641c52b13ea52",
+    "fileCount": 1293
+  },
+  "verdict": "PASS"
+}

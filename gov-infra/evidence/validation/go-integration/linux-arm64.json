@@ -1,0 +1,71 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-go-integration.sh"
+      ],
+      "durationSeconds": 22.702,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T20:26:51Z",
+      "id": "go-integration",
+      "inputsDigest": "sha256:6e4a203cce133ff4ecd6b157eb3f67a5f4039860af66453aaf2bb9e76cd1bd2a",
+      "logDigest": "sha256:4a5456c93b37ee6ede9a4947f8f8c9952fcbc11a8dc449dabc08c725e6ca8698",
+      "logRef": "gov-infra/evidence/validation/local/go-integration-go-integration-20261116T202628Z-6.log",
+      "reused": false,
+      "startedAt": "2026-11-16T20:26:28Z"
+    }
+  ],
+  "consumed": [],
+  "description": "Linux floor for the Go integration suite that no other gate covers: make integration against digest-pinned DynamoDB Local, produced in a digest-pinned Linux arm64 container",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "",
+    "platform": {
+      "arch": "aarch64",
+      "os": "linux"
+    },
+    "python": "3.11.2"
+  },
+  "gate": "go-integration",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "linux-arm64",
+  "reason": "",
+  "recordedAt": "2026-11-16T20:26:51Z",
+  "releaseOnly": {
+    "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:3aa7856955fd43cd50144971d2eff1586a0dc0ff769214b701b584b20bade5e3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:f15e8bc95c97c8280a6f5f780a4e6665a1887046a839aa3218f08057d0ffceb8",
+    "fileCount": 542,
+    "paths": [
+      "*.go",
+      "go.mod",
+      "go.sum",
+      "pkg/",
+      "internal/",
+      "cmd/",
+      "tests/",
+      "docker-compose.yml",
+      "Makefile",
+      "scripts/verify-go-integration.sh",
+      "scripts/evidence/"
+    ],
+    "version": 2
+  },
+  "source": {
+    "digest": "sha256:7ad9bba32f98350c4982b57360c875354f0b0461f8566c16a46641c52b13ea52",
+    "fileCount": 1293
+  },
+  "verdict": "PASS"
+}

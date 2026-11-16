@@ -212,12 +212,15 @@ These files are required to exist and be kept current:
 
 Release-lane quality workflow expectations:
 
-- `.github/workflows/quality-gates.yml` runs the full gov-infra rubric only for PRs targeting `staging` and manual
-  dispatch.
+- `.github/workflows/quality-gates.yml` runs only for PRs targeting `staging` and manual dispatch. It **verifies** the
+  locally produced, input-bound evidence record (`scripts/evidence/verify-gate.sh`, context `rubric`) and executes no
+  gate. A missing or stale record fails with the command that produces one locally. See
+  `docs/development/validation-evidence.md`.
 - `.github/workflows/release-hygiene.yml` runs lightweight source-branch/provenance, release-cycle, supply-chain, and
-  main-RC-PR checks for PRs targeting `premain`/`main`, plus read-only manual dispatch.
-- Other security workflows, such as `.github/workflows/codeql.yml`, may run independently, but they do not replace the
-  release-lane gate split above.
+  main-RC-PR checks for PRs targeting `premain`/`main`, plus read-only manual dispatch. Promotion pull requests carry
+  release hygiene only; they never re-run a product gate.
+- CodeQL runs through GitHub's default setup, not a repository workflow, and does not replace the release-lane gate
+  split above.
 
 ## Notes
 

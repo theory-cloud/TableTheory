@@ -777,6 +777,15 @@ case "${language}" in
     verify_python_coverage
     ;;
   all)
+    # Composition, not a second execution: when the rubric gate composes this
+    # gate's reviewed record, the record is verified against these exact inputs
+    # and the measurement is skipped. Only the plain all-language run composes;
+    # a `--language ...`, `--record-only`, `--dashboard` or `--package-targets`
+    # caller asks a narrower question that this record does not answer.
+    if bash scripts/evidence/reuse-if-recorded.sh coverage; then
+      echo "coverage: PASS (reused the reviewed evidence record)"
+      exit 0
+    fi
     verify_go_coverage
     export TS_COVERAGE_THRESHOLD="${TS_COVERAGE_THRESHOLD:-${COVERAGE_THRESHOLD:-${default_threshold}}}"
     export PY_COVERAGE_THRESHOLD="${PY_COVERAGE_THRESHOLD:-${COVERAGE_THRESHOLD:-${default_threshold}}}"

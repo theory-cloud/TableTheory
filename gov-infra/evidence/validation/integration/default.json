@@ -1,0 +1,80 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-integration-tests.sh"
+      ],
+      "durationSeconds": 26.362,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T20:22:20Z",
+      "id": "integration",
+      "inputsDigest": "sha256:f28116025f43159318780968dd8372af88885878132fe883b164230dfe1d14d7",
+      "logDigest": "sha256:ad4c004470020188e5cb694f5785cae5bcc16a704cfce40d4fc0cb489afd9503",
+      "logRef": "gov-infra/evidence/validation/local/integration-integration-20261116T202154Z-57831.log",
+      "reused": false,
+      "startedAt": "2026-11-16T20:21:54Z"
+    }
+  ],
+  "consumed": [],
+  "description": "Cross-language integration and contract suite against digest-pinned DynamoDB Local: Go integration, TypeScript integration, Python integration, shared contract tests",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "v24.21.0",
+    "platform": {
+      "arch": "arm64",
+      "os": "darwin"
+    },
+    "python": "3.14.7"
+  },
+  "gate": "integration",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "default",
+  "reason": "",
+  "recordedAt": "2026-11-16T20:22:20Z",
+  "releaseOnly": {
+    "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:3aa7856955fd43cd50144971d2eff1586a0dc0ff769214b701b584b20bade5e3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:1fa8f4064b5ff3670325e59eedf20c39d704a5bba8ede4f40e37b432aeedf704",
+    "fileCount": 897,
+    "paths": [
+      "*.go",
+      "go.mod",
+      "go.sum",
+      "pkg/",
+      "internal/",
+      "cmd/",
+      "tests/",
+      "ts/",
+      "py/",
+      "contract-tests/",
+      "docker-compose.yml",
+      "Makefile",
+      "scripts/verify-integration-tests.sh",
+      "scripts/verify-typescript-integration.sh",
+      "scripts/verify-python-integration.sh",
+      "scripts/verify-contract-tests.sh",
+      "scripts/verify-cross-runtime-fixtures.py",
+      "scripts/verify-typescript-deps.sh",
+      "scripts/verify-python-deps.sh",
+      "scripts/evidence/"
+    ],
+    "version": 2
+  },
+  "source": {
+    "digest": "sha256:7ad9bba32f98350c4982b57360c875354f0b0461f8566c16a46641c52b13ea52",
+    "fileCount": 1293
+  },
+  "verdict": "PASS"
+}

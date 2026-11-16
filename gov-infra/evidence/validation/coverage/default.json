@@ -1,0 +1,90 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "make",
+        "unit-cover"
+      ],
+      "durationSeconds": 8.568,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T20:20:41Z",
+      "id": "go-unit-cover",
+      "inputsDigest": "sha256:74dc68c9824b855765cebbb1464873dadca2133cdaef81e9853e7f798ca22047",
+      "logDigest": "sha256:818423990e6ace5aa28a591174d2109cf21714743420ed1d98698e7f772ee56e",
+      "logRef": "gov-infra/evidence/validation/local/coverage-go-unit-cover-20261116T202033Z-57831.log",
+      "reused": false,
+      "startedAt": "2026-11-16T20:20:33Z"
+    },
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-coverage.sh"
+      ],
+      "durationSeconds": 16.121,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T20:20:57Z",
+      "id": "coverage-thresholds",
+      "inputsDigest": "sha256:9f2a6561b04cc4da251e3ae5abb70265def2668d8dca80f3640d325ef092870d",
+      "logDigest": "sha256:a863e61dbb5e5b3159d7a21718d94f6ae4f49c77a92297b8a0d0711f1f94bd59",
+      "logRef": "gov-infra/evidence/validation/local/coverage-coverage-thresholds-20261116T202041Z-57831.log",
+      "reused": false,
+      "startedAt": "2026-11-16T20:20:41Z"
+    }
+  ],
+  "consumed": [],
+  "description": "Coverage measurement and raise-only thresholds across Go, TypeScript and Python, plus the offline Go unit coverage profile",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "v24.21.0",
+    "platform": {
+      "arch": "arm64",
+      "os": "darwin"
+    },
+    "python": "3.14.7"
+  },
+  "gate": "coverage",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "default",
+  "reason": "",
+  "recordedAt": "2026-11-16T20:20:57Z",
+  "releaseOnly": {
+    "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:3aa7856955fd43cd50144971d2eff1586a0dc0ff769214b701b584b20bade5e3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:10d31c28eb6030987e5faf38f0d10dc7aa7e1f9187de4886873ff17e8be82cce",
+    "fileCount": 770,
+    "paths": [
+      "*.go",
+      "go.mod",
+      "go.sum",
+      "pkg/",
+      "internal/",
+      "cmd/",
+      "tests/",
+      "ts/",
+      "py/",
+      "Makefile",
+      "scripts/verify-coverage.sh",
+      "scripts/verify-typescript-deps.sh",
+      "scripts/verify-python-deps.sh",
+      "scripts/evidence/"
+    ],
+    "version": 2
+  },
+  "source": {
+    "digest": "sha256:7ad9bba32f98350c4982b57360c875354f0b0461f8566c16a46641c52b13ea52",
+    "fileCount": 1293
+  },
+  "verdict": "PASS"
+}

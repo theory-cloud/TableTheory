@@ -1,0 +1,12 @@
+name: fixture-record-coverage
+on:
+  pull_request:
+    branches: ["staging"]
+jobs:
+  rubric:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the recorded rubric
+        run: bash scripts/evidence/verify-gate.sh --gate rubric --profile default
+      - name: Verify the recorded examples harness
+        run: bash scripts/evidence/verify-gate.sh --gate examples-local --profile default

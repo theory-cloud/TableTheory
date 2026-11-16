@@ -52,7 +52,7 @@ overrides, and the preflight fails if any SDK endpoint resolves elsewhere.
 | Payment and Lambda fixtures | `scripts/local/cmd/examples-local-payment-fixtures` (provisions tables, seeds rows, and configures the moto S3 notification) |
 | Real DynamoDB Streams reader | `scripts/local/cmd/examples-local-stream-event` (with `scripts/local/internal/streams`) |
 | KMS key provisioning and round-trip | `scripts/local/cmd/examples-local-kms-key` |
-| CI job | `.github/workflows/examples-local.yml` |
+| Evidence gate | `examples-local` in `scripts/evidence/validation-gates.json` (run by `make examples-local`, verified in CI) |
 
 The harness sets this environment for every child process and unsets anything
 that could redirect it: every inherited `AWS_*` variable (`AWS_PROFILE`,
@@ -640,12 +640,13 @@ place those tests run.
 
 ## CI
 
-`.github/workflows/examples-local.yml` runs `make examples-local` on pull
-requests to `staging` and on manual dispatch. The job has no service containers
-and no fixed ports: the harness starts the whole profile itself with a project
-name and ephemeral ports unique to the run, and removes it afterwards. It sets
-no AWS secrets and no endpoint variables, because the harness owns that
-environment.
+`make examples-local` is the `examples-local` evidence gate. It runs on the
+production host as part of the local record
+(`scripts/evidence/collect.sh --gate examples-local`), and CI verifies the
+recorded result on the pull request to `staging` without executing the harness.
+The harness starts the whole profile itself with a project name and ephemeral
+ports unique to the run, and removes it afterwards. It sets no AWS secrets and
+no endpoint variables, because the harness owns that environment.
 
 ## Known gaps
 
