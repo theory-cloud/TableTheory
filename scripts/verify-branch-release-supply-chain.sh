@@ -140,39 +140,29 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
     "quality-gates pull_request must target staging only"
   require_fixed "workflow_dispatch:" "${q}" \
     "quality-gates must support workflow_dispatch"
-  require_fixed "run: make rubric" "${q}" \
-    "quality-gates must run the full rubric"
-  require_fixed "fetch-depth: 0" "${q}" \
-    "quality-gates must checkout full history for in-flight premain RC repair verification"
-  require_fixed "+refs/heads/premain:refs/remotes/origin/premain" "${q}" \
-    "quality-gates must fetch origin/premain for in-flight premain RC repair verification"
-  require_fixed "+refs/heads/staging:refs/remotes/origin/staging" "${q}" \
-    "quality-gates must fetch origin/staging for in-flight premain RC repair verification"
-  require_fixed "+refs/heads/main:refs/remotes/origin/main" "${q}" \
-    "quality-gates must fetch origin/main for release-cycle state comparison"
-  require_fixed 'python-version: "3.12"' "${q}" \
-    "quality-gates must cover Python 3.12 before staging merge"
-  require_fixed "Run Python 3.12 pre-merge compatibility" "${q}" \
-    "quality-gates must name the Python 3.12 pre-merge compatibility step"
-  require_fixed "uv --directory py run pytest -q tests/unit" "${q}" \
-    "quality-gates Python 3.12 check must include unit tests"
-  require_fixed "uv --directory py run pytest -q tests/integration" "${q}" \
-    "quality-gates Python 3.12 check must include integration tests"
-  require_fixed 'node-version: "22"' "${q}" \
-    "quality-gates must cover Node 22 before staging merge"
-  require_fixed "Run Node 22 pre-merge compatibility" "${q}" \
-    "quality-gates must name the Node 22 pre-merge compatibility step"
-  require_fixed "npm --prefix ts run test:integration" "${q}" \
-    "quality-gates Node 22 check must include integration tests"
-  require_fixed "Restore Python 3.14 for rubric" "${q}" \
-    "quality-gates must restore Python 3.14 before make rubric"
-  require_fixed "Restore Node 24 for rubric" "${q}" \
-    "quality-gates must restore Node 24 before make rubric"
-  require_fixed "gov-infra/evidence" "${q}" \
-    "quality-gates must upload gov-infra evidence artifacts"
+  # Verify-only: the gates run on the production host and CI verifies the
+  # input-bound record. The two pre-merge floor legs the retired language
+  # matrices used to provide (Python 3.12, Node 22) are verified here as tracked
+  # floor records, so a broken floor still blocks the merge.
+  require_fixed "bash scripts/evidence/verify-gate.sh --gate rubric --profile default" "${q}" \
+    "quality-gates must verify the recorded rubric"
+  require_fixed "bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.12" "${q}" \
+    "quality-gates must verify the recorded Python 3.12 floor"
+  require_fixed "bash scripts/evidence/verify-gate.sh --gate ts --profile floor-node22" "${q}" \
+    "quality-gates must verify the recorded Node 22 floor"
+  require_fixed "bash scripts/evidence/verify-gate.sh --gate go-integration --profile linux-arm64" "${q}" \
+    "quality-gates must verify the recorded Linux Go integration floor"
+  if grep -Eq 'run:\s*make rubric' "${q}"; then
+    fail "quality-gates must not execute the rubric; CI verifies the recorded result"
+  fi
+  for unprovisioned in "actions/setup-go@" "actions/setup-node@" "actions/setup-python@" "actions/upload-artifact@"; do
+    if grep -Fq -- "${unprovisioned}" "${q}"; then
+      fail "quality-gates must not provision or upload ${unprovisioned}; verification reads a committed record"
+    fi
+  done
   legacy_evidence_path="hgm""-infra/evidence"
   if grep -Fq "${legacy_evidence_path}" "${q}"; then
-    fail "quality-gates must not upload legacy governance evidence artifacts"
+    fail "quality-gates must not reference legacy governance evidence"
   fi
   if grep -Eq '^[[:space:]]*push:' "${q}"; then
     fail "quality-gates must not run on push"
@@ -255,20 +245,12 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   fi
 fi
 
-for workflow in \
-  ".github/workflows/typescript.yml" \
-  ".github/workflows/python.yml" \
-  ".github/workflows/unit-cover.yml"; do
-  if [[ -f "${workflow}" ]]; then
-    require_fixed "paths-ignore:" "${workflow}" \
-      "${workflow} pull_request trigger must suppress manifest/changelog-only release-please PR fan-out"
-    require_fixed '".release-please-manifest.json"' "${workflow}" \
-      "${workflow} must ignore release-please manifest-only PR changes"
-    require_fixed '"CHANGELOG.md"' "${workflow}" \
-      "${workflow} must ignore release-please changelog-only PR changes"
-    if grep -Eq '^[[:space:]]*paths:' "${workflow}"; then
-      fail "${workflow} must not replace normal PR validation with a paths allowlist"
-    fi
+# The standalone language matrices are retired: their coverage lives in the
+# evidence record, and a re-appearing workflow would re-execute a suite on a
+# push or a promotion pull request.
+for retired in python.yml typescript.yml unit-cover.yml codeql.yml examples-local.yml; do
+  if [[ -e ".github/workflows/${retired}" ]]; then
+    fail ".github/workflows/${retired} must stay deleted; its coverage lives in the evidence record"
   fi
 done
 

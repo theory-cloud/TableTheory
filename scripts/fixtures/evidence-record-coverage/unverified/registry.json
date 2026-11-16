@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "gates": {
+    "rubric": {
+      "profiles": [
+        "default"
+      ],
+      "dependsOn": [
+        "unit"
+      ]
+    },
+    "unit": {
+      "profiles": [
+        "default"
+      ]
+    },
+    "examples-local": {
+      "profiles": [
+        "default"
+      ]
+    }
+  }
+}

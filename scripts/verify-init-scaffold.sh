@@ -44,7 +44,7 @@ echo "==> scaffolding and resolving the published default"
 )
 
 echo "==> starting throwaway DynamoDB Local on port ${PORT}"
-CID="$(docker run -d --rm -p "${PORT}:8000" amazon/dynamodb-local:3.1.0 \
+CID="$(docker run -d --rm -p "${PORT}:8000" amazon/dynamodb-local:3.1.0@sha256:7ef4a2c45b58c2901e70a4f28e0953a422c2c631baaaf5e2c15e0805740c7752 \
   -jar DynamoDBLocal.jar -sharedDb -inMemory)"
 
 echo "==> waiting for DynamoDB Local"

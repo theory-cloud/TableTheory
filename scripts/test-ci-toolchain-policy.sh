@@ -14,9 +14,11 @@ set -euo pipefail
 #
 #   - every third-party action pinned to a full commit SHA
 #   - every `npm ci` runs with `--ignore-scripts`
-#   - R-F1 trigger parity: a job that runs on a push to `staging`, or on a
-#     promotion pull request (base `premain`/`main`), must also be exercised on
-#     pull requests to `staging`
+#   - the verify-only CI shape: a push trigger is a publish side effect only, no
+#     workflow executes a gate from the tracked evidence registry, and the record
+#     verifier runs on pull requests to staging and nowhere else
+#   - the lint toolchain pin lives in the repository, because CI installs no
+#     linter in a verify-only repository
 #
 # Each case builds a throwaway workflow tree, runs the real verifier inside it,
 # and asserts both the exit status and the emitted message, so a guard cannot
@@ -41,8 +43,19 @@ status=0
 
 begin_case() {
   case_dir="$(mktemp -d "${scratch}/case.XXXXXX")"
-  mkdir -p "${case_dir}/.github/workflows"
+  mkdir -p "${case_dir}/.github/workflows" "${case_dir}/scripts/evidence"
   printf 'module example.com/fixture\n\ngo 1.26\n\ntoolchain go1.26.6\n' >"${case_dir}/go.mod"
+  # The guard reads the gate command list from the tracked registry, so every
+  # case carries a minimal one. Its content only needs the one gate command the
+  # gate-execution cases exercise.
+  cat >"${case_dir}/scripts/evidence/validation-gates.json" <<'JSON'
+{"schemaVersion": 1, "gates": {"unit": {"kind": "source", "commands": [{"id": "unit", "argv": ["bash", "scripts/verify-unit-tests.sh"]}]}}}
+JSON
+  # The local lint pin the guard requires of a verify-only repository.
+  printf 'GOLANGCI_LINT_VERSION ?= v2.14.0\n' >"${case_dir}/Makefile"
+  # Reads GOLANGCI_LINT_VERSION from the Makefile; never restates a version.
+  printf '%s\n' 'pin="$(awk -F= /^GOLANGCI_LINT_VERSION/ {print $2} Makefile)"' \
+    >"${case_dir}/scripts/ensure-go-lint.sh"
 }
 
 write_workflow() {
@@ -160,13 +173,15 @@ run_verifier
 expect_status FAIL "comment-only SHA pin"
 expect_message "is not pinned to a full commit SHA" "comment-only SHA pin"
 
-# 5. R-F1 rule A: push to staging without any staging pull-request coverage.
+# 5. A push trigger on a workflow that is not a publish workflow fails closed.
 begin_case
 write_workflow ci.yml <<'YAML'
 name: fixture
 on:
   push:
-    branches: ["staging", "premain", "main"]
+    branches: ["staging"]
+  pull_request:
+    branches: ["staging"]
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -174,100 +189,131 @@ jobs:
       - run: echo build
 YAML
 run_verifier
-expect_status FAIL "push-to-staging without staging PR coverage"
-expect_message "runs on push to staging but is never exercised" "push-to-staging without staging PR coverage"
+expect_status FAIL "gate-class push trigger"
+expect_message "declares a push trigger but is not a publish workflow" "gate-class push trigger"
 
-# 6. R-F1 rule B: a promotion pull-request gate that staging PRs never run.
+# 6. The documented publish workflows keep their push trigger.
 begin_case
-write_workflow promotion.yml <<'YAML'
+write_workflow pages.yml <<'YAML'
+name: fixture
+on:
+  push:
+    branches: ["staging"]
+  pull_request:
+    branches: ["staging"]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo build
+YAML
+run_verifier
+expect_status PASS "publish workflow push trigger"
+
+# 7. Executing a gate command from the registry in CI fails closed.
+begin_case
+write_workflow ci.yml <<'YAML'
+name: fixture
+on:
+  pull_request:
+    branches: ["staging"]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash scripts/verify-unit-tests.sh
+YAML
+run_verifier
+expect_status FAIL "gate executed in CI"
+expect_message "executes a recorded gate in CI" "gate executed in CI"
+
+# 8. A record verifier on a promotion pull request fails closed.
+begin_case
+write_workflow verify.yml <<'YAML'
 name: fixture
 on:
   pull_request:
     branches: ["premain", "main"]
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - run: echo build
+      - run: bash scripts/evidence/verify-gate.sh --gate unit
 YAML
 run_verifier
-expect_status FAIL "promotion PR gate missing staging PR coverage"
-expect_message "gates pull requests to premain/main but not pull requests to staging" "promotion PR gate missing staging PR coverage"
+expect_status FAIL "record verification on a promotion pull request"
+expect_message "verifies the evidence record on promotion pull requests" "record verification on a promotion pull request"
 
-# 7. Inline branch lists satisfy rule A.
+# 9. The same verifier on a pull request to staging passes, in both branch-list
+#    forms.
 begin_case
-write_workflow ci.yml <<'YAML'
+write_workflow verify.yml <<'YAML'
 name: fixture
 on:
-  push:
-    branches: [staging]
   pull_request:
     branches: [staging]
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - run: echo build
+      - run: bash scripts/evidence/verify-gate.sh --gate unit
 YAML
 run_verifier
-expect_status PASS "inline branch lists"
+expect_status PASS "record verification on staging, inline branch list"
 
-# 8. Block-form branch lists satisfy rule B.
 begin_case
-write_workflow ci.yml <<'YAML'
+write_workflow verify.yml <<'YAML'
 name: fixture
 on:
   pull_request:
     branches:
       - "staging"
-      - "premain"
-      - "main"
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - run: echo build
+      - run: bash scripts/evidence/verify-gate.sh --gate unit
 YAML
 run_verifier
-expect_status PASS "block-form branch lists"
+expect_status PASS "record verification on staging, block branch list"
 
-# 9. The documented promotion-lane exemption (release-hygiene.yml) is honoured.
+# 10. The local lint pin must be tracked, and CI must not install a linter.
 begin_case
-write_workflow release-hygiene.yml <<'YAML'
+write_workflow verify.yml <<'YAML'
 name: fixture
 on:
   pull_request:
-    branches: ["premain", "main"]
+    branches: ["staging"]
 jobs:
-  hygiene:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - run: echo hygiene
+      - run: bash scripts/evidence/verify-gate.sh --gate unit
 YAML
+printf 'lint:\n\t@echo lint\n' >"${case_dir}/Makefile"
 run_verifier
-expect_status PASS "release-hygiene exemption"
+expect_status FAIL "missing local lint pin"
+expect_message "must declare GOLANGCI_LINT_VERSION" "missing local lint pin"
 
-# 10. An event declared without a branch filter means "every branch", so a
-#     `pull_request: {}` event already covers staging.
 begin_case
-write_workflow ci.yml <<'YAML'
+write_workflow lint.yml <<'YAML'
 name: fixture
 on:
-  push:
-    branches: [staging]
-  pull_request: {}
+  pull_request:
+    branches: ["staging"]
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
     steps:
-      - run: echo build
+      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 YAML
 run_verifier
-expect_status PASS "unfiltered pull_request event"
+expect_status FAIL "CI installs a linter"
+expect_message "must not install a linter" "CI installs a linter"
 
 if [[ "${failures}" -ne 0 ]]; then
   echo "ci-toolchain-policy: FAIL (${failures} issue(s))"
   exit 1
 fi
 
-echo "ci-toolchain-policy: PASS (pinning, lockfile-install and trigger-parity guards are live)"
+echo "ci-toolchain-policy: PASS (pinning, lockfile-install, verify-only shape and local lint pin guards are live)"

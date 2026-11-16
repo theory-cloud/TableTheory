@@ -1,0 +1,670 @@
+{
+  "schemaVersion": 1,
+  "evidenceDirectory": "gov-infra/evidence/validation",
+  "localLogDirectory": "gov-infra/evidence/validation/local",
+  "clockSkewSeconds": 300,
+  "securityMaxAgeSeconds": 86400,
+  "runner": {
+    "maxWorkers": 2,
+    "resources": {
+      "cpu": 2,
+      "repo-write": 1,
+      "docker": 1,
+      "network": 1
+    }
+  },
+  "proofProfiles": {
+    "default": {
+      "description": "Approved producing host for portable source, packaging and suite proof; Go pin, Node 24, Python 3.14 on macOS arm64",
+      "environment": {
+        "go": "go1.27.4",
+        "node": "24",
+        "python": "3.14",
+        "platform": {
+          "os": "darwin",
+          "arch": "arm64"
+        }
+      }
+    },
+    "floor-node22": {
+      "description": "Node 22 runtime-floor proof for the TypeScript package and its integration suite, produced in a digest-pinned Linux arm64 container",
+      "environment": {
+        "go": "go1.27.4",
+        "node": "22",
+        "python": "3.14",
+        "platform": {
+          "os": "linux",
+          "arch": "arm64"
+        }
+      }
+    },
+    "floor-py3.12": {
+      "description": "Python 3.12 runtime-floor proof for the Python package and its integration suite, produced in a digest-pinned Linux arm64 container",
+      "environment": {
+        "go": "go1.27.4",
+        "node": "24",
+        "python": "3.12",
+        "platform": {
+          "os": "linux",
+          "arch": "arm64"
+        }
+      }
+    },
+    "linux-arm64": {
+      "description": "Linux arm64 producer for the Go integration suite against digest-pinned DynamoDB Local; a record under this profile is labelled Linux and never substitutes for the macOS default",
+      "environment": {
+        "go": "go1.27.4",
+        "node": "24",
+        "python": "3.14",
+        "platform": {
+          "os": "linux",
+          "arch": "arm64"
+        }
+      }
+    }
+  },
+  "nonProductPaths": [
+    "docs/",
+    "gov-infra/",
+    ".github/",
+    "scripts/",
+    "README.md",
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    ".gitignore",
+    ".nvmrc",
+    "theorydb.code-workspace",
+    "release-please-config.json",
+    "release-please-config.premain.json"
+  ],
+  "releaseOnly": {
+    "exact": [
+      ".release-please-manifest.json",
+      "CHANGELOG.md"
+    ],
+    "prefixes": [],
+    "patterns": []
+  },
+  "securityInputs": {
+    "exact": [
+      "go.mod",
+      "go.sum",
+      "ts/package.json",
+      "ts/package-lock.json",
+      "py/pyproject.toml",
+      "py/uv.lock",
+      "examples/cdk-multilang/package.json",
+      "examples/cdk-multilang/package-lock.json",
+      "examples/cdk-multilang/lambdas/python/uv.lock"
+    ],
+    "patterns": [
+      "examples/*/package-lock.json"
+    ]
+  },
+  "executionMatrix": [
+    {
+      "id": "pr-staging",
+      "leg": "pull request -> staging",
+      "old": "thirteen workflows executed the Go/TypeScript/Python suites, coverage, the examples harness and the full rubric on the pull-request merge ref",
+      "new": "one job verifies the committed evidence record for each tracked proof profile; no gate executes, and a missing or stale record fails with the local collection command"
+    },
+    {
+      "id": "push-staging",
+      "leg": "merge push -> staging",
+      "old": "python.yml, typescript.yml, unit-cover.yml and the pages build re-executed on the merged tree, plus the subtree publish",
+      "new": "publish side effects only (the pages deploy and the subtree publish); no gate-class job runs on the merge"
+    },
+    {
+      "id": "pr-staging-premain",
+      "leg": "staging -> premain promotion pull request",
+      "old": "python.yml, typescript.yml and unit-cover.yml re-executed their matrices, and release hygiene ran",
+      "new": "release hygiene only; no product job runs and no suite is re-executed"
+    },
+    {
+      "id": "push-premain",
+      "leg": "promotion merge push -> premain",
+      "old": "the language workflows re-executed, then release-please generated the RC pull request, then the publisher built assets",
+      "new": "release-please generation and publish only; no gate re-verification"
+    },
+    {
+      "id": "release-pr-premain",
+      "leg": "generated RC release pull request",
+      "old": "python.yml, typescript.yml and unit-cover.yml re-executed because paths-ignore only covered the manifest and the changelog",
+      "new": "release hygiene only; the generated release pull request re-runs no suite"
+    },
+    {
+      "id": "release-merge-premain",
+      "leg": "RC merge/publish on premain",
+      "old": "the language workflows re-executed, then the publisher built assets again",
+      "new": "publish only; the publisher builds the real release assets once and no gate re-verifies"
+    },
+    {
+      "id": "pr-premain-main",
+      "leg": "premain -> main promotion pull request",
+      "old": "python.yml, typescript.yml and unit-cover.yml re-executed their matrices, and release hygiene ran",
+      "new": "release hygiene only; no product job runs and no suite is re-executed"
+    },
+    {
+      "id": "push-main",
+      "leg": "promotion merge push -> main",
+      "old": "the language workflows re-executed before release-please generation and the publisher",
+      "new": "release-please generation and publish only; no gate re-verification"
+    },
+    {
+      "id": "release-pr-main",
+      "leg": "generated stable release pull request",
+      "old": "the language workflows re-executed on the generated stable pull request",
+      "new": "release hygiene only; the generated stable release pull request re-runs no suite"
+    },
+    {
+      "id": "release-merge-main",
+      "leg": "stable merge/publish on main",
+      "old": "the language workflows re-executed, then the publisher built assets again",
+      "new": "publish only; the publisher builds the real release assets once and no gate re-verifies"
+    },
+    {
+      "id": "backmerge-main-staging",
+      "leg": "main -> staging back-merge pull request",
+      "old": "the language workflows and the full rubric re-executed on the returned baseline",
+      "new": "records-only evidence refresh on the back-merge branch, then the staging pull-request verification set; a real source delta needs the affected gates recollected"
+    }
+  ],
+  "gates": {
+    "rubric": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "node",
+        "python"
+      ],
+      "profiles": [
+        "default"
+      ],
+      "description": "Catch-all rubric gate used by the staging required context: it composes independently produced records and executes only the rubric-unique checks",
+      "resource": "repo-write",
+      "paths": [
+        "**"
+      ],
+      "dependsOn": [
+        "unit",
+        "integration",
+        "coverage",
+        "format",
+        "lint",
+        "builds"
+      ],
+      "commands": [
+        {
+          "id": "rubric",
+          "argv": [
+            "make",
+            "rubric"
+          ],
+          "env": {
+            "TABLE_THEORY_EVIDENCE_REUSE": "unit,integration,coverage,format,lint,builds",
+            "NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS": "true"
+          },
+          "consumeLog": true
+        }
+      ]
+    },
+    "unit": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "node",
+        "python"
+      ],
+      "profiles": [
+        "default"
+      ],
+      "description": "Cross-language unit suite: Go unit tests with the race detector, TypeScript unit tests, Python unit tests",
+      "resource": "repo-write",
+      "paths": [
+        "*.go",
+        "go.mod",
+        "go.sum",
+        "pkg/",
+        "internal/",
+        "cmd/",
+        "tests/",
+        "ts/",
+        "py/",
+        "Makefile",
+        "scripts/verify-unit-tests.sh",
+        "scripts/verify-typescript-deps.sh",
+        "scripts/verify-python-deps.sh",
+        "scripts/evidence/"
+      ],
+      "commands": [
+        {
+          "id": "unit",
+          "argv": [
+            "bash",
+            "scripts/verify-unit-tests.sh"
+          ]
+        }
+      ]
+    },
+    "integration": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "node",
+        "python"
+      ],
+      "profiles": [
+        "default"
+      ],
+      "description": "Cross-language integration and contract suite against digest-pinned DynamoDB Local: Go integration, TypeScript integration, Python integration, shared contract tests",
+      "resources": [
+        "docker",
+        "repo-write"
+      ],
+      "paths": [
+        "*.go",
+        "go.mod",
+        "go.sum",
+        "pkg/",
+        "internal/",
+        "cmd/",
+        "tests/",
+        "ts/",
+        "py/",
+        "contract-tests/",
+        "docker-compose.yml",
+        "Makefile",
+        "scripts/verify-integration-tests.sh",
+        "scripts/verify-typescript-integration.sh",
+        "scripts/verify-python-integration.sh",
+        "scripts/verify-contract-tests.sh",
+        "scripts/verify-cross-runtime-fixtures.py",
+        "scripts/verify-typescript-deps.sh",
+        "scripts/verify-python-deps.sh",
+        "scripts/evidence/"
+      ],
+      "commands": [
+        {
+          "id": "integration",
+          "argv": [
+            "bash",
+            "scripts/verify-integration-tests.sh"
+          ]
+        }
+      ]
+    },
+    "coverage": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "node",
+        "python"
+      ],
+      "profiles": [
+        "default"
+      ],
+      "description": "Coverage measurement and raise-only thresholds across Go, TypeScript and Python, plus the offline Go unit coverage profile",
+      "resource": "repo-write",
+      "paths": [
+        "*.go",
+        "go.mod",
+        "go.sum",
+        "pkg/",
+        "internal/",
+        "cmd/",
+        "tests/",
+        "ts/",
+        "py/",
+        "Makefile",
+        "scripts/verify-coverage.sh",
+        "scripts/verify-typescript-deps.sh",
+        "scripts/verify-python-deps.sh",
+        "scripts/evidence/"
+      ],
+      "commands": [
+        {
+          "id": "go-unit-cover",
+          "argv": [
+            "make",
+            "unit-cover"
+          ]
+        },
+        {
+          "id": "coverage-thresholds",
+          "argv": [
+            "bash",
+            "scripts/verify-coverage.sh"
+          ]
+        }
+      ]
+    },
+    "format": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "node",
+        "python"
+      ],
+      "profiles": [
+        "default"
+      ],
+      "description": "Canonical formatting: gofmt, the TypeScript format check and ruff format",
+      "resource": "cpu",
+      "paths": [
+        "*.go",
+        "pkg/",
+        "internal/",
+        "cmd/",
+        "tests/",
+        "ts/",
+        "py/",
+        "scripts/verify-formatting.sh",
+        "scripts/evidence/"
+      ],
+      "commands": [
+        {
+          "id": "format",
+          "argv": [
+            "bash",
+            "scripts/verify-formatting.sh"
+          ]
+        }
+      ]
+    },
+    "lint": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "node",
+        "python"
+      ],
+      "profiles": [
+        "default"
+      ],
+      "description": "Canonical lint: golangci-lint with the tracked config, the TypeScript ESLint run and ruff check",
+      "resource": "cpu",
+      "paths": [
+        "*.go",
+        "pkg/",
+        "internal/",
+        "cmd/",
+        "tests/",
+        "ts/",
+        "py/",
+        ".golangci-v2.yml",
+        "Makefile",
+        "scripts/verify-lint.sh",
+        "scripts/evidence/"
+      ],
+      "commands": [
+        {
+          "id": "lint",
+          "argv": [
+            "bash",
+            "scripts/verify-lint.sh"
+          ]
+        }
+      ]
+    },
+    "builds": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "node",
+        "python"
+      ],
+      "profiles": [
+        "default"
+      ],
+      "description": "Package and module builds: Go modules and semantic import version, TypeScript build and typecheck, Python wheel build, branch version alignment, CDK synth",
+      "resources": [
+        "repo-write",
+        "network"
+      ],
+      "paths": [
+        "*.go",
+        "go.mod",
+        "go.sum",
+        "pkg/",
+        "internal/",
+        "cmd/",
+        "ts/",
+        "py/",
+        "examples/",
+        "Makefile",
+        "scripts/verify-builds.sh",
+        "scripts/verify-go-modules.sh",
+        "scripts/verify-go-semantic-import-version.sh",
+        "scripts/verify-typescript-build.sh",
+        "scripts/verify-python-build.sh",
+        "scripts/verify-branch-version-sync.sh",
+        "scripts/verify-cdk-synth.sh",
+        "scripts/verify-cdk-synth-runtimes.mjs",
+        "scripts/evidence/"
+      ],
+      "commands": [
+        {
+          "id": "builds",
+          "argv": [
+            "bash",
+            "scripts/verify-builds.sh"
+          ]
+        }
+      ]
+    },
+    "ts": {
+      "kind": "source",
+      "environment": [
+        "node",
+        "platform"
+      ],
+      "profiles": [
+        "default",
+        "floor-node22"
+      ],
+      "description": "TypeScript package suite per supported Node line: format check, lint, typecheck, build, unit, coverage and integration",
+      "resources": [
+        "repo-write",
+        "network"
+      ],
+      "paths": [
+        "ts/",
+        ".nvmrc",
+        "scripts/verify-typescript-deps.sh",
+        "scripts/verify-coverage.sh",
+        "scripts/evidence/"
+      ],
+      "commands": [
+        {
+          "id": "ts-deps",
+          "argv": [
+            "bash",
+            "scripts/verify-typescript-deps.sh"
+          ]
+        },
+        {
+          "id": "ts-check",
+          "argv": [
+            "npm",
+            "--prefix",
+            "ts",
+            "run",
+            "check"
+          ]
+        },
+        {
+          "id": "ts-coverage",
+          "argv": [
+            "bash",
+            "scripts/verify-coverage.sh",
+            "--language",
+            "typescript",
+            "--suite",
+            "unit",
+            "--record-only"
+          ]
+        },
+        {
+          "id": "ts-integration",
+          "argv": [
+            "npm",
+            "--prefix",
+            "ts",
+            "run",
+            "test:integration"
+          ]
+        }
+      ]
+    },
+    "py": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "python",
+        "platform"
+      ],
+      "profiles": [
+        "default",
+        "floor-py3.12"
+      ],
+      "description": "Python package suite per supported interpreter: ruff format and lint, mypy, wheel build, unit coverage and integration. The Go CLI builds the generated-import fixtures the DMS tests exercise, so the Go pin is part of this gate's environment binding.",
+      "resources": [
+        "repo-write",
+        "network"
+      ],
+      "paths": [
+        "py/",
+        "scripts/verify-python-static.sh",
+        "scripts/verify-coverage.sh",
+        "scripts/evidence/",
+        "cmd/",
+        "internal/",
+        "go.mod",
+        "go.sum"
+      ],
+      "commands": [
+        {
+          "id": "py-sync",
+          "argv": [
+            "uv",
+            "--directory",
+            "py",
+            "sync",
+            "--frozen",
+            "--all-extras"
+          ]
+        },
+        {
+          "id": "py-static",
+          "argv": [
+            "bash",
+            "scripts/verify-python-static.sh"
+          ]
+        },
+        {
+          "id": "py-coverage",
+          "argv": [
+            "bash",
+            "scripts/verify-coverage.sh",
+            "--language",
+            "python",
+            "--suite",
+            "unit",
+            "--record-only"
+          ]
+        },
+        {
+          "id": "py-integration",
+          "argv": [
+            "uv",
+            "--directory",
+            "py",
+            "run",
+            "pytest",
+            "-q",
+            "tests/integration"
+          ]
+        }
+      ]
+    },
+    "go-integration": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "platform"
+      ],
+      "profiles": [
+        "linux-arm64"
+      ],
+      "description": "Linux floor for the Go integration suite that no other gate covers: make integration against digest-pinned DynamoDB Local, produced in a digest-pinned Linux arm64 container",
+      "resources": [
+        "docker",
+        "repo-write"
+      ],
+      "paths": [
+        "*.go",
+        "go.mod",
+        "go.sum",
+        "pkg/",
+        "internal/",
+        "cmd/",
+        "tests/",
+        "docker-compose.yml",
+        "Makefile",
+        "scripts/verify-go-integration.sh",
+        "scripts/evidence/"
+      ],
+      "commands": [
+        {
+          "id": "go-integration",
+          "argv": [
+            "bash",
+            "scripts/verify-go-integration.sh"
+          ]
+        }
+      ]
+    },
+    "examples-local": {
+      "kind": "source",
+      "environment": [
+        "go",
+        "node",
+        "python",
+        "platform"
+      ],
+      "profiles": [
+        "default"
+      ],
+      "description": "Local examples harness: every classified example runs against the checked-in, digest-pinned local profile and asserts its real outcome",
+      "resources": [
+        "docker",
+        "repo-write",
+        "network"
+      ],
+      "paths": [
+        "examples/",
+        "scripts/local/",
+        "scripts/evidence/",
+        "Makefile",
+        "go.mod",
+        "go.sum",
+        "pkg/",
+        "internal/",
+        "cmd/",
+        "ts/",
+        "py/",
+        "contract-tests/"
+      ],
+      "commands": [
+        {
+          "id": "examples-harness",
+          "argv": [
+            "make",
+            "examples-local"
+          ]
+        }
+      ]
+    }
+  }
+}

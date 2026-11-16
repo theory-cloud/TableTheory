@@ -1,0 +1,71 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-lint.sh"
+      ],
+      "durationSeconds": 5.247,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T04:46:38Z",
+      "id": "lint",
+      "inputsDigest": "sha256:2471dfdbb1f2f8ba62336eb5835c79ff16ac4b1cf901c0dcb799b5953253dc2d",
+      "logDigest": "sha256:f71b1d5fab1179c1e12c1804299d6623cec333d1be91d5379baae2c826bac453",
+      "logRef": "gov-infra/evidence/validation/local/lint-lint-20261116T044633Z-50036.log",
+      "reused": false,
+      "startedAt": "2026-11-16T04:46:33Z"
+    }
+  ],
+  "consumed": [],
+  "description": "Canonical lint: golangci-lint with the tracked config, the TypeScript ESLint run and ruff check",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "v24.21.0",
+    "platform": {
+      "arch": "arm64",
+      "os": "darwin"
+    },
+    "python": "3.14.7"
+  },
+  "gate": "lint",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "default",
+  "reason": "",
+  "recordedAt": "2026-11-16T04:46:38Z",
+  "releaseOnly": {
+    "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:3aa7856955fd43cd50144971d2eff1586a0dc0ff769214b701b584b20bade5e3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:d2cc97e972a0ea2300311b4003d7b736852bc5e1bb3784f090e768c09579464e",
+    "fileCount": 767,
+    "paths": [
+      "*.go",
+      "pkg/",
+      "internal/",
+      "cmd/",
+      "tests/",
+      "ts/",
+      "py/",
+      ".golangci-v2.yml",
+      "Makefile",
+      "scripts/verify-lint.sh",
+      "scripts/evidence/"
+    ],
+    "version": 2
+  },
+  "source": {
+    "digest": "sha256:6fef5389d225f9c29d5e378506581c73b9aefac17708300dfed2830aaf616a6b",
+    "fileCount": 1293
+  },
+  "verdict": "PASS"
+}

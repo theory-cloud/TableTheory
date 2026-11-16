@@ -1,0 +1,124 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-typescript-deps.sh"
+      ],
+      "durationSeconds": 1.89,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T05:02:01Z",
+      "id": "ts-deps",
+      "inputsDigest": "sha256:030f37cee5b8b51cd67c1b150fbe564229c724a00266a9b7b4ee623d098d1b8e",
+      "logDigest": "sha256:91a7694bbf402fe1b3314f4fc2772a8448b8450e1cb451beebf8e5a0f081eb6c",
+      "logRef": "gov-infra/evidence/validation/local/ts-ts-deps-20261116T050159Z-6.log",
+      "reused": false,
+      "startedAt": "2026-11-16T05:01:59Z"
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "ts",
+        "run",
+        "check"
+      ],
+      "durationSeconds": 15.465,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T05:02:16Z",
+      "id": "ts-check",
+      "inputsDigest": "sha256:bfda7b628ddd8a422672144731dc543177ed28d9d262dd5ec025d65e5ecdc0b2",
+      "logDigest": "sha256:4a6b9e21c859db8071f25da666031e8d6df6a1405d24c9f8d2761744b6cf6e82",
+      "logRef": "gov-infra/evidence/validation/local/ts-ts-check-20261116T050201Z-6.log",
+      "reused": false,
+      "startedAt": "2026-11-16T05:02:01Z"
+    },
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-coverage.sh",
+        "--language",
+        "typescript",
+        "--suite",
+        "unit",
+        "--record-only"
+      ],
+      "durationSeconds": 10.137,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T05:02:26Z",
+      "id": "ts-coverage",
+      "inputsDigest": "sha256:e7b645fdd36b78ea34410323957423c7d3e65fb5c630fc7ef6d5f3c8418d9f1b",
+      "logDigest": "sha256:51c9ebfe49be3dddfa49eff52f18ca11e6dcca7b995c633dc7f2c80ed08b77a9",
+      "logRef": "gov-infra/evidence/validation/local/ts-ts-coverage-20261116T050216Z-6.log",
+      "reused": false,
+      "startedAt": "2026-11-16T05:02:16Z"
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "ts",
+        "run",
+        "test:integration"
+      ],
+      "durationSeconds": 0.579,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T05:02:27Z",
+      "id": "ts-integration",
+      "inputsDigest": "sha256:44ec0c3d7fd4b4d7ca994b1af91a73682a0624c81522fca1095db4855eb13406",
+      "logDigest": "sha256:be8fb1b6ace42367fb49eaabad1be408af5d95fe66d1cefae3808a3282df1a94",
+      "logRef": "gov-infra/evidence/validation/local/ts-ts-integration-20261116T050226Z-6.log",
+      "reused": false,
+      "startedAt": "2026-11-16T05:02:26Z"
+    }
+  ],
+  "consumed": [],
+  "description": "TypeScript package suite per supported Node line: format check, lint, typecheck, build, unit, coverage and integration",
+  "environment": {
+    "go": "",
+    "node": "v22.23.5",
+    "platform": {
+      "arch": "aarch64",
+      "os": "linux"
+    },
+    "python": "3.11.2"
+  },
+  "gate": "ts",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "floor-node22",
+  "reason": "",
+  "recordedAt": "2026-11-16T05:02:27Z",
+  "releaseOnly": {
+    "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:3aa7856955fd43cd50144971d2eff1586a0dc0ff769214b701b584b20bade5e3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:2d10f1d011bbd5348f402d6922de98c1edb3dacfa281e36348deb6add4b2c46a",
+    "fileCount": 124,
+    "paths": [
+      "ts/",
+      ".nvmrc",
+      "scripts/verify-typescript-deps.sh",
+      "scripts/verify-coverage.sh",
+      "scripts/evidence/"
+    ],
+    "version": 2
+  },
+  "source": {
+    "digest": "sha256:6fef5389d225f9c29d5e378506581c73b9aefac17708300dfed2830aaf616a6b",
+    "fileCount": 1293
+  },
+  "verdict": "PASS"
+}

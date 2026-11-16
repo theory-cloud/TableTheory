@@ -1,0 +1,130 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "uv",
+        "--directory",
+        "py",
+        "sync",
+        "--frozen",
+        "--all-extras"
+      ],
+      "durationSeconds": 0.012,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T04:48:42Z",
+      "id": "py-sync",
+      "inputsDigest": "sha256:ec0193dba654229d0b6ff7c191c4cefdf9322fadd5ec09c4d1b6c881d94ab3ec",
+      "logDigest": "sha256:ccf17b6c219068d1795a8b7df59f1e65469c810d370011ecfbe4fbf7691358a8",
+      "logRef": "gov-infra/evidence/validation/local/py-py-sync-20261116T044842Z-50036.log",
+      "reused": false,
+      "startedAt": "2026-11-16T04:48:42Z"
+    },
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-python-static.sh"
+      ],
+      "durationSeconds": 3.32,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T04:48:45Z",
+      "id": "py-static",
+      "inputsDigest": "sha256:4288aaa0048a1daccd6dbf3ca8a2f2fb1c9b82ce988aaf55feece8959436676c",
+      "logDigest": "sha256:d4592ed96ff95d4dfecad6545ede17fe6f73bf9ed7cc0dbb671d9534bc8cddcd",
+      "logRef": "gov-infra/evidence/validation/local/py-py-static-20261116T044842Z-50036.log",
+      "reused": false,
+      "startedAt": "2026-11-16T04:48:42Z"
+    },
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-coverage.sh",
+        "--language",
+        "python",
+        "--suite",
+        "unit",
+        "--record-only"
+      ],
+      "durationSeconds": 1.917,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T04:48:47Z",
+      "id": "py-coverage",
+      "inputsDigest": "sha256:3b7132a77636919d7aa6749e111992289493979e3be271d636b095e7bbd32801",
+      "logDigest": "sha256:e9ce860f3a6a68b301632e3e7aa28061828eb78e361792bb6ce6127860fdd9cc",
+      "logRef": "gov-infra/evidence/validation/local/py-py-coverage-20261116T044845Z-50036.log",
+      "reused": false,
+      "startedAt": "2026-11-16T04:48:45Z"
+    },
+    {
+      "argv": [
+        "uv",
+        "--directory",
+        "py",
+        "run",
+        "pytest",
+        "-q",
+        "tests/integration"
+      ],
+      "durationSeconds": 0.409,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T04:48:48Z",
+      "id": "py-integration",
+      "inputsDigest": "sha256:a0088beceddf578df5c16d406a1d5a63384ae9fc7140c41516d292c413b413e5",
+      "logDigest": "sha256:6dcbf76d398f24ff70c30180db32ed1e5cd6e588dd24a8d9e0a162fde2c20529",
+      "logRef": "gov-infra/evidence/validation/local/py-py-integration-20261116T044847Z-50036.log",
+      "reused": false,
+      "startedAt": "2026-11-16T04:48:47Z"
+    }
+  ],
+  "consumed": [],
+  "description": "Python package suite per supported interpreter: ruff format and lint, mypy, wheel build, unit coverage and integration. The Go CLI builds the generated-import fixtures the DMS tests exercise, so the Go pin is part of this gate's environment binding.",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "v24.21.0",
+    "platform": {
+      "arch": "arm64",
+      "os": "darwin"
+    },
+    "python": "3.14.7"
+  },
+  "gate": "py",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "default",
+  "reason": "",
+  "recordedAt": "2026-11-16T04:48:48Z",
+  "releaseOnly": {
+    "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:3aa7856955fd43cd50144971d2eff1586a0dc0ff769214b701b584b20bade5e3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:a3b2b27f34e730887f054d32511023e7fa0e691cd88893d4bffd0d05072e6866",
+    "fileCount": 239,
+    "paths": [
+      "py/",
+      "scripts/verify-python-static.sh",
+      "scripts/verify-coverage.sh",
+      "scripts/evidence/",
+      "cmd/",
+      "internal/",
+      "go.mod",
+      "go.sum"
+    ],
+    "version": 2
+  },
+  "source": {
+    "digest": "sha256:6fef5389d225f9c29d5e378506581c73b9aefac17708300dfed2830aaf616a6b",
+    "fileCount": 1293
+  },
+  "verdict": "PASS"
+}
