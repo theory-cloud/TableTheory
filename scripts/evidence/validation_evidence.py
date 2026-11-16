@@ -76,13 +76,20 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
-SCOPE_DIGEST_VERSION = 1
+SCOPE_DIGEST_VERSION = 2
 COMMAND_DIGEST_VERSION = 2
 EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_BLOCKED = 2
 EXIT_INTERRUPTED = 130
 EXIT_TERMINATED = 143
+# Only the executable bit is tracked by Git and therefore travels to every
+# checkout. The owning/group/world write bits are host-local: a generator that
+# writes a file under a 0077 umask produces 0600 here and 0644 in a fresh clone,
+# with byte-identical content. Binding those bits made a record that verified on
+# the producing host fail on the CI checkout of the same commit, so the digest
+# captures the one mode difference Git can express.
+FILE_MODE_MASK = 0o111
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 GATE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
@@ -369,11 +376,11 @@ def read_input_bytes(root: Path, relative: str) -> tuple[int, bytes]:
     except FileNotFoundError as exc:
         raise EvidenceError(f"relevant input is missing from the working tree: {relative}") from exc
     if os.path.islink(path):
-        return metadata.st_mode & 0o7777, b"symlink:" + os.readlink(path).encode("utf-8", "surrogateescape")
+        return metadata.st_mode & FILE_MODE_MASK, b"symlink:" + os.readlink(path).encode("utf-8", "surrogateescape")
     if not os.path.isfile(path):
         raise EvidenceError(f"relevant input is not a regular file: {relative}")
     try:
-        return metadata.st_mode & 0o7777, path.read_bytes()
+        return metadata.st_mode & FILE_MODE_MASK, path.read_bytes()
     except OSError as exc:
         raise EvidenceError(f"cannot read relevant input {relative}: {exc}") from exc
 
