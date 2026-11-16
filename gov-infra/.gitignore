@@ -6,6 +6,11 @@
 evidence/*.log
 evidence/gov-rubric-report.json
 
+# Validation evidence: the per-gate records under evidence/validation/<gate>/ are
+# tracked and reviewed, because CI verifies them. The raw command logs beside
+# them are local scratch and stay untracked.
+evidence/validation/local/
+
 # Local certification/signature bundles (do not commit)
 signatures/
 

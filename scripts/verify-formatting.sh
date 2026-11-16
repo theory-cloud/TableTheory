@@ -84,6 +84,15 @@ case "${language}" in
     verify_python_formatting
     ;;
   all)
+    # Composition, not a second execution: when the rubric gate composes this
+    # gate's reviewed record, the record is verified against these exact inputs
+    # and the whole-language run is skipped. `--language go|typescript|python`
+    # callers are deliberately never short-circuited: they ask about one
+    # language, which no composed record answers on its own.
+    if bash scripts/evidence/reuse-if-recorded.sh format; then
+      echo "formatting: PASS (reused the reviewed evidence record)"
+      exit 0
+    fi
     verify_go_formatting
     verify_typescript_formatting
     verify_python_formatting

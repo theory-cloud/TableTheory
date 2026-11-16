@@ -12,10 +12,14 @@ GO_ENV_GOBIN := $(shell go env GOBIN 2>/dev/null)
 GO_ENV_GOPATH := $(shell go env GOPATH 2>/dev/null)
 GO_BIN_DIR := $(if $(GO_ENV_GOBIN),$(GO_ENV_GOBIN),$(GO_ENV_GOPATH)/bin)
 GOLANGCI_LINT := $(GO_BIN_DIR)/golangci-lint
+# The lint toolchain pin lives here, not in a CI step: CI verifies an evidence
+# record and installs no linter, so the pin has to be readable by `make lint`
+# and by the COM-2 guard (scripts/verify-ci-toolchain.sh) alike.
+GOLANGCI_LINT_VERSION ?= v2.14.0
 UNIT_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress | grep -v /tests/integration)
 ALL_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress)
 INTEGRATION_PACKAGES := $(shell go list ./tests/integration/...)
-DYNAMODB_LOCAL_IMAGE ?= amazon/dynamodb-local:3.1.0
+DYNAMODB_LOCAL_IMAGE ?= amazon/dynamodb-local:3.1.0@sha256:7ef4a2c45b58c2901e70a4f28e0953a422c2c631baaaf5e2c15e0805740c7752
 # The test suites resolve DynamoDB from DYNAMODB_ENDPOINT (defaulting to the
 # shared :8000 convention). docker-up resolves the same endpoint so a suite run
 # on another port never silently starts a second, unused local backend.
@@ -145,6 +149,7 @@ fmt-check:
 # Run linters
 lint:
 	@echo "Running linters..."
+	@bash scripts/ensure-go-lint.sh
 	@"$(GOLANGCI_LINT)" run --timeout=5m --config .golangci-v2.yml ./...
 
 # Clean build artifacts

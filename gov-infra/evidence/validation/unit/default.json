@@ -1,0 +1,74 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-unit-tests.sh"
+      ],
+      "durationSeconds": 19.83,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T20:22:47Z",
+      "id": "unit",
+      "inputsDigest": "sha256:497e43bb62c2747eaaef730e7e48e7609b8ed48e385aa313a2659ecdc5614485",
+      "logDigest": "sha256:90d53832324c95a7f04e3ae84c392eb31bfcc3c0b614a75bec6be110f5af5ec8",
+      "logRef": "gov-infra/evidence/validation/local/unit-unit-20261116T202227Z-57831.log",
+      "reused": false,
+      "startedAt": "2026-11-16T20:22:27Z"
+    }
+  ],
+  "consumed": [],
+  "description": "Cross-language unit suite: Go unit tests with the race detector, TypeScript unit tests, Python unit tests",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "v24.21.0",
+    "platform": {
+      "arch": "arm64",
+      "os": "darwin"
+    },
+    "python": "3.14.7"
+  },
+  "gate": "unit",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "default",
+  "reason": "",
+  "recordedAt": "2026-11-16T20:22:47Z",
+  "releaseOnly": {
+    "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:3aa7856955fd43cd50144971d2eff1586a0dc0ff769214b701b584b20bade5e3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:9cd08a54a59209b979682ac8699b09cbd7f3077ba5f2d0b7572c08cf6518cd1f",
+    "fileCount": 770,
+    "paths": [
+      "*.go",
+      "go.mod",
+      "go.sum",
+      "pkg/",
+      "internal/",
+      "cmd/",
+      "tests/",
+      "ts/",
+      "py/",
+      "Makefile",
+      "scripts/verify-unit-tests.sh",
+      "scripts/verify-typescript-deps.sh",
+      "scripts/verify-python-deps.sh",
+      "scripts/evidence/"
+    ],
+    "version": 2
+  },
+  "source": {
+    "digest": "sha256:7ad9bba32f98350c4982b57360c875354f0b0461f8566c16a46641c52b13ea52",
+    "fileCount": 1293
+  },
+  "verdict": "PASS"
+}
