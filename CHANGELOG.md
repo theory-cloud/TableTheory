@@ -156,6 +156,22 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.5.0-rc](https://github.com/theory-cloud/TableTheory/compare/v6.4.1...v6.5.0-rc) (2026-11-16)
+
+
+### Features
+
+* **ci:** verify a local evidence record instead of running gates ([bce4754](https://github.com/theory-cloud/TableTheory/commit/bce47548c1d05346f95fcd2a60f1ae164a6b183f))
+* **ci:** verify a local evidence record on the staging pull request ([f72fc66](https://github.com/theory-cloud/TableTheory/commit/f72fc66709c945190dc91dca38d1969326e7bdc8))
+
+
+### Bug Fixes
+
+* **deps:** bump the root AWS SDK for Go v2 graph ([2f18891](https://github.com/theory-cloud/TableTheory/commit/2f18891129e0f89c7c2c62a389de66bd68d306a9))
+* **evidence:** pin DynamoDB Local by digest everywhere it starts ([053e6c6](https://github.com/theory-cloud/TableTheory/commit/053e6c6ff31c1930c35ba3fce0e692e583a68b2b))
+* **rubric:** bind the tracked executable bit, not host-local file modes ([a0ef207](https://github.com/theory-cloud/TableTheory/commit/a0ef20789f3dbc264bf35a60fc7f247bf4bac49d))
+* **rubric:** verify every coverage record the tree can produce ([32260b9](https://github.com/theory-cloud/TableTheory/commit/32260b9481095da3545e03f595413e8fa2b4b655))
+
 ## [6.4.1](https://github.com/theory-cloud/TableTheory/compare/v6.4.1-rc...v6.4.1) (2026-11-11)
 
 Stable promotion of `v6.4.1-rc`.
