@@ -5,16 +5,16 @@
         "bash",
         "scripts/verify-go-integration.sh"
       ],
-      "durationSeconds": 15.434,
+      "durationSeconds": 16.142,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-16T04:06:03Z",
+      "finishedAt": "2026-11-16T04:14:02Z",
       "id": "go-integration",
-      "inputsDigest": "sha256:420e128c4bdaeffbe849aef778c87f14ea58255265eeb043286f74533087c64f",
-      "logDigest": "sha256:3c0c9f25543b93a2285a111dd9eab8e69d230e2fba9afd5805db643137fe1235",
-      "logRef": "gov-infra/evidence/validation/local/go-integration-go-integration-20261116T040547Z-7.log",
+      "inputsDigest": "sha256:1980ed21e7e2f2f9e7634fa9acac87659e6195c2c19b2cfe9818df8ba903841d",
+      "logDigest": "sha256:99161183dacd25c22b7a41380a0142f99e236f7eb014a7bdc6870762dd84b3a3",
+      "logRef": "gov-infra/evidence/validation/local/go-integration-go-integration-20261116T041346Z-7.log",
       "reused": false,
-      "startedAt": "2026-11-16T04:05:47Z"
+      "startedAt": "2026-11-16T04:13:46Z"
     }
   ],
   "consumed": [],
@@ -36,17 +36,17 @@
   },
   "profile": "linux-arm64",
   "reason": "",
-  "recordedAt": "2026-11-16T04:06:03Z",
+  "recordedAt": "2026-11-16T04:14:02Z",
   "releaseOnly": {
-    "digest": "sha256:2db79a2e02ebb26cc34e6bebf0b623f8ef7ff83168c2b7f33967df09a62788db",
+    "digest": "sha256:2917ed84a18c14bd9219e8c481c86e8f95969e89a9a178adfa3f173e83e45e37",
     "fileCount": 2,
-    "normalizedDigest": "sha256:e7fb6c5a9e3a7a05017f08c6ae2ff6871dd72e03dde95aaa6498b65d7fda26d3",
+    "normalizedDigest": "sha256:3aa7856955fd43cd50144971d2eff1586a0dc0ff769214b701b584b20bade5e3",
     "version": "6.4.1"
   },
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:3c8057ecaa3c459b99b3953ccd1cbd8a6d4d75b9305552ab23031681b9898234",
+    "digest": "sha256:ad75e781e0c1ae177255e7744b3541bce3b5a8f4423a5b417126970cf801895a",
     "fileCount": 542,
     "paths": [
       "*.go",
@@ -61,10 +61,10 @@
       "scripts/verify-go-integration.sh",
       "scripts/evidence/"
     ],
-    "version": 1
+    "version": 2
   },
   "source": {
-    "digest": "sha256:727bf51f75b6155ef7cf0b0a0e00827bc49a8413a6a649ab8967b538fd588eb2",
+    "digest": "sha256:7fedac0da6411094d81b703afbebd68dbf18b7acace274a9b024c122300e36c8",
     "fileCount": 1287
   },
   "verdict": "PASS"
