@@ -1139,20 +1139,24 @@ if grep -Fq "merge_group:" "${repo_root}/.github/workflows/quality-gates.yml"; t
   exit 1
 fi
 
-grep -Fq "fetch-depth: 0" "${repo_root}/.github/workflows/quality-gates.yml" || {
-  echo "release-hygiene-policy-test: quality gates must fetch full history for in-flight premain RC repair verification"
+# Quality gates verify an input-bound record and execute no repository
+# verifier, so they need neither full history nor the release-lane refs the
+# execution path used to fetch. The in-flight premain RC repair verification
+# they used to carry now lives in the release-cycle scripts that run on the
+# promotion lane and inside the recorded rubric.
+if grep -Fq "+refs/heads/premain:refs/remotes/origin/premain" "${repo_root}/.github/workflows/quality-gates.yml"; then
+  echo "release-hygiene-policy-test: quality gates verify a record and must not fetch release-lane refs"
   exit 1
-}
+fi
 
-grep -Fq "+refs/heads/premain:refs/remotes/origin/premain" "${repo_root}/.github/workflows/quality-gates.yml" || {
-  echo "release-hygiene-policy-test: quality gates must fetch origin/premain for in-flight premain RC repair verification"
+grep -Fq "bash scripts/evidence/verify-gate.sh --gate rubric --profile default" "${repo_root}/.github/workflows/quality-gates.yml" || {
+  echo "release-hygiene-policy-test: quality gates must verify the recorded rubric instead of executing it"
   exit 1
 }
-
-grep -Fq "+refs/heads/staging:refs/remotes/origin/staging" "${repo_root}/.github/workflows/quality-gates.yml" || {
-  echo "release-hygiene-policy-test: quality gates must fetch origin/staging for in-flight premain RC repair verification"
+if grep -Eq 'run:[[:space:]]*make rubric' "${repo_root}/.github/workflows/quality-gates.yml"; then
+  echo "release-hygiene-policy-test: quality gates must not execute the rubric; CI verifies the record"
   exit 1
-}
+fi
 
 if grep -Fq "merge_group:" "${repo_root}/.github/workflows/release-hygiene.yml"; then
   echo "release-hygiene-policy-test: release hygiene must not use the prohibited merge-queue event"
@@ -1172,24 +1176,12 @@ for workflow in \
   }
 done
 
-for workflow in \
-  "${repo_root}/.github/workflows/typescript.yml" \
-  "${repo_root}/.github/workflows/python.yml" \
-  "${repo_root}/.github/workflows/unit-cover.yml"; do
-  grep -Fq "paths-ignore:" "${workflow}" || {
-    echo "release-hygiene-policy-test: ${workflow} must use trigger-level paths-ignore for release-please PRs"
-    exit 1
-  }
-  grep -Fq '".release-please-manifest.json"' "${workflow}" || {
-    echo "release-hygiene-policy-test: ${workflow} must ignore manifest-only release-please PR changes"
-    exit 1
-  }
-  grep -Fq '"CHANGELOG.md"' "${workflow}" || {
-    echo "release-hygiene-policy-test: ${workflow} must ignore changelog-only release-please PR changes"
-    exit 1
-  }
-  if grep -Eq '^[[:space:]]*paths:' "${workflow}"; then
-    echo "release-hygiene-policy-test: ${workflow} must not replace normal PR validation with a paths allowlist"
+# The standalone language matrices are retired. Their release-please fan-out
+# problem disappears with them: no workflow re-runs a suite on a generated
+# release pull request, so there is no paths-ignore fan-out to police.
+for retired in python.yml typescript.yml unit-cover.yml codeql.yml examples-local.yml; do
+  if [[ -e "${repo_root}/.github/workflows/${retired}" ]]; then
+    echo "release-hygiene-policy-test: .github/workflows/${retired} must stay deleted; its coverage lives in the evidence record"
     exit 1
   fi
 done

@@ -1,19 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Verifies that CI runs the repo's rubric via `make rubric` with pinned tooling and uploads key artifacts.
+# COM-6: the repository's CI shape, and the rubric surfaces it depends on but
+# does not read directly.
 #
-# It also pins the surfaces the rubric depends on but does not read directly:
-# the SEC-2 dependency-scan aggregator and the gates chained into it, the scanned
-# scope of the Lambda-runtime deprecation gate, and the TypeScript Node matrix.
-# A gate dropped from any of those stops running without any other signal.
+# The rule this enforces (docs/140, TMS MAI-4/REL-1 semantics): an item passes
+# when its verifier result sits in a locally produced, input-bound evidence
+# record that CI verifies on pull requests to staging. CI verifies the record,
+# executes no gate, provisions no execution toolchain and runs no gate on a
+# push. A missing or stale record fails with the command that produces one.
 #
-# This is intentionally a deterministic, text-based check. It is not a full YAML parser.
+# This is intentionally a deterministic, text-based check; it is not a full YAML
+# parser. scripts/verify-ci-toolchain.sh (COM-2) covers trigger classification
+# and gate-execution needles across every workflow file.
 
 wf=".github/workflows/quality-gates.yml"
+registry="scripts/evidence/validation-gates.json"
 
 if [[ ! -f "${wf}" ]]; then
   echo "ci-rubric: FAIL (missing ${wf})"
+  exit 1
+fi
+if [[ ! -f "${registry}" ]]; then
+  echo "ci-rubric: FAIL (missing ${registry})"
   exit 1
 fi
 
@@ -82,6 +91,8 @@ pull_request_limited_to_staging() {
   ' <<< "${block}"
 }
 
+# The workflow is one verify job per tracked proof profile. The name is pinned
+# because it is the required context on staging.
 grep -Eq '^name:[[:space:]]*Quality Gates [(]10/10 Rubric[)][[:space:]]*$' "${wf}" || {
   echo "ci-rubric: ${wf}: missing expected workflow name"
   failures=$((failures + 1))
@@ -96,122 +107,94 @@ elif ! pull_request_limited_to_staging "${pull_request_block}"; then
   failures=$((failures + 1))
 fi
 
+# A merge into staging re-verifies nothing: strict up-to-date checks make the
+# merged tree the verified tree, so a push trigger here would be a second gate
+# run over the same inputs.
 if workflow_trigger_block push | grep -q .; then
-  echo "ci-rubric: ${wf}: must not define push trigger"
+  echo "ci-rubric: ${wf}: must not define a push trigger"
   failures=$((failures + 1))
 fi
 
-# Ensure the workflow uses the repo toolchain pin.
-if grep -Eq '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/setup-go@' "${wf}"; then
-  grep -Ev '^[[:space:]]*#' "${wf}" | grep -q 'go-version-file: go.mod' || {
-    echo "ci-rubric: ${wf}: setup-go must use go-version-file: go.mod"
+# Verification reads a committed record and needs only the shell and the Python
+# interpreter the runner image provides. A provisioned toolchain here would be
+# the first step of the execution path this policy removes.
+for unprovisioned in \
+  "actions/setup-go@" \
+  "actions/setup-node@" \
+  "actions/setup-python@" \
+  "actions/upload-artifact@" \
+  "github.com/golangci/golangci-lint"; do
+  if grep -Fq -- "${unprovisioned}" "${wf}"; then
+    echo "ci-rubric: ${wf}: verification must not provision or install ${unprovisioned}"
+    failures=$((failures + 1))
+  fi
+done
+
+# CI verifies; it never executes the rubric or a suite.
+if grep -Eq 'run:\s*make rubric' "${wf}"; then
+  echo "ci-rubric: ${wf}: must not execute 'make rubric'; verify the record instead"
+  failures=$((failures + 1))
+fi
+
+for verify_line in \
+  'bash scripts/evidence/verify-gate.sh --gate rubric --profile default' \
+  'bash scripts/evidence/verify-gate.sh --gate ts --profile floor-node22' \
+  'bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.12' \
+  'bash scripts/evidence/verify-gate.sh --gate go-integration --profile linux-arm64'; do
+  grep -Fq -- "${verify_line}" "${wf}" || {
+    echo "ci-rubric: ${wf}: missing evidence verification step: ${verify_line}"
     failures=$((failures + 1))
   }
-else
-  echo "ci-rubric: ${wf}: missing actions/setup-go step"
-  failures=$((failures + 1))
-fi
+done
 
-# Ensure we run the rubric surface as a single command (prevents CI drift when rubric changes).
-grep -Eq 'run:\s*make rubric' "${wf}" || {
-  echo "ci-rubric: ${wf}: must run 'make rubric'"
-  failures=$((failures + 1))
-}
+# The catch-all gate is what makes a tooling edit stale the record: the rubric
+# record's scope is every path, so a change under any excluded directory still
+# invalidates the record the staging pull request verifies.
+python3 - "${registry}" <<'PY' || failures=$((failures + 1))
+import json
+import sys
+from pathlib import Path
 
-# Rubric includes TypeScript checks; require Node setup (pinned).
-if grep -Eq '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/setup-node@' "${wf}"; then
-  grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq 'node-version:[[:space:]]*["'"'"']?24(\\.x)?["'"'"']?' || {
-    echo "ci-rubric: ${wf}: setup-node must pin node-version: 24"
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+problems = []
+
+gates = registry.get("gates") or {}
+catch_all = [gate_id for gate_id, gate in gates.items() if "**" in (gate.get("paths") or [])]
+if catch_all != ["rubric"]:
+    problems.append(f"exactly the rubric gate must carry the catch-all ** scope, found {sorted(catch_all)}")
+
+rubric = gates.get("rubric") or {}
+commands = rubric.get("commands") or []
+if [command.get("argv") for command in commands] != [["make", "rubric"]]:
+    problems.append("the tracked rubric gate must keep the single approved 'make rubric' command")
+reuse = ""
+for command in commands:
+    reuse = (command.get("env") or {}).get("TABLE_THEORY_EVIDENCE_REUSE", "")
+if not {"unit", "integration", "coverage", "format", "lint", "builds"} <= {item for item in reuse.split(",") if item}:
+    problems.append("the rubric gate must compose the recorded product gates instead of re-running them")
+
+for gate_id in ("ts", "py", "go-integration"):
+    gate = gates.get(gate_id) or {}
+    profiles = gate.get("profiles") or []
+    if not profiles:
+        problems.append(f"gate {gate_id} must declare its proof profiles")
+
+if problems:
+    for problem in problems:
+        print(f"ci-rubric: {path}: {problem}")
+    raise SystemExit(1)
+PY
+
+# The retired workflows must stay retired: each one re-executed a suite on a
+# push or on a promotion pull request, which is exactly the duplication this
+# change removes. Their coverage lives in the evidence record.
+for retired in python.yml typescript.yml unit-cover.yml codeql.yml examples-local.yml; do
+  if [[ -e ".github/workflows/${retired}" ]]; then
+    echo "ci-rubric: .github/workflows/${retired}: must stay deleted; its coverage lives in the evidence record"
     failures=$((failures + 1))
-  }
-else
-  echo "ci-rubric: ${wf}: missing actions/setup-node step"
-  failures=$((failures + 1))
-fi
-
-# Staging PRs no longer run the standalone TS/Python PR matrices; require the
-# Quality Gates job itself to exercise the lower supported runtimes before merge.
-grep -Eq 'node-version:[[:space:]]*["'"'"']?22(\\.x)?["'"'"']?' "${wf}" || {
-  echo "ci-rubric: ${wf}: staging Quality Gates must include Node 22 compatibility"
-  failures=$((failures + 1))
-}
-grep -Fq 'Run Node 22 pre-merge compatibility' "${wf}" || {
-  echo "ci-rubric: ${wf}: missing Node 22 pre-merge compatibility step"
-  failures=$((failures + 1))
-}
-grep -Fq 'npm --prefix ts run test:integration' "${wf}" || {
-  echo "ci-rubric: ${wf}: Node 22 compatibility must include TypeScript integration tests"
-  failures=$((failures + 1))
-}
-
-# Rubric includes Python checks; require Python setup (pinned).
-if grep -Eq '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/setup-python@' "${wf}"; then
-  grep -Ev '^[[:space:]]*#' "${wf}" | grep -Eq 'python-version:[[:space:]]*"?3[.]14([.]x)?"?' || {
-    echo "ci-rubric: ${wf}: setup-python must pin python-version: 3.14"
-    failures=$((failures + 1))
-  }
-else
-  echo "ci-rubric: ${wf}: missing actions/setup-python step"
-  failures=$((failures + 1))
-fi
-
-grep -Eq 'python-version:[[:space:]]*"?3[.]12([.]x)?"?' "${wf}" || {
-  echo "ci-rubric: ${wf}: staging Quality Gates must include Python 3.12 compatibility"
-  failures=$((failures + 1))
-}
-grep -Fq 'Run Python 3.12 pre-merge compatibility' "${wf}" || {
-  echo "ci-rubric: ${wf}: missing Python 3.12 pre-merge compatibility step"
-  failures=$((failures + 1))
-}
-grep -Fq 'uv --directory py run pytest -q tests/unit' "${wf}" || {
-  echo "ci-rubric: ${wf}: Python 3.12 compatibility must include unit tests"
-  failures=$((failures + 1))
-}
-grep -Fq 'uv --directory py run pytest -q tests/integration' "${wf}" || {
-  echo "ci-rubric: ${wf}: Python 3.12 compatibility must include integration tests"
-  failures=$((failures + 1))
-}
-grep -Fq 'Restore Python 3.14 for rubric' "${wf}" || {
-  echo "ci-rubric: ${wf}: must restore Python 3.14 before make rubric"
-  failures=$((failures + 1))
-}
-grep -Fq 'Restore Node 24 for rubric' "${wf}" || {
-  echo "ci-rubric: ${wf}: must restore Node 24 before make rubric"
-  failures=$((failures + 1))
-}
-
-# Ensure pinned tooling installs (no @latest; additional pinning is checked by scripts/verify-ci-toolchain.sh).
-if grep -Eq 'go install .*@latest' "${wf}"; then
-  echo "ci-rubric: ${wf}: contains @latest; pin versions"
-  failures=$((failures + 1))
-fi
-
-# Ensure the workflow uploads the key artifacts we rely on for evidence.
-grep -q 'coverage_lib.out' "${wf}" || {
-  echo "ci-rubric: ${wf}: must upload coverage_lib.out"
-  failures=$((failures + 1))
-}
-grep -q 'ts/coverage' "${wf}" || {
-  echo "ci-rubric: ${wf}: must upload ts/coverage"
-  failures=$((failures + 1))
-}
-grep -q 'py/coverage.xml' "${wf}" || {
-  echo "ci-rubric: ${wf}: must upload py/coverage.xml"
-  failures=$((failures + 1))
-}
-grep -q 'gosec.sarif' "${wf}" || {
-  echo "ci-rubric: ${wf}: must upload gosec.sarif"
-  failures=$((failures + 1))
-}
-grep -q 'gov-infra/evidence' "${wf}" || {
-  echo "ci-rubric: ${wf}: must upload gov-infra/evidence"
-  failures=$((failures + 1))
-}
-legacy_evidence_path="hgm""-infra/evidence"
-if grep -q "${legacy_evidence_path}" "${wf}"; then
-  echo "ci-rubric: ${wf}: must not upload legacy governance evidence"
-  failures=$((failures + 1))
-fi
+  fi
+done
 
 # The SEC-2 dependency-scan aggregator is what carries the security gates into
 # the rubric, so a gate dropped from it stops running without any other signal.
@@ -238,12 +221,7 @@ fi
 # comment, so an unanchored needle would still match that prose after the arrays
 # were emptied; anchoring on the quoted element pins the constant instead of the
 # comment. Each of the three surface classes is pinned, so the template and
-# snippet classes cannot be dropped from the scope without failing here. The
-# single-element SCAN_ROOTS array carries its closing bracket in the needle for
-# the same reason. The checker's own self-test independently fails when
-# SCANNED_SURFACES, SCANNED_TEMPLATE_SURFACES, SCANNED_SNIPPET_SURFACES or the
-# scan roots drift from their EXPECTED_* copies, so the pair covers both the
-# constant being present and the two copies agreeing.
+# snippet classes cannot be dropped from the scope without failing here.
 runtime_checker="scripts/check-lambda-runtime-deprecations.mjs"
 if [[ ! -f "${runtime_checker}" ]]; then
   echo "ci-rubric: FAIL (missing ${runtime_checker})"
@@ -263,27 +241,16 @@ else
   done
 fi
 
-# The standalone TypeScript leg is the only place both supported Node lines run
-# on a push to staging, and nothing else pins that matrix.
-ts_wf=".github/workflows/typescript.yml"
-if [[ ! -f "${ts_wf}" ]]; then
-  echo "ci-rubric: FAIL (missing ${ts_wf})"
-  failures=$((failures + 1))
-elif ! grep -Eq 'node-version:[[:space:]]*\[[[:space:]]*"22"[[:space:]]*,[[:space:]]*"24"[[:space:]]*\][[:space:]]*(#.*)?$' "${ts_wf}"; then
-  echo "ci-rubric: ${ts_wf}: Node matrix must be exactly [\"22\", \"24\"]"
-  failures=$((failures + 1))
-fi
-
-# The COM-2 toolchain verifier carries the governance guards added for the
-# conformance wave (action pinning, lockfile-install hygiene, R-F1 trigger
-# parity). Each guard name must stay both defined and called, so deleting a call
-# cannot silently retire a guard while the verifier still reports clean.
+# The COM-2 toolchain verifier carries the governance guards (action pinning,
+# lockfile-install hygiene, and the verify-only trigger shape). Each guard name
+# must stay both defined and called, so deleting a call cannot silently retire a
+# guard while the verifier still reports clean.
 toolchain_verifier="scripts/verify-ci-toolchain.sh"
 if [[ ! -f "${toolchain_verifier}" ]]; then
   echo "ci-rubric: FAIL (missing ${toolchain_verifier})"
   failures=$((failures + 1))
 else
-  for guard in check_action_pins check_npm_ci_across_repo check_trigger_parity; do
+  for guard in check_action_pins check_npm_ci_across_repo check_verify_only_trigger_shape; do
     occurrences="$(grep -c -F -- "${guard}" "${toolchain_verifier}" || true)"
     if [[ "${occurrences}" -lt 2 ]]; then
       echo "ci-rubric: ${toolchain_verifier}: guard ${guard} must stay defined and called"
@@ -296,9 +263,16 @@ else
   }
 fi
 
+# The evidence policy and its human documentation must stay in step, and the
+# records must stay trackable while their local logs stay ignored.
+if ! python3 scripts/evidence/check-policy.py; then
+  echo "ci-rubric: scripts/evidence/check-policy.py failed"
+  failures=$((failures + 1))
+fi
+
 if [[ "${failures}" -ne 0 ]]; then
   echo "ci-rubric: FAIL (${failures} issue(s))"
   exit 1
 fi
 
-echo "ci-rubric: enforced"
+echo "ci-rubric: enforced (CI verifies the evidence record; it executes no gate)"

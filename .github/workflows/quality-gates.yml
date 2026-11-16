@@ -1,5 +1,18 @@
 name: Quality Gates (10/10 Rubric)
 
+# staging is where the gates are verified, once, from a locally produced,
+# input-bound evidence record. This workflow verifies that record; it executes
+# no gate, provisions no toolchain, needs no credential beyond the read-only
+# repository token and uploads no artifact.
+#
+# A missing, stale or failed record fails the job and names the command that
+# produces one locally. The record's inputs are content-addressed, so it binds
+# the exact tree it was produced against rather than a commit SHA, a branch name
+# or an evidence-only commit.
+#
+# No push trigger: a merge into staging re-verifies nothing. The staging ruleset
+# keeps strict up-to-date checks, so the merged tree is the tree this job
+# verified.
 on:
   pull_request:
     branches: ["staging"]
@@ -10,150 +23,30 @@ permissions:
   pull-requests: read
 
 jobs:
+  # The job id is the required context name. It stays `rubric` so the staging
+  # ruleset needs no change, and it now verifies the recorded rubric plus the
+  # floor records that no other check covers.
   rubric:
-    # Pinned rather than left on ubuntu-latest: this job installs an apt package
-    # and runs the image's Docker and system tool versions, so the platform is
-    # part of the contract. 26.04 is the image ubuntu-latest is migrating to
-    # (Oct 19 - Nov 19, 2026); ripgrep is available there and every toolchain the
-    # rubric uses is installed by an action or `go install` rather than inherited.
-    runs-on: ubuntu-26.04
-    services:
-      dynamodb-local:
-        image: amazon/dynamodb-local:3.1.0
-        ports:
-          - 8000:8000
-        options: >-
-          --health-cmd "curl -s http://localhost:8000 >/dev/null || exit 1"
-          --health-interval 5s
-          --health-timeout 2s
-          --health-retries 24
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Fetch release-lane refs
-        run: |
-          git fetch --no-tags --prune origin \
-            +refs/heads/main:refs/remotes/origin/main \
-            +refs/heads/premain:refs/remotes/origin/premain \
-            +refs/heads/staging:refs/remotes/origin/staging
+      - name: Verify the recorded rubric
+        run: bash scripts/evidence/verify-gate.sh --gate rubric --profile default
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
+      # Floor records prove the supported runtimes the default host cannot: they
+      # are produced in digest-pinned Linux arm64 containers
+      # (scripts/evidence/floor-run.sh) and verified here under their own tracked
+      # profile name, so a changed floor or a changed input invalidates only that
+      # proof.
+      - name: Verify the recorded Node 22 floor
+        run: bash scripts/evidence/verify-gate.sh --gate ts --profile floor-node22
 
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.14"
+      - name: Verify the recorded Python 3.12 floor
+        run: bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.12
 
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: ts/package-lock.json
-
-      - name: Install tooling (pinned)
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
-          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.1-0.20261005092323-d2b649ec0182
-
-      - name: Install OS dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-
-      - name: Set up Python 3.12 compatibility
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12"
-
-      - name: Run Python 3.12 pre-merge compatibility
-        env:
-          AWS_REGION: us-east-1
-          AWS_DEFAULT_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: dummy
-          AWS_SECRET_ACCESS_KEY: dummy
-          DYNAMODB_ENDPOINT: http://localhost:8000
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install uv==0.9.26
-          uv --directory py sync --frozen --all-extras
-          uv --directory py run ruff format --check .
-          uv --directory py run ruff check .
-          uv --directory py run mypy src
-          uv --directory py run python -m build
-          uv --directory py run pytest -q tests/unit
-          uv --directory py run pytest -q tests/integration
-          rm -rf py/.venv py/build py/dist
-          find py/src -maxdepth 1 -type d -name "*.egg-info" -prune -exec rm -rf {} +
-
-      - name: Set up Node 22 compatibility
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: ts/package-lock.json
-
-      - name: Run Node 22 pre-merge compatibility
-        env:
-          AWS_REGION: us-east-1
-          AWS_DEFAULT_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: dummy
-          AWS_SECRET_ACCESS_KEY: dummy
-          DYNAMODB_ENDPOINT: http://localhost:8000
-        run: |
-          npm --prefix ts ci --ignore-scripts
-          npm --prefix ts run check
-          npm --prefix ts run test:integration
-
-      - name: Restore Python 3.14 for rubric
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.14"
-
-      - name: Install uv for rubric (pinned)
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install uv==0.9.26
-
-      - name: Restore Node 24 for rubric
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: ts/package-lock.json
-
-      - name: Run rubric
-        env:
-          AWS_REGION: us-east-1
-          AWS_DEFAULT_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: dummy
-          AWS_SECRET_ACCESS_KEY: dummy
-          DYNAMODB_ENDPOINT: http://localhost:8000
-          GOSEC_SARIF_PATH: gosec.sarif
-          NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS: "true"
-        run: make rubric
-
-      - name: Rubric report (stdout)
-        if: always()
-        run: bash scripts/print-rubric-summary.sh
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: rubric_artifacts
-          path: |
-            coverage_lib.out
-            ts/coverage
-            py/coverage.xml
-            py/coverage-*.json
-            gosec.sarif
-            gov-infra/evidence
+      - name: Verify the recorded Linux Go integration floor
+        run: bash scripts/evidence/verify-gate.sh --gate go-integration --profile linux-arm64

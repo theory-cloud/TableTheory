@@ -12,6 +12,10 @@ GO_ENV_GOBIN := $(shell go env GOBIN 2>/dev/null)
 GO_ENV_GOPATH := $(shell go env GOPATH 2>/dev/null)
 GO_BIN_DIR := $(if $(GO_ENV_GOBIN),$(GO_ENV_GOBIN),$(GO_ENV_GOPATH)/bin)
 GOLANGCI_LINT := $(GO_BIN_DIR)/golangci-lint
+# The lint toolchain pin lives here, not in a CI step: CI verifies an evidence
+# record and installs no linter, so the pin has to be readable by `make lint`
+# and by the COM-2 guard (scripts/verify-ci-toolchain.sh) alike.
+GOLANGCI_LINT_VERSION ?= v2.14.0
 UNIT_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress | grep -v /tests/integration)
 ALL_PACKAGES := $(shell go list ./... | grep -v /vendor/ | grep -v /node_modules/ | grep -v /examples/ | grep -v /tests/stress)
 INTEGRATION_PACKAGES := $(shell go list ./tests/integration/...)
@@ -145,6 +149,7 @@ fmt-check:
 # Run linters
 lint:
 	@echo "Running linters..."
+	@bash scripts/ensure-go-lint.sh
 	@"$(GOLANGCI_LINT)" run --timeout=5m --config .golangci-v2.yml ./...
 
 # Clean build artifacts

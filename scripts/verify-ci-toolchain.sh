@@ -6,10 +6,11 @@ set -euo pipefail
 #   - every third-party action pinned to a full commit SHA (container actions to
 #     an image digest)
 #   - every `npm ci` in a workflow or script runs with `--ignore-scripts`
-#   - R-F1 trigger parity: a job that runs on a push to `staging`, or on a
-#     promotion pull request (base `premain`/`main`), must also be exercised on
-#     pull requests to `staging`, so a PR cannot be green while its promotion
-#     fails
+#   - the verify-only CI shape: a push trigger is a publish side effect only, no
+#     workflow executes a gate named in the evidence registry, and the record
+#     verifier runs on pull requests to staging and nowhere else
+#   - the lint toolchain pin lives in this repository, because CI installs no
+#     linter in a verify-only repository
 
 if [[ ! -f go.mod ]]; then
   echo "go.mod not found at repo root"
@@ -111,20 +112,17 @@ trigger_targets_any() {
   return 1
 }
 
-# R-F1: a workflow that runs on a push to `staging`, or on a pull request whose
-# base is `premain`/`main`, must also be exercised on pull requests to
-# `staging`. Otherwise a PR merges green and then fails the very job its
-# promotion depends on (the #623 failure mode).
-#
-# Exemptions are explicit and each must be justified in the PR body:
-#   - release-hygiene.yml IS the promotion-lane gate. Release policy runs
-#     release hygiene, not the full rubric, on premain/main PRs, so requiring
-#     it on staging PRs would duplicate the rubric lane.
-# An empty exemption list means "no workflow may skip staging-PR coverage".
-exempt_from_staging_pr_coverage=(
-)
-exempt_from_promotion_pr_coverage=(
-  ".github/workflows/release-hygiene.yml"
+# A push is a publish side effect, never a gate run. These are the workflows
+# whose push trigger publishes something the merged state owns: the docs deploy,
+# the subtree publish, and the release-please generation and publisher jobs.
+# Anything else that declares a push trigger fails closed.
+publish_push_workflows=(
+  ".github/workflows/pages.yml"
+  ".github/workflows/prerelease-pr.yml"
+  ".github/workflows/prerelease.yml"
+  ".github/workflows/release-pr.yml"
+  ".github/workflows/release.yml"
+  ".github/workflows/theorycloud-tabletheory-publish.yml"
 )
 
 is_exempt() {
@@ -212,34 +210,135 @@ check_npm_ci_across_repo() {
   fi
 }
 
-check_trigger_parity() {
+# Only what a workflow actually runs: inline `run:` values and the bodies of
+# `run: |` / `run: >` blocks. Comments, names and `env:` values never count, so a
+# workflow that documents the production command is not mistaken for one that
+# runs it.
+run_lines() {
+  awk '
+    function indent(s) { match(s, /^[ ]*/); return RLENGTH }
+    {
+      line = $0
+      if (inblock) {
+        if (line ~ /^[[:space:]]*$/) next
+        if (indent(line) > blockindent) { print line; next }
+        inblock = 0
+      }
+      if (match(line, /^[ ]*(- )?run:[ ]*/)) {
+        rest = substr(line, RSTART + RLENGTH)
+        sub(/[[:space:]]+$/, "", rest)
+        if (rest ~ /^[|>]/) {
+          inblock = 1
+          blockindent = indent(line)
+          next
+        }
+        if (rest != "") print rest
+      }
+    }
+  ' "$1"
+}
+
+# The gate commands are read from the tracked evidence registry, so the list
+# cannot drift from the policy: any command a record may execute on the
+# production host fails here when a workflow tries to execute it in CI. This is
+# the same classification the served MAI-4 check performs.
+gate_needles() {
+  python3 - <<'PY'
+import json
+from pathlib import Path
+
+registry = json.loads(Path("scripts/evidence/validation-gates.json").read_text(encoding="utf-8"))
+needles: list[str] = []
+for _gate_id, gate in sorted((registry.get("gates") or {}).items()):
+    if gate.get("kind") != "source":
+        continue
+    for command in gate.get("commands") or []:
+        argv = [str(item) for item in command.get("argv") or []]
+        if argv:
+            needles.append(" ".join(argv))
+for needle in dict.fromkeys(needles):
+    print(needle)
+PY
+}
+
+# The verify-only CI shape. Three properties, each failing closed:
+#   1. a push trigger is allowed only on a publish workflow;
+#   2. no workflow executes a gate command from the tracked registry;
+#   3. a workflow that verifies the record runs on pull requests to staging and
+#      never on a promotion pull request, where release hygiene is the only
+#      allowed class.
+check_verify_only_trigger_shape() {
   local wf failed_before="${failures}"
+  local needles
+  needles="$(gate_needles)"
 
   while IFS= read -r wf; do
     [[ -n "${wf}" ]] || continue
 
-    local pr_covers_staging=false
-    if trigger_covers_branch pull_request staging "${wf}"; then
-      pr_covers_staging=true
-    fi
-
-    if trigger_covers_branch push staging "${wf}" && [[ "${pr_covers_staging}" != true ]]; then
-      if ! is_exempt "${wf}" "${exempt_from_staging_pr_coverage[@]}"; then
-        echo "${wf}: runs on push to staging but is never exercised on pull requests to staging; add a staging pull_request trigger or record a justified exemption"
+    if trigger_declared push "${wf}"; then
+      if ! is_exempt "${wf}" "${publish_push_workflows[@]}"; then
+        echo "${wf}: declares a push trigger but is not a publish workflow; a push carries publish side effects only, never a gate run"
         failures=$((failures + 1))
       fi
     fi
 
-    if trigger_targets_any pull_request "${wf}" premain main && [[ "${pr_covers_staging}" != true ]]; then
-      if ! is_exempt "${wf}" "${exempt_from_promotion_pr_coverage[@]}"; then
-        echo "${wf}: gates pull requests to premain/main but not pull requests to staging; a staging PR could merge green and then fail this job on promotion"
+    local runs offenders
+    runs="$(run_lines "${wf}")"
+    if [[ -n "${runs}" && -n "${needles}" ]]; then
+      offenders="$(printf '%s\n' "${runs}" | grep -F -f <(printf '%s\n' "${needles}") || true)"
+      if [[ -n "${offenders}" ]]; then
+        while IFS= read -r offender; do
+          [[ -n "${offender}" ]] || continue
+          echo "${wf}: executes a recorded gate in CI: ${offender}"
+        done <<< "${offenders}"
+        echo "${wf}: fix: run the gate on the production host with scripts/evidence/collect.sh, commit the record, and let CI run scripts/evidence/verify-gate.sh"
+        failures=$((failures + 1))
+      fi
+    fi
+
+    if printf '%s\n' "${runs}" | grep -Fq -- 'scripts/evidence/verify-gate.sh'; then
+      if trigger_targets_any pull_request "${wf}" premain main; then
+        echo "${wf}: verifies the evidence record on promotion pull requests; the record is verified once, on the pull request to staging, and promotion pull requests carry release hygiene only"
         failures=$((failures + 1))
       fi
     fi
   done <<< "${workflows}"
 
   if [[ "${failures}" -eq "${failed_before}" ]]; then
-    echo "ci-trigger-parity: PASS (every push/promotion job is exercised on staging PRs)"
+    echo "ci-verify-only-shape: PASS (push is publish-only, no gate executes in CI, verification is staging-only)"
+  fi
+}
+
+# CI installs no linter: the lint gate runs on the production host, so the
+# toolchain pin must live in this repository and be readable by the guard rather
+# than in a workflow step the guard can no longer observe.
+check_local_lint_pin() {
+  local failed_before="${failures}"
+  local pin
+
+  pin="$(grep -E '^GOLANGCI_LINT_VERSION[[:space:]]*\?=' Makefile 2>/dev/null | head -n1 | sed -E 's/.*=[[:space:]]*//' || true)"
+  if [[ ! "${pin}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Makefile: must declare GOLANGCI_LINT_VERSION ?= vX.Y.Z as the local lint pin"
+    failures=$((failures + 1))
+  fi
+  if ! grep -Fq -- 'GOLANGCI_LINT_VERSION' scripts/ensure-go-lint.sh 2>/dev/null; then
+    echo "scripts/ensure-go-lint.sh: must read the Makefile GOLANGCI_LINT_VERSION pin instead of restating a version"
+    failures=$((failures + 1))
+  fi
+  if grep -Eq 'golangci-lint@v[0-9]+\.[0-9]+\.[0-9]+' scripts/ensure-go-lint.sh 2>/dev/null; then
+    echo "scripts/ensure-go-lint.sh: must not hard-code a lint version; the Makefile pin is the single source"
+    failures=$((failures + 1))
+  fi
+  local needle
+  for needle in 'golangci-lint@' 'golangci/golangci-lint-action'; do
+    if grep -rFq -- "${needle}" .github/workflows; then
+      echo ".github/workflows: must not install a linter; verification reads a record, and the pin lives in the repository"
+      failures=$((failures + 1))
+    fi
+  done
+
+  if [[ "${failures}" -eq "${failed_before}" ]]; then
+    echo "ci-local-lint-pin: PASS (the local pin is tracked in the repository)"
   fi
 }
 
@@ -313,7 +412,8 @@ done <<< "${workflows}"
 
 check_action_pins
 check_npm_ci_across_repo
-check_trigger_parity
+check_verify_only_trigger_shape
+check_local_lint_pin
 
 if [[ "${failures}" -ne 0 ]]; then
   echo "ci-toolchain: FAIL (${failures} issue(s))"

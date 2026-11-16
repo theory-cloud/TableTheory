@@ -18,7 +18,6 @@
   <a href="https://github.com/theory-cloud/tabletheory/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-7A5CFF?style=flat-square"></a>
   <a href="https://tabletheory.theorycloud.ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-tabletheory.theorycloud.ai-2EA7FF?style=flat-square"></a>
   <a href="https://github.com/theory-cloud/tabletheory/actions/workflows/quality-gates.yml"><img alt="Quality gates" src="https://img.shields.io/github/actions/workflow/status/theory-cloud/tabletheory/quality-gates.yml?branch=main&style=flat-square&label=rubric&color=46D397"></a>
-  <a href="https://github.com/theory-cloud/tabletheory/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://img.shields.io/github/actions/workflow/status/theory-cloud/tabletheory/codeql.yml?branch=main&style=flat-square&label=CodeQL&color=46D397"></a>
 </p>
 
 <p align="center">
