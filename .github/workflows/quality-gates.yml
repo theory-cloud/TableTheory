@@ -37,6 +37,20 @@ jobs:
       - name: Verify the recorded rubric
         run: bash scripts/evidence/verify-gate.sh --gate rubric --profile default
 
+      # The rubric composes the product gates it re-checks; these three records
+      # carry proofs it does not consume (the per-line package suites and the
+      # local examples harness), so they are verified here. check-policy.py fails
+      # when any declared gate profile has neither path, which is what keeps a
+      # produced-but-unverified record out of the tree.
+      - name: Verify the recorded TypeScript suite
+        run: bash scripts/evidence/verify-gate.sh --gate ts --profile default
+
+      - name: Verify the recorded Python suite
+        run: bash scripts/evidence/verify-gate.sh --gate py --profile default
+
+      - name: Verify the recorded examples harness
+        run: bash scripts/evidence/verify-gate.sh --gate examples-local --profile default
+
       # Floor records prove the supported runtimes the default host cannot: they
       # are produced in digest-pinned Linux arm64 containers
       # (scripts/evidence/floor-run.sh) and verified here under their own tracked

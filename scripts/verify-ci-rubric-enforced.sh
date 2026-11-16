@@ -138,6 +138,9 @@ fi
 
 for verify_line in \
   'bash scripts/evidence/verify-gate.sh --gate rubric --profile default' \
+  'bash scripts/evidence/verify-gate.sh --gate ts --profile default' \
+  'bash scripts/evidence/verify-gate.sh --gate py --profile default' \
+  'bash scripts/evidence/verify-gate.sh --gate examples-local --profile default' \
   'bash scripts/evidence/verify-gate.sh --gate ts --profile floor-node22' \
   'bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.12' \
   'bash scripts/evidence/verify-gate.sh --gate go-integration --profile linux-arm64'; do
@@ -146,6 +149,22 @@ for verify_line in \
     failures=$((failures + 1))
   }
 done
+
+# Every declared gate/profile pair must be read by one of those steps or by
+# composition, and each pinned step must name a pair the registry declares. This
+# is the shape check that turns "a record exists" into "a record is verified".
+if ! python3 scripts/evidence/check-policy.py --coverage-gaps; then
+  echo "ci-rubric: a producible gate profile is not verified by ${wf} or composed by the rubric"
+  failures=$((failures + 1))
+fi
+
+# The coverage rule must stay non-vacuous: the policy test feeds it an unverified
+# profile, a removed composing dependency and unknown verify steps, and proves
+# each one fails.
+if ! bash scripts/test-evidence-record-coverage-policy.sh; then
+  echo "ci-rubric: scripts/test-evidence-record-coverage-policy.sh failed"
+  failures=$((failures + 1))
+fi
 
 # The catch-all gate is what makes a tooling edit stale the record: the rubric
 # record's scope is every path, so a change under any excluded directory still
@@ -261,6 +280,29 @@ else
     echo "ci-rubric: ${toolchain_verifier}: must reject npm ci without --ignore-scripts"
     failures=$((failures + 1))
   }
+fi
+
+# The DynamoDB Local image is part of the integration and floor proof: a mutable
+# tag would let a gate execute a different binary than the record was produced
+# against. COM-6 pins the digest rule and runs the guard's own policy test, so the
+# rule cannot be weakened back into a tag check without failing here.
+pin_checker="scripts/verify-dynamodb-local-pin.sh"
+if [[ ! -f "${pin_checker}" ]]; then
+  echo "ci-rubric: FAIL (missing ${pin_checker})"
+  failures=$((failures + 1))
+else
+  grep -Fq -- '@sha256:[0-9a-f]{64}' "${pin_checker}" || {
+    echo "ci-rubric: ${pin_checker}: must require an image digest, not only a tag"
+    failures=$((failures + 1))
+  }
+  if ! bash "${pin_checker}"; then
+    echo "ci-rubric: ${pin_checker}: this tree names an unpinned DynamoDB Local image"
+    failures=$((failures + 1))
+  fi
+  if ! bash scripts/test-dynamodb-local-pin-policy.sh; then
+    echo "ci-rubric: ${pin_checker}: policy test failed"
+    failures=$((failures + 1))
+  fi
 fi
 
 # The evidence policy and its human documentation must stay in step, and the

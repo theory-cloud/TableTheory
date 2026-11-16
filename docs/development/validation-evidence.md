@@ -40,12 +40,41 @@ cannot merge.
 | `builds` | `default` | `bash scripts/verify-builds.sh` |
 | `ts` | `default`, `floor-node22` | deps; `npm --prefix ts run check`; coverage; `test:integration` |
 | `py` | `default`, `floor-py3.12` | `uv sync`; `scripts/verify-python-static.sh`; coverage; integration |
-| `go-integration` | `linux-x64` | `bash scripts/verify-go-integration.sh` |
+| `go-integration` | `linux-arm64` | `bash scripts/verify-go-integration.sh` |
 | `examples-local` | `default` | `make examples-local` |
 
 `rubric` is the catch-all: its scope is `**`, so any edit to tracked content —
 including the evidence tooling under `scripts/` and `gov-infra/` — stales the
 record the staging pull request verifies.
+
+## What CI verifies
+
+`quality-gates.yml` verifies one record per step. Every declared gate profile has
+exactly one verification path, and `scripts/evidence/check-policy.py` fails when
+a declared profile has none:
+
+| Step | Record | Path |
+|---|---|---|
+| `rubric` | `rubric/default` | direct |
+| `unit`, `integration`, `coverage`, `format`, `lint`, `builds` | `<gate>/default` | composed by the verified `rubric` record |
+| `ts` | `ts/default` | direct |
+| `py` | `py/default` | direct |
+| `examples-local` | `examples-local/default` | direct |
+| `ts` | `ts/floor-node22` | direct (Linux arm64 floor) |
+| `py` | `py/floor-py3.12` | direct (Linux arm64 floor) |
+| `go-integration` | `go-integration/linux-arm64` | direct (Linux arm64 floor) |
+
+A pair that is **produced but unverified** — declared by a gate, no verification
+step, no verified gate composing it — fails the policy, so a record nothing reads
+cannot sit in the tree. A verification step that names a gate or profile the
+registry does not declare fails the policy too, rather than turning the required
+check red after the push.
+
+The integration and floor producers start DynamoDB Local from
+`amazon/dynamodb-local:3.1.0@sha256:7ef4a2c4…7752`. A tag is mutable, so the
+digest is what binds the evidence to the binary the gate executed;
+`scripts/verify-dynamodb-local-pin.sh` (COM-7) fails on any unpinned reference in
+a compose file, Makefile, shell script, container template or checked-in profile.
 
 ## Proof profiles and production hosts
 
@@ -85,7 +114,7 @@ scripts/evidence/collect.sh --gate unit
 # Produce a floor record inside its digest-pinned Linux producer.
 scripts/evidence/floor-run.sh --profile floor-py3.12 --gate py --clean-host-state
 scripts/evidence/floor-run.sh --profile floor-node22 --gate ts --clean-host-state
-scripts/evidence/floor-run.sh --profile linux-x64 --gate go-integration \
+scripts/evidence/floor-run.sh --profile linux-arm64 --gate go-integration \
   --dynamodb-endpoint http://host.docker.internal:<port>
 
 # Verify exactly what CI verifies, without executing anything.

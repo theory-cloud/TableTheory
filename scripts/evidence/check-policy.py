@@ -8,12 +8,18 @@ with the release-please configuration, the release-pull-request trigger filters
 and the rubric's composition markers, so an extra release-only path, a gate that
 silently stops composing, or a record path that stops being trackable all fail
 here instead of in CI.
+
+It also fails closed when a gate declares a proof profile that nothing verifies:
+every record a steward can produce must be read by the verifying workflow or
+re-verified through composition, or it is evidence no one checks.
 """
 
 from __future__ import annotations
 
+import argparse
 import fnmatch
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = ROOT / "scripts/evidence/validation-gates.json"
 DOCS = ROOT / "docs/development/validation-evidence.md"
+WORKFLOW = ROOT / ".github/workflows/quality-gates.yml"
 
 APPROVED_GATES = {
     "rubric",
@@ -111,8 +118,141 @@ def gate_command_scripts(gate: dict) -> list[str]:
     return scripts
 
 
+# One verification step per gate/profile pair. A step that names no profile
+# verifies the gate's first declared profile, which is what verify-gate.sh
+# resolves for itself.
+VERIFY_STEP = re.compile(
+    r"bash\s+scripts/evidence/verify-gate\.sh\s+--gate\s+"
+    r"(?P<gate>[a-z0-9][a-z0-9-]*)"
+    r"(?:\s+--profile\s+(?P<profile>[a-z0-9][a-z0-9.-]*))?"
+)
+
+
+def gate_profiles(gate: dict) -> list[str]:
+    profiles = gate.get("profiles") or ["default"]
+    return [str(item) for item in profiles]
+
+
+def workflow_target_errors(registry: dict, workflow_text: str) -> list[str]:
+    """Verification steps that name a gate or profile the registry does not.
+
+    verify-gate.sh fails closed at run time, but a typo there would land as a
+    red required check after the push instead of a policy failure before it.
+    """
+    gates = registry.get("gates") or {}
+    errors: list[str] = []
+    for match in VERIFY_STEP.finditer(workflow_text):
+        gate_id = match.group("gate")
+        profile = match.group("profile")
+        gate = gates.get(gate_id)
+        if not isinstance(gate, dict):
+            errors.append(f"the verifying workflow names unknown gate {gate_id!r}")
+            continue
+        if profile is not None and profile not in gate_profiles(gate):
+            errors.append(
+                f"the verifying workflow names profile {profile!r} that gate {gate_id!r} does not declare"
+            )
+    return errors
+
+
+def verified_targets(registry: dict, workflow_text: str) -> set[tuple[str, str]]:
+    """The gate/profile pairs the verifying workflow actually proves.
+
+    A workflow step proves the pair it names. A proven gate also re-verifies each
+    gate it declares as a dependency at the same profile: the verifier walks the
+    record's consumed coverage and refuses a dependency whose record is missing,
+    stale, failed or produced for another profile. That closure is what lets the
+    catch-all rubric cover the composed gates instead of executing them again.
+    """
+    gates = registry.get("gates") or {}
+    verified: set[tuple[str, str]] = set()
+    pending: list[tuple[str, str]] = []
+    for match in VERIFY_STEP.finditer(workflow_text):
+        gate_id = match.group("gate")
+        gate = gates.get(gate_id)
+        if not isinstance(gate, dict):
+            continue
+        profile = match.group("profile") or gate_profiles(gate)[0]
+        if (gate_id, profile) not in verified:
+            verified.add((gate_id, profile))
+            pending.append((gate_id, profile))
+    while pending:
+        gate_id, profile = pending.pop()
+        gate = gates.get(gate_id) or {}
+        for dependency in gate.get("dependsOn") or []:
+            dependency_gate = gates.get(str(dependency))
+            if not isinstance(dependency_gate, dict):
+                continue
+            if profile not in gate_profiles(dependency_gate):
+                continue
+            pair = (str(dependency), profile)
+            if pair not in verified:
+                verified.add(pair)
+                pending.append(pair)
+    return verified
+
+
+def record_coverage_gaps(registry: dict, workflow_text: str) -> list[str]:
+    """Declared gate/profile pairs that nothing verifies.
+
+    A gate declares every profile it can be collected under. Each of those pairs
+    is a proof a steward can produce, so each must have a verification path: a
+    step in the verifying workflow, or composition by a gate that step verifies.
+    A record nothing verifies is evidence no one checks, which is exactly the
+    hole this check closes.
+    """
+    gates = registry.get("gates") or {}
+    verified = verified_targets(registry, workflow_text)
+    gaps: list[str] = []
+    for gate_id in sorted(gates):
+        gate = gates[gate_id]
+        if not isinstance(gate, dict):
+            continue
+        for profile in gate_profiles(gate):
+            if (gate_id, profile) in verified:
+                continue
+            gaps.append(
+                f"gate {gate_id!r} profile {profile!r} is producible but unverified: "
+                "no verification step names it and no verified gate composes it "
+                f"(add 'bash scripts/evidence/verify-gate.sh --gate {gate_id} --profile {profile}' "
+                "to the verifying workflow, or drop the profile)"
+            )
+    return gaps
+
+
+def report_problems(problems: list[str]) -> None:
+    for problem in problems:
+        print(f"validation-policy: FAIL ({problem})", file=sys.stderr)
+
+
 def main() -> int:
-    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--registry", type=Path, default=REGISTRY, help="tracked gate registry")
+    parser.add_argument("--workflow", type=Path, default=WORKFLOW, help="workflow that verifies the records")
+    parser.add_argument(
+        "--coverage-gaps",
+        action="store_true",
+        help="report and exit on gate/profile pairs nothing verifies; runs no other check",
+    )
+    args = parser.parse_args()
+
+    if args.coverage_gaps:
+        registry = json.loads(args.registry.read_text(encoding="utf-8"))
+        workflow_text = args.workflow.read_text(encoding="utf-8")
+        problems = workflow_target_errors(registry, workflow_text) + record_coverage_gaps(
+            registry, workflow_text
+        )
+        if problems:
+            report_problems(problems)
+            return 1
+        verified = verified_targets(registry, workflow_text)
+        print(
+            "validation-policy: covered "
+            f"({len(verified)} recorded gate/profile pairs are verified by {args.workflow.name})"
+        )
+        return 0
+
+    registry = json.loads(args.registry.read_text(encoding="utf-8"))
     if registry.get("schemaVersion") != 1:
         fail("registry schemaVersion must be 1")
     gates = registry.get("gates", {})
@@ -215,6 +355,17 @@ def main() -> int:
         if not consumed:
             fail(f"composed gate {gate_id} never consumes its own record in {scripts[0]}")
 
+    # Every declared gate/profile pair must be verified by the workflow or
+    # composed by a gate that is. A record that is produced but never verified is
+    # a proof with no reader, so it fails here instead of shipping.
+    workflow_text = args.workflow.read_text(encoding="utf-8")
+    coverage_problems = workflow_target_errors(registry, workflow_text) + record_coverage_gaps(
+        registry, workflow_text
+    )
+    if coverage_problems:
+        report_problems(coverage_problems)
+        raise SystemExit(1)
+
     policy = registry["releaseOnly"]
     for prefix in policy.get("prefixes", []):
         if not prefix.endswith("/") or len(prefix.strip("/")) < 3:
@@ -266,6 +417,7 @@ def main() -> int:
         "production host",
         "produce evidence locally",
         "no gate executes",
+        "produced but unverified",
     ):
         if token not in docs:
             fail(f"docs must document the operator surface: missing {token!r}")
@@ -287,7 +439,8 @@ def main() -> int:
 
     print(
         "validation-policy: PASS "
-        f"({len(gates)} gates, {len(COMPOSED_GATES)} composed, {len(matrix)} execution legs, "
+        f"({len(gates)} gates, {len(verified_targets(registry, workflow_text))} verified gate/profile pairs, "
+        f"{len(COMPOSED_GATES)} composed, {len(matrix)} execution legs, "
         "release-only paths cover both release triggers)"
     )
     return 0

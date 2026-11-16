@@ -19,7 +19,7 @@
 # Usage:
 #   scripts/evidence/floor-run.sh --profile floor-py3.12 --gate py
 #   scripts/evidence/floor-run.sh --profile floor-node22 --gate ts
-#   scripts/evidence/floor-run.sh --profile linux-x64 --gate go-integration \
+#   scripts/evidence/floor-run.sh --profile linux-arm64 --gate go-integration \
 #     --dynamodb-endpoint http://host.docker.internal:55321
 #
 # Options:
@@ -98,8 +98,8 @@ if [[ -z "${profile}" ]]; then
   exit 2
 fi
 
-# Digests resolved from Docker Hub on 2026-11-15 for the linux/amd64 manifests
-# the previous CI legs ran on. A moved tag cannot change what a record proves.
+# Digests resolved from Docker Hub on 2026-11-15 for the linux/arm64 manifests
+# this host runs. A moved tag cannot change what a record proves.
 case "${profile}" in
   floor-node22)
     image="node:22-bookworm@sha256:f796bda8a91392fe7b5c974ff42abaa5cc801eb6987dca967f1db8be493e0ee3"
