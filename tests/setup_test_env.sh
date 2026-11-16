@@ -6,7 +6,7 @@ set -e
 
 echo "Setting up TableTheory test environment..."
 
-DYNAMODB_LOCAL_IMAGE="${DYNAMODB_LOCAL_IMAGE:-amazon/dynamodb-local:3.1.0}"
+DYNAMODB_LOCAL_IMAGE="${DYNAMODB_LOCAL_IMAGE:-amazon/dynamodb-local:3.1.0@sha256:7ef4a2c45b58c2901e70a4f28e0953a422c2c631baaaf5e2c15e0805740c7752}"
 
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
