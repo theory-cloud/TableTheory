@@ -1,0 +1,92 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "make",
+        "rubric"
+      ],
+      "durationSeconds": 119.06,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T04:04:55Z",
+      "id": "rubric",
+      "inputsDigest": "sha256:93c3c1b8697e7ab707742ee1d4c83a0643eb55ce3f9f4774c4ac00003827f37a",
+      "logDigest": "sha256:c12630c66b7a85315b00f4183e6f283f14f303831d7c3bfab67cb28094675b2d",
+      "logRef": "gov-infra/evidence/validation/local/rubric-rubric-20261116T040256Z-45459.log",
+      "reused": false,
+      "startedAt": "2026-11-16T04:02:56Z"
+    }
+  ],
+  "consumed": [
+    {
+      "digest": "sha256:dc08950cce131265ce55eb94a50124c1c59b622f1e6af09101d892ca6a5a6158",
+      "gate": "builds",
+      "recordedAt": "2026-11-16T04:00:46Z"
+    },
+    {
+      "digest": "sha256:cf2ad4f2d9cfb2719f3034d45e96489438e864fe59871fb7effa6e16878e1094",
+      "gate": "coverage",
+      "recordedAt": "2026-11-16T04:01:10Z"
+    },
+    {
+      "digest": "sha256:591c96c8057d5035aecb0c9f8fa229aefb9ada0334526cc5a80cc857ba822b5b",
+      "gate": "format",
+      "recordedAt": "2026-11-16T04:00:28Z"
+    },
+    {
+      "digest": "sha256:c3571d4f9ba29e0ba2a600f25fd587110f0df3394c7630ae369e33be9cbc8aa1",
+      "gate": "integration",
+      "recordedAt": "2026-11-16T04:02:18Z"
+    },
+    {
+      "digest": "sha256:5b2b55576927adf3c66649f2d91ddd2c1860058dbcbe95405c7d378926160b17",
+      "gate": "lint",
+      "recordedAt": "2026-11-16T04:00:33Z"
+    },
+    {
+      "digest": "sha256:cf717d5afc3381dcb6d16b1cb76667c24820bca4a3f9a63ad07d71c12fd6f02a",
+      "gate": "unit",
+      "recordedAt": "2026-11-16T04:02:56Z"
+    }
+  ],
+  "description": "Catch-all rubric gate used by the staging required context: it composes independently produced records and executes only the rubric-unique checks",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "v24.21.0",
+    "platform": {
+      "arch": "arm64",
+      "os": "darwin"
+    },
+    "python": "3.14.7"
+  },
+  "gate": "rubric",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "default",
+  "reason": "",
+  "recordedAt": "2026-11-16T04:04:55Z",
+  "releaseOnly": {
+    "digest": "sha256:2db79a2e02ebb26cc34e6bebf0b623f8ef7ff83168c2b7f33967df09a62788db",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:e7fb6c5a9e3a7a05017f08c6ae2ff6871dd72e03dde95aaa6498b65d7fda26d3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:cf263cc4f2995101d40bc814f988adcba16fba4a5e61907529c4baff83503c0a",
+    "fileCount": 1289,
+    "paths": [
+      "**"
+    ],
+    "version": 1
+  },
+  "source": {
+    "digest": "sha256:727bf51f75b6155ef7cf0b0a0e00827bc49a8413a6a649ab8967b538fd588eb2",
+    "fileCount": 1287
+  },
+  "verdict": "PASS"
+}

@@ -1,0 +1,69 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-formatting.sh"
+      ],
+      "durationSeconds": 2.858,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T04:00:28Z",
+      "id": "format",
+      "inputsDigest": "sha256:2c1d76a6a5fe8e0a3437ed121f359f447bcbb66fb1b995073454f181955bf0d2",
+      "logDigest": "sha256:3e03e4679b0e0ed15ccc9bcb1931a1eb5ce216da7736eed280ec193d37e061f6",
+      "logRef": "gov-infra/evidence/validation/local/format-format-20261116T040025Z-45459.log",
+      "reused": false,
+      "startedAt": "2026-11-16T04:00:25Z"
+    }
+  ],
+  "consumed": [],
+  "description": "Canonical formatting: gofmt, the TypeScript format check and ruff format",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "v24.21.0",
+    "platform": {
+      "arch": "arm64",
+      "os": "darwin"
+    },
+    "python": "3.14.7"
+  },
+  "gate": "format",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "default",
+  "reason": "",
+  "recordedAt": "2026-11-16T04:00:28Z",
+  "releaseOnly": {
+    "digest": "sha256:2db79a2e02ebb26cc34e6bebf0b623f8ef7ff83168c2b7f33967df09a62788db",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:e7fb6c5a9e3a7a05017f08c6ae2ff6871dd72e03dde95aaa6498b65d7fda26d3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:591c96c8057d5035aecb0c9f8fa229aefb9ada0334526cc5a80cc857ba822b5b",
+    "fileCount": 765,
+    "paths": [
+      "*.go",
+      "pkg/",
+      "internal/",
+      "cmd/",
+      "tests/",
+      "ts/",
+      "py/",
+      "scripts/verify-formatting.sh",
+      "scripts/evidence/"
+    ],
+    "version": 1
+  },
+  "source": {
+    "digest": "sha256:727bf51f75b6155ef7cf0b0a0e00827bc49a8413a6a649ab8967b538fd588eb2",
+    "fileCount": 1287
+  },
+  "verdict": "PASS"
+}

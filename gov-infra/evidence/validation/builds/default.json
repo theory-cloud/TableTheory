@@ -1,0 +1,79 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-builds.sh"
+      ],
+      "durationSeconds": 20.741,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-16T04:00:46Z",
+      "id": "builds",
+      "inputsDigest": "sha256:9b8c43d33d0f04cf183a4ad07df5b8e5a16181ef25ebfb0d1b4c4e507742766a",
+      "logDigest": "sha256:06cc643c642c164df89f160a4963873b35ab9d34d1fd655e8f3db4a38c5cf3de",
+      "logRef": "gov-infra/evidence/validation/local/builds-builds-20261116T040025Z-45459.log",
+      "reused": false,
+      "startedAt": "2026-11-16T04:00:25Z"
+    }
+  ],
+  "consumed": [],
+  "description": "Package and module builds: Go modules and semantic import version, TypeScript build and typecheck, Python wheel build, branch version alignment, CDK synth",
+  "environment": {
+    "go": "go1.27.4",
+    "node": "v24.21.0",
+    "platform": {
+      "arch": "arm64",
+      "os": "darwin"
+    },
+    "python": "3.14.7"
+  },
+  "gate": "builds",
+  "kind": "source",
+  "producer": {
+    "registry": "validation-gates.json",
+    "tool": "scripts/evidence/validation_evidence.py"
+  },
+  "profile": "default",
+  "reason": "",
+  "recordedAt": "2026-11-16T04:00:46Z",
+  "releaseOnly": {
+    "digest": "sha256:2db79a2e02ebb26cc34e6bebf0b623f8ef7ff83168c2b7f33967df09a62788db",
+    "fileCount": 2,
+    "normalizedDigest": "sha256:e7fb6c5a9e3a7a05017f08c6ae2ff6871dd72e03dde95aaa6498b65d7fda26d3",
+    "version": "6.4.1"
+  },
+  "reviews": [],
+  "schemaVersion": 1,
+  "scope": {
+    "digest": "sha256:dc08950cce131265ce55eb94a50124c1c59b622f1e6af09101d892ca6a5a6158",
+    "fileCount": 838,
+    "paths": [
+      "*.go",
+      "go.mod",
+      "go.sum",
+      "pkg/",
+      "internal/",
+      "cmd/",
+      "ts/",
+      "py/",
+      "examples/",
+      "Makefile",
+      "scripts/verify-builds.sh",
+      "scripts/verify-go-modules.sh",
+      "scripts/verify-go-semantic-import-version.sh",
+      "scripts/verify-typescript-build.sh",
+      "scripts/verify-python-build.sh",
+      "scripts/verify-branch-version-sync.sh",
+      "scripts/verify-cdk-synth.sh",
+      "scripts/verify-cdk-synth-runtimes.mjs",
+      "scripts/evidence/"
+    ],
+    "version": 1
+  },
+  "source": {
+    "digest": "sha256:727bf51f75b6155ef7cf0b0a0e00827bc49a8413a6a649ab8967b538fd588eb2",
+    "fileCount": 1287
+  },
+  "verdict": "PASS"
+}
