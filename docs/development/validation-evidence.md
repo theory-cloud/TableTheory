@@ -47,6 +47,27 @@ cannot merge.
 including the evidence tooling under `scripts/` and `gov-infra/` — stales the
 record the staging pull request verifies.
 
+## Release history is not a product input
+
+A generated release moves exactly two tracked files: `.release-please-manifest.json`
+and `CHANGELOG.md`. Neither carries product bytes, so neither can change a claim,
+and binding them as product input made every `**`-scoped record go stale on every
+release and every `main` → `staging` back-merge.
+
+The registry's **`release-notes`** class narrows only those two paths. A changelog
+contributes its path and mode and never its bytes, so a generated section, a hand
+edit and a reordering project identically. The release-please manifest contributes
+its structure with the version values excluded, so a version bump projects
+identically while a structural edit still fails closed. Every other release-only
+path keeps version-literal normalization only, and a product byte still stales the
+records whose scope covers it.
+
+`scripts/evidence/check-policy.py` fixes the reviewed allowlist for the class and
+requires the registry to match it exactly. It rejects a prefix, a glob or a
+directory entry, a path that is not release-only, a path inside a product-bytes
+prefix, a path that is also a dependency-scan input, and a path that is not a
+tracked file, so the class cannot grow silently.
+
 ## What CI verifies
 
 `quality-gates.yml` verifies one record per step. Every declared gate profile has

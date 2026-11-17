@@ -86,6 +86,12 @@
     "prefixes": [],
     "patterns": []
   },
+  "releaseNotes": {
+    "exact": [
+      "CHANGELOG.md",
+      ".release-please-manifest.json"
+    ]
+  },
   "securityInputs": {
     "exact": [
       "go.mod",
@@ -167,7 +173,7 @@
       "id": "backmerge-main-staging",
       "leg": "main -> staging back-merge pull request",
       "old": "the language workflows and the full rubric re-executed on the returned baseline",
-      "new": "records-only evidence refresh on the back-merge branch, then the staging pull-request verification set; a real source delta needs the affected gates recollected"
+      "new": "the committed staging records verify the back-merge pull request: a pure release back-merge changes release-only paths and release history only, which no record binds as product input; a product delta still stales its scope and needs the affected gates recollected"
     }
   ],
   "gates": {

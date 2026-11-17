@@ -9,6 +9,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
+  actions: write
   contents: write
   issues: write
   pull-requests: write
@@ -75,7 +76,7 @@ jobs:
         id: driver
         if: steps.cycle.outputs.pending_stable_repair != 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           release_as="$(bash scripts/resolve-prerelease-release-as.sh --repo "${GITHUB_REPOSITORY}" --sha "${GITHUB_SHA}" --base premain)"
@@ -86,7 +87,7 @@ jobs:
         if: steps.cycle.outputs.pending_stable_repair != 'true'
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           target-branch: premain
           config-file: release-please-config.premain.json
           manifest-file: .release-please-manifest.json
@@ -96,7 +97,7 @@ jobs:
       - name: Verify prerelease Release PR postcondition
         if: steps.cycle.outputs.pending_stable_repair != 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PRERELEASE_PR_EXPECTED_VERSION: ${{ steps.driver.outputs.release_as }}
         run: |
           set -euo pipefail
@@ -104,3 +105,18 @@ jobs:
           bash scripts/verify-prerelease-pr-postcondition.sh \
             --repo "${GITHUB_REPOSITORY}" \
             --base premain
+
+      # release-please writes its commits and opens its pull request with the
+      # built-in token, and GitHub starts no pull_request workflow for events
+      # that token causes. Dispatch the required context against the release
+      # branch, bound to the pull request head, then keep the pull request a
+      # draft until that head is green and mark it ready.
+      - name: Verify required checks on the generated release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          bash scripts/sync-release-pr-checks.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --head-branch release-please--branches--premain

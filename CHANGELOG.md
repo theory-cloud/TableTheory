@@ -156,6 +156,19 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.5.1-rc](https://github.com/theory-cloud/TableTheory/compare/v6.5.0...v6.5.1-rc) (2026-11-17)
+
+
+### Bug Fixes
+
+* **evidence:** stop binding release history as a product input ([befb3c9](https://github.com/theory-cloud/TableTheory/commit/befb3c93cb4f87125b4821e371b7d4f92e31685f))
+* **release:** attach the required release check to generated release pull requests ([8d6908d](https://github.com/theory-cloud/TableTheory/commit/8d6908d44582d14baec68a28fd0e8b6deb33a2a0))
+* **release:** dispatch release hygiene for generated release pull requests ([22911f9](https://github.com/theory-cloud/TableTheory/commit/22911f915e55ef173cb76cc1b3a75db5af26a4a6))
+* **release:** guard every generated release PR against a missing check path ([1c49486](https://github.com/theory-cloud/TableTheory/commit/1c494866c930a87a9de27e6cb01531428e6bd0c3))
+* **release:** keep the release-intent pin on the resolved release context ([189b81c](https://github.com/theory-cloud/TableTheory/commit/189b81c6cbb68119ed5787fc064c5a7f4112a7ed))
+* **release:** promote staging to premain (self-dispatched release checks, back-merge evidence) ([9c3ad29](https://github.com/theory-cloud/TableTheory/commit/9c3ad29529d97b5fc89a04aeb695950b8d74dfa2))
+* **release:** remove the release-please token fallback from every release workflow ([0e19224](https://github.com/theory-cloud/TableTheory/commit/0e1922425e51da6317882688b09368c9d2420ac1))
+
 ## [6.5.0](https://github.com/theory-cloud/TableTheory/compare/v6.5.0-rc...v6.5.0) (2026-11-16)
 
 Stable promotion of `v6.5.0-rc`.
