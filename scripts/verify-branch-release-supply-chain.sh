@@ -673,7 +673,7 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
   h_t3=".github/workflows/release-hygiene.yml"
   require_fixed "bash scripts/verify-promotion-release-driver.sh" "${h_t3}" \
     "release intent must stay enforced at promotion time by the release-hygiene driver step"
-  require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h_t3}" \
+  require_fixed "steps.context.outputs.base_ref == 'premain' && steps.context.outputs.head_ref == 'staging'" "${h_t3}" \
     "the release-hygiene driver step must cover staging -> premain promotion PRs"
 fi
 
