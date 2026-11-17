@@ -246,6 +246,8 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene dispatch must name the generated release pull request"
   require_fixed "scripts/resolve-release-pr-head.sh" "${h}" \
     "release-hygiene dispatch must bind the run to the generated release PR head"
+  require_fixed "scripts/verify-release-pr-check-lane.sh" "${h}" \
+    "release-hygiene must verify the generated release PR check lane"
   if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${h}"; then
     fail "release-hygiene must not expose release-please token"
   fi

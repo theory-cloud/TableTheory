@@ -174,6 +174,16 @@ if ! bash scripts/test-validation-evidence.sh; then
   failures=$((failures + 1))
 fi
 
+# A generated release pull request is opened with GITHUB_TOKEN, so GitHub starts
+# no pull_request workflow for it and the required context can only arrive by a
+# dispatch bound to that pull request's head. The guard proves every required
+# context of every generated release pull request has such a path, and its
+# self-test proves the guard and the head binding reject hostile shapes.
+if ! bash scripts/verify-release-pr-check-lane.sh --self-test; then
+  echo "ci-rubric: scripts/verify-release-pr-check-lane.sh --self-test failed"
+  failures=$((failures + 1))
+fi
+
 # The catch-all gate is what makes a tooling edit stale the record: the rubric
 # record's scope is every path, so a change under any excluded directory still
 # invalidates the record the staging pull request verifies.

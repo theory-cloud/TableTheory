@@ -274,3 +274,8 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --base main \
             --forbid-rc-only
+
+      - name: Verify the generated release PR check lane
+        run: |
+          set -euo pipefail
+          bash scripts/verify-release-pr-check-lane.sh
