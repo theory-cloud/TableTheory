@@ -5,16 +5,16 @@
         "bash",
         "scripts/verify-integration-tests.sh"
       ],
-      "durationSeconds": 19.418,
+      "durationSeconds": 17.631,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-17T11:51:08Z",
+      "finishedAt": "2026-11-17T15:15:15Z",
       "id": "integration",
-      "inputsDigest": "sha256:396414e53e1bc50b2b5ca667bbdff654365bcf112bc8df95b853ea2f7c4ac37d",
-      "logDigest": "sha256:a1ab82f3be750748f34cb28d6995cd51c59212944ac55a1a3541f62fae46bfde",
-      "logRef": "gov-infra/evidence/validation/local/integration-integration-20261117T115049Z-96564.log",
+      "inputsDigest": "sha256:5039b6eb6395d15cd45cc02b09b9bd5fecb8113b35b388365a61761c2e99a805",
+      "logDigest": "sha256:593261a5d64dbcc743d9c56fde568e59180249cc360ff8dc98d2c8a701e990dc",
+      "logRef": "gov-infra/evidence/validation/local/integration-integration-20261117T151457Z-76167.log",
       "reused": false,
-      "startedAt": "2026-11-17T11:50:49Z"
+      "startedAt": "2026-11-17T15:14:57Z"
     }
   ],
   "consumed": [],
@@ -36,17 +36,17 @@
   },
   "profile": "default",
   "reason": "",
-  "recordedAt": "2026-11-17T11:51:08Z",
+  "recordedAt": "2026-11-17T15:15:15Z",
   "releaseOnly": {
-    "digest": "sha256:4a6df55e9b9de3daeb4ba171d6ace76576caf3e120481dbb51dc710aa664f0ac",
+    "digest": "sha256:b8b0dfb977ee7d82767870e687599d0ddb55bd14b7c0640a3a29f7dea9de9821",
     "fileCount": 2,
     "normalizedDigest": "sha256:0fd759e0448f46454691eb860c9a5a6ac4d08af2e32852a0b64c263ed81108fa",
-    "version": "6.5.0"
+    "version": "6.5.1"
   },
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:28464b162ec1e4717cb552fef356f38c07796c3945a2476cbd318678924a4137",
+    "digest": "sha256:f8686effe74de28c253cbff1b99754b283e400d599127a8d3b2188f9157c607b",
     "fileCount": 897,
     "paths": [
       "*.go",
@@ -73,7 +73,7 @@
     "version": 2
   },
   "source": {
-    "digest": "sha256:ea074c0b2a7bc08bd1640f576dd74890e6546f40e71c43caa7e85e2fd30761f7",
+    "digest": "sha256:51961e37ce8f478ef82238bda97f15ca6867a551a2d8e69a722f95489dae97b9",
     "fileCount": 1298
   },
   "verdict": "PASS"
