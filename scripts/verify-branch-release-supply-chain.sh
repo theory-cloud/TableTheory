@@ -229,14 +229,23 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must forbid RC-shaped main Release PRs"
   require_fixed "scripts/verify-promotion-release-driver.sh" "${h}" \
     "release-hygiene must verify human promotion release drivers"
-  require_fixed "github.base_ref == 'premain' && github.head_ref == 'staging'" "${h}" \
+  require_fixed "steps.context.outputs.base_ref == 'premain' && steps.context.outputs.head_ref == 'staging'" "${h}" \
     "release-hygiene must run the release driver guard on staging -> premain PRs"
-  require_fixed "github.base_ref == 'main' && github.head_ref == 'premain'" "${h}" \
+  require_fixed "steps.context.outputs.base_ref == 'main' && steps.context.outputs.head_ref == 'premain'" "${h}" \
     "release-hygiene must run the release driver guard on premain -> main PRs"
   require_fixed "bash scripts/verify-promotion-release-driver.sh" "${h}" \
     "release-hygiene must run the promotion driver from the head checkout"
   require_fixed "github.event_name == 'workflow_dispatch'" "${h}" \
     "release-hygiene must retain read-only manual dispatch validation"
+  # A generated release pull request is opened with GITHUB_TOKEN, so GitHub
+  # starts no pull_request workflow for it and the required context can only
+  # arrive by dispatch. The dispatch must be bound to the pull request head
+  # before any check runs, or the context would attest a tree the pull request
+  # does not contain.
+  require_fixed "release_pr_number" "${h}" \
+    "release-hygiene dispatch must name the generated release pull request"
+  require_fixed "scripts/resolve-release-pr-head.sh" "${h}" \
+    "release-hygiene dispatch must bind the run to the generated release PR head"
   if grep -Fq "secrets.RELEASE_PLEASE_TOKEN" "${h}"; then
     fail "release-hygiene must not expose release-please token"
   fi

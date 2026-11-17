@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "requiredContexts": {
+    "premain": [
+      {
+        "context": "hygiene",
+        "workflow": "release-hygiene.yml",
+        "job": "hygiene"
+      }
+    ],
+    "main": [
+      {
+        "context": "hygiene",
+        "workflow": "release-hygiene.yml",
+        "job": "hygiene"
+      }
+    ]
+  },
+  "generatedReleasePullRequests": [
+    {
+      "workflow": "prerelease-pr.yml",
+      "base": "premain",
+      "head": "release-please--branches--premain"
+    },
+    {
+      "workflow": "release-pr.yml",
+      "base": "main",
+      "head": "release-please--branches--main"
+    }
+  ]
+}

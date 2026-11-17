@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
   issues: write
   pull-requests: write
@@ -183,3 +184,17 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --base main \
             --expected-version "${EXPECTED_VERSION}"
+
+      # The stable Release PR is created here with the built-in token, so no
+      # pull_request workflow starts for it. Dispatch the required context
+      # against the release branch, bound to the pull request head, then keep
+      # the pull request a draft until that head is green and mark it ready.
+      - name: Verify required checks on the generated release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          bash scripts/sync-release-pr-checks.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --head-branch release-please--branches--main

@@ -3,9 +3,10 @@ name: Release Hygiene
 # Single-source gate (operator ruling 2026-10-12).
 #
 # Every check in this workflow executes from ONE checkout of the promoted head:
-# github.event.pull_request.head.sha for pull requests, the dispatch ref for
-# workflow_dispatch. There is no second checkout and no verifier-source
-# negotiation; the gate code rides with the head being promoted.
+# the pull request head SHA, or — for a dispatched run — the generated release
+# branch head, which scripts/resolve-release-pr-head.sh binds back to the pull
+# request head SHA before any check runs. There is no second checkout and no
+# verifier-source negotiation; the gate code rides with the head being promoted.
 #
 # Why: this workflow previously ran provenance from a checkout pinned to the PR
 # base SHA and then feature-negotiated the remaining verifiers against
@@ -14,8 +15,8 @@ name: Release Hygiene
 # from the PR head while executing verifiers from the base checkout, whose older
 # scripts did not accept the arguments the head workflow passed
 # (`--published-baseline`), and the base branch could only receive the newer
-# scripts through the very promotion that was blocked. A gate must never be able
-# to block the change that fixes it.
+# scripts through the very promotion that was blocked. A gate must never be
+# able to block the change that fixes it.
 #
 # Trust-model change, stated plainly: the trusted source of this workflow's code
 # is the promoted head instead of the base branch. Controls against gate
@@ -24,11 +25,25 @@ name: Release Hygiene
 # queue), the mandatory human review on every promotion PR, and the visible CI
 # on every `staging` PR, which runs this same verifier suite from the head before
 # promotion. Nothing here is advisory: every step fails closed.
+#
+# Dispatch path: GitHub does not start `pull_request` workflows for events caused
+# by the repository's GITHUB_TOKEN, so a release-please pull request never gets
+# this context on its own. `workflow_dispatch` is the documented exception, so
+# the generated-release lane dispatches this workflow against the release branch
+# and passes the pull request number. The run is bound to the pull request head
+# before any check executes: a run whose ref, SHA, repository or base does not
+# match the pull request fails closed. The context is the job id `hygiene` in both
+# modes, so the ruleset context is the same one.
 
 on:
   pull_request:
     branches: ["premain", "main"]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      release_pr_number:
+        description: "Generated release pull request number this run verifies"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -41,15 +56,16 @@ jobs:
       - name: Checkout release hygiene source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      - name: Verify release-lane same-repository provenance
-        if: github.event_name == 'pull_request'
+      - name: Resolve release-lane pull request context
+        id: context
         env:
           GH_TOKEN: ${{ github.token }}
-          BASE_REF: ${{ github.base_ref }}
-          HEAD_REF: ${{ github.head_ref }}
+          DISPATCH_RELEASE_PR_NUMBER: ${{ inputs.release_pr_number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
           BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -58,6 +74,64 @@ jobs:
           PR_STATE: ${{ github.event.pull_request.state }}
           PR_MERGED: ${{ github.event.pull_request.merged || false }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          DISPATCH_REF_NAME: ${{ github.ref_name }}
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            {
+              echo "base_ref=${BASE_REF}"
+              echo "head_ref=${HEAD_REF}"
+              echo "base_repo=${BASE_REPOSITORY}"
+              echo "head_repo=${HEAD_REPOSITORY}"
+              echo "base_sha=${BASE_SHA}"
+              echo "head_sha=${HEAD_SHA}"
+              echo "pr_number=${PR_NUMBER}"
+              echo "pr_state=${PR_STATE}"
+              echo "pr_merged=${PR_MERGED}"
+              echo "pr_title=${PR_TITLE}"
+            } >>"${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          # The dispatched ref must be the generated release branch this pull
+          # request owns, and the dispatched SHA must be its head. Anything else
+          # would verify a tree the pull request does not contain. The resolver
+          # refuses a closed pull request, a foreign head repository and a
+          # non-release base, and it writes every resolved field, including the
+          # pull request state the provenance step reads, to GITHUB_OUTPUT.
+          bash scripts/resolve-release-pr-head.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pr "${DISPATCH_RELEASE_PR_NUMBER}" \
+            --ref-name "${DISPATCH_REF_NAME}" \
+            --ref-sha "${DISPATCH_SHA}" \
+            --output "${GITHUB_OUTPUT}" >/dev/null
+
+      - name: Verify the checked-out tree is the resolved pull request head
+        run: |
+          set -euo pipefail
+
+          checked_out="$(git rev-parse HEAD)"
+          if [[ "${checked_out}" != "${{ steps.context.outputs.head_sha }}" ]]; then
+            echo "release-hygiene: FAIL (checked out ${checked_out}, resolved pull request head ${{ steps.context.outputs.head_sha }})" >&2
+            exit 1
+          fi
+
+      - name: Verify release-lane same-repository provenance
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ steps.context.outputs.base_ref }}
+          HEAD_REF: ${{ steps.context.outputs.head_ref }}
+          BASE_REPOSITORY: ${{ steps.context.outputs.base_repo }}
+          HEAD_REPOSITORY: ${{ steps.context.outputs.head_repo }}
+          BASE_SHA: ${{ steps.context.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+          PR_STATE: ${{ steps.context.outputs.pr_state }}
+          PR_MERGED: ${{ steps.context.outputs.pr_merged }}
+          PR_TITLE: ${{ steps.context.outputs.pr_title }}
         run: |
           set -euo pipefail
 
@@ -69,32 +143,43 @@ jobs:
             --head-repo "${HEAD_REPOSITORY}" \
             --base-sha "${BASE_SHA}" \
             --head-sha "${HEAD_SHA}" \
+            --pr "${PR_NUMBER}" \
+            --pr-state "${PR_STATE}" \
+            --pr-merged "${PR_MERGED}" \
             --title "${PR_TITLE}"
           )
 
           bash scripts/verify-release-lane-provenance.sh "${provenance_args[@]}"
 
-      - name: Resolve release hygiene target branch
+      - name: Verify generated release pull request head binding
         if: github.event_name == 'workflow_dispatch'
-        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ steps.context.outputs.base_ref }}
+          HEAD_REF: ${{ steps.context.outputs.head_ref }}
+          BASE_SHA: ${{ steps.context.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+          PR_TITLE: ${{ steps.context.outputs.pr_title }}
         run: |
           set -euo pipefail
 
-          target="${GITHUB_REF_NAME}"
-          case "${target}" in
-            premain|main)
-              ;;
-            *)
-              echo "release-hygiene: FAIL (unsupported target branch ${target:-<empty>})" >&2
-              exit 1
-              ;;
-          esac
-
-          echo "branch=${target}" >> "${GITHUB_OUTPUT}"
+          bash scripts/verify-release-lane-provenance.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base "${BASE_REF}" \
+            --head "${HEAD_REF}" \
+            --base-repo "${GITHUB_REPOSITORY}" \
+            --head-repo "${GITHUB_REPOSITORY}" \
+            --base-sha "${BASE_SHA}" \
+            --head-sha "${HEAD_SHA}" \
+            --pr "${PR_NUMBER}" \
+            --pr-state open \
+            --pr-merged false \
+            --title "${PR_TITLE}"
 
       - name: Resolve highest published release
         id: published
-        if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
+        if: (steps.context.outputs.base_ref == 'premain' && steps.context.outputs.head_ref == 'staging') || (steps.context.outputs.base_ref == 'main' && steps.context.outputs.head_ref == 'premain')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -148,66 +233,38 @@ jobs:
           echo "release-hygiene: highest published release baseline: ${baseline:-<none>}"
 
       - name: Verify human promotion release driver
-        if: github.event_name == 'pull_request' && ((github.base_ref == 'premain' && github.head_ref == 'staging') || (github.base_ref == 'main' && github.head_ref == 'premain'))
+        if: (steps.context.outputs.base_ref == 'premain' && steps.context.outputs.head_ref == 'staging') || (steps.context.outputs.base_ref == 'main' && steps.context.outputs.head_ref == 'premain')
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLISHED_BASELINE: ${{ steps.published.outputs.baseline }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+          PR_TITLE: ${{ steps.context.outputs.pr_title }}
         run: |
           set -euo pipefail
           echo "promotion-release-driver: highest published release baseline: ${PUBLISHED_BASELINE:-<none>}"
 
           bash scripts/verify-promotion-release-driver.sh \
             --repo "${GITHUB_REPOSITORY}" \
-            --base "${GITHUB_BASE_REF}" \
-            --head "${GITHUB_HEAD_REF}" \
+            --base "${{ steps.context.outputs.base_ref }}" \
+            --head "${{ steps.context.outputs.head_ref }}" \
             --pr "${PR_NUMBER}" \
             --published-baseline "${PUBLISHED_BASELINE}"
 
       - name: Verify release cycle state
-        if: github.event_name == 'pull_request'
         env:
-          RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ github.base_ref == 'main' && github.head_ref == 'premain' && 'true' || 'false' }}
+          RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ steps.context.outputs.base_ref == 'main' && steps.context.outputs.head_ref == 'premain' && 'true' || 'false' }}
           RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}
         run: |
           set -euo pipefail
           bash scripts/verify-release-cycle-state.sh
 
-      - name: Verify release cycle state
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          TARGET_BRANCH: ${{ steps.target.outputs.branch }}
-        run: |
-          set -euo pipefail
-          GITHUB_BASE_REF="${TARGET_BRANCH}" RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=false \
-            bash scripts/verify-release-cycle-state.sh
-
       - name: Verify release supply-chain scaffolding
-        if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           bash scripts/verify-branch-release-supply-chain.sh
 
-      - name: Verify release supply-chain scaffolding
-        if: github.event_name == 'workflow_dispatch'
-        run: bash scripts/verify-branch-release-supply-chain.sh
-
       - name: Forbid RC-shaped main Release PRs
-        if: github.event_name == 'pull_request' && github.base_ref == 'main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          bash scripts/verify-main-release-pr-postcondition.sh \
-            --repo "${GITHUB_REPOSITORY}" \
-            --base main \
-            --forbid-rc-only
-
-      - name: Forbid RC-shaped main Release PRs
-        if: github.event_name == 'workflow_dispatch' && steps.target.outputs.branch == 'main'
+        if: steps.context.outputs.base_ref == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

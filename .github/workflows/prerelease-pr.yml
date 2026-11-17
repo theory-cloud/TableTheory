@@ -9,6 +9,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
+  actions: write
   contents: write
   issues: write
   pull-requests: write
@@ -104,3 +105,18 @@ jobs:
           bash scripts/verify-prerelease-pr-postcondition.sh \
             --repo "${GITHUB_REPOSITORY}" \
             --base premain
+
+      # release-please writes its commits and opens its pull request with the
+      # built-in token, and GitHub starts no pull_request workflow for events
+      # that token causes. Dispatch the required context against the release
+      # branch, bound to the pull request head, then keep the pull request a
+      # draft until that head is green and mark it ready.
+      - name: Verify required checks on the generated release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          bash scripts/sync-release-pr-checks.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --head-branch release-please--branches--premain
