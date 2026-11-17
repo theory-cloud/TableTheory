@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# REL guard: every generated release pull request has an automatic dispatch path
-# for every required context of its base, bound to the pull request head.
+# REL guard: every generated release pull request has, for every required context
+# of its base, both paths the ruleset needs.
+#
+#   - an early, head-bound verdict the lane can reach without a credential; and
+#   - an eligible event that makes the context count.
 #
 # The failure this prevents is a release lane that looks wired but cannot gate
 # itself. release-please (and scripts/create-stable-release-pr.py) create their
-# pull requests with the built-in `GITHUB_TOKEN`, and GitHub starts no
-# `pull_request` workflow for events that token causes, so the required context
-# never reports and the only repair is closing and reopening the pull request.
+# pull requests with the built-in `GITHUB_TOKEN`: the `pull_request` runs that
+# token causes arrive in an approval-required state, and a `workflow_dispatch`
+# run's check runs never appear in the pull request's checks section and never
+# satisfy a required status check. So a generated release pull request has
+# exactly one eligible event available to it without a credential — the
+# code-owner review the premain/main rulesets already require — and the
+# verifying workflow must run on it.
+#
 # The declaration in `.github/release-lane.json` names, per base branch, the
-# required contexts and the workflow that reports each one; this guard proves
-# that:
+# required contexts, the workflow and job that report each one, and the eligible
+# events that make it count. This guard proves that:
 #
 #   1. every workflow that creates a generated release pull request declares the
 #      permission to create pull requests and to dispatch workflows;
@@ -21,8 +29,15 @@ set -euo pipefail
 #      workflow_dispatch path taking the pull request number, that binds the run
 #      to the pull request head through scripts/resolve-release-pr-head.sh, and
 #      that re-checks the checkout is that head before any check runs;
-#   4. no workflow reintroduces a release-please token fallback: the lane must
-#      run on the built-in token only.
+#   4. each declared eligible event triggers the workflow for that release base,
+#      the `pull_request_review` trigger subscribes to submitted reviews only and
+#      never to a staging pull request, and the job's `if:` does not exclude it;
+#   5. the reporting job declares no `name:`, so the context is the same job id
+#      on every path;
+#   6. no workflow reintroduces a release-please token fallback: the lane must
+#      run on the built-in token only; and
+#   7. the lane never counts a skipped or neutral context as green and names the
+#      eligible event that satisfies the ruleset.
 #
 # The self-test proves the guard is not vacuous: it mutates copies of the real
 # workflows and declaration and requires each mutation to fail, and it drives the
@@ -48,9 +63,9 @@ while [[ $# -gt 0 ]]; do
       cat <<'USAGE'
 Usage: bash scripts/verify-release-pr-check-lane.sh [--self-test] [--root DIR]
 
-Fails when a generated release pull request has no head-bound dispatch path for
-one of its base branch's required contexts. --self-test additionally proves the
-guard and the head-binding resolver reject hostile shapes.
+Fails when a generated release pull request has no head-bound dispatch path or no
+eligible-event path for one of its base branch's required contexts. --self-test
+additionally proves the guard and the head-binding resolver reject hostile shapes.
 USAGE
       exit 0
       ;;
@@ -69,18 +84,31 @@ report() {
 
 config="${root}/.github/release-lane.json"
 workflows="${root}/.github/workflows"
+lane="${root}/scripts/sync-release-pr-checks.sh"
 
 if [[ ! -f "${config}" ]]; then
   echo "release-pr-check-lane: FAIL (missing ${config})" >&2
   exit 1
 fi
 
-# Emit one line per (head, base, context, workflow, job) and one per producer.
-# The parsing lives in one place so the guard and the lane script cannot read the
-# declaration differently.
+# Emit one line per (head, base, context, workflow, job), one per declared
+# eligible event, and one per producer. The parsing lives in one place so the
+# guard and the lane script cannot read the declaration differently.
 plan="$(python3 - "${config}" <<'PY'
 import json
 import sys
+
+# GitHub evaluates a required status check only for a run triggered by one of
+# these events. A workflow_dispatch run is not one of them, which is why the lane
+# it starts is an early verdict and never proof for the ruleset.
+ELIGIBLE = {
+    "push",
+    "pull_request",
+    "pull_request_review",
+    "pull_request_target",
+    "deployment",
+    "deployment_status",
+}
 
 try:
     data = json.loads(open(sys.argv[1], encoding="utf-8").read())
@@ -114,11 +142,80 @@ for entry in producers:
         )
         raise SystemExit(1)
     for item in required:
-        print(
-            f"context\t{base}\t{item['context']}\t{str(item.get('workflow') or '')}\t{str(item.get('job') or '')}"
-        )
+        context = str(item["context"])
+        verifier = str(item.get("workflow") or "")
+        job = str(item.get("job") or "")
+        print(f"context\t{base}\t{context}\t{verifier}\t{job}")
+        events = item.get("eligibleEvents")
+        if not isinstance(events, list) or not events:
+            print(
+                f"release-pr-check-lane: FAIL ({context} on {base} declares no eligibleEvents, so nothing states which run makes it count)",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        unknown = sorted({str(event) for event in events} - ELIGIBLE)
+        if unknown:
+            print(
+                f"release-pr-check-lane: FAIL ({context} on {base} declares ineligible events {unknown}; a required check is evaluated only for {sorted(ELIGIBLE)})",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        if "pull_request_review" not in events:
+            print(
+                f"release-pr-check-lane: FAIL ({context} on {base} declares no pull_request_review eligible event, so no credential-free event can make it count)",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        for event in sorted({str(event) for event in events}):
+            print(f"eligible\t{base}\t{context}\t{event}\t{verifier}")
 PY
 )" || exit 1
+
+# The block of a top-level trigger, keyed by its name inside `on:`.
+trigger_block() {
+  awk -v key="$2" '
+    $0 ~ "^  " key ":[ \t]*$" { inside = 1; next }
+    inside && /^  [A-Za-z_]/ { inside = 0 }
+    inside { print }
+  ' "$1"
+}
+
+# The block of a job, keyed by its id.
+job_block() {
+  awk -v job="$2" '
+    $0 ~ "^  " job ":[ \t]*$" { inside = 1; print; next }
+    inside && /^  [A-Za-z_]/ { inside = 0 }
+    inside { print }
+  ' "$1"
+}
+
+# Whether a `branches:` list in the given block names the branch, in either the
+# inline (`branches: [a, b]`) or the block (`branches:` then `- a`) form.
+block_lists_branch() {
+  awk -v want="$2" '
+    function check(value,   parts, n, i) {
+      gsub(/[][,"\047]/, " ", value)
+      n = split(value, parts, /[ \t]+/)
+      for (i = 1; i <= n; i++) {
+        if (parts[i] == want) { found = 1 }
+      }
+    }
+    /^[ \t]+branches:/ {
+      value = $0
+      sub(/^[ \t]+branches:[ \t]*/, "", value)
+      if (value ~ /\[/) { check(value) } else { listing = 1 }
+      next
+    }
+    listing && /^[ \t]*-[ \t]*/ {
+      value = $0
+      sub(/^[ \t]*-[ \t]*/, "", value)
+      check(value)
+      next
+    }
+    listing && !/^[ \t]*-[ \t]*/ { listing = 0 }
+    END { exit(found ? 0 : 1) }
+  ' <<<"$1"
+}
 
 while IFS=$'\t' read -r kind a b c d; do
   case "${kind}" in
@@ -141,7 +238,7 @@ while IFS=$'\t' read -r kind a b c d; do
         report "${producer_workflow} does not run scripts/sync-release-pr-checks.sh for ${head}"
       fi
       if ! grep -Fq "scripts/sync-release-pr-checks.sh" "${path}"; then
-        report "${producer_workflow} does not attach the required checks to its generated pull request"
+        report "${producer_workflow} does not run the release check lane for its generated pull request"
       fi
       ;;
     context)
@@ -156,6 +253,7 @@ while IFS=$'\t' read -r kind a b c d; do
       fi
       if [[ -z "${job}" || "${job}" != "${context}" ]]; then
         report "required context ${context} must be the reporting job id, found ${job:-<empty>}"
+        continue
       fi
       if ! grep -Eq '^[[:space:]]+workflow_dispatch:[[:space:]]*($|#)' "${path}"; then
         report "${verifier_workflow} reports ${context} but has no workflow_dispatch path"
@@ -165,6 +263,19 @@ while IFS=$'\t' read -r kind a b c d; do
       fi
       if ! grep -Eq "^[[:space:]]{2}${job}:[[:space:]]*$" "${path}"; then
         report "${verifier_workflow} has no job named ${job}, so ${context} would never report"
+        continue
+      fi
+      block="$(job_block "${path}" "${job}")"
+      if grep -Eq '^[[:space:]]{4}name:' <<<"${block}"; then
+        report "${verifier_workflow} job ${job} sets a name:, so it would not report the context ${context}"
+      fi
+      # A job-level `if:` decides whether the job reports at all. One that keeps
+      # only the pull_request event would leave the eligible review run green and
+      # jobless, so the context would never arrive.
+      job_if="$(grep -E '^[[:space:]]{4}if:' <<<"${block}" || true)"
+      if [[ -n "${job_if}" ]] && grep -Fq "github.event_name" <<<"${job_if}" &&
+        ! grep -Fq "pull_request_review" <<<"${job_if}"; then
+        report "${verifier_workflow} job ${job} excludes the pull_request_review event through its if:"
       fi
       if ! grep -Fq "scripts/resolve-release-pr-head.sh" "${path}"; then
         report "${verifier_workflow} does not bind a dispatched run to the pull request head"
@@ -174,6 +285,34 @@ while IFS=$'\t' read -r kind a b c d; do
       fi
       if ! grep -Fq "git rev-parse HEAD" "${path}"; then
         report "${verifier_workflow} does not prove the checkout is the resolved pull request head"
+      fi
+      ;;
+    eligible)
+      base="${a}"
+      context="${b}"
+      event="${c}"
+      verifier_workflow="${d}"
+      path="${workflows}/${verifier_workflow}"
+      if [[ ! -f "${path}" ]]; then
+        report "required context ${context} names a missing workflow ${verifier_workflow}"
+        continue
+      fi
+      if ! grep -Eq "^  ${event}:[[:space:]]*($|#)" "${path}"; then
+        report "${verifier_workflow} has no ${event} trigger, so a ${event} run can never make ${context} count on ${base}"
+        continue
+      fi
+      block="$(trigger_block "${path}" "${event}")"
+      if ! block_lists_branch "${block}" "${base}"; then
+        report "${verifier_workflow} does not run ${event} for ${base}, so ${context} can never count there"
+      fi
+      if [[ "${event}" == "pull_request_review" ]]; then
+        if ! grep -Eq '^[[:space:]]+types:.*\bsubmitted\b' <<<"${block}"; then
+          report "${verifier_workflow} does not subscribe the pull_request_review trigger to submitted"
+        fi
+        # A review on a staging pull request must not become a release-lane run.
+        if block_lists_branch "${block}" "staging"; then
+          report "${verifier_workflow} also runs pull_request_review for staging, which gains no release-lane run"
+        fi
       fi
       ;;
   esac
@@ -192,6 +331,20 @@ for workflow in "${workflows}"/*.yml; do
     report "${name} declares a secret-to-GITHUB_TOKEN fallback; only the built-in token may gate the lane"
   fi
 done
+
+# The lane's own claims are part of the wiring: it must never count a skipped or
+# neutral context as proof, and it must name the eligible event that does satisfy
+# the ruleset rather than imply its dispatch does.
+if [[ -f "${lane}" ]]; then
+  if grep -Eq 'PASS = \{[^}]*"(skipped|neutral)"' "${lane}"; then
+    report "the release check lane counts a skipped or neutral context as green"
+  fi
+  if ! grep -Fq "pull_request_review" "${lane}"; then
+    report "the release check lane does not name the pull_request_review event that satisfies the ruleset"
+  fi
+else
+  report "missing ${lane}; the lane script is part of the release wiring"
+fi
 
 run_self_test() {
   local scratch
@@ -228,11 +381,42 @@ run_self_test() {
     cp "${config}" "${dir}/.github/release-lane.json"
     cp "${workflows}"/*.yml "${dir}/.github/workflows/"
     cp "${guard}" "${dir}/scripts/verify-release-pr-check-lane.sh"
+    cp "${lane}" "${dir}/scripts/sync-release-pr-checks.sh"
     printf '%s\n' "${dir}"
   }
 
-  # The unmodified copy passes: the guard reads only the declaration and the
-  # workflows, so a faithful copy must be accepted before mutations mean anything.
+  # Set the branches: list of one top-level trigger, leaving every other trigger
+  # untouched.
+  set_trigger_branches() {
+    local path="$1"
+    local trigger="$2"
+    local replacement="$3"
+    python3 - "${path}" "${trigger}" "${replacement}" <<'PY'
+import re
+import sys
+
+path, trigger, replacement = sys.argv[1], sys.argv[2], sys.argv[3]
+lines = open(path, encoding="utf-8").read().splitlines(keepends=True)
+out = []
+inside = False
+for line in lines:
+    if re.match(r"^  " + re.escape(trigger) + r":\s*$", line):
+        inside = True
+        out.append(line)
+        continue
+    if inside and re.match(r"^  \S", line):
+        inside = False
+    if inside and re.match(r"^    branches:", line):
+        out.append(f"    branches: {replacement}\n")
+        continue
+    out.append(line)
+open(path, "w", encoding="utf-8").write("".join(out))
+PY
+  }
+
+  # The unmodified copy passes: the guard reads only the declaration, the
+  # workflows and the lane, so a faithful copy must be accepted before mutations
+  # mean anything.
   baseline="$(new_fixture baseline)"
   cases=$((cases + 1))
   if ! bash "${guard}" --root "${baseline}" >/dev/null 2>&1; then
@@ -246,8 +430,8 @@ run_self_test() {
   fixture="$(new_fixture no-lane)"
   sed -i.bak '/scripts\/sync-release-pr-checks.sh/d' "${fixture}/.github/workflows/prerelease-pr.yml"
   rm -f "${fixture}/.github/workflows/prerelease-pr.yml.bak"
-  expect_fixture_failure "a producer that stops attaching the lane fails" \
-    "does not attach the required checks" "${fixture}"
+  expect_fixture_failure "a producer that stops running the lane fails" \
+    "does not run the release check lane" "${fixture}"
 
   # 2. A producer that dispatches without the dispatch permission.
   fixture="$(new_fixture no-actions-write)"
@@ -300,8 +484,128 @@ PY
   expect_fixture_failure "a reintroduced release-please token fails" \
     "reintroduces the RELEASE_PLEASE_TOKEN identity" "${fixture}"
 
-  # 7. The head-binding resolver itself. A stub `gh` answers the pull request
-  #    read, so every hostile answer runs through the real validation.
+  # 7. The eligible event removed: the code-owner review would report nothing,
+  #    and a dispatched run would never satisfy the ruleset.
+  fixture="$(new_fixture no-review-trigger)"
+  python3 - "${fixture}/.github/workflows/release-hygiene.yml" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().splitlines(keepends=True)
+out = []
+skipping = False
+for line in lines:
+    if line.rstrip("\n") == "  pull_request_review:":
+        skipping = True
+        continue
+    if skipping:
+        if line.startswith("    "):
+            continue
+        skipping = False
+    out.append(line)
+open(path, "w", encoding="utf-8").write("".join(out))
+PY
+  expect_fixture_failure "a verifying workflow without the eligible-event trigger fails" \
+    "has no pull_request_review trigger" "${fixture}"
+
+  # 8. The eligible trigger narrowed away from submitted reviews, so the approval
+  #    that the ruleset already requires would run no check.
+  fixture="$(new_fixture review-not-submitted)"
+  sed -i.bak 's|types: \[submitted\]|types: [edited]|' \
+    "${fixture}/.github/workflows/release-hygiene.yml"
+  rm -f "${fixture}/.github/workflows/release-hygiene.yml.bak"
+  expect_fixture_failure "a review trigger that drops submitted fails" \
+    "does not subscribe the pull_request_review trigger to submitted" "${fixture}"
+
+  # 9. The eligible trigger that does not cover the declared release base.
+  fixture="$(new_fixture review-other-base)"
+  set_trigger_branches "${fixture}/.github/workflows/release-hygiene.yml" pull_request_review '["staging"]'
+  expect_fixture_failure "a review trigger outside the release base fails" \
+    "does not run pull_request_review for premain" "${fixture}"
+
+  # 10. The eligible trigger that also fires for staging pull requests, which
+  #     must gain no release-lane run.
+  fixture="$(new_fixture review-on-staging)"
+  set_trigger_branches "${fixture}/.github/workflows/release-hygiene.yml" pull_request_review '["staging", "premain", "main"]'
+  expect_fixture_failure "a review trigger that also covers staging fails" \
+    "also runs pull_request_review for staging" "${fixture}"
+
+  # 11. A job-level condition that keeps only the pull_request event: the review
+  #     run would start and the job would skip, so the context never arrives.
+  fixture="$(new_fixture job-if-excludes-review)"
+  python3 - "${fixture}/.github/workflows/release-hygiene.yml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text(
+    text.replace(
+        "    runs-on: ubuntu-latest\n",
+        "    if: github.event_name == 'pull_request'\n    runs-on: ubuntu-latest\n",
+        1,
+    ),
+    encoding="utf-8",
+)
+PY
+  expect_fixture_failure "a job condition that excludes the review event fails" \
+    "excludes the pull_request_review event" "${fixture}"
+
+  # 12. A job that renames its context, so the ruleset's context name would no
+  #     longer be what the job reports.
+  fixture="$(new_fixture renamed-context)"
+  python3 - "${fixture}/.github/workflows/release-hygiene.yml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text(
+    text.replace(
+        "    runs-on: ubuntu-latest\n",
+        "    name: Release hygiene\n    runs-on: ubuntu-latest\n",
+        1,
+    ),
+    encoding="utf-8",
+)
+PY
+  expect_fixture_failure "a job that renames its context fails" \
+    "sets a name:" "${fixture}"
+
+  # 13. The lane counting a skipped context as green: a skipped check proves
+  #     nothing about the tree.
+  fixture="$(new_fixture lane-skip-as-pass)"
+  python3 - "${fixture}/scripts/sync-release-pr-checks.sh" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text(
+    text.replace('PASS = {"success"}', 'PASS = {"success", "neutral", "skipped"}', 1),
+    encoding="utf-8",
+)
+PY
+  expect_fixture_failure "a lane that counts a skipped context as green fails" \
+    "counts a skipped or neutral context as green" "${fixture}"
+
+  # 14. The lane that stops naming the eligible event, which is how a lane drifts
+  #     back into implying its dispatch satisfies the ruleset.
+  fixture="$(new_fixture lane-without-eligible-event)"
+  python3 - "${fixture}/scripts/sync-release-pr-checks.sh" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text(text.replace("pull_request_review", "review-event"), encoding="utf-8")
+PY
+  expect_fixture_failure "a lane that stops naming the eligible event fails" \
+    "does not name the pull_request_review event" "${fixture}"
+
+  # 15. The head-binding resolver itself. A stub `gh` answers the pull request
+  #     read, so every hostile answer runs through the real validation.
   local resolver="${root}/scripts/resolve-release-pr-head.sh"
   local stub_dir="${scratch}/stub"
   mkdir -p "${stub_dir}"
@@ -406,5 +710,5 @@ fi
 if [[ "${self_test}" == "true" ]]; then
   run_self_test
 else
-  echo "release-pr-check-lane: PASS (every generated release PR has a head-bound dispatch path for each required context)"
+  echo "release-pr-check-lane: PASS (every generated release PR has a head-bound dispatch path and an eligible-event path for each required context)"
 fi
