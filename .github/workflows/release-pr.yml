@@ -185,10 +185,14 @@ jobs:
             --base main \
             --expected-version "${EXPECTED_VERSION}"
 
-      # The stable Release PR is created here with the built-in token, so no
-      # pull_request workflow starts for it. Dispatch the required context
-      # against the release branch, bound to the pull request head, then keep
-      # the pull request a draft until that head is green and mark it ready.
+      # The stable Release PR is created here with the built-in token, so its
+      # pull_request runs arrive in an approval-required state. Dispatch the
+      # required context against the release branch, bound to the pull request
+      # head, and keep the pull request a draft until that head is green. The
+      # dispatch is an early verdict: a dispatched check never satisfies the main
+      # ruleset. `hygiene` counts when the code owner approves the pull request,
+      # which runs release-hygiene.yml on pull_request_review: [submitted]
+      # against this head.
       - name: Verify required checks on the generated release PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

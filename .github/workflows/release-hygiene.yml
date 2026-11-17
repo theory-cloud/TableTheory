@@ -26,17 +26,37 @@ name: Release Hygiene
 # on every `staging` PR, which runs this same verifier suite from the head before
 # promotion. Nothing here is advisory: every step fails closed.
 #
-# Dispatch path: GitHub does not start `pull_request` workflows for events caused
-# by the repository's GITHUB_TOKEN, so a release-please pull request never gets
-# this context on its own. `workflow_dispatch` is the documented exception, so
-# the generated-release lane dispatches this workflow against the release branch
+# Eligible events and the ruleset: GitHub evaluates a required status check only
+# when the run that reported it was triggered by push, pull_request,
+# pull_request_review, pull_request_target, deployment or deployment_status. A
+# pull request created or updated with the repository's GITHUB_TOKEN produces
+# pull_request runs in an approval-required state, and a run triggered by
+# workflow_dispatch reports check runs that never appear in the pull request's
+# checks section and never satisfy a required status check. This workflow
+# therefore also runs on `pull_request_review: [submitted]` for the release
+# bases: the code-owner approval the premain/main rulesets already require is
+# the eligible event that makes `hygiene` count, against the reviewed head SHA.
+#
+# Dispatch path: it stays, as the release lane's early, head-bound verdict that
+# a generated release branch is fit to leave draft. `workflow_dispatch` is the
+# documented exception a generated release pull request can reach without a
+# credential, so the lane dispatches this workflow against the release branch
 # and passes the pull request number. The run is bound to the pull request head
 # before any check executes: a run whose ref, SHA, repository or base does not
-# match the pull request fails closed. The context is the job id `hygiene` in both
-# modes, so the ruleset context is the same one.
+# match the pull request fails closed. That dispatch does not satisfy the
+# ruleset; the code-owner review does.
+#
+# The context is the job id `hygiene` on every path, because the job declares no
+# `name:`, so the ruleset context is the same one everywhere.
 
 on:
   pull_request:
+    branches: ["premain", "main"]
+  # The one eligible event a generated release pull request reaches without a
+  # credential. Restricted to the release bases, so a staging pull request gains
+  # no run from this trigger.
+  pull_request_review:
+    types: [submitted]
     branches: ["premain", "main"]
   workflow_dispatch:
     inputs:
@@ -56,7 +76,10 @@ jobs:
       - name: Checkout release hygiene source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          # Both pull_request and pull_request_review carry the head the checks
+          # report on; only the dispatch path falls back to the dispatched SHA,
+          # which the resolver then binds to the pull request head.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Resolve release-lane pull request context
@@ -79,7 +102,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+          # Both pull_request and pull_request_review carry the pull request the
+          # checks report on, and both write the same resolved fields. The
+          # reviewed head is the same `pull_request.head.sha` the pull_request
+          # path checks out and verifies.
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" || "${GITHUB_EVENT_NAME}" == "pull_request_review" ]]; then
             {
               echo "base_ref=${BASE_REF}"
               echo "head_ref=${HEAD_REF}"
@@ -119,7 +146,7 @@ jobs:
           fi
 
       - name: Verify release-lane same-repository provenance
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_review'
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_REF: ${{ steps.context.outputs.base_ref }}
