@@ -166,6 +166,14 @@ if ! bash scripts/test-evidence-record-coverage-policy.sh; then
   failures=$((failures + 1))
 fi
 
+# Release history must not be able to stale a record, and the class that says so
+# must stay the reviewed allowlist. The controls above prove the coverage rule;
+# this one proves the release-notes projection and its policy boundary.
+if ! bash scripts/test-validation-evidence.sh; then
+  echo "ci-rubric: scripts/test-validation-evidence.sh failed"
+  failures=$((failures + 1))
+fi
+
 # The catch-all gate is what makes a tooling edit stale the record: the rubric
 # record's scope is every path, so a change under any excluded directory still
 # invalidates the record the staging pull request verifies.
