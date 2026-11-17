@@ -73,7 +73,7 @@ jobs:
         if: github.event_name == 'push' && steps.cycle.outputs.pending_stable_repair != 'true' && steps.cycle.outputs.pending_major_transition != 'true'
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           target-branch: premain
           config-file: release-please-config.premain.json
           manifest-file: .release-please-manifest.json
@@ -170,7 +170,7 @@ jobs:
       - name: Upload release assets
         if: steps.release.outputs.release_created == 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ steps.release.outputs.tag_name }}
         run: |
           if [[ -z "${TAG_NAME}" ]]; then
@@ -192,7 +192,7 @@ jobs:
       - name: Apply curated release notes
         if: steps.release.outputs.release_created == 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ steps.release.outputs.tag_name }}
         run: |
           set -euo pipefail
@@ -226,7 +226,7 @@ jobs:
       - name: Publish prerelease (immutable)
         if: steps.release.outputs.release_created == 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ steps.release.outputs.tag_name }}
         run: |
           if [[ -z "${TAG_NAME}" ]]; then
