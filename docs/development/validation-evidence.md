@@ -184,13 +184,16 @@ failed, or produced for another profile — the script runs its real command.
 
 ## Accepted audit findings
 
-`npm audit` in SEC-2 reports two visible, expiring findings in
-`examples/cdk-multilang` (`aws-cdk-lib` -> `minimatch`, GHSA-g3hv-75wg-m249). The
-previous CI run accepted them with `NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS=true`. That
-switch is declared on the `rubric` gate command in the registry, so the recorded
-run is identical to the run CI used to perform, and the acceptance stays visible
-in the file a reviewer reads. Setting it back to `false` makes SEC-2 fail until
-the dependency is raised.
+There are currently no accepted npm-audit findings in `examples/cdk-multilang`.
+The `aws-cdk-lib@2.278.0` bump retired the GHSA-g3hv-75wg-m249 pair (the bundled
+minimatch leaf and npm's derived `aws-cdk-lib` parent entry); the 2.278.0 release
+bundles `minimatch@11.0.9` and `brace-expansion@5.0.13`, so
+`gov-infra/planning/theorydb-visible-npm-audit-findings.json` is empty.
+
+The rubric gate no longer sets `NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS`, so no gate
+run silently accepts a visible finding. A future upstream-bundled regression must
+be handled by a reviewed visible entry (or an upgrade), never by a silent
+acceptance.
 
 ## Records-only commits
 

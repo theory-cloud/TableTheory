@@ -208,8 +208,7 @@
             "rubric"
           ],
           "env": {
-            "TABLE_THEORY_EVIDENCE_REUSE": "unit,integration,coverage,format,lint,builds",
-            "NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS": "true"
+            "TABLE_THEORY_EVIDENCE_REUSE": "unit,integration,coverage,format,lint,builds"
           },
           "consumeLog": true
         }
