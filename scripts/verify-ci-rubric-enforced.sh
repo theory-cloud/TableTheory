@@ -174,11 +174,13 @@ if ! bash scripts/test-validation-evidence.sh; then
   failures=$((failures + 1))
 fi
 
-# A generated release pull request is opened with GITHUB_TOKEN, so GitHub starts
-# no pull_request workflow for it and the required context can only arrive by a
-# dispatch bound to that pull request's head. The guard proves every required
-# context of every generated release pull request has such a path, and its
-# self-test proves the guard and the head binding reject hostile shapes.
+# A generated release pull request is opened with GITHUB_TOKEN, so its
+# pull_request runs arrive in an approval-required state and a dispatched run
+# never satisfies the ruleset; the eligible run is the code-owner review. The
+# guard proves every required context of every generated release pull request has
+# a head-bound dispatch path for the early verdict and the eligible
+# pull_request_review trigger the ruleset evaluates, and its self-test proves the
+# guard and the head binding reject hostile shapes.
 if ! bash scripts/verify-release-pr-check-lane.sh --self-test; then
   echo "ci-rubric: scripts/verify-release-pr-check-lane.sh --self-test failed"
   failures=$((failures + 1))
