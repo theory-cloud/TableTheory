@@ -156,6 +156,16 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.5.2-rc.1](https://github.com/theory-cloud/TableTheory/compare/v6.5.2-rc...v6.5.2-rc.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **release:** promote the review-event correction to premain ([e7063cf](https://github.com/theory-cloud/TableTheory/commit/e7063cfd67d4302a461da0f29e82d5256b905ca0))
+* **release:** resolve release-cycle branch from the pull request ([a150315](https://github.com/theory-cloud/TableTheory/commit/a150315b86d82a2b793531f794f1250a9287e92d))
+* **release:** resolve release-cycle branch from the pull request ([43dd80a](https://github.com/theory-cloud/TableTheory/commit/43dd80a88ec210ff05a2275a9246c3125d8d3a5e))
+* **release:** scope verified PR refs to the cycle classifier ([884ee7d](https://github.com/theory-cloud/TableTheory/commit/884ee7dbdd664d681a8a7af65a4769796790d0d5))
+
 ## [6.5.2-rc](https://github.com/theory-cloud/TableTheory/compare/v6.5.1...v6.5.2-rc) (2026-11-21)
 
 
