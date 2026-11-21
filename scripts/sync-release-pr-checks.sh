@@ -1,22 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Attach the required release check to a generated release pull request without
-# a human action.
+# Hold a generated release pull request to a head-bound verdict before a person
+# reviews it.
 #
 # release-please opens and updates its pull request with the repository's
-# built-in `GITHUB_TOKEN`, and GitHub does not start `pull_request` workflows for
-# events caused by that token. The generated release pull request therefore never
-# gets its required `hygiene` context on its own, and the only repair used to be
-# closing and reopening the pull request. `workflow_dispatch` is the documented
-# exception, so this lane dispatches the verifying workflow against the release
-# branch and holds it to the exact pull request head.
+# built-in `GITHUB_TOKEN`, and a pull request created or updated with that token
+# produces `pull_request` runs in an approval-required state. Closing and
+# reopening it used to start the required run by accident. `workflow_dispatch`
+# is the documented exception, so this lane dispatches the verifying workflow
+# against the release branch and holds the run to the exact pull request head.
+#
+# The dispatch is an early verdict, not proof for the ruleset. GitHub evaluates a
+# required status check only for a run triggered by push, pull_request,
+# pull_request_review, pull_request_target, deployment or deployment_status, and
+# a run triggered by workflow_dispatch reports check runs that do not appear in
+# the pull request's checks section and do not satisfy one. The eligible run is
+# the code-owner review of the pull request, which release-hygiene.yml runs on
+# `pull_request_review: [submitted]` against the reviewed head. This lane never
+# claims a pull request is mergeable: it proves the head is fit to leave draft,
+# and it names the review that makes `hygiene` count.
 #
 # The lane is deliberately conservative:
 #
 #   - idempotent: a green context at the head is reused and nothing is
 #     re-dispatched; a red context stops the lane instead of being re-run until
 #     it happens to pass;
+#   - proof-only: a context counts only when its latest run at this head
+#     concluded `success`. A skipped or neutral context is not proof and stops
+#     the lane;
 #   - head-checked: every decision is taken against the pull request's current
 #     head, and a head that moves during the wait sends the lane back to verify
 #     the new head;
@@ -211,9 +223,11 @@ ensure_draft() {
   fi
 }
 
-# Report pass|fail|pending|none for every required context at one head. A
-# context with no check run and no in-flight run of its workflow is "none": the
-# dispatch is genuinely missing, not red and not queued.
+# Report pass|fail|unproven|pending|none for every required context at one head.
+# A context with no check run and no in-flight run of its workflow is "none": the
+# dispatch is genuinely missing, not red and not queued. A context whose latest
+# run concluded anything but success is "unproven": a skipped or neutral context
+# proves nothing and is never counted as green.
 classify_at_head() {
   local head_sha="$1"
   local checks_json runs_json
@@ -230,7 +244,11 @@ import sys
 
 checks = json.loads(os.environ["CHECKS_JSON"]).get("check_runs") or []
 runs = json.loads(os.environ["RUNS_JSON"]).get("workflow_runs") or []
-PASS = {"success", "neutral", "skipped"}
+PASS = {"success"}
+# Conclusions that would otherwise look "not a failure" but prove nothing about
+# this tree: a skipped job never ran its checks and a neutral one did not assert
+# success. Neither can stand in for a green context.
+UNPROVEN = {"neutral", "skipped"}
 FAIL = {"failure", "cancelled", "timed_out", "action_required", "stale", "startup_failure"}
 
 by_name: dict[str, list[dict]] = {}
@@ -242,6 +260,7 @@ for run in runs:
     by_path.setdefault(str(run.get("path") or ""), []).append(run)
 
 failed: list[str] = []
+unproven: list[str] = []
 pending: list[str] = []
 missing: list[str] = []
 
@@ -261,6 +280,10 @@ for row in sys.argv[1:]:
         if bad:
             failed.append(f"{context}={'+'.join(sorted(bad))}")
             continue
+        hollow = {value for value in conclusions if value in UNPROVEN}
+        if hollow:
+            unproven.append(f"{context}={'+'.join(sorted(hollow))}")
+            continue
         if not statuses <= {"completed"} or conclusions - PASS:
             pending.append(context)
             continue
@@ -275,6 +298,9 @@ for row in sys.argv[1:]:
 if failed:
     print("fail")
     print("failed: " + ", ".join(failed))
+elif unproven:
+    print("unproven")
+    print("not proof: " + ", ".join(unproven))
 elif missing:
     print("none")
     print("missing: " + ", ".join(missing))
@@ -321,8 +347,10 @@ PY
 deadline=$((SECONDS + timeout_seconds))
 dispatch_attempts=0
 dispatched_head=""
-ensure_draft
 
+# Draft-locking happens only while work is outstanding (see the `none` and
+# `pending` branches). A pull request that is already ready and green at its head
+# is left alone, so re-running the lane never drafts a reviewable pull request.
 while :; do
   projected="$(project_pr "$(read_pr)")"
   state="$(awk -F= '$1 == "state" { print $2 }' <<<"${projected}")"
@@ -367,6 +395,10 @@ while :; do
       [[ -n "${details}" ]] && echo "${details}" >&2
       exit 1
       ;;
+    unproven)
+      echo "sync-release-pr-checks: FAIL (a required context at ${head_sha} concluded without proving success: ${details:-unproven}; the lane never counts a skipped or neutral context as green)" >&2
+      exit 1
+      ;;
     none)
       if (( dispatch_attempts >= max_dispatch_attempts )); then
         echo "sync-release-pr-checks: FAIL (dispatched ${dispatch_attempts} times and still no required check at ${head_sha})" >&2
@@ -374,6 +406,7 @@ while :; do
         exit 1
       fi
       dispatch_attempts=$((dispatch_attempts + 1))
+      ensure_draft
       dispatch_contexts
       sleep "${interval_seconds}"
       ;;
@@ -383,6 +416,7 @@ while :; do
         [[ -n "${details}" ]] && echo "${details}" >&2
         exit 1
       fi
+      ensure_draft
       echo "sync-release-pr-checks: waiting for required checks at ${head_sha} (${details:-pending})"
       sleep "${interval_seconds}"
       ;;
@@ -392,8 +426,26 @@ while :; do
   esac
 done
 
-if [[ "$(project_pr "$(read_pr)" | awk -F= '$1 == "draft" { print $2 }')" != "true" ]]; then
-  ensure_draft
+warn_about_eligible_review() {
+  echo "sync-release-pr-checks: WARN (PR #${pr_number} is ready at ${head_sha}, but a dispatched run never satisfies the ${base} ruleset: the remedy is the code-owner approval of this pull request at this head, which runs release-hygiene.yml on pull_request_review: [submitted])" >&2
+}
+
+# The commit-level check runs are what a verification reads. The pull-request
+# rollup is a GitHub-side projection of the runs GitHub evaluates for the
+# ruleset, and a dispatched run does not appear in it, so an absent entry here is
+# reported rather than read as a missing check.
+warn_about_rollup_projection() {
+  if [[ "$(rollup_reports_context)" != "present" ]]; then
+    echo "sync-release-pr-checks: WARN (PR #${pr_number} rollup does not list every required context at ${head_sha}; the dispatched check runs exist, and the rollup entry arrives with the eligible code-owner review run)" >&2
+  fi
+}
+
+projected="$(project_pr "$(read_pr)")"
+if [[ "$(awk -F= '$1 == "draft" { print $2 }' <<<"${projected}")" == "false" ]]; then
+  warn_about_eligible_review
+  warn_about_rollup_projection
+  echo "sync-release-pr-checks: PASS (PR #${pr_number} already ready at ${head_sha} with green required checks)"
+  exit 0
 fi
 
 echo "sync-release-pr-checks: marking PR #${pr_number} ready at ${head_sha}"
@@ -408,12 +460,7 @@ if [[ "$(project_pr "$(read_pr)" | awk -F= '$1 == "draft" { print $2 }')" != "fa
   fail "PR #${pr_number} could not be marked ready"
 fi
 
-# The commit-level check runs are what the ruleset evaluates. The pull-request
-# rollup is a GitHub-side projection of them, and it can lag or drop a context
-# after a close/reopen, so a missing rollup entry is reported rather than
-# treated as a missing check.
-if [[ "$(rollup_reports_context)" != "present" ]]; then
-  echo "sync-release-pr-checks: WARN (PR #${pr_number} rollup does not list every required context yet; the check runs exist at ${head_sha}, which is what the ruleset evaluates)" >&2
-fi
+warn_about_eligible_review
+warn_about_rollup_projection
 
 echo "sync-release-pr-checks: PASS (PR #${pr_number} ready at ${head_sha} with green required checks)"

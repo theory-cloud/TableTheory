@@ -237,11 +237,16 @@ if [[ -f ".github/workflows/release-hygiene.yml" ]]; then
     "release-hygiene must run the promotion driver from the head checkout"
   require_fixed "github.event_name == 'workflow_dispatch'" "${h}" \
     "release-hygiene must retain read-only manual dispatch validation"
-  # A generated release pull request is opened with GITHUB_TOKEN, so GitHub
-  # starts no pull_request workflow for it and the required context can only
-  # arrive by dispatch. The dispatch must be bound to the pull request head
-  # before any check runs, or the context would attest a tree the pull request
-  # does not contain.
+  # A generated release pull request is opened with GITHUB_TOKEN, so its
+  # pull_request runs arrive in an approval-required state. The dispatch is the
+  # lane's early head-bound verdict and never satisfies the ruleset; the eligible
+  # run is the code-owner review. The dispatch must be bound to the pull request
+  # head before any check runs, or the context would attest a tree the pull
+  # request does not contain.
+  require_fixed "pull_request_review:" "${h}" \
+    "release-hygiene must also run on the eligible pull_request_review event"
+  require_fixed "types: [submitted]" "${h}" \
+    "release-hygiene must run pull_request_review for submitted reviews only"
   require_fixed "release_pr_number" "${h}" \
     "release-hygiene dispatch must name the generated release pull request"
   require_fixed "scripts/resolve-release-pr-head.sh" "${h}" \

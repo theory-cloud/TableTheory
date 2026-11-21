@@ -217,8 +217,12 @@ Release-lane quality workflow expectations:
   gate. A missing or stale record fails with the command that produces one locally. See
   `docs/development/validation-evidence.md`.
 - `.github/workflows/release-hygiene.yml` runs lightweight source-branch/provenance, release-cycle, supply-chain, and
-  main-RC-PR checks for PRs targeting `premain`/`main`, plus read-only manual dispatch. Promotion pull requests carry
-  release hygiene only; they never re-run a product gate.
+  main-RC-PR checks for PRs targeting `premain`/`main`. It also runs them on `pull_request_review: [submitted]` for the
+  same two bases: GitHub evaluates a required status check only for a run triggered by an eligible event, and the
+  code-owner approval is the one a generated release pull request can reach without a credential. The `hygiene` context
+  is the job id on every path, so the ruleset context never changes. A `workflow_dispatch` run is the release lane's
+  early, head-bound verdict and never satisfies the ruleset. Promotion pull requests carry release hygiene only; they
+  never re-run a product gate.
 - CodeQL runs through GitHub's default setup, not a repository workflow, and does not replace the release-lane gate
   split above.
 

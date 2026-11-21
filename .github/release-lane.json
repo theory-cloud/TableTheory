@@ -5,14 +5,16 @@
       {
         "context": "hygiene",
         "workflow": "release-hygiene.yml",
-        "job": "hygiene"
+        "job": "hygiene",
+        "eligibleEvents": ["pull_request", "pull_request_review"]
       }
     ],
     "main": [
       {
         "context": "hygiene",
         "workflow": "release-hygiene.yml",
-        "job": "hygiene"
+        "job": "hygiene",
+        "eligibleEvents": ["pull_request", "pull_request_review"]
       }
     ]
   },
