@@ -278,18 +278,114 @@ if not isinstance(manifest, str) or not manifest.strip():
 manifest_base, manifest_is_prerelease = version_info(".release-please-manifest.json", manifest)
 stable_base = ".".join(str(part) for part in manifest_base)
 
-current_branch = (
-    os.environ.get("GITHUB_BASE_REF")
-    or os.environ.get("GITHUB_REF_NAME")
-    or ""
-)
-if not current_branch:
+pull_request_events = {"pull_request", "pull_request_review", "pull_request_target"}
+
+
+def is_pull_request_merge_ref(value: str) -> bool:
+    return bool(re.fullmatch(r"[0-9]+/merge", value)) or value.startswith("refs/pull/")
+
+
+def event_payload() -> dict:
+    path = os.environ.get("GITHUB_EVENT_PATH", "")
+    if not path:
+        return {}
     try:
-        current_branch = subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
-        ).strip()
-    except Exception:
-        current_branch = ""
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def payload_pull_request(payload: dict) -> dict:
+    pull_request = payload.get("pull_request")
+    return pull_request if isinstance(pull_request, dict) else {}
+
+
+def payload_ref(payload: dict, side: str) -> str:
+    ref = payload_pull_request(payload).get(side)
+    if not isinstance(ref, dict):
+        return ""
+    value = ref.get("ref")
+    return value if isinstance(value, str) else ""
+
+
+def payload_describes_this_run(payload: dict) -> bool:
+    expected_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    repository = payload.get("repository")
+    if expected_repo and isinstance(repository, dict):
+        full_name = repository.get("full_name")
+        if isinstance(full_name, str) and full_name and full_name != expected_repo:
+            return False
+    merge_ref = re.fullmatch(
+        r"refs/pull/([0-9]+)/merge",
+        os.environ.get("GITHUB_REF", "").strip(),
+    )
+    if merge_ref:
+        number = payload_pull_request(payload).get("number")
+        if isinstance(number, int) and str(number) != merge_ref.group(1):
+            return False
+    return True
+
+
+def resolve_branch_context() -> tuple[str, str]:
+    event = os.environ.get("GITHUB_EVENT_NAME", "").strip()
+    explicit_base = os.environ.get("GITHUB_BASE_REF", "").strip()
+    explicit_head = os.environ.get("GITHUB_HEAD_REF", "").strip()
+
+    if event not in pull_request_events:
+        branch = explicit_base or os.environ.get("GITHUB_REF_NAME", "").strip()
+        head = explicit_head
+    else:
+        # A pull_request_review run carries neither GITHUB_BASE_REF nor
+        # GITHUB_HEAD_REF, and GITHUB_REF_NAME is the synthetic <number>/merge
+        # ref. The verified pull request context is the only branch source.
+        payload = event_payload()
+        if payload and not payload_describes_this_run(payload):
+            fail(
+                f"{event} event payload does not describe this run "
+                f"({os.environ.get('GITHUB_REPOSITORY', '<unknown>')})"
+            )
+        payload_base = payload_ref(payload, "base")
+        payload_head = payload_ref(payload, "head")
+        for label, explicit, payload_value in (
+            ("base", explicit_base, payload_base),
+            ("head", explicit_head, payload_head),
+        ):
+            if explicit and payload_value and explicit != payload_value:
+                fail(
+                    f"GITHUB_{label.upper()}_REF {explicit} disagrees with the "
+                    f"{event} pull request {label} {payload_value}"
+                )
+        branch = explicit_base or payload_base
+        head = explicit_head or payload_head
+        if not branch:
+            fail(
+                f"cannot determine the pull request base branch for a {event} run "
+                "(GITHUB_BASE_REF is unset and the event payload has no "
+                "pull_request.base.ref)"
+            )
+
+    if branch and is_pull_request_merge_ref(branch):
+        fail(
+            f"pull request merge ref {branch} is not a branch; release-cycle "
+            "classification must use the pull request base"
+        )
+    if not branch:
+        try:
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
+            ).strip()
+        except Exception:
+            branch = ""
+    if head and is_pull_request_merge_ref(head):
+        fail(
+            f"pull request merge ref {head} is not a branch; release-cycle "
+            "classification must use the pull request head"
+        )
+    return branch, head
+
+
+current_branch, current_head_branch = resolve_branch_context()
 
 pending_mode_raw = os.environ.get("RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION", "")
 pending_mode = pending_mode_raw == "true"
@@ -302,10 +398,10 @@ if pending_mode:
             "pending stable promotion mode is only allowed on main "
             f"(current branch: {current_branch})"
         )
-    if os.environ.get("GITHUB_HEAD_REF", "") not in {"", "premain"}:
+    if current_head_branch not in {"", "premain"}:
         fail(
             "pending stable promotion mode is only allowed for premain -> main "
-            f"(head branch: {os.environ.get('GITHUB_HEAD_REF')})"
+            f"(head branch: {current_head_branch})"
         )
     if not manifest_is_prerelease:
         fail(

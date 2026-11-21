@@ -223,6 +223,11 @@ Release-lane quality workflow expectations:
   is the job id on every path, so the ruleset context never changes. A `workflow_dispatch` run is the release lane's
   early, head-bound verdict and never satisfies the ruleset. Promotion pull requests carry release hygiene only; they
   never re-run a product gate.
+- Release-cycle classification uses the pull request's own base/head, resolved and provenance-verified by the workflow,
+  on both PR events. GitHub supplies `GITHUB_BASE_REF` only for `pull_request`, and a `pull_request_review` run exposes
+  `GITHUB_REF_NAME=<number>/merge` — its synthetic merge ref. The verifier treats that ref as an unresolvable branch and
+  fails closed, and it fails closed on a missing or mismatched pull request base, so pending stable promotion can only be
+  recognized against the real `main` base.
 - CodeQL runs through GitHub's default setup, not a repository workflow, and does not replace the release-lane gate
   split above.
 
