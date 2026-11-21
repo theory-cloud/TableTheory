@@ -162,7 +162,7 @@ expect_failure_contains \
   node "${checker}" "${tmpdir}/empty-report.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang
 
 # Positive fixed-graph guard for the retired AWS-bundled brace-expansion exception.
-# examples/cdk-multilang now pins aws-cdk-lib 2.277.0, which bundles brace-expansion
+# examples/cdk-multilang now pins aws-cdk-lib 2.278.0, which bundles brace-expansion
 # 5.0.13 (the fixed version for GHSA-q2hr-2g5m-vwhr / qhr7-859c-m2p7 / 6j4f-fj2g-mc7p).
 # This guard keeps that state honest: it asserts the actual bundled graph, proves the
 # bundled minimatch still accepts the bundled brace-expansion, refuses any vulnerable
@@ -510,28 +510,24 @@ expect_failure_contains \
   "visible policy is not valid JSON" \
   node "${graph_checker}" "${graph_lock}" "${tmpdir}/policy-malformed.json" negative
 
-# Active guard for the AWS-bundled minimatch exception (GHSA-g3hv-75wg-m249).
-# examples/cdk-multilang pins aws-cdk-lib 2.277.0, which bundles minimatch
-# 10.2.6 (vulnerable; fixed in 11.0.1). aws-cdk-lib 2.277.0, still the latest
-# release at review time (2026-11-01, re-reviewed 2026-11-17), declares and bundles minimatch ^10.2.6, so no aws-cdk-lib
-# release fixes it and npm overrides cannot replace a bundled dependency.
-# The exception is exactly two visible, expiring policy entries (the bundled
-# leaf and npm's derived aws-cdk-lib parent entry) under the operator ruling
-# "if a vulnerable dependency is bundled in AWS we make an exception until
-# its updated there" (2026-10-03; 2026-10-04 build-toolchain extension).
-# Dev-tooling copies (ts eslint chain) are fixed by override, never excepted.
-# This guard pins the whole shape and fails closed on every drift: a bundled
-# version change, a fixed bundle that must retire the exception, a vulnerable
-# non-bundled minimatch, a ts override drift, a missing/extra/wrong policy
-# entry, and malformed inputs.
-cat >"${tmpdir}/verify-minimatch-exception.mjs" <<'NODE'
+# Fixed-graph guard for the retired AWS-bundled minimatch exception.
+# examples/cdk-multilang pins aws-cdk-lib 2.278.0, which bundles minimatch
+# 11.0.9 (fixed for GHSA-g3hv-75wg-m249 in 11.0.1) and brace-expansion 5.0.13.
+# The earlier exception is retired: the visible policy is empty, SEC-2 no longer
+# sets NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS, and dev-tooling copies are fixed by
+# override, never by exception.
+# This guard asserts the fixed bundle directly and fails closed on every drift:
+# a vulnerable bundled or root copy, a missing CDK entry/integrity, a bundle
+# that is not inBundle, an old ts override or lock, a vulnerable runners lock, a
+# residual visible-policy entry, and malformed inputs.
+cat >"${tmpdir}/verify-fixed-minimatch-graph.mjs" <<'NODE'
 import fs from 'node:fs';
 
 const [cdkLockPath, policyPath, tsLockPath, tsManifestPath, runnersLockPath, label] =
   process.argv.slice(2);
 if (!cdkLockPath || !policyPath || !tsLockPath || !tsManifestPath || !runnersLockPath) {
   console.error(
-    'verify-minimatch-exception: usage: <cdk-lock> <policy> <ts-lock> <ts-manifest> <runners-lock> [label]',
+    'verify-fixed-minimatch-graph: usage: <cdk-lock> <policy> <ts-lock> <ts-manifest> <runners-lock> [label]',
   );
   process.exit(2);
 }
@@ -539,14 +535,13 @@ const tag = label ? `${label}: ` : '';
 
 const CDK_LIB_PATH = 'node_modules/aws-cdk-lib';
 const BUNDLED_PATH = 'node_modules/aws-cdk-lib/node_modules/minimatch';
-const CDK_LIB_FLOOR = '2.275.0';
+const CDK_LIB_FLOOR = '2.278.0';
 const FIXED_MINIMATCH = '11.0.1';
-const BUNDLED_PINNED = '10.2.6';
 const PROJECT = 'examples/cdk-multilang';
 const ADVISORY = 'GHSA-g3hv-75wg-m249';
 
 function fail(message) {
-  console.error(`verify-minimatch-exception: ${tag}${message}`);
+  console.error(`verify-fixed-minimatch-graph: ${tag}${message}`);
   process.exit(1);
 }
 
@@ -620,8 +615,7 @@ for (const [path, entry] of minimatchEntries(runnersPackages)) {
   }
 }
 
-// 2. The aws-cdk-lib bundled copy is the only permitted vulnerable minimatch,
-// and only while it is exactly the reviewed bundle.
+// 2. The aws-cdk-lib bundled copy must be the fixed bundle.
 const cdkPackages = requirePackages(readJson(cdkLockPath, 'cdk lockfile'), 'cdk lockfile');
 const cdkLib = cdkPackages[CDK_LIB_PATH];
 if (!cdkLib || typeof cdkLib !== 'object' || Array.isArray(cdkLib)) {
@@ -644,15 +638,8 @@ if (!bundled || typeof bundled !== 'object' || Array.isArray(bundled)) {
 if (bundled.inBundle !== true) {
   fail(`${BUNDLED_PATH} must be inBundle:true`);
 }
-if (bundled.version !== BUNDLED_PINNED) {
-  if (versionAtLeast(bundled.version, FIXED_MINIMATCH)) {
-    fail(
-      `aws-cdk-lib bundles minimatch ${bundled.version} >= ${FIXED_MINIMATCH}; remove the visible exception`,
-    );
-  }
-  fail(
-    `bundled minimatch must be exactly ${BUNDLED_PINNED} while the exception is active, got ${bundled.version ?? 'missing'}`,
-  );
+if (!versionAtLeast(bundled.version, FIXED_MINIMATCH)) {
+  fail(`bundled minimatch must be >= ${FIXED_MINIMATCH}, got ${bundled.version ?? 'missing'}`);
 }
 for (const [path, entry] of minimatchEntries(cdkPackages)) {
   if (path === BUNDLED_PATH) continue;
@@ -661,68 +648,37 @@ for (const [path, entry] of minimatchEntries(cdkPackages)) {
   }
 }
 
-// 3. The visible policy carries exactly the reviewed pair and nothing else
-// that could widen the exception.
+// 3. No visible-policy entry may still reference the retired exception.
 const policy = readJson(policyPath, 'visible policy');
 const findings = Array.isArray(policy?.findings) ? policy.findings : null;
 if (!findings) {
   fail('visible policy is missing a findings array');
 }
 
-const exceptionFindings = findings.filter((finding) => {
+const residual = findings.filter((finding) => {
   if (!finding || typeof finding !== 'object' || Array.isArray(finding)) return false;
+  if (finding.project !== PROJECT) return false;
   const node = typeof finding.node === 'string' ? finding.node : '';
   return (
     finding.package === 'minimatch' ||
     finding.package === 'aws-cdk-lib' ||
-    node.includes('minimatch') ||
+    finding.advisory === ADVISORY ||
+    node.includes('aws-cdk-lib/node_modules/minimatch') ||
     node === CDK_LIB_PATH
   );
 });
-if (exceptionFindings.length !== 2) {
+if (residual.length > 0) {
   fail(
-    `visible policy must contain exactly 2 minimatch exception entries, found ${exceptionFindings.length}`,
+    `${residual.length} residual visible policy entry(ies) still reference the retired ${PROJECT} ${ADVISORY} exception`,
   );
-}
-
-const expected = [
-  { project: PROJECT, package: 'minimatch', advisory: ADVISORY, node: BUNDLED_PATH },
-  { project: PROJECT, package: 'aws-cdk-lib', advisory: 'minimatch', node: CDK_LIB_PATH },
-];
-for (const want of expected) {
-  const found = exceptionFindings.filter(
-    (finding) =>
-      finding.project === want.project &&
-      finding.package === want.package &&
-      finding.advisory === want.advisory &&
-      finding.node === want.node,
-  );
-  if (found.length !== 1) {
-    fail(
-      `visible policy must contain exactly one entry ${want.project}/${want.package}/${want.advisory}/${want.node}`,
-    );
-  }
-  const entry = found[0];
-  if (entry.visibility !== 'visible') {
-    fail(`${want.package} entry visibility must be "visible"`);
-  }
-  if (entry.status !== 'upstream-bundled-pending-fix') {
-    fail(`${want.package} entry status must be "upstream-bundled-pending-fix"`);
-  }
-  if (typeof entry.expires_on !== 'string' || entry.expires_on.trim() === '') {
-    fail(`${want.package} entry must declare expires_on`);
-  }
-  if (typeof entry.remove_when !== 'string' || !entry.remove_when.includes(FIXED_MINIMATCH)) {
-    fail(`${want.package} entry remove_when must name ${FIXED_MINIMATCH}`);
-  }
 }
 
 console.log(
-  `verify-minimatch-exception: ${tag}PASS (aws-cdk-lib ${cdkLib.version} bundles minimatch ${bundled.version}; ts pins ${FIXED_MINIMATCH}; runners clean; 2 scoped visible entries)`,
+  `verify-fixed-minimatch-graph: ${tag}PASS (aws-cdk-lib ${cdkLib.version} bundles minimatch ${bundled.version}; ts pins ${FIXED_MINIMATCH}; runners clean; no residual visible entries)`,
 );
 NODE
 
-cat >"${tmpdir}/make-minimatch-fixtures.mjs" <<'NODE'
+cat >"${tmpdir}/make-fixed-minimatch-fixtures.mjs" <<'NODE'
 import fs from 'node:fs';
 
 const [cdkLockPath, tsLockPath, tsManifestPath, runnersLockPath, policyPath, outDir] =
@@ -735,32 +691,16 @@ const writeJson = (name, value) => {
 
 const CDK_LIB_PATH = 'node_modules/aws-cdk-lib';
 const BUNDLED_PATH = 'node_modules/aws-cdk-lib/node_modules/minimatch';
-const POLICY_LEAF = {
-  project: 'examples/cdk-multilang',
-  package: 'minimatch',
-  advisory: 'GHSA-g3hv-75wg-m249',
-  node: BUNDLED_PATH,
-};
+
 const cdk = readJson(cdkLockPath);
 const ts = readJson(tsLockPath);
 const manifest = readJson(tsManifestPath);
 const runners = readJson(runnersLockPath);
-const policy = readJson(policyPath);
 
 {
   const mutated = clone(cdk);
-  mutated.packages[BUNDLED_PATH].version = '11.0.1';
-  writeJson('mm-lock-bundled-fixed.json', mutated);
-}
-{
-  const mutated = clone(cdk);
-  mutated.packages[BUNDLED_PATH].version = '10.2.7';
-  writeJson('mm-lock-bundled-drift.json', mutated);
-}
-{
-  const mutated = clone(cdk);
-  delete mutated.packages[BUNDLED_PATH].inBundle;
-  writeJson('mm-lock-bundled-not-bundled.json', mutated);
+  mutated.packages[BUNDLED_PATH].version = '10.2.6';
+  writeJson('mm-lock-bundled-old.json', mutated);
 }
 {
   const mutated = clone(cdk);
@@ -776,6 +716,11 @@ const policy = readJson(policyPath);
   const mutated = clone(cdk);
   delete mutated.packages[CDK_LIB_PATH].integrity;
   writeJson('mm-lock-no-integrity.json', mutated);
+}
+{
+  const mutated = clone(cdk);
+  delete mutated.packages[BUNDLED_PATH].inBundle;
+  writeJson('mm-lock-bundled-not-bundled.json', mutated);
 }
 {
   const mutated = clone(cdk);
@@ -805,54 +750,42 @@ fs.writeFileSync(`${outDir}/mm-lock-malformed.json`, '{\n  "packages": {\n');
   writeJson('mm-runners-lock-vuln.json', mutated);
 }
 
-function policyWithout(predicate) {
-  return { ...policy, findings: policy.findings.filter((finding) => !predicate(finding)) };
+function residualEntry(overrides) {
+  return {
+    project: 'examples/cdk-multilang',
+    package: 'minimatch',
+    advisory: 'GHSA-g3hv-75wg-m249',
+    node: BUNDLED_PATH,
+    ...overrides,
+  };
 }
 
-writeJson(
-  'mm-policy-missing-leaf.json',
-  policyWithout((finding) => finding.package === 'minimatch'),
-);
-writeJson(
-  'mm-policy-missing-parent.json',
-  policyWithout((finding) => finding.package === 'aws-cdk-lib'),
-);
-writeJson('mm-policy-wrong-node.json', {
-  ...policy,
-  findings: policy.findings.map((finding) =>
-    finding.package === 'minimatch' ? { ...finding, node: 'node_modules/minimatch' } : finding,
-  ),
+writeJson('mm-policy-residual-leaf.json', { findings: [residualEntry({})] });
+writeJson('mm-policy-residual-parent.json', {
+  findings: [residualEntry({ package: 'aws-cdk-lib', advisory: 'minimatch', node: CDK_LIB_PATH })],
 });
-writeJson('mm-policy-wrong-advisory.json', {
-  ...policy,
-  findings: policy.findings.map((finding) =>
-    finding.package === 'minimatch' ? { ...finding, advisory: 'GHSA-aaaa-bbbb-cccc' } : finding,
-  ),
-});
-writeJson('mm-policy-extra-entry.json', {
-  ...policy,
+writeJson('mm-policy-residual-wrong-node.json', {
   findings: [
-    ...policy.findings,
-    {
-      ...POLICY_LEAF,
-      project: 'ts',
-      visibility: 'visible',
-      status: 'upstream-bundled-pending-fix',
-      reviewed_on: '2026-11-01',
-      expires_on: '2099-12-31',
-      remove_when: 'Synthetic negative-control fixture for the minimatch exception guard.',
-      justification: 'Synthetic negative-control fixture for the minimatch exception guard.',
-    },
+    residualEntry({
+      package: 'brace-expansion',
+      advisory: 'GHSA-aaaa-bbbb-cccc',
+      node: BUNDLED_PATH,
+    }),
   ],
 });
 fs.writeFileSync(`${outDir}/mm-policy-malformed.json`, '{ "findings": [ }\n');
 
-// Real checker reports used to prove the committed visible policy clears
-// SEC-2 for the advisory and fails for anything else.
+// Synthetic audit report used to prove the committed empty policy no longer
+// suppresses the retired pair in the real SEC-2 checker.
 writeJson('mm-audit.json', {
   auditReportVersion: 2,
   vulnerabilities: {
-    'aws-cdk-lib': { name: 'aws-cdk-lib', severity: 'moderate', via: ['minimatch'], nodes: [CDK_LIB_PATH] },
+    'aws-cdk-lib': {
+      name: 'aws-cdk-lib',
+      severity: 'moderate',
+      via: ['minimatch'],
+      nodes: [CDK_LIB_PATH],
+    },
     minimatch: {
       name: 'minimatch',
       severity: 'moderate',
@@ -869,28 +802,9 @@ writeJson('mm-audit.json', {
     },
   },
 });
-writeJson('mm-audit-other-node.json', {
-  auditReportVersion: 2,
-  vulnerabilities: {
-    minimatch: {
-      name: 'minimatch',
-      severity: 'moderate',
-      via: [
-        {
-          source: 1244012,
-          name: 'minimatch',
-          dependency: 'minimatch',
-          title: 'minimatch has potential denial of service via globparts amplification',
-          url: 'https://github.com/advisories/GHSA-g3hv-75wg-m249',
-        },
-      ],
-      nodes: ['node_modules/minimatch'],
-    },
-  },
-});
 NODE
 
-minimatch_checker="${tmpdir}/verify-minimatch-exception.mjs"
+mm_checker="${tmpdir}/verify-fixed-minimatch-graph.mjs"
 mm_cdk_lock="examples/cdk-multilang/package-lock.json"
 mm_policy="gov-infra/planning/theorydb-visible-npm-audit-findings.json"
 mm_ts_lock="ts/package-lock.json"
@@ -904,27 +818,22 @@ mm_check() {
   local ts_manifest="$4"
   local runners_lock="$5"
   local label="${6:-negative}"
-  node "${minimatch_checker}" "${cdk_lock}" "${policy}" "${ts_lock}" "${ts_manifest}" "${runners_lock}" "${label}"
+  node "${mm_checker}" "${cdk_lock}" "${policy}" "${ts_lock}" "${ts_manifest}" "${runners_lock}" "${label}"
 }
 
-# Positive: the committed graph, override, and policy pair must satisfy the guard.
+# Positive: the committed fixed bundle, override, lockfiles and empty policy must
+# satisfy the guard.
 expect_success_contains \
-  "verify-minimatch-exception: committed: PASS" \
+  "verify-fixed-minimatch-graph: committed: PASS" \
   mm_check "${mm_cdk_lock}" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}" committed
 
-node "${tmpdir}/make-minimatch-fixtures.mjs" \
+node "${tmpdir}/make-fixed-minimatch-fixtures.mjs" \
   "${mm_cdk_lock}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}" "${mm_policy}" "${tmpdir}"
 
 # Negative: every drift and malformed input must fail closed.
 expect_failure_contains \
-  "aws-cdk-lib bundles minimatch 11.0.1 >= 11.0.1; remove the visible exception" \
-  mm_check "${tmpdir}/mm-lock-bundled-fixed.json" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
-expect_failure_contains \
-  "bundled minimatch must be exactly 10.2.6 while the exception is active, got 10.2.7" \
-  mm_check "${tmpdir}/mm-lock-bundled-drift.json" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
-expect_failure_contains \
-  "node_modules/aws-cdk-lib/node_modules/minimatch must be inBundle:true" \
-  mm_check "${tmpdir}/mm-lock-bundled-not-bundled.json" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
+  "bundled minimatch must be >= 11.0.1, got 10.2.6" \
+  mm_check "${tmpdir}/mm-lock-bundled-old.json" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
 expect_failure_contains \
   "required lock entry node_modules/aws-cdk-lib/node_modules/minimatch is missing" \
   mm_check "${tmpdir}/mm-lock-missing-bundled.json" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
@@ -934,6 +843,9 @@ expect_failure_contains \
 expect_failure_contains \
   "aws-cdk-lib lock entry is missing sha512 integrity" \
   mm_check "${tmpdir}/mm-lock-no-integrity.json" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
+expect_failure_contains \
+  "node_modules/aws-cdk-lib/node_modules/minimatch must be inBundle:true" \
+  mm_check "${tmpdir}/mm-lock-bundled-not-bundled.json" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
 expect_failure_contains \
   "vulnerable non-bundled minimatch 10.2.6 at node_modules/minimatch" \
   mm_check "${tmpdir}/mm-lock-root-vuln.json" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
@@ -953,32 +865,26 @@ expect_failure_contains \
   "vulnerable contract-tests runners minimatch 10.2.6 at node_modules/minimatch" \
   mm_check "${mm_cdk_lock}" "${mm_policy}" "${mm_ts_lock}" "${mm_ts_manifest}" "${tmpdir}/mm-runners-lock-vuln.json"
 expect_failure_contains \
-  "visible policy must contain exactly 2 minimatch exception entries, found 1" \
-  mm_check "${mm_cdk_lock}" "${tmpdir}/mm-policy-missing-leaf.json" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
+  "residual visible policy entry" \
+  mm_check "${mm_cdk_lock}" "${tmpdir}/mm-policy-residual-leaf.json" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
 expect_failure_contains \
-  "visible policy must contain exactly 2 minimatch exception entries, found 1" \
-  mm_check "${mm_cdk_lock}" "${tmpdir}/mm-policy-missing-parent.json" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
+  "residual visible policy entry" \
+  mm_check "${mm_cdk_lock}" "${tmpdir}/mm-policy-residual-parent.json" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
 expect_failure_contains \
-  "visible policy must contain exactly one entry examples/cdk-multilang/minimatch/GHSA-g3hv-75wg-m249/node_modules/aws-cdk-lib/node_modules/minimatch" \
-  mm_check "${mm_cdk_lock}" "${tmpdir}/mm-policy-wrong-node.json" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
-expect_failure_contains \
-  "visible policy must contain exactly one entry examples/cdk-multilang/minimatch/GHSA-g3hv-75wg-m249/node_modules/aws-cdk-lib/node_modules/minimatch" \
-  mm_check "${mm_cdk_lock}" "${tmpdir}/mm-policy-wrong-advisory.json" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
-expect_failure_contains \
-  "visible policy must contain exactly 2 minimatch exception entries, found 3" \
-  mm_check "${mm_cdk_lock}" "${tmpdir}/mm-policy-extra-entry.json" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
+  "residual visible policy entry" \
+  mm_check "${mm_cdk_lock}" "${tmpdir}/mm-policy-residual-wrong-node.json" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
 expect_failure_contains \
   "visible policy is not valid JSON" \
   mm_check "${mm_cdk_lock}" "${tmpdir}/mm-policy-malformed.json" "${mm_ts_lock}" "${mm_ts_manifest}" "${mm_runners_lock}"
 
-# The committed policy must clear the real SEC-2 checker for exactly the live
-# report, and must not clear a different node.
-expect_success_contains \
-  "2 visible unallowlisted finding(s) in examples/cdk-multilang (accepted)" \
-  env NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS=true node "${checker}" "${tmpdir}/mm-audit.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang "${mm_policy}"
+# The committed empty policy must clear nothing: the real SEC-2 checker still
+# reports the retired pair as unallowlisted, with or without the retired switch.
 expect_failure_contains \
   "unallowlisted finding(s)" \
-  env NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS=true node "${checker}" "${tmpdir}/mm-audit-other-node.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang "${mm_policy}"
+  node "${checker}" "${tmpdir}/mm-audit.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang "${mm_policy}"
+expect_failure_contains \
+  "unallowlisted finding(s)" \
+  env NPM_AUDIT_ACCEPT_VISIBLE_FINDINGS=true node "${checker}" "${tmpdir}/mm-audit.json" "${tmpdir}/empty-allowlist.txt" examples/cdk-multilang "${mm_policy}"
 
 for finding_id in \
   "NPM-AUDIT:examples/cdk-multilang:minimatch:GHSA-g3hv-75wg-m249:node_modules/aws-cdk-lib/node_modules/minimatch" \
