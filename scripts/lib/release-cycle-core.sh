@@ -279,6 +279,7 @@ manifest_base, manifest_is_prerelease = version_info(".release-please-manifest.j
 stable_base = ".".join(str(part) for part in manifest_base)
 
 pull_request_events = {"pull_request", "pull_request_review", "pull_request_target"}
+event_name = os.environ.get("GITHUB_EVENT_NAME", "").strip()
 
 
 def is_pull_request_merge_ref(value: str) -> bool:
@@ -329,16 +330,34 @@ def payload_describes_this_run(payload: dict) -> bool:
 
 def resolve_branch_context() -> tuple[str, str]:
     event = os.environ.get("GITHUB_EVENT_NAME", "").strip()
-    explicit_base = os.environ.get("GITHUB_BASE_REF", "").strip()
-    explicit_head = os.environ.get("GITHUB_HEAD_REF", "").strip()
+    native_base = os.environ.get("GITHUB_BASE_REF", "").strip()
+    native_head = os.environ.get("GITHUB_HEAD_REF", "").strip()
 
     if event not in pull_request_events:
-        branch = explicit_base or os.environ.get("GITHUB_REF_NAME", "").strip()
-        head = explicit_head
+        branch = native_base or os.environ.get("GITHUB_REF_NAME", "").strip()
+        head = native_head
     else:
         # A pull_request_review run carries neither GITHUB_BASE_REF nor
         # GITHUB_HEAD_REF, and GITHUB_REF_NAME is the synthetic <number>/merge
-        # ref. The verified pull request context is the only branch source.
+        # ref. The workflow already resolves this pull request's base/head and
+        # a later step verifies them against the live pull request, so those
+        # verified inputs are consumed here under release-cycle names. They are
+        # read only on pull request events: workflow_dispatch and push keep
+        # classifying their own ref, so the other verifiers that also read
+        # GITHUB_BASE_REF are unaffected.
+        resolved_base = os.environ.get("RELEASE_CYCLE_PR_BASE_REF", "").strip()
+        resolved_head = os.environ.get("RELEASE_CYCLE_PR_HEAD_REF", "").strip()
+        for label, native, resolved in (
+            ("base", native_base, resolved_base),
+            ("head", native_head, resolved_head),
+        ):
+            if native and resolved and native != resolved:
+                fail(
+                    f"GITHUB_{label.upper()}_REF {native} disagrees with the "
+                    f"resolved pull request {label} {resolved}"
+                )
+        explicit_base = native_base or resolved_base
+        explicit_head = native_head or resolved_head
         payload = event_payload()
         if payload and not payload_describes_this_run(payload):
             fail(
@@ -398,7 +417,16 @@ if pending_mode:
             "pending stable promotion mode is only allowed on main "
             f"(current branch: {current_branch})"
         )
-    if current_head_branch not in {"", "premain"}:
+    if event_name in pull_request_events:
+        # A promotion event must name both sides of the actual promotion. A
+        # review or pull request that supplies only a main base cannot stand in
+        # for premain -> main, so a missing or different head fails closed here.
+        if current_head_branch != "premain":
+            fail(
+                "pending stable promotion mode requires the premain head for a "
+                f"{event_name} run (head branch: {current_head_branch or '<unset>'})"
+            )
+    elif current_head_branch not in {"", "premain"}:
         fail(
             "pending stable promotion mode is only allowed for premain -> main "
             f"(head branch: {current_head_branch})"

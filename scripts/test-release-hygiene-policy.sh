@@ -755,9 +755,10 @@ expect_failure_contains \
 # pull_request_review run exposes GITHUB_REF_NAME=<number>/merge instead, which is
 # GitHub's synthetic merge ref, not a branch. The release-cycle classification must
 # come from the reviewed pull request's own base/head: either the verified context
-# the workflow already exports, or the event payload it is derived from. These
-# cases pin both sources, the fail-closed paths, and that no input can turn the
-# merge ref (or a wrong base) into pending stable promotion on main.
+# the workflow resolves (passed under release-cycle names, so no other verifier
+# sees a synthesized GITHUB_BASE_REF), native GITHUB_* values, or the event payload
+# it is derived from. These cases pin every source, the fail-closed paths, and that
+# no input can turn the merge ref (or a wrong base) into pending stable promotion.
 review_event_dir="$(mktemp -d)"
 tmpdirs+=("${review_event_dir}")
 
@@ -794,10 +795,25 @@ run_review_release_cycle() {
     -u GITHUB_BASE_REF \
     -u GITHUB_HEAD_REF \
     -u GITHUB_EVENT_PATH \
+    -u RELEASE_CYCLE_PR_BASE_REF \
+    -u RELEASE_CYCLE_PR_HEAD_REF \
     RELEASE_CYCLE_REPO_ROOT="${pending_fixture}" \
     "$@" \
     bash "${repo_root}/scripts/verify-release-cycle-state.sh"
 }
+
+# The verified workflow context is consumed on a review event with no payload and
+# no native GITHUB_* ref: this is the shape the release-hygiene step now supplies.
+expect_success_contains \
+  "branch=main, mode=pending-stable-promotion" \
+  run_review_release_cycle \
+    GITHUB_EVENT_NAME=pull_request_review \
+    GITHUB_REF=refs/pull/848/merge \
+    GITHUB_REF_NAME=848/merge \
+    GITHUB_REPOSITORY=theory-cloud/TableTheory \
+    RELEASE_CYCLE_PR_BASE_REF=main \
+    RELEASE_CYCLE_PR_HEAD_REF=premain \
+    RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true
 
 expect_success_contains \
   "branch=main, mode=pending-stable-promotion" \
@@ -809,6 +825,44 @@ expect_success_contains \
     GITHUB_REPOSITORY=theory-cloud/TableTheory \
     RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true
 
+# A PR event claiming pending promotion must name premain as the head. A resolved
+# main base with no head (or a different head) is a partial context and fails.
+expect_failure_contains \
+  "pending stable promotion mode requires the premain head for a pull_request_review run (head branch: <unset>)" \
+  run_review_release_cycle \
+    GITHUB_EVENT_NAME=pull_request_review \
+    GITHUB_REF=refs/pull/848/merge \
+    GITHUB_REF_NAME=848/merge \
+    GITHUB_REPOSITORY=theory-cloud/TableTheory \
+    RELEASE_CYCLE_PR_BASE_REF=main \
+    RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true
+
+expect_failure_contains \
+  "pending stable promotion mode requires the premain head for a pull_request_review run (head branch: staging)" \
+  run_review_release_cycle \
+    GITHUB_EVENT_NAME=pull_request_review \
+    GITHUB_REF=refs/pull/847/merge \
+    GITHUB_REF_NAME=847/merge \
+    GITHUB_REPOSITORY=theory-cloud/TableTheory \
+    RELEASE_CYCLE_PR_BASE_REF=main \
+    RELEASE_CYCLE_PR_HEAD_REF=staging \
+    RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true
+
+# A native GITHUB_* pair and the resolved pair must agree; disagreement fails closed.
+expect_failure_contains \
+  "GITHUB_BASE_REF premain disagrees with the resolved pull request base main" \
+  run_review_release_cycle \
+    GITHUB_EVENT_NAME=pull_request_review \
+    GITHUB_REF=refs/pull/848/merge \
+    GITHUB_REF_NAME=848/merge \
+    GITHUB_BASE_REF=premain \
+    GITHUB_HEAD_REF=premain \
+    GITHUB_REPOSITORY=theory-cloud/TableTheory \
+    RELEASE_CYCLE_PR_BASE_REF=main \
+    RELEASE_CYCLE_PR_HEAD_REF=premain \
+    RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true
+
+# Native GITHUB_* refs (the ordinary pull_request shape) still work unchanged.
 expect_success_contains \
   "branch=main, mode=pending-stable-promotion" \
   run_review_release_cycle \
@@ -945,8 +999,74 @@ expect_failure_contains \
     GITHUB_REPOSITORY=theory-cloud/TableTheory \
     RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true
 
-# The workflow must hand the provenance-verified base/head to the verifier; a
-# review event otherwise only exposes the synthetic merge ref.
+# The release workflows call this verifier directly on main with the pending flag
+# and no head ref. That documented non-PR pending behavior must be preserved.
+expect_success_contains \
+  "mode=pending-stable-promotion, rc=1.10.1-rc.1" \
+  env \
+    -u GITHUB_BASE_REF \
+    -u GITHUB_HEAD_REF \
+    -u GITHUB_EVENT_PATH \
+    -u RELEASE_CYCLE_PR_BASE_REF \
+    -u RELEASE_CYCLE_PR_HEAD_REF \
+    GITHUB_EVENT_NAME=push \
+    GITHUB_REF_NAME=main \
+    RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION=true \
+    RELEASE_CYCLE_REPO_ROOT="${pending_fixture}" \
+    bash "${repo_root}/scripts/verify-release-cycle-state.sh"
+
+# S1 regression: the release-cycle step must not synthesize GITHUB_BASE_REF for
+# the verifiers it runs. On a generated workflow_dispatch, the Go semantic-import
+# verifier selects its PR-vs-push rules from GITHUB_BASE_REF; exporting the resolved
+# PR base there would let a pending-major generated premain branch take the premain
+# PR path, while the dispatched branch ref is what has always been rejected.
+pending_major_fixture="$(mktemp -d)"
+tmpdirs+=("${pending_major_fixture}")
+mkdir -p \
+  "${pending_major_fixture}/.github/workflows" \
+  "${pending_major_fixture}/scripts" \
+  "${pending_major_fixture}/ts" \
+  "${pending_major_fixture}/py/src/tabletheory_py" \
+  "${pending_major_fixture}/docs/migration"
+printf '{".":"2.0.6"}\n' >"${pending_major_fixture}/.release-please-manifest.json"
+printf 'module github.com/theory-cloud/tabletheory/v3\n\ngo 1.26\n' >"${pending_major_fixture}/go.mod"
+cat >"${pending_major_fixture}/CHANGELOG.md" <<'EOF_CHANGELOG'
+# Changelog
+
+## [Unreleased]
+
+### Breaking Changes
+
+* **contract:** advance to DMS v0.3.
+EOF_CHANGELOG
+printf '# TableTheory v3 migration\n' >"${pending_major_fixture}/docs/migration/v3.md"
+printf '{"version":"2.0.0"}\n' >"${pending_major_fixture}/ts/package.json"
+printf '{"version":"2.0.0","packages":{"":{"version":"2.0.0"}}}\n' >"${pending_major_fixture}/ts/package-lock.json"
+printf '{"version":"2.0.0"}\n' >"${pending_major_fixture}/py/src/tabletheory_py/version.json"
+touch \
+  "${pending_major_fixture}/.github/workflows/release-hygiene.yml" \
+  "${pending_major_fixture}/scripts/prepare-release-package-versions.py" \
+  "${pending_major_fixture}/scripts/verify-release-package-version-assets.py" \
+  "${pending_major_fixture}/scripts/watch-release-cycle.sh" \
+  "${pending_major_fixture}/scripts/verify-go-semantic-import-version.sh"
+
+expect_failure_contains \
+  "pending v3 semantic import transition is not allowed on push ref release-please--branches--premain" \
+  env \
+    -u GITHUB_BASE_REF \
+    -u GITHUB_HEAD_REF \
+    -u GITHUB_EVENT_PATH \
+    GITHUB_EVENT_NAME=workflow_dispatch \
+    GITHUB_REF_NAME=release-please--branches--premain \
+    RELEASE_CYCLE_PR_BASE_REF=premain \
+    RELEASE_CYCLE_PR_HEAD_REF=release-please--branches--premain \
+    RELEASE_CYCLE_REPO_ROOT="${pending_major_fixture}" \
+    bash "${repo_root}/scripts/verify-release-cycle-state.sh"
+
+# The workflow must hand the provenance-verified base/head to the classifier, and
+# must use release-cycle-specific names: setting GITHUB_BASE_REF/GITHUB_HEAD_REF on
+# this step would also change how the Go semantic-import verifier (and anything else
+# in the step) selects PR-vs-push rules on a generated workflow_dispatch run.
 python3 - "${repo_root}/.github/workflows/release-hygiene.yml" <<'PY'
 import sys
 from pathlib import Path
@@ -958,13 +1078,20 @@ if marker not in text:
     raise SystemExit(1)
 block = text.split(marker, 1)[1].split("        run:", 1)[0]
 for key, value in (
-    ("GITHUB_BASE_REF", "${{ steps.context.outputs.base_ref }}"),
-    ("GITHUB_HEAD_REF", "${{ steps.context.outputs.head_ref }}"),
+    ("RELEASE_CYCLE_PR_BASE_REF", "${{ steps.context.outputs.base_ref }}"),
+    ("RELEASE_CYCLE_PR_HEAD_REF", "${{ steps.context.outputs.head_ref }}"),
 ):
     if f"          {key}: {value}\n" not in block:
         print(
             "release-hygiene-policy-test: release-cycle step must pass "
             f"{key}: {value}"
+        )
+        raise SystemExit(1)
+for forbidden in ("GITHUB_BASE_REF", "GITHUB_HEAD_REF"):
+    if f"          {forbidden}:" in block:
+        print(
+            "release-hygiene-policy-test: release-cycle step must not export "
+            f"{forbidden}; other verifiers in the step read it"
         )
         raise SystemExit(1)
 PY

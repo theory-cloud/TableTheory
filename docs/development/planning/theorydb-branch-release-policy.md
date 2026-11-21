@@ -225,9 +225,14 @@ Release-lane quality workflow expectations:
   never re-run a product gate.
 - Release-cycle classification uses the pull request's own base/head, resolved and provenance-verified by the workflow,
   on both PR events. GitHub supplies `GITHUB_BASE_REF` only for `pull_request`, and a `pull_request_review` run exposes
-  `GITHUB_REF_NAME=<number>/merge` — its synthetic merge ref. The verifier treats that ref as an unresolvable branch and
-  fails closed, and it fails closed on a missing or mismatched pull request base, so pending stable promotion can only be
-  recognized against the real `main` base.
+  `GITHUB_REF_NAME=<number>/merge` — its synthetic merge ref. The workflow therefore passes the verified pair to the
+  classifier under release-cycle-specific names, and only the classifier reads them; `GITHUB_BASE_REF`/`GITHUB_HEAD_REF`
+  are never synthesized, so the other branch-sensitive verifiers and the generated `workflow_dispatch` path keep their
+  original GitHub-supplied context. The verifier treats a merge ref as an unresolvable branch, fails closed on a missing
+  or mismatched pull request base, and for a PR event claiming pending stable promotion it also requires the `premain`
+  head. Pending stable promotion is therefore recognized only against the real `main` base and the real `premain` head.
+  The separate non-PR pending check (release workflows on `main` that pass `RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION`
+  directly) is unchanged.
 - CodeQL runs through GitHub's default setup, not a repository workflow, and does not replace the release-lane gate
   split above.
 

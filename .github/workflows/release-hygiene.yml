@@ -37,11 +37,14 @@ name: Release Hygiene
 # bases: the code-owner approval the premain/main rulesets already require is
 # the eligible event that makes `hygiene` count, against the reviewed head SHA.
 #
-# Branch context: every path classifies the release base from the pull request
-# context (`pull_request.base.ref`, resolved and provenance-verified below), never
-# from GitHub's synthetic `<number>/merge` ref. A review event carries no
-# GITHUB_BASE_REF, so the synthetic ref is the only ref GitHub supplies; treating
-# it as a branch would misclassify a pending premain -> main promotion.
+# Branch context: the pull_request and pull_request_review paths classify the
+# release base from the pull request context (`pull_request.base.ref`, resolved
+# and provenance-verified below), never from GitHub's synthetic `<number>/merge`
+# ref. They receive that verified pair under release-cycle-specific names, so a
+# `pull_request_review` run — which carries no GITHUB_BASE_REF and exposes only
+# `<number>/merge` — is classified from the real base while every other verifier
+# keeps its original GitHub-supplied refs. The dispatch path keeps classifying
+# its dispatched ref, exactly as before.
 #
 # Dispatch path: it stays, as the release lane's early, head-bound verdict that
 # a generated release branch is fit to leave draft. `workflow_dispatch` is the
@@ -285,12 +288,14 @@ jobs:
 
       - name: Verify release cycle state
         env:
-          # Consume the base/head pair the provenance step already verified
-          # against the live pull request. GitHub sets GITHUB_BASE_REF only for
-          # pull_request events, so a pull_request_review run would otherwise
-          # classify GitHub's synthetic <number>/merge ref as its branch.
-          GITHUB_BASE_REF: ${{ steps.context.outputs.base_ref }}
-          GITHUB_HEAD_REF: ${{ steps.context.outputs.head_ref }}
+          # The provenance step above already resolved and verified this pull
+          # request's base/head. Pass them under release-cycle names instead of
+          # GITHUB_BASE_REF/GITHUB_HEAD_REF: those names also drive how other
+          # verifiers in this step (the Go semantic-import check) select their
+          # PR-vs-push rules, and a generated workflow_dispatch run must keep
+          # classifying its dispatched ref.
+          RELEASE_CYCLE_PR_BASE_REF: ${{ steps.context.outputs.base_ref }}
+          RELEASE_CYCLE_PR_HEAD_REF: ${{ steps.context.outputs.head_ref }}
           RELEASE_CYCLE_ALLOW_PENDING_STABLE_PROMOTION: ${{ steps.context.outputs.base_ref == 'main' && steps.context.outputs.head_ref == 'premain' && 'true' || 'false' }}
           RELEASE_CYCLE_REPO_ROOT: ${{ github.workspace }}
         run: |
