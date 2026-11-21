@@ -156,6 +156,18 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.5.2-rc](https://github.com/theory-cloud/TableTheory/compare/v6.5.1...v6.5.2-rc) (2026-11-21)
+
+
+### Bug Fixes
+
+* **deps:** adopt aws-cdk-lib 2.278.0 and retire minimatch exception ([5674d9b](https://github.com/theory-cloud/TableTheory/commit/5674d9bc420d5f30260299cb5ee45a1387582868))
+* **deps:** adopt aws-cdk-lib 2.278.0 and retire the minimatch exception ([45dc614](https://github.com/theory-cloud/TableTheory/commit/45dc614cf6a9c919a4468b7ad967d88eca44f98b))
+* **release:** back-merge v6.5.1 into staging ([58bf3d3](https://github.com/theory-cloud/TableTheory/commit/58bf3d3a44350b2cdda13911172aef2028447e8b))
+* **release:** gate release PRs from the code-owner review event ([cbc1772](https://github.com/theory-cloud/TableTheory/commit/cbc17729530e31e512a842bc5a1ded9a295aa1bf))
+* **release:** gate release PRs from the code-owner review event ([a7bbe75](https://github.com/theory-cloud/TableTheory/commit/a7bbe757de5d420074af03a03bc2fc999dd4ee12))
+* **release:** promote staging to premain for the fixed CDK dependency ([41da80b](https://github.com/theory-cloud/TableTheory/commit/41da80bc7d69cc293ac4d701a2adecd1af79ab2f))
+
 ## [6.5.1](https://github.com/theory-cloud/TableTheory/compare/v6.5.1-rc...v6.5.1) (2026-11-17)
 
 Stable promotion of `v6.5.1-rc`.
