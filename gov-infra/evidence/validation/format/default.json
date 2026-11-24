@@ -5,16 +5,16 @@
         "bash",
         "scripts/verify-formatting.sh"
       ],
-      "durationSeconds": 0.971,
+      "durationSeconds": 1.732,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-21T13:15:22Z",
+      "finishedAt": "2026-11-24T20:53:38Z",
       "id": "format",
-      "inputsDigest": "sha256:1b7247a1a4d213bb00ced3a4fb6f7382996fa8c3c6fcba8b5b710121864e8704",
+      "inputsDigest": "sha256:480cd0d0b81978d07b9005e39993ada88f7ff69cf64384bb2b80a30eaa1e7fea",
       "logDigest": "sha256:d1a914cf3a9f07b4190192bd59985e60208fa3903f5a448ffea89529c309aa3b",
-      "logRef": "gov-infra/evidence/validation/local/format-format-20261121T131521Z-96047.log",
+      "logRef": "gov-infra/evidence/validation/local/format-format-20261124T205336Z-58441.log",
       "reused": false,
-      "startedAt": "2026-11-21T13:15:21Z"
+      "startedAt": "2026-11-24T20:53:36Z"
     }
   ],
   "consumed": [],
@@ -36,17 +36,17 @@
   },
   "profile": "default",
   "reason": "",
-  "recordedAt": "2026-11-21T13:15:22Z",
+  "recordedAt": "2026-11-24T20:53:38Z",
   "releaseOnly": {
-    "digest": "sha256:b8b0dfb977ee7d82767870e687599d0ddb55bd14b7c0640a3a29f7dea9de9821",
+    "digest": "sha256:4a86dac8e00049af3b329f75b2301c60bcd3cbc83df3172b9233fa27adf296a4",
     "fileCount": 2,
     "normalizedDigest": "sha256:0fd759e0448f46454691eb860c9a5a6ac4d08af2e32852a0b64c263ed81108fa",
-    "version": "6.5.1"
+    "version": "6.5.2"
   },
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:fdc1960b66513f8020c76c0ea10889d1ee1fbe27a3b7a61980f384fb3edfe5e3",
+    "digest": "sha256:5ae020ba8114243ddcd18a05498d192bccf2b35072e7ad7d7487065a421871c1",
     "fileCount": 765,
     "paths": [
       "*.go",
@@ -62,7 +62,7 @@
     "version": 2
   },
   "source": {
-    "digest": "sha256:ddf09e68ad3d2531edcabdc7f35e0f217e4733b4f2837d8e59abd14ee1b3a50f",
+    "digest": "sha256:2d527fd4b17d7607c46537e6208282d21f7e52170183090d0716708db30ee96e",
     "fileCount": 1298
   },
   "verdict": "PASS"

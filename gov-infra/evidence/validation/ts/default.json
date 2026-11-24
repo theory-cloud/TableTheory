@@ -5,16 +5,16 @@
         "bash",
         "scripts/verify-typescript-deps.sh"
       ],
-      "durationSeconds": 0.879,
+      "durationSeconds": 0.995,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-21T13:24:50Z",
+      "finishedAt": "2026-11-24T20:55:21Z",
       "id": "ts-deps",
-      "inputsDigest": "sha256:321f56ea99e7e0b0e1151f8eb9607dbabbd0eaac3b16d84d606a4cc1f2bfad12",
-      "logDigest": "sha256:ead8f21133dd58e59fa87e692903358431f8e7e2e34e0cd72d4eb941683cae20",
-      "logRef": "gov-infra/evidence/validation/local/ts-ts-deps-20261121T132449Z-1119.log",
+      "inputsDigest": "sha256:a3645a57d4031851a34da88e8b76130a00e5f4af732ec1ee4a0cd22f44d47b9f",
+      "logDigest": "sha256:1c4084c6ee483ca6100d21330470ebdd5c11eb31dfbbb8c8a2753e0de3cfb7a4",
+      "logRef": "gov-infra/evidence/validation/local/ts-ts-deps-20261124T205520Z-58441.log",
       "reused": false,
-      "startedAt": "2026-11-21T13:24:49Z"
+      "startedAt": "2026-11-24T20:55:20Z"
     },
     {
       "argv": [
@@ -24,16 +24,16 @@
         "run",
         "check"
       ],
-      "durationSeconds": 7.969,
+      "durationSeconds": 8.892,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-21T13:24:58Z",
+      "finishedAt": "2026-11-24T20:55:29Z",
       "id": "ts-check",
-      "inputsDigest": "sha256:02405260d50de12ee0533b60882e1d6966038caea4d89b63d0801e355c02d79f",
-      "logDigest": "sha256:182f1b6204d681970650f11d6c43630b74e381eef9ff3b4cf3eaeb2a562245f5",
-      "logRef": "gov-infra/evidence/validation/local/ts-ts-check-20261121T132450Z-1119.log",
+      "inputsDigest": "sha256:bd264fe4d2ae89e7590488909ae93254d9c37399054c006490d18bc2543b9257",
+      "logDigest": "sha256:b5e5182ac1b9fed8aa92be7788c12fbb3d28754a0fc38924b21bd398032f514f",
+      "logRef": "gov-infra/evidence/validation/local/ts-ts-check-20261124T205521Z-58441.log",
       "reused": false,
-      "startedAt": "2026-11-21T13:24:50Z"
+      "startedAt": "2026-11-24T20:55:21Z"
     },
     {
       "argv": [
@@ -45,16 +45,16 @@
         "unit",
         "--record-only"
       ],
-      "durationSeconds": 5.554,
+      "durationSeconds": 6.064,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-21T13:25:03Z",
+      "finishedAt": "2026-11-24T20:55:35Z",
       "id": "ts-coverage",
-      "inputsDigest": "sha256:f025ce6e0ce1d9a1f78760555667d9fa69d21dcf4409e59aee2501fca9578776",
-      "logDigest": "sha256:b836edd62a10115c019e7f7c93bc4937bb2a41e6a2c96bb6f18151806fec4cee",
-      "logRef": "gov-infra/evidence/validation/local/ts-ts-coverage-20261121T132458Z-1119.log",
+      "inputsDigest": "sha256:fe572ccd7eeaa61cd33dfd8d1dfc61a1c21e3af91770ed30af9ab8275e63f699",
+      "logDigest": "sha256:12b83d44e1a2ddaed511d9ddc9e8fbcd0f20e1ba05657e0bece8d8a9b302297a",
+      "logRef": "gov-infra/evidence/validation/local/ts-ts-coverage-20261124T205529Z-58441.log",
       "reused": false,
-      "startedAt": "2026-11-21T13:24:58Z"
+      "startedAt": "2026-11-24T20:55:29Z"
     },
     {
       "argv": [
@@ -64,16 +64,16 @@
         "run",
         "test:integration"
       ],
-      "durationSeconds": 0.392,
+      "durationSeconds": 0.435,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-21T13:25:04Z",
+      "finishedAt": "2026-11-24T20:55:36Z",
       "id": "ts-integration",
-      "inputsDigest": "sha256:0798389eade91953566bd62a0f870ff969cbf1d0078e605a038eb2ea854c39c8",
+      "inputsDigest": "sha256:a8d616fb89b90bd940bb243c155bd6a092e1032ae0659d37a62274b87efe0b33",
       "logDigest": "sha256:be8fb1b6ace42367fb49eaabad1be408af5d95fe66d1cefae3808a3282df1a94",
-      "logRef": "gov-infra/evidence/validation/local/ts-ts-integration-20261121T132503Z-1119.log",
+      "logRef": "gov-infra/evidence/validation/local/ts-ts-integration-20261124T205535Z-58441.log",
       "reused": false,
-      "startedAt": "2026-11-21T13:25:03Z"
+      "startedAt": "2026-11-24T20:55:35Z"
     }
   ],
   "consumed": [],
@@ -95,17 +95,17 @@
   },
   "profile": "default",
   "reason": "",
-  "recordedAt": "2026-11-21T13:25:04Z",
+  "recordedAt": "2026-11-24T20:55:36Z",
   "releaseOnly": {
-    "digest": "sha256:b8b0dfb977ee7d82767870e687599d0ddb55bd14b7c0640a3a29f7dea9de9821",
+    "digest": "sha256:4a86dac8e00049af3b329f75b2301c60bcd3cbc83df3172b9233fa27adf296a4",
     "fileCount": 2,
     "normalizedDigest": "sha256:0fd759e0448f46454691eb860c9a5a6ac4d08af2e32852a0b64c263ed81108fa",
-    "version": "6.5.1"
+    "version": "6.5.2"
   },
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:7836ced72258a6607746d26475ecd42f78ef3c1f0c1763919a788d174d509002",
+    "digest": "sha256:3b307167ae210ef3fab9eab6220828c7ae75a7b90433373640c10a4b3bba3d6b",
     "fileCount": 124,
     "paths": [
       "ts/",
@@ -117,7 +117,7 @@
     "version": 2
   },
   "source": {
-    "digest": "sha256:ddf09e68ad3d2531edcabdc7f35e0f217e4733b4f2837d8e59abd14ee1b3a50f",
+    "digest": "sha256:2d527fd4b17d7607c46537e6208282d21f7e52170183090d0716708db30ee96e",
     "fileCount": 1298
   },
   "verdict": "PASS"
