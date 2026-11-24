@@ -9,32 +9,32 @@
         "--frozen",
         "--all-extras"
       ],
-      "durationSeconds": 4.664,
+      "durationSeconds": 6.123,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-21T13:25:47Z",
+      "finishedAt": "2026-11-24T21:04:02Z",
       "id": "py-sync",
-      "inputsDigest": "sha256:4b814f567b728669afe3c509dfd5ce544d433beebecbfcd4d87fb70358d6ba49",
-      "logDigest": "sha256:0433c8eb6cd1ce9cd91c8e08e06c414337c8d2144d4c7c9318f8bb3a321bbd79",
-      "logRef": "gov-infra/evidence/validation/local/py-py-sync-20261121T132542Z-18.log",
+      "inputsDigest": "sha256:7b7dcad24290053f3d88dd03ecd0107d512ab7317abb294e63a3f2a260958b19",
+      "logDigest": "sha256:ef1181a36c3aab08e5afce6c306a1bd2942b20893f75b4a7d0ede4d812361774",
+      "logRef": "gov-infra/evidence/validation/local/py-py-sync-20261124T210356Z-18.log",
       "reused": false,
-      "startedAt": "2026-11-21T13:25:42Z"
+      "startedAt": "2026-11-24T21:03:56Z"
     },
     {
       "argv": [
         "bash",
         "scripts/verify-python-static.sh"
       ],
-      "durationSeconds": 6.076,
+      "durationSeconds": 11.2,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-21T13:25:53Z",
+      "finishedAt": "2026-11-24T21:04:14Z",
       "id": "py-static",
-      "inputsDigest": "sha256:b50536b738667955f2d5df07a018b8915c87cadc59f073361b15f90c14fafd2b",
-      "logDigest": "sha256:beed8217616e1007ac42a9bf6771bdf19e145c66fe8557170ce8da20ad70f764",
-      "logRef": "gov-infra/evidence/validation/local/py-py-static-20261121T132547Z-18.log",
+      "inputsDigest": "sha256:ac8c45e82b21df69bedf0518e5e1abaf13223b21d764c756866d95e38e6b44f4",
+      "logDigest": "sha256:bcb6143d79c66fcfd3e1d7f45e00f676f91a7f06c4fc0d90b3958fc53dccdf2a",
+      "logRef": "gov-infra/evidence/validation/local/py-py-static-20261124T210402Z-18.log",
       "reused": false,
-      "startedAt": "2026-11-21T13:25:47Z"
+      "startedAt": "2026-11-24T21:04:02Z"
     },
     {
       "argv": [
@@ -46,16 +46,16 @@
         "unit",
         "--record-only"
       ],
-      "durationSeconds": 5.962,
+      "durationSeconds": 13.19,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-21T13:25:59Z",
+      "finishedAt": "2026-11-24T21:04:27Z",
       "id": "py-coverage",
-      "inputsDigest": "sha256:f55d28655b2d879881c741417c58034e3c050494a2210a55ac9ec25d99bc1702",
-      "logDigest": "sha256:b8b15a4b2b22a0ea711b3a88671d660361159962d6736dadcc86a2d62963cc7c",
-      "logRef": "gov-infra/evidence/validation/local/py-py-coverage-20261121T132553Z-18.log",
+      "inputsDigest": "sha256:8f9f9aeffa2251fdfc2c188b297594bf73380d31c8eba573fcdbb22404f52ab4",
+      "logDigest": "sha256:493d7abcdec01f3b39e62e67939e539cca69ed212df2be987f0bdd5ad642907d",
+      "logRef": "gov-infra/evidence/validation/local/py-py-coverage-20261124T210414Z-18.log",
       "reused": false,
-      "startedAt": "2026-11-21T13:25:53Z"
+      "startedAt": "2026-11-24T21:04:14Z"
     },
     {
       "argv": [
@@ -67,16 +67,16 @@
         "-q",
         "tests/integration"
       ],
-      "durationSeconds": 0.775,
+      "durationSeconds": 1.562,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-21T13:26:00Z",
+      "finishedAt": "2026-11-24T21:04:28Z",
       "id": "py-integration",
-      "inputsDigest": "sha256:b4c23424e95f662becc58ea1f10ab0abf12f2e220a3e024a2c80639f46c739d9",
-      "logDigest": "sha256:5661498d14ee1c9c3a20069a90265d8f6ed10a6918b3e4f6c80794ccd71dc2f5",
-      "logRef": "gov-infra/evidence/validation/local/py-py-integration-20261121T132559Z-18.log",
+      "inputsDigest": "sha256:03e6b790ea5cc7158fd2619b2a1933dc0ef4c6109df4e6685ce0b9ee78d4609a",
+      "logDigest": "sha256:633e94b1f5f31868282c3747277fb33b0560f329488e867ba094a51daf3f39df",
+      "logRef": "gov-infra/evidence/validation/local/py-py-integration-20261124T210427Z-18.log",
       "reused": false,
-      "startedAt": "2026-11-21T13:25:59Z"
+      "startedAt": "2026-11-24T21:04:27Z"
     }
   ],
   "consumed": [],
@@ -98,17 +98,17 @@
   },
   "profile": "floor-py3.12",
   "reason": "",
-  "recordedAt": "2026-11-21T13:26:00Z",
+  "recordedAt": "2026-11-24T21:04:28Z",
   "releaseOnly": {
-    "digest": "sha256:b8b0dfb977ee7d82767870e687599d0ddb55bd14b7c0640a3a29f7dea9de9821",
+    "digest": "sha256:4a86dac8e00049af3b329f75b2301c60bcd3cbc83df3172b9233fa27adf296a4",
     "fileCount": 2,
     "normalizedDigest": "sha256:0fd759e0448f46454691eb860c9a5a6ac4d08af2e32852a0b64c263ed81108fa",
-    "version": "6.5.1"
+    "version": "6.5.2"
   },
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:3d832dbb6063ee3cf481826f388f3d3416eae761e1bb00ad032b1ff0d01f7ca7",
+    "digest": "sha256:6f26da1f18c78121106cf675b28ca021acef12260caeef798a6ab2221e127987",
     "fileCount": 239,
     "paths": [
       "py/",
@@ -123,7 +123,7 @@
     "version": 2
   },
   "source": {
-    "digest": "sha256:ddf09e68ad3d2531edcabdc7f35e0f217e4733b4f2837d8e59abd14ee1b3a50f",
+    "digest": "sha256:2d527fd4b17d7607c46537e6208282d21f7e52170183090d0716708db30ee96e",
     "fileCount": 1298
   },
   "verdict": "PASS"
