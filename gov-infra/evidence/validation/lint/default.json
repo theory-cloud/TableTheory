@@ -5,16 +5,16 @@
         "bash",
         "scripts/verify-lint.sh"
       ],
-      "durationSeconds": 5.412,
+      "durationSeconds": 5.79,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-24T20:58:42Z",
+      "finishedAt": "2026-11-25T04:22:23Z",
       "id": "lint",
-      "inputsDigest": "sha256:51cf404a6fc5c12eceaa1e2709f313ca527153a03f26c3d1eea16234ee22b1b0",
+      "inputsDigest": "sha256:a53ea6dc9e80864a058b58569d3313ad235577ee82f24b5786717f6516f97f24",
       "logDigest": "sha256:f71b1d5fab1179c1e12c1804299d6623cec333d1be91d5379baae2c826bac453",
-      "logRef": "gov-infra/evidence/validation/local/lint-lint-20261124T205836Z-80278.log",
+      "logRef": "gov-infra/evidence/validation/local/lint-lint-20261125T042217Z-17609.log",
       "reused": false,
-      "startedAt": "2026-11-24T20:58:36Z"
+      "startedAt": "2026-11-25T04:22:17Z"
     }
   ],
   "consumed": [],
@@ -36,17 +36,17 @@
   },
   "profile": "default",
   "reason": "",
-  "recordedAt": "2026-11-24T20:58:42Z",
+  "recordedAt": "2026-11-25T04:22:23Z",
   "releaseOnly": {
-    "digest": "sha256:4a86dac8e00049af3b329f75b2301c60bcd3cbc83df3172b9233fa27adf296a4",
+    "digest": "sha256:449c02a9e966d79c8cc3cc40f126e1fcf64c1c763ccb9a1a739557d54bcfe956",
     "fileCount": 2,
     "normalizedDigest": "sha256:0fd759e0448f46454691eb860c9a5a6ac4d08af2e32852a0b64c263ed81108fa",
-    "version": "6.5.2"
+    "version": "6.5.3"
   },
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:507cd09082ad73e6f6f4d96517081e96c5bd1c4e95f8dc05955dc9caacedff73",
+    "digest": "sha256:5926a7926b04a94a1dc37155fe987909ae3a2e3ea2e8435547ada5dbaca79be6",
     "fileCount": 767,
     "paths": [
       "*.go",
@@ -64,8 +64,8 @@
     "version": 2
   },
   "source": {
-    "digest": "sha256:2d527fd4b17d7607c46537e6208282d21f7e52170183090d0716708db30ee96e",
-    "fileCount": 1298
+    "digest": "sha256:27ae48aa388ea0a1c27c4b98d04bb41df5a4803eef974f7fc19aa38905bb4b0e",
+    "fileCount": 1302
   },
   "verdict": "PASS"
 }

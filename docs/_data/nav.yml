@@ -35,6 +35,7 @@ groups:
       - { id: runtime-go,            title: Go,                      url: /runtimes/go/,                      icon: go-mark,     tag: ga }
       - { id: runtime-ts,            title: TypeScript,              url: /runtimes/typescript/,              icon: ts-mark,     tag: ga }
       - { id: runtime-py,            title: Python,                  url: /runtimes/python/,                  icon: py-mark,     tag: ga }
+      - { id: runtime-support,       title: Runtime Support,         url: /runtimes/support/,                 icon: shield-check, tag: new }
 
 
   - label: Runtime Guides
@@ -127,6 +128,7 @@ order:
   - runtime-go
   - runtime-ts
   - runtime-py
+  - runtime-support
   - ts-getting-started
   - ts-api-reference
   - ts-core-patterns
@@ -188,6 +190,7 @@ url_to_id:
   /runtimes/go/:                           runtime-go
   /runtimes/typescript/:                   runtime-ts
   /runtimes/python/:                       runtime-py
+  /runtimes/support/:                      runtime-support
   /runtimes/typescript/getting-started/:     ts-getting-started
   /runtimes/typescript/api-reference/:       ts-api-reference
   /runtimes/typescript/core-patterns/:       ts-core-patterns
