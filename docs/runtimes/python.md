@@ -5,7 +5,7 @@ description: TableTheory for Python — installation, ModelDefinition + Table + 
 
 # Python runtime
 
-The Python runtime lives under [`py/`](https://github.com/theory-cloud/tabletheory/tree/main/py) and is published as the wheel `tabletheory_py-X.Y.Z-py3-none-any.whl`. The canonical importable module inside that wheel is **`tabletheory_py`**. It targets **Python 3.12+** and the AWS SDK for Python (`boto3`).
+The Python runtime lives under [`py/`](https://github.com/theory-cloud/tabletheory/tree/main/py) and is published as the wheel `tabletheory_py-X.Y.Z-py3-none-any.whl`. The canonical importable module inside that wheel is **`tabletheory_py`**. It targets **Python 3.12+** and the AWS SDK for Python (`boto3`). **Python 3.12, 3.14 and 3.15 are supported and tested**; see [Runtime support](support.md) for the table and what each line's evidence record covers.
 
 The Python runtime is a **peer** implementation of the TableTheory contract — not a port. It passes the same P0 contract scenarios as Go and TypeScript independently.
 

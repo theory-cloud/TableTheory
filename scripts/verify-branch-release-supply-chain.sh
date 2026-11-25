@@ -141,15 +141,20 @@ if [[ -f ".github/workflows/quality-gates.yml" ]]; then
   require_fixed "workflow_dispatch:" "${q}" \
     "quality-gates must support workflow_dispatch"
   # Verify-only: the gates run on the production host and CI verifies the
-  # input-bound record. The two pre-merge floor legs the retired language
-  # matrices used to provide (Python 3.12, Node 22) are verified here as tracked
-  # floor records, so a broken floor still blocks the merge.
+  # input-bound record. The pre-merge floor legs the retired language matrices
+  # used to provide (the oldest supported Node and Python lines, and the newest
+  # ones) are verified here as tracked floor records, so a broken floor on any
+  # supported line still blocks the merge.
   require_fixed "bash scripts/evidence/verify-gate.sh --gate rubric --profile default" "${q}" \
     "quality-gates must verify the recorded rubric"
   require_fixed "bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.12" "${q}" \
     "quality-gates must verify the recorded Python 3.12 floor"
   require_fixed "bash scripts/evidence/verify-gate.sh --gate ts --profile floor-node22" "${q}" \
     "quality-gates must verify the recorded Node 22 floor"
+  require_fixed "bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.15" "${q}" \
+    "quality-gates must verify the recorded Python 3.15 floor"
+  require_fixed "bash scripts/evidence/verify-gate.sh --gate ts --profile floor-node26" "${q}" \
+    "quality-gates must verify the recorded Node 26 floor"
   require_fixed "bash scripts/evidence/verify-gate.sh --gate go-integration --profile linux-arm64" "${q}" \
     "quality-gates must verify the recorded Linux Go integration floor"
   if grep -Eq 'run:\s*make rubric' "${q}"; then
