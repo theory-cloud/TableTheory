@@ -9,32 +9,32 @@
         "--frozen",
         "--all-extras"
       ],
-      "durationSeconds": 6.123,
+      "durationSeconds": 3.092,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-24T21:04:02Z",
+      "finishedAt": "2026-11-25T04:31:22Z",
       "id": "py-sync",
-      "inputsDigest": "sha256:7b7dcad24290053f3d88dd03ecd0107d512ab7317abb294e63a3f2a260958b19",
-      "logDigest": "sha256:ef1181a36c3aab08e5afce6c306a1bd2942b20893f75b4a7d0ede4d812361774",
-      "logRef": "gov-infra/evidence/validation/local/py-py-sync-20261124T210356Z-18.log",
+      "inputsDigest": "sha256:e9626be4d99bd5c052a6624a7dea1f9c774b07a3c05479a17d078dc47c0fbb98",
+      "logDigest": "sha256:19b09fbe345b7fb568ea5ec9bc5caa4d273574f870a973ffb88e391030f76c9e",
+      "logRef": "gov-infra/evidence/validation/local/py-py-sync-20261125T043119Z-18.log",
       "reused": false,
-      "startedAt": "2026-11-24T21:03:56Z"
+      "startedAt": "2026-11-25T04:31:19Z"
     },
     {
       "argv": [
         "bash",
         "scripts/verify-python-static.sh"
       ],
-      "durationSeconds": 11.2,
+      "durationSeconds": 5.227,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-24T21:04:14Z",
+      "finishedAt": "2026-11-25T04:31:27Z",
       "id": "py-static",
-      "inputsDigest": "sha256:ac8c45e82b21df69bedf0518e5e1abaf13223b21d764c756866d95e38e6b44f4",
-      "logDigest": "sha256:bcb6143d79c66fcfd3e1d7f45e00f676f91a7f06c4fc0d90b3958fc53dccdf2a",
-      "logRef": "gov-infra/evidence/validation/local/py-py-static-20261124T210402Z-18.log",
+      "inputsDigest": "sha256:3b3f5e14d193826e821537f54d4912eda4e5ee48dd18fa4fa97c348b86555f1c",
+      "logDigest": "sha256:0b3a8dd8962c08a20e3f02dc22a98513dc05bebb377d5274f17177f39de2b292",
+      "logRef": "gov-infra/evidence/validation/local/py-py-static-20261125T043122Z-18.log",
       "reused": false,
-      "startedAt": "2026-11-24T21:04:02Z"
+      "startedAt": "2026-11-25T04:31:22Z"
     },
     {
       "argv": [
@@ -46,16 +46,16 @@
         "unit",
         "--record-only"
       ],
-      "durationSeconds": 13.19,
+      "durationSeconds": 6.953,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-24T21:04:27Z",
+      "finishedAt": "2026-11-25T04:31:34Z",
       "id": "py-coverage",
-      "inputsDigest": "sha256:8f9f9aeffa2251fdfc2c188b297594bf73380d31c8eba573fcdbb22404f52ab4",
-      "logDigest": "sha256:493d7abcdec01f3b39e62e67939e539cca69ed212df2be987f0bdd5ad642907d",
-      "logRef": "gov-infra/evidence/validation/local/py-py-coverage-20261124T210414Z-18.log",
+      "inputsDigest": "sha256:867106c2e876c7c69aedebfa32b99b90ed4437cfd0e300360aaaabce56b5c61d",
+      "logDigest": "sha256:f42ac75f1a0c62b39760809ddd94475ed983bfe1f72db728b92836071f17e4e9",
+      "logRef": "gov-infra/evidence/validation/local/py-py-coverage-20261125T043127Z-18.log",
       "reused": false,
-      "startedAt": "2026-11-24T21:04:14Z"
+      "startedAt": "2026-11-25T04:31:27Z"
     },
     {
       "argv": [
@@ -67,20 +67,38 @@
         "-q",
         "tests/integration"
       ],
-      "durationSeconds": 1.562,
+      "durationSeconds": 0.867,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-24T21:04:28Z",
+      "finishedAt": "2026-11-25T04:31:35Z",
       "id": "py-integration",
-      "inputsDigest": "sha256:03e6b790ea5cc7158fd2619b2a1933dc0ef4c6109df4e6685ce0b9ee78d4609a",
-      "logDigest": "sha256:633e94b1f5f31868282c3747277fb33b0560f329488e867ba094a51daf3f39df",
-      "logRef": "gov-infra/evidence/validation/local/py-py-integration-20261124T210427Z-18.log",
+      "inputsDigest": "sha256:e707dba9fb7b4a55e18a9e8772da1420f80a8722f4eb460c57ee62736a5ae88c",
+      "logDigest": "sha256:cf98187e4bc78f38eb798eb32c400d3c9eafa54486f8dd6748ed7a212e4f11ee",
+      "logRef": "gov-infra/evidence/validation/local/py-py-integration-20261125T043134Z-18.log",
       "reused": false,
-      "startedAt": "2026-11-24T21:04:27Z"
+      "startedAt": "2026-11-25T04:31:34Z"
+    },
+    {
+      "argv": [
+        "bash",
+        "scripts/verify-consumer-install.sh",
+        "--language",
+        "py"
+      ],
+      "durationSeconds": 4.858,
+      "executed": true,
+      "exitCode": 0,
+      "finishedAt": "2026-11-25T04:31:40Z",
+      "id": "py-consumer-install",
+      "inputsDigest": "sha256:d040b84d6dd3c3017bf9e1c01c5edd1fb2ab1fb225a24afa8e3843ac89aff18f",
+      "logDigest": "sha256:c21a5ade0ceeaa10e5a59d23cd8d032ae124a4bc5b00d97cce5489ac247b424e",
+      "logRef": "gov-infra/evidence/validation/local/py-py-consumer-install-20261125T043135Z-18.log",
+      "reused": false,
+      "startedAt": "2026-11-25T04:31:35Z"
     }
   ],
   "consumed": [],
-  "description": "Python package suite per supported interpreter: ruff format and lint, mypy, wheel build, unit coverage and integration. The Go CLI builds the generated-import fixtures the DMS tests exercise, so the Go pin is part of this gate's environment binding.",
+  "description": "Python package suite per supported interpreter: ruff format and lint, mypy, wheel build, unit coverage, integration, and a clean-consumer install of the built wheel. The Go CLI builds the generated-import fixtures the DMS tests exercise, so the Go pin is part of this gate's environment binding.",
   "environment": {
     "go": "go1.27.4",
     "node": "",
@@ -98,21 +116,23 @@
   },
   "profile": "floor-py3.12",
   "reason": "",
-  "recordedAt": "2026-11-24T21:04:28Z",
+  "recordedAt": "2026-11-25T04:31:40Z",
   "releaseOnly": {
-    "digest": "sha256:4a86dac8e00049af3b329f75b2301c60bcd3cbc83df3172b9233fa27adf296a4",
+    "digest": "sha256:449c02a9e966d79c8cc3cc40f126e1fcf64c1c763ccb9a1a739557d54bcfe956",
     "fileCount": 2,
     "normalizedDigest": "sha256:0fd759e0448f46454691eb860c9a5a6ac4d08af2e32852a0b64c263ed81108fa",
-    "version": "6.5.2"
+    "version": "6.5.3"
   },
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:6f26da1f18c78121106cf675b28ca021acef12260caeef798a6ab2221e127987",
-    "fileCount": 239,
+    "digest": "sha256:a1b956b36378257991e6c822d3e803ef0cef4b3d02a6e813b8578386e258ebae",
+    "fileCount": 242,
     "paths": [
       "py/",
       "scripts/verify-python-static.sh",
+      "scripts/verify-consumer-install.sh",
+      "scripts/fixtures/consumer-install/",
       "scripts/verify-coverage.sh",
       "scripts/evidence/",
       "cmd/",
@@ -123,8 +143,8 @@
     "version": 2
   },
   "source": {
-    "digest": "sha256:2d527fd4b17d7607c46537e6208282d21f7e52170183090d0716708db30ee96e",
-    "fileCount": 1298
+    "digest": "sha256:d4fe65fbcf227066f8d848e3e6357f8b15789507f4f382f7b05ce2ba0ce82ff7",
+    "fileCount": 1302
   },
   "verdict": "PASS"
 }

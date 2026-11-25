@@ -5,16 +5,16 @@
         "bash",
         "scripts/verify-formatting.sh"
       ],
-      "durationSeconds": 1.732,
+      "durationSeconds": 1.142,
       "executed": true,
       "exitCode": 0,
-      "finishedAt": "2026-11-24T20:53:38Z",
+      "finishedAt": "2026-11-25T04:22:17Z",
       "id": "format",
-      "inputsDigest": "sha256:480cd0d0b81978d07b9005e39993ada88f7ff69cf64384bb2b80a30eaa1e7fea",
+      "inputsDigest": "sha256:b874a479b98e0dc06bfc84bafbe13eb997b89724d7944208818d0254cc3a1cbd",
       "logDigest": "sha256:d1a914cf3a9f07b4190192bd59985e60208fa3903f5a448ffea89529c309aa3b",
-      "logRef": "gov-infra/evidence/validation/local/format-format-20261124T205336Z-58441.log",
+      "logRef": "gov-infra/evidence/validation/local/format-format-20261125T042216Z-17609.log",
       "reused": false,
-      "startedAt": "2026-11-24T20:53:36Z"
+      "startedAt": "2026-11-25T04:22:16Z"
     }
   ],
   "consumed": [],
@@ -36,17 +36,17 @@
   },
   "profile": "default",
   "reason": "",
-  "recordedAt": "2026-11-24T20:53:38Z",
+  "recordedAt": "2026-11-25T04:22:17Z",
   "releaseOnly": {
-    "digest": "sha256:4a86dac8e00049af3b329f75b2301c60bcd3cbc83df3172b9233fa27adf296a4",
+    "digest": "sha256:449c02a9e966d79c8cc3cc40f126e1fcf64c1c763ccb9a1a739557d54bcfe956",
     "fileCount": 2,
     "normalizedDigest": "sha256:0fd759e0448f46454691eb860c9a5a6ac4d08af2e32852a0b64c263ed81108fa",
-    "version": "6.5.2"
+    "version": "6.5.3"
   },
   "reviews": [],
   "schemaVersion": 1,
   "scope": {
-    "digest": "sha256:5ae020ba8114243ddcd18a05498d192bccf2b35072e7ad7d7487065a421871c1",
+    "digest": "sha256:ef63c143ece93b3d1df6c3444b339bc9e8d32c4708f1b3413cff1ec021ac8e4d",
     "fileCount": 765,
     "paths": [
       "*.go",
@@ -62,8 +62,8 @@
     "version": 2
   },
   "source": {
-    "digest": "sha256:2d527fd4b17d7607c46537e6208282d21f7e52170183090d0716708db30ee96e",
-    "fileCount": 1298
+    "digest": "sha256:27ae48aa388ea0a1c27c4b98d04bb41df5a4803eef974f7fc19aa38905bb4b0e",
+    "fileCount": 1302
   },
   "verdict": "PASS"
 }
