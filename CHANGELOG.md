@@ -156,6 +156,25 @@
 * **ts:** give each `FaceTheoryIsrMetaStore` one immutable table binding by registering its models on a private fork of a caller-supplied `TheorydbClient` (new `TheorydbClient.fork()`) instead of mutating the shared client's name-keyed registry. Previously, constructing a second store for another table with the same client silently rebound the first store's metadata reads and transaction actions to the second table (`register()` does an unconditional `Map.set`), while its lease operations stayed on the original table — a cross-tenant confused-deputy path. Reads, transactions, and leases now share the store's own table, and the supplied client's registry is left untouched; a shared-client regression test asserts store A reads and transacts only against table A after store B is built
 * **go/py:** resolve `write_policy.protected_attributes` against the canonical DynamoDB attribute name first, accepting a Go struct field name or Python field name only when no canonical attribute matches. Both runtimes previously preferred the language field name, so when a canonical attribute name also named a different field — for example a Python field `protected_value` stored as `authority` alongside a field `authority` stored as `description`, or the equivalent PascalCase-naming Go collision — the guard protected the wrong attribute and left the intended one mutable through `Table.update`/`TransactUpdate`/`UpdateBuilder` and their Go equivalents. TypeScript has no separate field-name namespace and was unaffected. Regression tests cover the canonical-name resolution in the model metadata and the transaction protected-field guard
 
+## [6.6.0](https://github.com/theory-cloud/TableTheory/compare/v6.6.0-rc...v6.6.0) (2026-11-26)
+
+Stable promotion of `v6.6.0-rc`.
+
+
+## [6.6.0-rc](https://github.com/theory-cloud/TableTheory/compare/v6.5.3...v6.6.0-rc) (2026-11-26)
+
+
+### Features
+
+* **runtimes:** promote Node 26 and Python 3.15 support to premain ([53c6f4a](https://github.com/theory-cloud/TableTheory/commit/53c6f4aefe772f32faae0dd012770f4332612b4d))
+* **runtimes:** support Node 26 and Python 3.15, deprecate Node 22 ([817fd75](https://github.com/theory-cloud/TableTheory/commit/817fd7558ec76a3cda1d35f829337f0817775521))
+* **runtimes:** support Node 26 and Python 3.15, deprecate Node 22 ([358200a](https://github.com/theory-cloud/TableTheory/commit/358200ab023ce688245cc9ab9c32f88827044f04))
+
+
+### Bug Fixes
+
+* **release:** back-merge published 6.5.3 into staging ([637bd68](https://github.com/theory-cloud/TableTheory/commit/637bd6804cb66c256a7ebeeb1fbb83759f8a0279))
+
 ## [6.5.3](https://github.com/theory-cloud/TableTheory/compare/v6.5.3-rc...v6.5.3) (2026-11-24)
 
 Stable promotion of `v6.5.3-rc`.
