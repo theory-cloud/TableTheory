@@ -65,6 +65,7 @@ TableTheory is distributed exclusively through immutable **[GitHub Releases](htt
 |---|---|
 | **P0 contract scenarios** | 9 — CRUD, omit-empty, lifecycle, locking, TTL, and release-state fixtures |
 | **Runtimes** | Go · TypeScript · Python (peers, not ports) |
+| **Supported lines** | Node 22 (deprecated, EOL 2027-04-30), Node 24, Node 26 · Python 3.12, 3.14, 3.15 — see [runtime support](docs/runtimes/support.md) |
 | **Distribution** | Immutable GitHub Releases — version-aligned across all runtimes |
 | **License** | Apache-2.0 — open source, production use |
 | **Status** | Post-1.0 stable API across all three runtimes |

@@ -38,14 +38,29 @@ cannot merge.
 | `format` | `default` | `bash scripts/verify-formatting.sh` |
 | `lint` | `default` | `bash scripts/verify-lint.sh` |
 | `builds` | `default` | `bash scripts/verify-builds.sh` |
-| `ts` | `default`, `floor-node22` | deps; `npm --prefix ts run check`; coverage; `test:integration` |
-| `py` | `default`, `floor-py3.12` | `uv sync`; `scripts/verify-python-static.sh`; coverage; integration |
+| `ts` | `default`, `floor-node22`, `floor-node26` | deps; `npm --prefix ts run check`; coverage; `test:integration`; `scripts/verify-consumer-install.sh --language ts` |
+| `py` | `default`, `floor-py3.12`, `floor-py3.15` | `uv sync`; `scripts/verify-python-static.sh`; coverage; integration; `scripts/verify-consumer-install.sh --language py` |
 | `go-integration` | `linux-arm64` | `bash scripts/verify-go-integration.sh` |
 | `examples-local` | `default` | `make examples-local` |
 
 `rubric` is the catch-all: its scope is `**`, so any edit to tracked content —
 including the evidence tooling under `scripts/` and `gov-infra/` — stales the
 record the staging pull request verifies.
+
+## Clean-consumer installs
+
+The `ts` and `py` gates end with `scripts/verify-consumer-install.sh`: it packs
+the TypeScript tarball or builds the Python wheel, installs it into an empty
+directory that holds nothing from this repository, and runs one real call path
+against DynamoDB Local through the published entry points. A package suite that
+imports `ts/src` or `py/src` proves the sources compile; only an installed
+artifact proves what a consumer receives, which is what a release promises.
+
+The step runs per supported line, so the record for `ts/floor-node26` carries a
+Node 26 consumer install and `py/floor-py3.15` carries a Python 3.15 one, next to
+the oldest-line records that keep proving the floor. The log names the
+interpreter, the artifact and the package version it exercised; a missing
+DynamoDB endpoint fails closed instead of recording a skipped install as a PASS.
 
 ## Release history is not a product input
 
@@ -83,6 +98,8 @@ a declared profile has none:
 | `examples-local` | `examples-local/default` | direct |
 | `ts` | `ts/floor-node22` | direct (Linux arm64 floor) |
 | `py` | `py/floor-py3.12` | direct (Linux arm64 floor) |
+| `ts` | `ts/floor-node26` | direct (Linux arm64 floor) |
+| `py` | `py/floor-py3.15` | direct (Linux arm64 floor) |
 | `go-integration` | `go-integration/linux-arm64` | direct (Linux arm64 floor) |
 
 A pair that is **produced but unverified** — declared by a gate, no verification
@@ -109,7 +126,9 @@ fallback profile and a digest-pinned Linux producer.
 |---|---|---|---|---|---|
 | `default` | go1.27.4 | 24 | 3.14 | darwin/arm64 | the approved macOS production host |
 | `floor-node22` | go1.27.4 | 22 | 3.14 | linux/arm64 | `node:22-bookworm@sha256:f796bda8…0ee3` |
+| `floor-node26` | go1.27.4 | 26 | 3.14 | linux/arm64 | `node:26-bookworm@sha256:893ea481…2255` |
 | `floor-py3.12` | go1.27.4 | 24 | 3.12 | linux/arm64 | `python:3.12-bookworm@sha256:3dc01f34…904e` |
+| `floor-py3.15` | go1.27.4 | 24 | 3.15 | linux/arm64 | `python:3.15-bookworm@sha256:2bf84838…d12` |
 | `linux-arm64` | go1.27.4 | 24 | 3.14 | linux/arm64 | `golang:1.27-bookworm@sha256:8d18482d…5da9` |
 
 Floor records are produced in a container and verified in CI under their own
@@ -134,7 +153,9 @@ scripts/evidence/collect.sh --gate unit
 
 # Produce a floor record inside its digest-pinned Linux producer.
 scripts/evidence/floor-run.sh --profile floor-py3.12 --gate py --clean-host-state
+scripts/evidence/floor-run.sh --profile floor-py3.15 --gate py --clean-host-state
 scripts/evidence/floor-run.sh --profile floor-node22 --gate ts --clean-host-state
+scripts/evidence/floor-run.sh --profile floor-node26 --gate ts --clean-host-state
 scripts/evidence/floor-run.sh --profile linux-arm64 --gate go-integration \
   --dynamodb-endpoint http://host.docker.internal:<port>
 

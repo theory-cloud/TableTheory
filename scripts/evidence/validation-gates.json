@@ -38,12 +38,36 @@
         }
       }
     },
+    "floor-node26": {
+      "description": "Node 26 runtime-floor proof for the TypeScript package, its integration suite and a clean-consumer install of the packed tarball, produced in a digest-pinned Linux arm64 container",
+      "environment": {
+        "go": "go1.27.4",
+        "node": "26",
+        "python": "3.14",
+        "platform": {
+          "os": "linux",
+          "arch": "arm64"
+        }
+      }
+    },
     "floor-py3.12": {
       "description": "Python 3.12 runtime-floor proof for the Python package and its integration suite, produced in a digest-pinned Linux arm64 container",
       "environment": {
         "go": "go1.27.4",
         "node": "24",
         "python": "3.12",
+        "platform": {
+          "os": "linux",
+          "arch": "arm64"
+        }
+      }
+    },
+    "floor-py3.15": {
+      "description": "Python 3.15 runtime-floor proof for the Python package, its integration suite and a clean-consumer install of the built wheel, produced in a digest-pinned Linux arm64 container",
+      "environment": {
+        "go": "go1.27.4",
+        "node": "24",
+        "python": "3.15",
         "platform": {
           "os": "linux",
           "arch": "arm64"
@@ -466,9 +490,10 @@
       ],
       "profiles": [
         "default",
-        "floor-node22"
+        "floor-node22",
+        "floor-node26"
       ],
-      "description": "TypeScript package suite per supported Node line: format check, lint, typecheck, build, unit, coverage and integration",
+      "description": "TypeScript package suite per supported Node line: format check, lint, typecheck, build, unit, coverage, integration, and a clean-consumer install of the packed tarball",
       "resources": [
         "repo-write",
         "network"
@@ -477,6 +502,8 @@
         "ts/",
         ".nvmrc",
         "scripts/verify-typescript-deps.sh",
+        "scripts/verify-consumer-install.sh",
+        "scripts/fixtures/consumer-install/",
         "scripts/verify-coverage.sh",
         "scripts/evidence/"
       ],
@@ -519,6 +546,15 @@
             "run",
             "test:integration"
           ]
+        },
+        {
+          "id": "ts-consumer-install",
+          "argv": [
+            "bash",
+            "scripts/verify-consumer-install.sh",
+            "--language",
+            "ts"
+          ]
         }
       ]
     },
@@ -531,9 +567,10 @@
       ],
       "profiles": [
         "default",
-        "floor-py3.12"
+        "floor-py3.12",
+        "floor-py3.15"
       ],
-      "description": "Python package suite per supported interpreter: ruff format and lint, mypy, wheel build, unit coverage and integration. The Go CLI builds the generated-import fixtures the DMS tests exercise, so the Go pin is part of this gate's environment binding.",
+      "description": "Python package suite per supported interpreter: ruff format and lint, mypy, wheel build, unit coverage, integration, and a clean-consumer install of the built wheel. The Go CLI builds the generated-import fixtures the DMS tests exercise, so the Go pin is part of this gate's environment binding.",
       "resources": [
         "repo-write",
         "network"
@@ -541,6 +578,8 @@
       "paths": [
         "py/",
         "scripts/verify-python-static.sh",
+        "scripts/verify-consumer-install.sh",
+        "scripts/fixtures/consumer-install/",
         "scripts/verify-coverage.sh",
         "scripts/evidence/",
         "cmd/",
@@ -589,6 +628,15 @@
             "pytest",
             "-q",
             "tests/integration"
+          ]
+        },
+        {
+          "id": "py-consumer-install",
+          "argv": [
+            "bash",
+            "scripts/verify-consumer-install.sh",
+            "--language",
+            "py"
           ]
         }
       ]

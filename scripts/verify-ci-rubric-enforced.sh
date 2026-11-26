@@ -143,6 +143,8 @@ for verify_line in \
   'bash scripts/evidence/verify-gate.sh --gate examples-local --profile default' \
   'bash scripts/evidence/verify-gate.sh --gate ts --profile floor-node22' \
   'bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.12' \
+  'bash scripts/evidence/verify-gate.sh --gate ts --profile floor-node26' \
+  'bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.15' \
   'bash scripts/evidence/verify-gate.sh --gate go-integration --profile linux-arm64'; do
   grep -Fq -- "${verify_line}" "${wf}" || {
     echo "ci-rubric: ${wf}: missing evidence verification step: ${verify_line}"

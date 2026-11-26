@@ -18,12 +18,15 @@
 #
 # Usage:
 #   scripts/evidence/floor-run.sh --profile floor-py3.12 --gate py
+#   scripts/evidence/floor-run.sh --profile floor-py3.15 --gate py
 #   scripts/evidence/floor-run.sh --profile floor-node22 --gate ts
+#   scripts/evidence/floor-run.sh --profile floor-node26 --gate ts
 #   scripts/evidence/floor-run.sh --profile linux-arm64 --gate go-integration \
 #     --dynamodb-endpoint http://host.docker.internal:55321
 #
 # Options:
-#   --profile <id>            required: floor-node22, floor-py3.12 or linux-arm64
+#   --profile <id>            required: floor-node22, floor-node26, floor-py3.12,
+#                             floor-py3.15 or linux-arm64
 #   --gate <id>               passed to the collector; repeatable
 #   --all                     passed to the collector
 #   --force                   passed to the collector
@@ -98,19 +101,11 @@ if [[ -z "${profile}" ]]; then
   exit 2
 fi
 
-# Digests resolved from Docker Hub on 2026-11-15 for the linux/arm64 manifests
-# this host runs. A moved tag cannot change what a record proves.
-case "${profile}" in
-  floor-node22)
-    image="node:22-bookworm@sha256:f796bda8a91392fe7b5c974ff42abaa5cc801eb6987dca967f1db8be493e0ee3"
-    setup=""
-    ;;
-  floor-py3.12)
-    image="python:3.12-bookworm@sha256:3dc01f342e31ad8de39338d14ab12de0090c9102b34f75ca9774ff1f4f5e904e"
-    # The Python package suite builds generated-import fixtures with the Go CLI,
-    # so this floor carries the same Go pin the repository tracks. The pin is
-    # read from go.mod at run time instead of restated here.
-    setup="$(cat <<'FLOOR_SETUP'
+# The Python package suite builds generated-import fixtures with the Go CLI, so
+# every Python floor carries the same Go pin the repository tracks. The pin is
+# read from go.mod at run time instead of restated here, and both Python floors
+# share the one setup so a new interpreter line cannot drift from the other.
+python_floor_setup="$(cat <<'FLOOR_SETUP'
 if [ ! -x /usr/local/go/bin/go ]; then
   go_pin="$(awk '/^toolchain /{print $2}' go.mod)"
   go_arch="$(uname -m)"
@@ -125,6 +120,25 @@ export PATH="/usr/local/go/bin:${PATH}"
 python3 -m pip install --no-cache-dir 'uv==0.9.26'
 FLOOR_SETUP
 )"
+
+# Digests resolved from Docker Hub on 2026-11-15 for the linux/arm64 manifests
+# this host runs. A moved tag cannot change what a record proves.
+case "${profile}" in
+  floor-node22)
+    image="node:22-bookworm@sha256:f796bda8a91392fe7b5c974ff42abaa5cc801eb6987dca967f1db8be493e0ee3"
+    setup=""
+    ;;
+  floor-node26)
+    image="node:26-bookworm@sha256:893ea48106e988a5f91e69629d6472600daa9d0494adf7db87eb0b886ce82255"
+    setup=""
+    ;;
+  floor-py3.12)
+    image="python:3.12-bookworm@sha256:3dc01f342e31ad8de39338d14ab12de0090c9102b34f75ca9774ff1f4f5e904e"
+    setup="${python_floor_setup}"
+    ;;
+  floor-py3.15)
+    image="python:3.15-bookworm@sha256:2bf848386eab766326ae3fc2f061788ae858d7945aefce74967d4a861ebdad12"
+    setup="${python_floor_setup}"
     ;;
   linux-arm64)
     image="golang:1.27-bookworm@sha256:8d18482ddade3123e2288535ea760ac7027541b54b3e655802327607306f5da9"
