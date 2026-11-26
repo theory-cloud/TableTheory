@@ -62,5 +62,15 @@ jobs:
       - name: Verify the recorded Python 3.12 floor
         run: bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.12
 
+      # The newest supported rows are proven the same way as the oldest ones: a
+      # Node 26 record and a Python 3.15 record produced in their own
+      # digest-pinned containers, each carrying the clean-consumer install of the
+      # artifact that line receives.
+      - name: Verify the recorded Node 26 floor
+        run: bash scripts/evidence/verify-gate.sh --gate ts --profile floor-node26
+
+      - name: Verify the recorded Python 3.15 floor
+        run: bash scripts/evidence/verify-gate.sh --gate py --profile floor-py3.15
+
       - name: Verify the recorded Linux Go integration floor
         run: bash scripts/evidence/verify-gate.sh --gate go-integration --profile linux-arm64
